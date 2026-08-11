@@ -1,0 +1,224 @@
+openapi: 3.1.0
+
+info:
+  title: Fashion Commerce Platform API
+  version: 1.0.0
+  description: |
+    API của nền tảng thương mại thời trang.
+
+    **Đây là nguồn sự thật duy nhất về hợp đồng API.** Đặc tả phải được cập nhật
+    trong cùng pull request với thay đổi code; CI so sánh đặc tả với cài đặt và
+    thất bại nếu lệch.
+
+    ## Sáu nhóm API
+
+    | Nhóm | Đường dẫn | Phạm vi dữ liệu |
+    |---|---|---|
+    | Storefront | `/api/v1/...` | Dữ liệu của chính khách hàng |
+    | Seller Center | `/api/v1/seller/...` | **Chỉ** dữ liệu gian hàng của mình |
+    | Creator Center | `/api/v1/creator/...` | Nội dung và thu nhập của mình; **không** có dữ liệu cá nhân khách |
+    | Admin | `/api/v1/admin/...` | Theo vai trò; truy cập dữ liệu cá nhân đều ghi audit |
+    | Partner | `/api/v1/partner/...` | Theo hợp đồng (Phase 4) |
+    | Webhook | `/api/v1/webhooks/...` | Xác minh chữ ký |
+
+    ## Quy ước bắt buộc
+
+    - **Tiền**: luôn trả về `{ amount, currency }`. `amount` là **số nguyên** theo
+      đơn vị nhỏ nhất của tiền tệ (VND: đồng; USD: cent). Không bao giờ dùng số thực.
+    - **Idempotency**: mọi `POST`/`PATCH` thay đổi trạng thái yêu cầu header
+      `Idempotency-Key`.
+    - **Phần trăm**: biểu diễn bằng basis points (1000 = 10,00%).
+    - **Thời gian**: ISO 8601, luôn UTC.
+    - **Định danh**: chuỗi có tiền tố (`ord_`, `sku_`, `off_`...).
+    - **Enum**: client **phải** xử lý được giá trị chưa biết mà không crash.
+
+    ## Tài liệu liên quan
+
+    - Chuẩn API: `docs/06-api/api-guidelines.md`
+    - Phân nhóm và phân quyền: `docs/06-api/api-domains.md`
+    - Idempotency: `docs/05-data/idempotency.md`
+
+  contact:
+    name: Nhóm kiến trúc
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: https://api.staging.example.com
+    description: Staging
+  - url: http://localhost:8080
+    description: Development
+
+tags:
+  - name: Catalog
+    description: Duyệt sản phẩm, thương hiệu, bộ sưu tập (công khai)
+  - name: Content
+    description: Nội dung, outfit, creator (công khai)
+  - name: Cart
+    description: Giỏ hàng
+  - name: Checkout
+    description: Phiên thanh toán — giữ tồn kho và đóng băng giá
+  - name: Orders
+    description: Đơn hàng của khách
+  - name: Account
+    description: Tài khoản khách hàng
+  - name: Seller
+    description: Seller Center — chỉ dữ liệu của gian hàng mình
+  - name: Creator
+    description: Creator Center — số liệu tổng hợp, không có dữ liệu cá nhân khách
+  - name: Admin
+    description: Quản trị nền tảng
+  - name: Webhooks
+    description: Nhận webhook từ dịch vụ bên ngoài
+
+security:
+  - bearerAuth: []
+  - {}   # nhiều endpoint cho phép khách vãng lai
+
+paths:
+  # ---------------------------------------------------------------- Storefront
+  /api/v1/products:
+    $ref: './paths/storefront.yaml#/products'
+  /api/v1/products/{product_id}:
+    $ref: './paths/storefront.yaml#/product_detail'
+  /api/v1/products/{product_id}/offers:
+    $ref: './paths/storefront.yaml#/product_offers'
+  /api/v1/products/{product_id}/reviews:
+    $ref: './paths/storefront.yaml#/product_reviews'
+  /api/v1/categories:
+    $ref: './paths/storefront.yaml#/categories'
+  /api/v1/brands/{brand_id}:
+    $ref: './paths/storefront.yaml#/brand_detail'
+  /api/v1/collections/{collection_id}:
+    $ref: './paths/storefront.yaml#/collection_detail'
+  /api/v1/search:
+    $ref: './paths/storefront.yaml#/search'
+  /api/v1/feed:
+    $ref: './paths/storefront.yaml#/feed'
+  /api/v1/content/{content_id}:
+    $ref: './paths/storefront.yaml#/content_detail'
+  /api/v1/outfits/{outfit_id}:
+    $ref: './paths/storefront.yaml#/outfit_detail'
+
+  /api/v1/cart:
+    $ref: './paths/cart-checkout.yaml#/cart'
+  /api/v1/cart/items:
+    $ref: './paths/cart-checkout.yaml#/cart_items'
+  /api/v1/cart/items/{cart_item_id}:
+    $ref: './paths/cart-checkout.yaml#/cart_item_detail'
+
+  /api/v1/checkout:
+    $ref: './paths/cart-checkout.yaml#/checkout'
+  /api/v1/checkout/{checkout_id}:
+    $ref: './paths/cart-checkout.yaml#/checkout_detail'
+  /api/v1/checkout/{checkout_id}/shipping-address:
+    $ref: './paths/cart-checkout.yaml#/checkout_shipping_address'
+  /api/v1/checkout/{checkout_id}/shipping-method:
+    $ref: './paths/cart-checkout.yaml#/checkout_shipping_method'
+  /api/v1/checkout/{checkout_id}/coupon:
+    $ref: './paths/cart-checkout.yaml#/checkout_coupon'
+  /api/v1/checkout/{checkout_id}/complete:
+    $ref: './paths/cart-checkout.yaml#/checkout_complete'
+
+  /api/v1/orders:
+    $ref: './paths/orders.yaml#/orders'
+  /api/v1/orders/{order_id}:
+    $ref: './paths/orders.yaml#/order_detail'
+  /api/v1/orders/{order_id}/cancel:
+    $ref: './paths/orders.yaml#/order_cancel'
+  /api/v1/orders/{order_id}/returns:
+    $ref: './paths/orders.yaml#/order_returns'
+
+  /api/v1/me:
+    $ref: './paths/account.yaml#/me'
+  /api/v1/me/addresses:
+    $ref: './paths/account.yaml#/addresses'
+  /api/v1/me/wishlist:
+    $ref: './paths/account.yaml#/wishlist'
+
+  # ------------------------------------------------------------ Seller Center
+  /api/v1/sellers:
+    $ref: './paths/seller.yaml#/seller_registration'
+  /api/v1/seller/offers:
+    $ref: './paths/seller.yaml#/offers'
+  /api/v1/seller/offers/{offer_id}:
+    $ref: './paths/seller.yaml#/offer_detail'
+  /api/v1/seller/inventory/{sku_id}:
+    $ref: './paths/seller.yaml#/inventory_item'
+  /api/v1/seller/fulfillment-orders:
+    $ref: './paths/seller.yaml#/fulfillment_orders'
+  /api/v1/seller/fulfillment-orders/{fulfillment_order_id}:
+    $ref: './paths/seller.yaml#/fulfillment_order_detail'
+  /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship:
+    $ref: './paths/seller.yaml#/fulfillment_order_ship'
+  /api/v1/seller/balance:
+    $ref: './paths/seller.yaml#/balance'
+  /api/v1/seller/settlements/{settlement_id}:
+    $ref: './paths/seller.yaml#/settlement_detail'
+  /api/v1/seller/performance:
+    $ref: './paths/seller.yaml#/performance'
+
+  # ----------------------------------------------------------- Creator Center
+  /api/v1/creators:
+    $ref: './paths/creator.yaml#/creator_registration'
+  /api/v1/creator/content:
+    $ref: './paths/creator.yaml#/content'
+  /api/v1/creator/content/{content_id}/publish:
+    $ref: './paths/creator.yaml#/content_publish'
+  /api/v1/creator/affiliate-links:
+    $ref: './paths/creator.yaml#/affiliate_links'
+  /api/v1/creator/earnings:
+    $ref: './paths/creator.yaml#/earnings'
+  /api/v1/creator/analytics:
+    $ref: './paths/creator.yaml#/analytics'
+
+  # -------------------------------------------------------------------- Admin
+  /api/v1/admin/sellers/{seller_id}/approve:
+    $ref: './paths/admin.yaml#/seller_approve'
+  /api/v1/admin/sellers/{seller_id}/suspend:
+    $ref: './paths/admin.yaml#/seller_suspend'
+  /api/v1/admin/ledger/adjustments:
+    $ref: './paths/admin.yaml#/ledger_adjustment'
+  /api/v1/admin/payouts:
+    $ref: './paths/admin.yaml#/payouts'
+  /api/v1/admin/inventory/adjustments:
+    $ref: './paths/admin.yaml#/inventory_adjustment'
+  /api/v1/admin/production-orders:
+    $ref: './paths/admin.yaml#/production_orders'
+  /api/v1/admin/replenishment-suggestions:
+    $ref: './paths/admin.yaml#/replenishment_suggestions'
+  /api/v1/admin/customers/{customer_id}:
+    $ref: './paths/admin.yaml#/customer_detail'
+  /api/v1/admin/audit-log:
+    $ref: './paths/admin.yaml#/audit_log'
+
+  # ----------------------------------------------------------------- Webhooks
+  /api/v1/webhooks/payment/{provider}:
+    $ref: './paths/webhooks.yaml#/payment_webhook'
+  /api/v1/webhooks/shipping/{provider}:
+    $ref: './paths/webhooks.yaml#/shipping_webhook'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access token thời hạn ngắn (15 phút). Làm mới bằng refresh token
+        lưu trong httpOnly cookie.
+
+        Token chứa `user_id`, vai trò, và `seller_id`/`creator_id` nếu có.
+        **Phạm vi dữ liệu được áp dụng trong truy vấn ở tầng repository**,
+        không phải ở tầng hiển thị.
+
+    webhookSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: |
+        Chữ ký HMAC-SHA256 của payload, ký bằng khóa bí mật của nhà cung cấp.
+        **Bắt buộc xác minh** — không có bước này, bất kỳ ai cũng có thể gửi
+        thông báo "thanh toán thành công" giả.

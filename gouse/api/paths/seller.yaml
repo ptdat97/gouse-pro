@@ -1,0 +1,732 @@
+# Seller Center API
+#
+# RÀNG BUỘC BẢO MẬT QUAN TRỌNG NHẤT:
+#   Seller KHÔNG BAO GIỜ thấy dữ liệu của seller khác, kể cả gián tiếp
+#   qua báo cáo tổng hợp có thể suy ngược.
+#
+# Token chứa seller_id. Mọi truy vấn tự động lọc theo seller_id này
+# ở TẦNG REPOSITORY, không phải ở tầng hiển thị.
+
+seller_registration:
+  post:
+    tags: [Seller]
+    summary: Đăng ký làm nhà bán
+    description: |
+      Endpoint này thuộc nhóm storefront (người dùng thường đăng ký),
+      không phải nhóm seller.
+
+      **Xác minh tài khoản ngân hàng là bắt buộc** trước khi duyệt — sai
+      tài khoản nghĩa là chuyển tiền nhầm người, rất khó thu hồi. Tên chủ
+      tài khoản phải khớp tên doanh nghiệp/cá nhân đăng ký.
+    operationId: applyAsSeller
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [seller_type, business_name, contact_email, contact_phone, bank_account]
+            properties:
+              seller_type:
+                type: string
+                enum: [INDIVIDUAL, BUSINESS, LOCAL_BRAND, STRATEGIC_PARTNER]
+                description: |
+                  Bốn loại khác nhau ở **chính sách**, không ở cấu trúc dữ liệu.
+                  Seller cá nhân có thể phát triển thành local brand mà không
+                  cần di trú dữ liệu.
+              business_name:
+                type: string
+              tax_id:
+                type: string
+                description: Bắt buộc với BUSINESS trở lên.
+              contact_email:
+                type: string
+                format: email
+              contact_phone:
+                type: string
+              documents:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [BUSINESS_LICENSE, TAX_CERTIFICATE, ID_CARD, BRAND_AUTHORIZATION]
+                    file_url:
+                      type: string
+                      format: uri
+              bank_account:
+                type: object
+                required: [bank_code, account_number, account_holder]
+                properties:
+                  bank_code:
+                    type: string
+                  account_number:
+                    type: string
+                  account_holder:
+                    type: string
+    responses:
+      '201':
+        description: Hồ sơ đã nộp, chờ duyệt
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                seller:
+                  type: object
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    status:
+                      type: string
+                      enum: [PENDING_REVIEW]
+                    applied_at:
+                      $ref: '../components/common.yaml#/schemas/Timestamp'
+                next_steps:
+                  type: array
+                  items:
+                    type: string
+            example:
+              seller:
+                id: sel_01J9XABC123DEF456GHJKMNPQR
+                status: PENDING_REVIEW
+                applied_at: '2026-08-11T09:00:00Z'
+              next_steps:
+                - Chờ duyệt hồ sơ (1–3 ngày làm việc)
+                - Xác minh tài khoản ngân hàng
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+
+offers:
+  get:
+    tags: [Seller]
+    summary: Danh sách offer của tôi
+    operationId: listMyOffers
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [DRAFT, ACTIVE, OUT_OF_STOCK, SUSPENDED, ARCHIVED]
+    responses:
+      '200':
+        description: Danh sách offer
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/Offer'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+  post:
+    tags: [Seller]
+    summary: Tạo offer
+    description: |
+      Tạo lời chào bán cho một SKU **đã có** trong danh mục.
+
+      Ba lớp kiểm soát:
+
+      1. **Bảo vệ thương hiệu** — thương hiệu `VERIFIED_ONLY` yêu cầu giấy
+         ủy quyền còn hiệu lực. Đây là quy tắc domain bắt buộc, không phải
+         quy trình thủ công.
+      2. **Khung giá** — chống bán phá giá và **lỗi nhập liệu** (thiếu số 0).
+      3. **Một seller một offer active cho một SKU.**
+    operationId: createOffer
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [sku_id, price]
+            properties:
+              sku_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              price:
+                $ref: '../components/common.yaml#/schemas/Money'
+              compare_at_price:
+                $ref: '../components/common.yaml#/schemas/Money'
+              condition:
+                type: string
+                enum: [NEW, USED_LIKE_NEW, USED_GOOD]
+                default: NEW
+              handling_time_hours:
+                type: integer
+                default: 24
+                description: Thời gian seller cần để chuẩn bị hàng.
+              min_order_quantity:
+                type: integer
+                default: 1
+              max_order_quantity:
+                type: integer
+              initial_inventory:
+                type: object
+                properties:
+                  stock_location_id:
+                    $ref: '../components/common.yaml#/schemas/Id'
+                  quantity:
+                    type: integer
+    responses:
+      '201':
+        description: Offer đã tạo
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offer:
+                  $ref: '../components/schemas.yaml#/Offer'
+      '403':
+        description: Không được phép bán thương hiệu này
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: BRAND_PROTECTED
+                message: Thương hiệu này yêu cầu giấy ủy quyền
+                details:
+                  brand_id: brd_01J9XABC123DEF456GHJKMNPQR
+                  protection_level: VERIFIED_ONLY
+                  required_action: UPLOAD_AUTHORIZATION
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+      '409':
+        description: Đã có offer active cho SKU này
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '422':
+        description: Giá ngoài khung cho phép
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: PRICE_OUT_OF_RANGE
+                message: Giá nằm ngoài khung cho phép
+                details:
+                  min_price: 150000
+                  max_price: 600000
+                  submitted: 50000
+                  hint: Bạn có nhập thiếu số 0 không?
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+offer_detail:
+  patch:
+    tags: [Seller]
+    summary: Cập nhật offer
+    description: |
+      Mọi thay đổi giá được ghi vào lịch sử giá — dùng để phát hiện thao túng
+      giá (tăng rồi giảm để giả vờ khuyến mãi).
+    operationId: updateOffer
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: offer_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              price:
+                $ref: '../components/common.yaml#/schemas/Money'
+              compare_at_price:
+                $ref: '../components/common.yaml#/schemas/Money'
+              handling_time_hours:
+                type: integer
+              status:
+                type: string
+                enum: [ACTIVE, ARCHIVED]
+    responses:
+      '200':
+        description: Offer đã cập nhật
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offer:
+                  $ref: '../components/schemas.yaml#/Offer'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+inventory_item:
+  patch:
+    tags: [Seller]
+    summary: Cập nhật tồn kho
+    description: |
+      Đặt **giá trị tuyệt đối**, không phải cộng trừ — idempotent tự nhiên,
+      gọi lại không làm sai lệch.
+
+      Trường `reason` bắt buộc và được ghi vào nhật ký biến động tồn kho.
+    operationId: updateInventory
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [quantity_available, reason]
+            properties:
+              stock_location_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              quantity_available:
+                type: integer
+                minimum: 0
+                description: Giá trị tuyệt đối, không phải delta.
+              reason:
+                type: string
+                minLength: 5
+                examples: ['Kiểm kê thực tế']
+    responses:
+      '200':
+        description: Tồn kho đã cập nhật
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sku_id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                quantity_available:
+                  type: integer
+                updated_at:
+                  $ref: '../components/common.yaml#/schemas/Timestamp'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+fulfillment_orders:
+  get:
+    tags: [Seller]
+    summary: Danh sách đơn cần xử lý
+    description: |
+      Seller thấy **FulfillmentOrder**, không phải **Order**.
+
+      Đây là ranh giới bảo mật nằm trong **cấu trúc dữ liệu**, không phụ thuộc
+      vào việc nhớ lọc ở tầng hiển thị.
+
+      Seller **không** thấy: mã đơn tổng, tổng tiền cả đơn, các lô hàng khác
+      trong cùng đơn, tên seller khác, email khách, lịch sử mua hàng.
+    operationId: listMyFulfillmentOrders
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: status
+        in: query
+        schema:
+          $ref: '../components/schemas.yaml#/FulfillmentStatus'
+      - name: overdue_only
+        in: query
+        description: Chỉ đơn quá hạn cam kết xử lý (SLA).
+        schema:
+          type: boolean
+    responses:
+      '200':
+        description: Danh sách đơn thực hiện
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/SellerFulfillmentOrder'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+fulfillment_order_detail:
+  get:
+    tags: [Seller]
+    summary: Chi tiết đơn thực hiện
+    operationId: getMyFulfillmentOrder
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: fulfillment_order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Chi tiết đơn thực hiện
+        content:
+          application/json:
+            schema:
+              $ref: '#/SellerFulfillmentOrder'
+            example:
+              id: ful_01J9XABC123DEF456GHJKMNPQR
+              fulfillment_number: FC-2026-08-001234-B
+              status: PENDING
+              created_at: '2026-08-11T14:25:11Z'
+              sla_deadline: '2026-08-12T14:25:11Z'
+              items:
+                - sku_id: sku_01J9XABC123DEF456GHJKMNPQR
+                  sku_code: LF-DA-BRN-39
+                  product_name: Giày loafer da
+                  variant_description: Nâu / 39
+                  quantity: 1
+                  unit_price:
+                    amount: 650000
+                    currency: VND
+              shipping_address:
+                recipient_name: Nguyễn Văn A
+                phone: '+84901234567'
+                street_address: 123 Đường ABC
+                ward: Phường X
+                district: Quận Y
+                province: TP.HCM
+                country_code: VN
+              shipping_method: STANDARD
+              payout_estimate:
+                gross:
+                  amount: 650000
+                  currency: VND
+                commission:
+                  amount: -52000
+                  currency: VND
+                payment_fee:
+                  amount: -9750
+                  currency: VND
+                net:
+                  amount: 588250
+                  currency: VND
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+fulfillment_order_ship:
+  post:
+    tags: [Seller]
+    summary: Bàn giao vận chuyển
+    operationId: shipFulfillmentOrder
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: fulfillment_order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [tracking_number, shipping_provider]
+            properties:
+              tracking_number:
+                type: string
+              shipping_provider:
+                type: string
+              shipped_at:
+                $ref: '../components/common.yaml#/schemas/Timestamp'
+    responses:
+      '200':
+        description: Đã ghi nhận bàn giao
+        content:
+          application/json:
+            schema:
+              $ref: '#/SellerFulfillmentOrder'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+
+balance:
+  get:
+    tags: [Seller]
+    summary: Số dư của tôi
+    description: |
+      Năm trạng thái số dư. Hiển thị đủ giúp seller hiểu **vì sao chưa nhận
+      được tiền** — giảm khiếu nại đáng kể.
+
+      Nguồn sự thật duy nhất là module `payment`. Không module nào khác
+      được tự cộng trừ bản ghi để tính số dư.
+    operationId: getMyBalance
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Số dư theo năm trạng thái
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/SellerBalance'
+            example:
+              currency: VND
+              pending:
+                amount: 2450000
+                currency: VND
+              available:
+                amount: 8320000
+                currency: VND
+              processing:
+                amount: 0
+                currency: VND
+              on_hold:
+                amount: 0
+                currency: VND
+              reserve_held:
+                amount: 500000
+                currency: VND
+              next_settlement_date: '2026-08-18'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+settlement_detail:
+  get:
+    tags: [Seller]
+    summary: Chi tiết đối soát
+    description: |
+      Seller phải xem được **từng dòng** cấu thành số tiền — đối soát không
+      minh bạch là nguyên nhân tranh chấp lớn nhất giữa nền tảng và nhà bán.
+
+      `net_payout` có thể **âm** khi hoàn hàng vượt doanh thu kỳ; khoản âm
+      chuyển sang kỳ sau, không chuyển tiền âm.
+    operationId: getMySettlement
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: settlement_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Chi tiết đối soát
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Settlement'
+            example:
+              id: stl_01J9XABC123DEF456GHJKMNPQR
+              period:
+                from: '2026-08-01'
+                to: '2026-08-07'
+              status: CONFIRMED
+              summary:
+                gross_sales:
+                  amount: 12500000
+                  currency: VND
+                platform_commission:
+                  amount: -1250000
+                  currency: VND
+                payment_fee:
+                  amount: -187500
+                  currency: VND
+                fulfillment_fee:
+                  amount: -300000
+                  currency: VND
+                creator_commission:
+                  amount: -180000
+                  currency: VND
+                refunds:
+                  amount: -890000
+                  currency: VND
+                adjustments:
+                  amount: 0
+                  currency: VND
+                net_payout:
+                  amount: 9692500
+                  currency: VND
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+performance:
+  get:
+    tags: [Seller]
+    summary: Hiệu suất của tôi
+    description: |
+      Chỉ số, ngưỡng, và **tác động** đều công khai và tường minh.
+
+      Seller cần hiểu vì sao mình không thắng buy box và cần làm gì để
+      cải thiện. Mô hình chấm điểm hộp đen tạo tranh chấp không giải quyết
+      được và cảm giác bất công.
+    operationId: getMyPerformance
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: period
+        in: query
+        schema:
+          type: string
+          enum: [LAST_7_DAYS, LAST_30_DAYS, LAST_90_DAYS]
+          default: LAST_30_DAYS
+    responses:
+      '200':
+        description: Chỉ số hiệu suất
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                period:
+                  type: string
+                metrics:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: number
+                      threshold:
+                        type: number
+                      status:
+                        type: string
+                        enum: [GOOD, WARNING, CRITICAL]
+                impact:
+                  type: object
+                  properties:
+                    buy_box_win_rate:
+                      type: number
+                      format: float
+                    message:
+                      type: string
+            example:
+              period: LAST_30_DAYS
+              metrics:
+                - name: cancellation_rate
+                  value: 0.021
+                  threshold: 0.03
+                  status: GOOD
+                - name: on_time_shipping_rate
+                  value: 0.94
+                  threshold: 0.95
+                  status: WARNING
+                - name: return_rate_description
+                  value: 0.018
+                  threshold: 0.05
+                  status: GOOD
+                - name: average_rating
+                  value: 4.6
+                  threshold: 4.0
+                  status: GOOD
+                - name: inventory_accuracy
+                  value: 0.97
+                  threshold: 0.95
+                  status: GOOD
+              impact:
+                buy_box_win_rate: 0.62
+                message: Cải thiện tỷ lệ giao đúng hạn sẽ tăng cơ hội thắng buy box
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+# --------------------------------------------------------------- Schema cục bộ
+SellerFulfillmentOrder:
+  type: object
+  description: |
+    Đơn thực hiện — góc nhìn của seller.
+
+    **Cố ý KHÔNG chứa:** `order_id`, tổng tiền đơn, các lô khác, tên seller
+    khác, email khách, lịch sử mua hàng.
+  required: [id, fulfillment_number, status, items]
+  properties:
+    id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    fulfillment_number:
+      type: string
+      examples: ['FC-2026-08-001234-B']
+    status:
+      $ref: '../components/schemas.yaml#/FulfillmentStatus'
+    created_at:
+      $ref: '../components/common.yaml#/schemas/Timestamp'
+    sla_deadline:
+      allOf:
+        - $ref: '../components/common.yaml#/schemas/Timestamp'
+      description: Hạn cam kết xử lý. Trễ ảnh hưởng chỉ số hiệu suất.
+    items:
+      type: array
+      items:
+        type: object
+        properties:
+          sku_id:
+            $ref: '../components/common.yaml#/schemas/Id'
+          sku_code:
+            type: string
+          product_name:
+            type: string
+          variant_description:
+            type: string
+          quantity:
+            $ref: '../components/common.yaml#/schemas/Quantity'
+          unit_price:
+            $ref: '../components/common.yaml#/schemas/Money'
+    shipping_address:
+      allOf:
+        - $ref: '../components/common.yaml#/schemas/Address'
+      description: |
+        Chỉ thông tin **cần cho việc giao hàng**. Không có email khách,
+        không có lịch sử mua hàng.
+    shipping_method:
+      type: string
+    tracking_number:
+      type: [string, "null"]
+    payout_estimate:
+      type: object
+      description: |
+        Ước tính số tiền seller nhận sau khi trừ hoa hồng và phí.
+        Hiển thị ngay từ lúc nhận đơn tạo minh bạch, giảm tranh chấp về sau.
+      properties:
+        gross:
+          $ref: '../components/common.yaml#/schemas/Money'
+        commission:
+          $ref: '../components/common.yaml#/schemas/Money'
+        payment_fee:
+          $ref: '../components/common.yaml#/schemas/Money'
+        fulfillment_fee:
+          $ref: '../components/common.yaml#/schemas/Money'
+        net:
+          $ref: '../components/common.yaml#/schemas/Money'

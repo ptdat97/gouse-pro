@@ -1,0 +1,564 @@
+# Storefront API — công khai, không bắt buộc xác thực
+# Khách vãng lai được phép duyệt và mua hàng.
+
+products:
+  get:
+    tags: [Catalog]
+    summary: Danh sách sản phẩm
+    description: |
+      Duyệt và lọc sản phẩm. Không bắt buộc đăng nhập.
+
+      `price_from` là giá **thấp nhất** trong các offer — vì một sản phẩm
+      có thể có nhiều nhà bán.
+
+      `available_sizes` chỉ liệt kê size **còn hàng**.
+    operationId: listProducts
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - $ref: '../components/common.yaml#/parameters/Sort'
+      - name: category_id
+        in: query
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: brand_id
+        in: query
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: collection_id
+        in: query
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: size
+        in: query
+        description: Nhiều giá trị phân tách bằng dấu phẩy.
+        schema:
+          type: string
+        example: 'M,L'
+      - name: color
+        in: query
+        description: Lọc theo **nhóm màu**, không theo tên màu cụ thể.
+        schema:
+          type: string
+        example: 'BLACK,WHITE'
+      - name: price_min
+        in: query
+        schema:
+          type: integer
+      - name: price_max
+        in: query
+        schema:
+          type: integer
+      - name: in_stock
+        in: query
+        schema:
+          type: boolean
+      - name: gender_target
+        in: query
+        schema:
+          type: string
+          enum: [MEN, WOMEN, UNISEX, KIDS]
+    responses:
+      '200':
+        description: Danh sách sản phẩm
+        headers:
+          X-Request-ID:
+            $ref: '../components/common.yaml#/headers/X-Request-ID'
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data, pagination]
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/ProductSummary'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+            example:
+              data:
+                - id: prd_01J9XABC123DEF456GHJKMNPQR
+                  name: Áo sơ mi linen Oxford
+                  slug: ao-so-mi-linen-oxford
+                  brand:
+                    id: brd_01J9XABC123DEF456GHJKMNPQR
+                    name: Thương hiệu A
+                  primary_image_url: https://cdn.example.com/p/1.jpg
+                  price_from:
+                    amount: 299000
+                    currency: VND
+                  compare_at_price:
+                    amount: 399000
+                    currency: VND
+                  rating:
+                    average: 4.6
+                    count: 128
+                  available_sizes: ['S', 'M', 'L']
+                  offer_count: 3
+                  badges: [FREE_SHIPPING, NEW_ARRIVAL]
+              pagination:
+                next_cursor: eyJpZCI6InByZF8wMUo5WCJ9
+                has_more: true
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '429':
+        $ref: '../components/common.yaml#/responses/TooManyRequests'
+
+product_detail:
+  get:
+    tags: [Catalog]
+    summary: Chi tiết sản phẩm
+    description: |
+      Ba trường đặc thù thời trang tác động **trực tiếp** tới tỷ lệ hoàn hàng:
+
+      - `material_composition` — khách không biết chất liệu sẽ mua nhầm
+      - `size_chart` — số đo thực tế giúp chọn đúng size
+      - `size_recommendation` — chỉ có với khách đã đăng nhập và có lịch sử
+    operationId: getProduct
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+    responses:
+      '200':
+        description: Chi tiết sản phẩm
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/ProductDetail'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+product_offers:
+  get:
+    tags: [Catalog]
+    summary: Danh sách offer của sản phẩm
+    description: |
+      Các nhà bán đang bán sản phẩm này. Khách so sánh được **tổng chi phí**
+      (giá + phí ship) và **chất lượng phục vụ**, không chỉ giá.
+
+      Offer thắng buy box có `is_buy_box: true`.
+    operationId: listProductOffers
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+      - name: sku_id
+        in: query
+        description: Lọc theo SKU cụ thể (một tổ hợp màu/size).
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Danh sách offer
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/Offer'
+            example:
+              data:
+                - id: off_01J9XABC123DEF456GHJKMNPQR
+                  seller:
+                    id: sel_01J9XABC123DEF456GHJKMNPQR
+                    name: Cửa hàng ABC
+                    rating: 4.8
+                    response_time_hours: 4
+                  price:
+                    amount: 299000
+                    currency: VND
+                  condition: NEW
+                  estimated_delivery_days: 2
+                  shipping_fee:
+                    amount: 30000
+                    currency: VND
+                  return_policy_days: 7
+                  availability: IN_STOCK
+                  is_buy_box: true
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+product_reviews:
+  get:
+    tags: [Catalog]
+    summary: Đánh giá sản phẩm
+    description: |
+      Chỉ khách **đã mua và nhận hàng** mới được đánh giá
+      (`is_verified_purchase`).
+
+      `fit_feedback` và `purchased_size` là thông tin đặc thù thời trang —
+      giúp người mua sau chọn đúng size.
+    operationId: listProductReviews
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: rating
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 5
+    responses:
+      '200':
+        description: Danh sách đánh giá
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/Review'
+                summary:
+                  type: object
+                  properties:
+                    average_rating:
+                      type: number
+                      format: float
+                    total_count:
+                      type: integer
+                    fit_distribution:
+                      type: object
+                      description: Phân bố phản hồi form dáng — tín hiệu về bảng size.
+                      properties:
+                        too_small:
+                          type: integer
+                        true_to_size:
+                          type: integer
+                        too_large:
+                          type: integer
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+categories:
+  get:
+    tags: [Catalog]
+    summary: Cây danh mục
+    operationId: getCategoryTree
+    security:
+      - bearerAuth: []
+      - {}
+    responses:
+      '200':
+        description: Cây danh mục phân cấp
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                      children:
+                        type: array
+                        items:
+                          type: object
+      '429':
+        $ref: '../components/common.yaml#/responses/TooManyRequests'
+
+brand_detail:
+  get:
+    tags: [Catalog]
+    summary: Chi tiết thương hiệu
+    operationId: getBrand
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: brand_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Chi tiết thương hiệu
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '../components/schemas.yaml#/BrandRef'
+                - type: object
+                  properties:
+                    description:
+                      type: string
+                    country_of_origin:
+                      type: string
+                    collections:
+                      type: array
+                      items:
+                        $ref: '../components/schemas.yaml#/CollectionRef'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+collection_detail:
+  get:
+    tags: [Catalog]
+    summary: Chi tiết bộ sưu tập
+    description: |
+      Bộ sưu tập là khái niệm hạng nhất trong thời trang — gắn với mùa vụ
+      và có vòng đời riêng.
+    operationId: getCollection
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: collection_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Chi tiết bộ sưu tập
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '../components/schemas.yaml#/CollectionRef'
+                - type: object
+                  properties:
+                    theme:
+                      type: string
+                    launch_date:
+                      type: string
+                      format: date
+                    brand:
+                      $ref: '../components/schemas.yaml#/BrandRef'
+                    products:
+                      type: array
+                      items:
+                        $ref: '../components/schemas.yaml#/ProductSummary'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+search:
+  get:
+    tags: [Catalog]
+    summary: Tìm kiếm
+    description: |
+      Tìm kiếm trên sản phẩm, thương hiệu, creator, nội dung.
+
+      **Lưu ý vận hành:** tìm kiếm không ra kết quả được ghi nhận thành
+      `demand_signal` loại `SEARCH_NO_RESULT` — đây là tín hiệu **nhu cầu
+      không được đáp ứng**, đầu vào quan trọng cho lập kế hoạch sản phẩm.
+    operationId: search
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: type
+        in: query
+        schema:
+          type: string
+          enum: [PRODUCT, BRAND, CREATOR, CONTENT, ALL]
+          default: ALL
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+    responses:
+      '200':
+        description: Kết quả tìm kiếm
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                products:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/ProductSummary'
+                brands:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/BrandRef'
+                creators:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/CreatorRef'
+                content:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/ContentSummary'
+                total_results:
+                  type: integer
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '429':
+        $ref: '../components/common.yaml#/responses/TooManyRequests'
+
+feed:
+  get:
+    tags: [Content]
+    summary: Dòng nội dung khám phá
+    description: |
+      Feed nội dung: outfit, video, lookbook từ creator và nền tảng.
+
+      Nội dung tài trợ **luôn** có `is_sponsored: true` — hệ thống tự gắn,
+      không phụ thuộc creator có khai hay không.
+
+      Sản phẩm trong outfit đã hết hàng vẫn được trả về kèm `substitutes` —
+      nội dung sống lâu hơn sản phẩm, không được dẫn tới trang lỗi.
+    operationId: getFeed
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: feed_type
+        in: query
+        schema:
+          type: string
+          enum: [FOR_YOU, TRENDING, NEW_ARRIVALS, FOLLOWING]
+          default: TRENDING
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+    responses:
+      '200':
+        description: Dòng nội dung
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    oneOf:
+                      - $ref: '../components/schemas.yaml#/Outfit'
+                      - $ref: '../components/schemas.yaml#/ContentSummary'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '429':
+        $ref: '../components/common.yaml#/responses/TooManyRequests'
+
+content_detail:
+  get:
+    tags: [Content]
+    summary: Chi tiết nội dung
+    operationId: getContent
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: content_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Chi tiết nội dung kèm sản phẩm được gắn
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '../components/schemas.yaml#/ContentSummary'
+                - type: object
+                  properties:
+                    body:
+                      type: string
+                    product_tags:
+                      type: array
+                      items:
+                        $ref: '../components/schemas.yaml#/ProductTag'
+                    tagged_products:
+                      type: array
+                      items:
+                        $ref: '../components/schemas.yaml#/ProductSummary'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+outfit_detail:
+  get:
+    tags: [Content]
+    summary: Chi tiết outfit
+    description: |
+      Outfit cho phép mua **cả bộ** — tăng giá trị đơn hàng trung bình.
+
+      Sản phẩm hết hàng có `available: false` kèm `substitutes`.
+    operationId: getOutfit
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: outfit_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Chi tiết outfit
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Outfit'
+            example:
+              id: otf_01J9XABC123DEF456GHJKMNPQR
+              name: Đi làm mùa thu
+              creator:
+                id: cre_01J9XABC123DEF456GHJKMNPQR
+                display_name: Minh Anh
+                creator_type: KOC
+              is_sponsored: true
+              items:
+                - product_id: prd_01J9XABC123DEF456GHJKMNPQR
+                  name: Áo sơ mi linen
+                  price:
+                    amount: 299000
+                    currency: VND
+                  role: MAIN
+                  available: true
+                - product_id: prd_01J9XDEF456GHJKMNPQRSTVWXY
+                  name: Quần âu ống suông
+                  price:
+                    amount: 450000
+                    currency: VND
+                  role: MAIN
+                  available: false
+                  substitutes:
+                    - id: prd_01J9XGHJ456KMNPQRSTVWXYZ23
+                      name: Quần âu ống đứng
+                      brand:
+                        id: brd_01J9XABC123DEF456GHJKMNPQR
+                        name: Thương hiệu A
+                      price_from:
+                        amount: 420000
+                        currency: VND
+              total_price:
+                amount: 749000
+                currency: VND
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'

@@ -1,0 +1,289 @@
+# Tài khoản khách hàng
+#
+# Dữ liệu size là đặc thù thời trang và NHẠY CẢM — số đo cơ thể phải
+# được mã hóa khi lưu, không đưa vào analytics, xóa khi khách yêu cầu.
+
+me:
+  get:
+    tags: [Account]
+    summary: Hồ sơ của tôi
+    operationId: getMyProfile
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Hồ sơ khách hàng
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer:
+                  type: object
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    name:
+                      type: string
+                    email:
+                      type: string
+                      format: email
+                    phone:
+                      type: string
+                    tier:
+                      type: string
+                      enum: [GUEST, REGISTERED, MEMBER, VIP]
+                    preferences:
+                      $ref: '#/CustomerPreferences'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+  patch:
+    tags: [Account]
+    summary: Cập nhật hồ sơ
+    description: |
+      Cập nhật thông tin cá nhân và tùy chọn.
+
+      **Lưu ý về dữ liệu size:** số đo cơ thể là dữ liệu cá nhân nhạy cảm.
+      Khách tự khai, có thể bỏ trống, và có quyền xóa bất kỳ lúc nào.
+    operationId: updateMyProfile
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+              phone:
+                type: string
+              preferences:
+                $ref: '#/CustomerPreferences'
+    responses:
+      '200':
+        description: Hồ sơ đã cập nhật
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer:
+                  type: object
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+addresses:
+  get:
+    tags: [Account]
+    summary: Sổ địa chỉ
+    operationId: listMyAddresses
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Danh sách địa chỉ
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    allOf:
+                      - type: object
+                        properties:
+                          id:
+                            $ref: '../components/common.yaml#/schemas/Id'
+                          is_default:
+                            type: boolean
+                      - $ref: '../components/common.yaml#/schemas/Address'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+  post:
+    tags: [Account]
+    summary: Thêm địa chỉ
+    description: |
+      Địa chỉ trong sổ **khác** địa chỉ trong đơn hàng. Khi đặt hàng, địa chỉ
+      được **sao chép** vào đơn — sửa sổ địa chỉ sau đó không làm thay đổi
+      đơn cũ.
+    operationId: addMyAddress
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '../components/common.yaml#/schemas/Address'
+              - type: object
+                properties:
+                  is_default:
+                    type: boolean
+    responses:
+      '201':
+        description: Địa chỉ đã thêm
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                address:
+                  $ref: '../components/common.yaml#/schemas/Address'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+
+wishlist:
+  get:
+    tags: [Account]
+    summary: Danh sách yêu thích
+    description: |
+      Wishlist là **tín hiệu nhu cầu mạnh** — thể hiện ý định mua rõ ràng.
+      Mỗi lần thêm phát sinh `demand_signal` loại `WISHLIST`, là đầu vào
+      cho lập kế hoạch sản phẩm.
+    operationId: getMyWishlist
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+    responses:
+      '200':
+        description: Danh sách yêu thích
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      product:
+                        $ref: '../components/schemas.yaml#/ProductSummary'
+                      added_at:
+                        $ref: '../components/common.yaml#/schemas/Timestamp'
+                      notify_when_available:
+                        type: boolean
+                        description: |
+                          Đăng ký nhận thông báo khi có hàng. Lượt đăng ký này
+                          là tín hiệu đo **nhu cầu không được đáp ứng**.
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+  post:
+    tags: [Account]
+    summary: Thêm vào yêu thích
+    operationId: addWishlistItem
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [product_id]
+            properties:
+              product_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              variant_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              notify_when_available:
+                type: boolean
+                default: false
+    responses:
+      '201':
+        description: Đã thêm vào yêu thích
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                added:
+                  type: boolean
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+# --------------------------------------------------------------- Schema cục bộ
+CustomerPreferences:
+  type: object
+  description: |
+    Tùy chọn khách hàng, bao gồm **dữ liệu size đặc thù thời trang**.
+
+    Dữ liệu này giảm trực tiếp tỷ lệ hoàn hàng — vấn đề kinh tế lớn nhất
+    của thương mại thời trang. Nếu biết khách thường mặc M ở thương hiệu A
+    và L ở thương hiệu B, có thể gợi ý đúng size ngay ở trang sản phẩm.
+
+    **Bảo mật:** số đo cơ thể là dữ liệu cá nhân nhạy cảm — mã hóa khi lưu,
+    không hiển thị cho nhân viên trừ trường hợp bắt buộc (có audit),
+    không đưa vào analytics.
+  properties:
+    body_measurements:
+      type: object
+      description: Khách tự khai, tùy chọn.
+      properties:
+        height_cm:
+          type: integer
+        weight_kg:
+          type: integer
+        chest_cm:
+          type: integer
+        waist_cm:
+          type: integer
+        hip_cm:
+          type: integer
+    preferred_sizes:
+      type: array
+      description: Size khách thường mặc ở **từng thương hiệu**.
+      items:
+        type: object
+        properties:
+          brand_id:
+            $ref: '../components/common.yaml#/schemas/Id'
+          product_type:
+            type: string
+            enum: [TOP, BOTTOM, DRESS, OUTERWEAR, SHOES, BAG, ACCESSORY]
+          size:
+            type: string
+    style_preferences:
+      type: array
+      items:
+        type: string
+    color_preferences:
+      type: array
+      items:
+        type: string
+    material_avoidance:
+      type: array
+      description: Chất liệu khách tránh (dị ứng hoặc không thích).
+      items:
+        type: string
+    marketing_consent:
+      type: object
+      description: |
+        Đồng ý nhận marketing. **Bắt buộc kiểm tra** trước khi gửi nội dung
+        marketing — thông báo giao dịch không cần đồng ý.
+      properties:
+        email:
+          type: boolean
+        sms:
+          type: boolean
+        push:
+          type: boolean

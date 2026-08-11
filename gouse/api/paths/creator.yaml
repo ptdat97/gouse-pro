@@ -1,0 +1,565 @@
+# Creator Center API
+#
+# RÀNG BUỘC TUYỆT ĐỐI:
+#   Creator KHÔNG BAO GIỜ thấy danh tính khách hàng.
+#   Mọi số liệu đều là TỔNG HỢP. Nếu một số liệu có thể suy ngược ra cá nhân,
+#   cần ngưỡng tối thiểu trước khi hiển thị.
+#
+# Lý do: creator không phải bên xử lý dữ liệu cá nhân. Cung cấp dữ liệu khách
+# cho creator vi phạm quy định bảo vệ dữ liệu ở nhiều thị trường.
+
+creator_registration:
+  post:
+    tags: [Creator]
+    summary: Đăng ký làm creator
+    operationId: applyAsCreator
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [display_name, creator_type, channels]
+            properties:
+              display_name:
+                type: string
+              creator_type:
+                type: string
+                enum: [KOC, KOL, INFLUENCER, STYLIST, CONTENT_PARTNER]
+                description: |
+                  Khác biệt chính là **cơ chế trả tiền**: KOC chấp nhận hoa hồng
+                  thuần; KOL thường yêu cầu phí cố định vì không chấp nhận rủi ro
+                  doanh số. Stylist tạo outfit — vai trò đặc thù thời trang giúp
+                  giảm tỷ lệ hoàn hàng.
+              bio:
+                type: string
+              specialties:
+                type: array
+                items:
+                  type: string
+              channels:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [platform, handle]
+                  properties:
+                    platform:
+                      type: string
+                      enum: [TIKTOK, INSTAGRAM, YOUTUBE, FACEBOOK, BLOG]
+                    handle:
+                      type: string
+                    follower_count:
+                      type: integer
+                    profile_url:
+                      type: string
+                      format: uri
+              bank_account:
+                type: object
+                properties:
+                  bank_code:
+                    type: string
+                  account_number:
+                    type: string
+                  account_holder:
+                    type: string
+    responses:
+      '201':
+        description: Hồ sơ đã nộp, chờ duyệt
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                creator:
+                  type: object
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    status:
+                      type: string
+                next_steps:
+                  type: array
+                  items:
+                    type: string
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+
+content:
+  get:
+    tags: [Creator]
+    summary: Nội dung của tôi
+    operationId: listMyContent
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [DRAFT, PENDING_REVIEW, PUBLISHED, REJECTED, TAKEN_DOWN, ARCHIVED]
+    responses:
+      '200':
+        description: Danh sách nội dung
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/ContentSummary'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+  post:
+    tags: [Creator]
+    summary: Tạo nội dung
+    description: |
+      Tạo nội dung, có thể kèm outfit và product tag.
+
+      **Nhãn tài trợ tự động:** khi `campaign_id` trỏ tới chiến dịch có trả phí,
+      hệ thống tự đặt `is_sponsored: true`. Creator không tự khai và **không tắt
+      được** — đây là nghĩa vụ pháp lý của nền tảng, không phải tùy chọn.
+
+      Khuyến khích thêm `substitute_product_ids` cho mỗi item — nội dung sống
+      lâu hơn sản phẩm.
+    operationId: createContent
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [content_type, title]
+            properties:
+              content_type:
+                type: string
+                enum: [VIDEO, IMAGE, LOOKBOOK, ARTICLE, OUTFIT, LIVE]
+              title:
+                type: string
+              body:
+                type: string
+              media:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [IMAGE, VIDEO]
+                    url:
+                      type: string
+                      format: uri
+                    order:
+                      type: integer
+              campaign_id:
+                allOf:
+                  - $ref: '../components/common.yaml#/schemas/Id'
+                description: Nếu chiến dịch có trả phí, `is_sponsored` tự động bật.
+              outfit:
+                type: object
+                description: Chỉ với `content_type = OUTFIT`. Tối thiểu 2 sản phẩm.
+                properties:
+                  items:
+                    type: array
+                    minItems: 2
+                    items:
+                      type: object
+                      required: [product_id, role]
+                      properties:
+                        product_id:
+                          $ref: '../components/common.yaml#/schemas/Id'
+                        variant_id:
+                          $ref: '../components/common.yaml#/schemas/Id'
+                        role:
+                          type: string
+                          enum: [MAIN, COMPLEMENT, ACCESSORY]
+                        substitute_product_ids:
+                          type: array
+                          items:
+                            $ref: '../components/common.yaml#/schemas/Id'
+              product_tags:
+                type: array
+                items:
+                  $ref: '../components/schemas.yaml#/ProductTag'
+    responses:
+      '201':
+        description: Nội dung đã tạo, chờ duyệt
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  allOf:
+                    - $ref: '../components/schemas.yaml#/ContentSummary'
+                    - type: object
+                      properties:
+                        sponsored_label:
+                          type: string
+                          description: Nhãn hiển thị bắt buộc khi `is_sponsored`.
+            example:
+              content:
+                id: cnt_01J9XABC123DEF456GHJKMNPQR
+                content_type: OUTFIT
+                title: Đi làm mùa thu
+                is_sponsored: true
+                sponsored_label: Nội dung được tài trợ
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+content_publish:
+  post:
+    tags: [Creator]
+    summary: Xuất bản nội dung
+    description: |
+      Kiểm tra trước khi xuất bản: sản phẩm gắn thẻ có tồn tại và đang bán,
+      nội dung có đủ media, không vi phạm quy định.
+    operationId: publishContent
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: content_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    responses:
+      '200':
+        description: Nội dung đã xuất bản (hoặc chuyển sang chờ duyệt thủ công)
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  $ref: '../components/schemas.yaml#/ContentSummary'
+      '422':
+        description: Sản phẩm gắn thẻ không hợp lệ
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: INVALID_PRODUCT_TAG
+                message: Một số sản phẩm không thể gắn thẻ
+                details:
+                  invalid_products:
+                    - product_id: prd_01J9XDEF456GHJKMNPQRSTVWXY
+                      reason: PRODUCT_UNPUBLISHED
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+affiliate_links:
+  get:
+    tags: [Creator]
+    summary: Danh sách affiliate link
+    operationId: listMyAffiliateLinks
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+    responses:
+      '200':
+        description: Danh sách link
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/AffiliateLink'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+  post:
+    tags: [Creator]
+    summary: Tạo affiliate link
+    description: |
+      Link chuyển hướng có gắn mã quy kết.
+
+      **Yêu cầu hiệu năng:** khi khách truy cập link, hệ thống chuyển hướng
+      trong **< 50ms**; việc ghi nhận click diễn ra **bất đồng bộ** để không
+      làm chậm trải nghiệm.
+    operationId: createAffiliateLink
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [target_type, target_id]
+            properties:
+              target_type:
+                type: string
+                enum: [PRODUCT, CONTENT, COLLECTION, STORE]
+              target_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              campaign_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '201':
+        description: Link đã tạo
+        content:
+          application/json:
+            schema:
+              $ref: '#/AffiliateLink'
+            example:
+              id: afl_01J9XABC123DEF456GHJKMNPQR
+              short_code: mA7xK2
+              url: https://example.com/r/mA7xK2
+              target_type: CONTENT
+              target_id: cnt_01J9XABC123DEF456GHJKMNPQR
+              created_at: '2026-08-11T10:00:00Z'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+earnings:
+  get:
+    tags: [Creator]
+    summary: Thu nhập của tôi
+    description: |
+      `pending` là hoa hồng từ đơn đã giao nhưng **chưa hết hạn đổi trả**.
+      Chỉ chuyển sang `available` sau khi hết hạn — cơ chế bảo vệ khỏi
+      hoàn hàng, giống số dư seller.
+    operationId: getMyEarnings
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date
+    responses:
+      '200':
+        description: Thu nhập trong kỳ
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                period:
+                  type: object
+                  properties:
+                    from:
+                      type: string
+                      format: date
+                    to:
+                      type: string
+                      format: date
+                summary:
+                  type: object
+                  properties:
+                    pending:
+                      $ref: '../components/common.yaml#/schemas/Money'
+                    available:
+                      $ref: '../components/common.yaml#/schemas/Money'
+                    paid_this_period:
+                      $ref: '../components/common.yaml#/schemas/Money'
+                attributed_gmv:
+                  $ref: '../components/common.yaml#/schemas/Money'
+                conversion_count:
+                  type: integer
+                next_settlement_date:
+                  type: string
+                  format: date
+                lines:
+                  type: array
+                  description: |
+                    Chi tiết từng khoản hoa hồng. Dùng **mã tham chiếu ẩn danh**,
+                    không phải mã đơn hàng thật — creator đối chiếu được từng
+                    giao dịch mà không lộ danh tính khách.
+                  items:
+                    type: object
+                    properties:
+                      reference_code:
+                        type: string
+                        description: Mã ẩn danh, không phải order_number.
+                        examples: ['#A7X2K']
+                      content_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      content_title:
+                        type: string
+                      commission:
+                        $ref: '../components/common.yaml#/schemas/Money'
+                      status:
+                        type: string
+                        enum: [PENDING, CONFIRMED, REVERSED]
+            example:
+              period:
+                from: '2026-08-01'
+                to: '2026-08-31'
+              summary:
+                pending:
+                  amount: 1250000
+                  currency: VND
+                available:
+                  amount: 3480000
+                  currency: VND
+                paid_this_period:
+                  amount: 2100000
+                  currency: VND
+              attributed_gmv:
+                amount: 45600000
+                currency: VND
+              conversion_count: 152
+              next_settlement_date: '2026-09-05'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+analytics:
+  get:
+    tags: [Creator]
+    summary: Hiệu suất nội dung
+    description: |
+      Mọi số liệu đều là **tổng hợp** — không có endpoint nào trả về danh sách
+      đơn hàng hoặc khách hàng cụ thể.
+
+      `return_rate` theo nội dung là chỉ số **hai chiều**: giúp creator biết
+      nội dung nào gây hiểu nhầm để điều chỉnh, và giúp nền tảng phát hiện
+      nội dung mô tả sai lệch.
+    operationId: getMyAnalytics
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: period
+        in: query
+        schema:
+          type: string
+          enum: [LAST_7_DAYS, LAST_30_DAYS, LAST_90_DAYS]
+          default: LAST_30_DAYS
+    responses:
+      '200':
+        description: Số liệu hiệu suất tổng hợp
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                period:
+                  type: string
+                funnel:
+                  type: object
+                  properties:
+                    content_views:
+                      type: integer
+                    product_clicks:
+                      type: integer
+                    add_to_cart:
+                      type: integer
+                    conversions:
+                      type: integer
+                rates:
+                  type: object
+                  properties:
+                    view_to_click:
+                      type: number
+                      format: float
+                    click_to_cart:
+                      type: number
+                      format: float
+                    cart_to_purchase:
+                      type: number
+                      format: float
+                top_content:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      content_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      title:
+                        type: string
+                      views:
+                        type: integer
+                      clicks:
+                        type: integer
+                      conversions:
+                        type: integer
+                      attributed_gmv:
+                        $ref: '../components/common.yaml#/schemas/Money'
+                      commission_earned:
+                        $ref: '../components/common.yaml#/schemas/Money'
+                      return_rate:
+                        type: number
+                        format: float
+            example:
+              period: LAST_30_DAYS
+              funnel:
+                content_views: 125000
+                product_clicks: 8400
+                add_to_cart: 1250
+                conversions: 152
+              rates:
+                view_to_click: 0.067
+                click_to_cart: 0.149
+                cart_to_purchase: 0.122
+              top_content:
+                - content_id: cnt_01J9XABC123DEF456GHJKMNPQR
+                  title: Đi làm mùa thu
+                  views: 45000
+                  clicks: 3200
+                  conversions: 68
+                  attributed_gmv:
+                    amount: 18900000
+                    currency: VND
+                  commission_earned:
+                    amount: 945000
+                    currency: VND
+                  return_rate: 0.09
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+# --------------------------------------------------------------- Schema cục bộ
+AffiliateLink:
+  type: object
+  required: [id, short_code, url]
+  properties:
+    id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    short_code:
+      type: string
+    url:
+      type: string
+      format: uri
+    target_type:
+      type: string
+      enum: [PRODUCT, CONTENT, COLLECTION, STORE]
+    target_id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    campaign_id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    created_at:
+      $ref: '../components/common.yaml#/schemas/Timestamp'

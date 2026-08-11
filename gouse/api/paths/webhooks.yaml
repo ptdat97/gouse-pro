@@ -1,0 +1,211 @@
+# Webhook đến — dịch vụ bên ngoài gọi VÀO hệ thống
+#
+# Năm yêu cầu bắt buộc:
+#   1. XÁC MINH CHỮ KÝ — không có bước này, ai cũng gửi được
+#      "thanh toán thành công" giả
+#   2. IDEMPOTENT — nhà cung cấp SẼ gửi trùng
+#   3. TRẢ 200 NHANH — xử lý nặng chuyển sang bất đồng bộ
+#   4. GHI LOG MỌI WEBHOOK — kể cả loại không xử lý
+#   5. KHÔNG TIN TUYỆT ĐỐI — phải có đối chiếu định kỳ, vì webhook có thể mất
+
+payment_webhook:
+  post:
+    tags: [Webhooks]
+    summary: Nhận webhook thanh toán
+    description: |
+      Nhận thông báo trạng thái thanh toán từ cổng thanh toán.
+
+      **Ba lớp bảo vệ:**
+
+      1. Xác minh chữ ký HMAC với khóa bí mật của nhà cung cấp
+      2. Kiểm tra `event_id` đã xử lý chưa (idempotency)
+      3. **Đối chiếu số tiền** — số tiền webhook báo phải khớp
+         `payment_intent` trong hệ thống. Không khớp → không xử lý,
+         cảnh báo ngay.
+
+      Trả `200` **trước khi** xử lý xong. Nếu xử lý mất 5 giây và nhà cung cấp
+      timeout ở 3 giây, họ sẽ gửi lại — tạo xử lý trùng không cần thiết.
+
+      **Không dựa hoàn toàn vào webhook:** job định kỳ đối chiếu danh sách
+      giao dịch với API nhà cung cấp để phát hiện webhook bị mất. Không có
+      bước này, một webhook mất nghĩa là khách đã trả tiền nhưng đơn hàng
+      treo ở trạng thái chờ thanh toán.
+    operationId: receivePaymentWebhook
+    security:
+      - webhookSignature: []
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        description: Định danh nhà cung cấp dịch vụ thanh toán.
+        schema:
+          type: string
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [event_id, event_type, data]
+            properties:
+              event_id:
+                type: string
+                description: |
+                  Định danh sự kiện của nhà cung cấp. Dùng làm khóa idempotency —
+                  có chỉ mục duy nhất trên `(provider, provider_event_id)`.
+              event_type:
+                type: string
+                enum:
+                  - payment.succeeded
+                  - payment.failed
+                  - payment.pending
+                  - refund.succeeded
+                  - refund.failed
+                  - chargeback.created
+              data:
+                type: object
+                properties:
+                  payment_intent_id:
+                    type: string
+                  amount:
+                    type: integer
+                    description: Đơn vị nhỏ nhất của tiền tệ.
+                  currency:
+                    type: string
+                  metadata:
+                    type: object
+                    additionalProperties: true
+              occurred_at:
+                $ref: '../components/common.yaml#/schemas/Timestamp'
+          example:
+            event_id: evt_provider_123456
+            event_type: payment.succeeded
+            data:
+              payment_intent_id: pi_abc123
+              amount: 628000
+              currency: VND
+              metadata:
+                checkout_id: chk_01J9XABC123DEF456GHJKMNPQR
+            occurred_at: '2026-08-11T14:26:00Z'
+    responses:
+      '200':
+        description: |
+          Đã nhận. Trả về nhanh; xử lý nghiệp vụ diễn ra bất đồng bộ.
+
+          Cũng trả `200` khi sự kiện đã được xử lý trước đó (idempotent) —
+          để nhà cung cấp không gửi lại.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                received:
+                  type: boolean
+                already_processed:
+                  type: boolean
+                  description: True khi `event_id` đã được xử lý trước đó.
+      '401':
+        description: |
+          Chữ ký không hợp lệ. Ghi log cảnh báo — đây có thể là nỗ lực giả mạo.
+
+          Chỉ báo giám sát: số webhook có chữ ký sai phải bằng 0.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '422':
+        description: |
+          Số tiền không khớp với `payment_intent` trong hệ thống.
+
+          **Không xử lý** và cảnh báo ngay — đây là lớp bảo vệ chống lỗi
+          tích hợp và chống thao túng.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: VALIDATION_FAILED
+                message: Số tiền không khớp với ý định thanh toán
+                details:
+                  payment_intent_id: pi_abc123
+                  expected_amount: 628000
+                  received_amount: 528000
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+shipping_webhook:
+  post:
+    tags: [Webhooks]
+    summary: Nhận webhook vận chuyển
+    description: |
+      Cập nhật trạng thái vận chuyển từ đối tác giao hàng.
+
+      Hệ thống dùng **hai cơ chế song song**: webhook (thời gian thực) và
+      hỏi định kỳ (phòng khi webhook mất). Cả hai đều phải idempotent —
+      cùng một cập nhật có thể đến hai lần.
+
+      Module `fulfillment` **không biết tên nhà vận chuyển nào** trong domain
+      logic — mọi đối tác đi qua cùng một interface `ShippingProvider`.
+    operationId: receiveShippingWebhook
+    security:
+      - webhookSignature: []
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [event_id, tracking_number, status]
+            properties:
+              event_id:
+                type: string
+              tracking_number:
+                type: string
+              status:
+                type: string
+                enum:
+                  - PICKED_UP
+                  - IN_TRANSIT
+                  - OUT_FOR_DELIVERY
+                  - DELIVERED
+                  - DELIVERY_FAILED
+                  - RETURNED_TO_SENDER
+              failure_reason:
+                type: string
+                description: |
+                  Có mặt khi `status = DELIVERY_FAILED`. Nguyên nhân phổ biến:
+                  khách không có nhà, sai địa chỉ, khách từ chối nhận.
+              occurred_at:
+                $ref: '../components/common.yaml#/schemas/Timestamp'
+              location:
+                type: string
+    responses:
+      '200':
+        description: Đã nhận
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                received:
+                  type: boolean
+                already_processed:
+                  type: boolean
+      '401':
+        description: Chữ ký không hợp lệ
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '404':
+        description: Không tìm thấy lô hàng với mã vận đơn này
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'

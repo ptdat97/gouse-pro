@@ -1,0 +1,328 @@
+# Đơn hàng — góc nhìn khách hàng
+#
+# Khách thấy MỘT đơn hàng nhưng có thể có NHIỀU lô giao (shipments),
+# vì hàng đến từ nhiều nguồn không thể đóng chung gói.
+
+orders:
+  get:
+    tags: [Orders]
+    summary: Danh sách đơn hàng của tôi
+    description: |
+      Chỉ trả về đơn của **chính người gọi**. Điều kiện lọc nằm trong
+      truy vấn ở tầng repository, không phải ở tầng hiển thị.
+    operationId: listMyOrders
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: status
+        in: query
+        schema:
+          $ref: '../components/schemas.yaml#/OrderStatus'
+    responses:
+      '200':
+        description: Danh sách đơn hàng
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/OrderSummary'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+  post:
+    tags: [Orders]
+    summary: Tạo đơn hàng trực tiếp
+    description: |
+      Đường đi thay thế cho `POST /checkout/{id}/complete` — dùng khi
+      client tự quản lý luồng thanh toán.
+
+      Luồng khuyến nghị vẫn là qua checkout, vì checkout đảm bảo giữ tồn kho
+      và đóng băng giá.
+    operationId: placeOrder
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [checkout_id]
+            properties:
+              checkout_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '201':
+        description: Đơn hàng đã tạo
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order:
+                  $ref: '../components/schemas.yaml#/OrderSummary'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+order_detail:
+  get:
+    tags: [Orders]
+    summary: Chi tiết đơn hàng
+    description: |
+      Khách thấy **một đơn** với **nhiều lô giao** — mỗi lô tương ứng một
+      `FulfillmentOrder` (một nguồn hàng).
+
+      Mỗi lô có trạng thái, mã vận đơn và hạn đổi trả riêng.
+    operationId: getOrder
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: X-Guest-Phone
+        in: header
+        description: |
+          Dùng cho khách vãng lai tra cứu đơn bằng `order_number` + số điện thoại.
+        schema:
+          type: string
+    responses:
+      '200':
+        description: Chi tiết đơn hàng
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/OrderDetail'
+            example:
+              id: ord_01J9XABC123DEF456GHJKMNPQR
+              order_number: FC-2026-08-001234
+              status: PARTIALLY_SHIPPED
+              placed_at: '2026-08-11T14:25:11Z'
+              shipments:
+                - fulfillment_number: FC-2026-08-001234-A
+                  seller:
+                    id: sel_01J9XABC123DEF456GHJKMNPQR
+                    name: Own Brand
+                    is_official: true
+                  status: DELIVERED
+                  tracking_number: VN123456789
+                  delivered_at: '2026-08-13T10:15:00Z'
+                  return_deadline: '2026-08-20T10:15:00Z'
+                  items:
+                    - order_line_id: oln_01J9XABC123DEF456GHJKMNPQR
+                      product_name: Áo sơ mi linen Oxford
+                      variant_description: Trắng / M
+                      quantity: 1
+                      unit_price:
+                        amount: 299000
+                        currency: VND
+                      line_total:
+                        amount: 299000
+                        currency: VND
+                      status: ACTIVE
+                - fulfillment_number: FC-2026-08-001234-B
+                  seller:
+                    id: sel_01J9XDEF456GHJKMNPQRSTVWXY
+                    name: Cửa hàng ABC
+                  status: IN_TRANSIT
+                  tracking_number: VN987654321
+                  estimated_delivery_date: '2026-08-15'
+                  items:
+                    - order_line_id: oln_01J9XDEF456GHJKMNPQRSTVWXY
+                      product_name: Giày loafer da
+                      variant_description: Nâu / 39
+                      quantity: 1
+                      unit_price:
+                        amount: 650000
+                        currency: VND
+                      line_total:
+                        amount: 650000
+                        currency: VND
+                      status: ACTIVE
+              subtotal:
+                amount: 949000
+                currency: VND
+              shipping_fee:
+                amount: 30000
+                currency: VND
+              total:
+                amount: 979000
+                currency: VND
+              can_cancel: false
+              can_return: true
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+order_cancel:
+  post:
+    tags: [Orders]
+    summary: Hủy đơn hàng
+    description: |
+      Chỉ hủy được khi chưa có lô nào đóng gói (`PACKED` trở đi).
+
+      Hủy đơn kích hoạt chuỗi đảo ngược đầy đủ: giải phóng tồn kho,
+      hoàn tiền, đảo hoa hồng nền tảng và hoa hồng creator.
+    operationId: cancelOrder
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason]
+            properties:
+              reason:
+                type: string
+                enum: [CHANGED_MIND, FOUND_BETTER_PRICE, ORDERED_BY_MISTAKE, DELIVERY_TOO_SLOW, OTHER]
+              note:
+                type: string
+    responses:
+      '200':
+        description: Đơn đã hủy
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order:
+                  $ref: '../components/schemas.yaml#/OrderSummary'
+                refund:
+                  type: object
+                  properties:
+                    amount:
+                      $ref: '../components/common.yaml#/schemas/Money'
+                    estimated_days:
+                      type: integer
+      '409':
+        description: Đơn không còn hủy được
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: ORDER_NOT_CANCELLABLE
+                message: Đơn hàng đã được đóng gói, không thể hủy
+                details:
+                  order_status: SHIPPED
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+order_returns:
+  post:
+    tags: [Orders]
+    summary: Yêu cầu trả hàng
+    description: |
+      `reason_code` **bắt buộc chuẩn hóa** — nó quyết định bên chịu chi phí
+      và là đầu vào cho việc sửa bảng size, sửa mô tả, hoặc truy vết lô
+      sản xuất.
+
+      Khách trả được **từng dòng hàng**, không phải cả đơn.
+
+      Hoàn tiền tính theo **giá thực trả** (sau phân bổ giảm giá).
+    operationId: requestReturn
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [lines]
+            properties:
+              lines:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [order_line_id, quantity, reason_code]
+                  properties:
+                    order_line_id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    quantity:
+                      type: integer
+                      minimum: 1
+                    reason_code:
+                      $ref: '../components/schemas.yaml#/ReturnReasonCode'
+                    reason_detail:
+                      type: string
+                    photo_urls:
+                      type: array
+                      items:
+                        type: string
+                        format: uri
+          example:
+            lines:
+              - order_line_id: oln_01J9XABC123DEF456GHJKMNPQR
+                quantity: 1
+                reason_code: SIZE_TOO_SMALL
+                reason_detail: Vai chật hơn bảng size
+                photo_urls:
+                  - https://cdn.example.com/returns/1.jpg
+    responses:
+      '201':
+        description: Yêu cầu trả hàng đã tạo
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                return_request:
+                  $ref: '../components/schemas.yaml#/ReturnRequest'
+                instructions:
+                  type: object
+                  properties:
+                    method:
+                      type: string
+                      enum: [DROP_OFF, PICKUP]
+                    note:
+                      type: string
+      '409':
+        description: Hết hạn đổi trả
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: RETURN_WINDOW_EXPIRED
+                message: Đã quá thời hạn đổi trả
+                details:
+                  return_deadline: '2026-08-20T10:15:00Z'
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'

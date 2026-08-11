@@ -1,0 +1,504 @@
+# Thành phần dùng chung: kiểu cơ bản, tham số, header, lỗi
+# Tham chiếu: components/common.yaml#/schemas/Money
+
+schemas:
+
+  # ------------------------------------------------------------ Kiểu cơ bản
+  Money:
+    type: object
+    description: |
+      Số tiền. **Luôn kèm đơn vị tiền tệ** — không bao giờ trả về số trần.
+
+      `amount` là **số nguyên** theo đơn vị nhỏ nhất của tiền tệ:
+      - VND: đồng (299000 = 299.000đ)
+      - USD: cent (29900 = $299.00)
+
+      Không dùng số thực để tránh sai số tích lũy — độ lệch đối soát
+      phải bằng 0.
+    required: [amount, currency]
+    additionalProperties: false
+    properties:
+      amount:
+        type: integer
+        format: int64
+        description: Số tiền theo đơn vị nhỏ nhất. Có thể âm (bút toán điều chỉnh).
+        examples: [299000]
+      currency:
+        type: string
+        pattern: '^[A-Z]{3}$'
+        description: Mã tiền tệ ISO 4217.
+        examples: ['VND']
+
+  BasisPoints:
+    type: integer
+    minimum: 0
+    maximum: 10000
+    description: |
+      Phần trăm biểu diễn bằng basis points (phần vạn) để tránh số thực.
+      1000 = 10,00%. Tối đa 10000 = 100%.
+    examples: [1000]
+
+  Quantity:
+    type: integer
+    minimum: 0
+    description: Số lượng. Không bao giờ âm.
+    examples: [2]
+
+  Timestamp:
+    type: string
+    format: date-time
+    description: Thời điểm theo ISO 8601, **luôn UTC**. Client tự chuyển múi giờ hiển thị.
+    examples: ['2026-08-11T14:23:11Z']
+
+  Id:
+    type: string
+    description: |
+      Định danh ULID có tiền tố theo loại thực thể. Tiền tố giúp gỡ lỗi nhanh —
+      nhìn `off_...` biết ngay là offer, không phải order.
+    pattern: '^[a-z]+_[0-9A-HJKMNP-TV-Z]{26}$'
+    examples: ['ord_01J9XABC123DEF456GHJKMNPQR']
+
+  # ------------------------------------------------- Value object thời trang
+  Size:
+    type: object
+    description: |
+      Kích cỡ. **Không phải chuỗi đơn thuần** — "M" của thương hiệu A khác
+      "M" của thương hiệu B, và "38" giày khác "38" quần.
+    required: [value, system]
+    properties:
+      value:
+        type: string
+        examples: ['M']
+      system:
+        type: string
+        enum: [ALPHA, NUMERIC, EU, US, UK, JP, FREE]
+      label:
+        type: string
+        description: Nhãn hiển thị cho khách.
+
+  Color:
+    type: object
+    required: [name, color_family]
+    properties:
+      name:
+        type: string
+        examples: ['Trắng ngà']
+      hex_code:
+        type: string
+        pattern: '^#[0-9A-Fa-f]{6}$'
+        description: Để hiển thị ô màu thật — khách chọn theo màu nhìn thấy, không theo tên.
+        examples: ['#F5F5DC']
+      color_family:
+        type: string
+        description: Nhóm màu để lọc. Khách lọc "màu xanh", không lọc "Xanh navy đậm".
+        enum: [WHITE, BLACK, GRAY, BEIGE, BROWN, RED, PINK, ORANGE, YELLOW, GREEN, BLUE, PURPLE, MULTI]
+
+  MaterialComposition:
+    type: array
+    description: Thành phần chất liệu. Tổng phần trăm phải bằng 100.
+    items:
+      type: object
+      required: [material, percentage]
+      properties:
+        material:
+          type: string
+          examples: ['Linen']
+        percentage:
+          type: integer
+          minimum: 1
+          maximum: 100
+          examples: [80]
+
+  SizeChart:
+    type: object
+    description: |
+      Bảng size với **số đo thực tế**, không chỉ ký hiệu S/M/L.
+      Sai size là nguyên nhân hoàn hàng số một trong thời trang.
+    properties:
+      id:
+        $ref: '#/schemas/Id'
+      system:
+        type: string
+        enum: [ALPHA, NUMERIC, EU, US, UK, JP, FREE]
+      note:
+        type: string
+        examples: ['Bảng size khác nhau theo thương hiệu']
+      entries:
+        type: array
+        items:
+          type: object
+          description: Số đo theo từng size. Khóa tùy loại sản phẩm (ngực, eo, dài...).
+          properties:
+            size:
+              type: string
+              examples: ['M']
+            measurements:
+              type: object
+              additionalProperties:
+                type: string
+              examples:
+                - chest_cm: '96-100'
+                  length_cm: '70'
+                  shoulder_cm: '44'
+
+  Address:
+    type: object
+    description: |
+      Địa chỉ. Khi tạo đơn hàng, địa chỉ được **sao chép** vào đơn,
+      không tham chiếu tới sổ địa chỉ — khách sửa sổ sau đó không được
+      làm thay đổi địa chỉ đã giao.
+    required: [recipient_name, phone, street_address, province, country_code]
+    properties:
+      recipient_name:
+        type: string
+      phone:
+        type: string
+        description: Định dạng quốc tế đã chuẩn hóa.
+        examples: ['+84901234567']
+      street_address:
+        type: string
+      ward:
+        type: string
+      district:
+        type: string
+      province:
+        type: string
+      postal_code:
+        type: string
+      country_code:
+        type: string
+        pattern: '^[A-Z]{2}$'
+        examples: ['VN']
+      address_type:
+        type: string
+        enum: [HOME, OFFICE]
+      delivery_note:
+        type: string
+
+  # ------------------------------------------------------------- Phân trang
+  CursorPagination:
+    type: object
+    description: |
+      Phân trang bằng con trỏ — mặc định cho danh sách lớn.
+
+      Offset có hai vấn đề: trang sâu phải quét nhiều bản ghi (chậm),
+      và dữ liệu thay đổi giữa các trang gây lặp/nhảy bản ghi.
+    required: [has_more]
+    properties:
+      next_cursor:
+        type: [string, "null"]
+        description: Con trỏ trang tiếp. `null` khi hết dữ liệu.
+      has_more:
+        type: boolean
+
+  OffsetPagination:
+    type: object
+    description: Chỉ dùng cho danh sách nhỏ cần nhảy tới trang cụ thể (giao diện admin).
+    properties:
+      page:
+        type: integer
+        minimum: 1
+      per_page:
+        type: integer
+      total_pages:
+        type: integer
+      total_items:
+        type: integer
+
+  # ------------------------------------------------------------------- Lỗi
+  Error:
+    type: object
+    description: |
+      Định dạng lỗi thống nhất cho mọi endpoint.
+
+      Client xử lý theo `code` (máy đọc được, ổn định), **không parse
+      `message`** — message có thể đổi và có thể đa ngôn ngữ.
+    required: [error, request_id]
+    properties:
+      error:
+        type: object
+        required: [code, message]
+        properties:
+          code:
+            $ref: '#/schemas/ErrorCode'
+          message:
+            type: string
+            description: Thông báo cho người đọc. Có thể đổi, có thể đa ngôn ngữ.
+          details:
+            type: object
+            additionalProperties: true
+            description: |
+              Thông tin đủ để client hiển thị hữu ích.
+              "Chỉ còn 2 sản phẩm" tốt hơn "hết hàng".
+          field_errors:
+            type: array
+            description: Lỗi kiểm tra dữ liệu theo từng trường (cho form).
+            items:
+              type: object
+              required: [field, code, message]
+              properties:
+                field:
+                  type: string
+                code:
+                  type: string
+                message:
+                  type: string
+      request_id:
+        type: string
+        description: |
+          **Luôn có.** Dùng khi hỗ trợ khách hàng để tra ngược toàn bộ
+          chuỗi từ request tới bút toán.
+
+  ErrorCode:
+    type: string
+    description: |
+      Mã lỗi máy đọc được, SCREAMING_SNAKE_CASE, ổn định qua các phiên bản.
+
+      Client **phải** xử lý được mã chưa biết (rơi vào nhánh mặc định)
+      để không crash khi server thêm mã mới.
+    enum:
+      # Chung
+      - VALIDATION_FAILED
+      - UNAUTHORIZED
+      - FORBIDDEN
+      - NOT_FOUND
+      - CONFLICT
+      - IDEMPOTENCY_KEY_REUSED
+      - IDEMPOTENT_REQUEST_IN_PROGRESS
+      - RATE_LIMIT_EXCEEDED
+      - INTERNAL_ERROR
+      # Tồn kho và bán hàng
+      - INSUFFICIENT_INVENTORY
+      - OFFER_NOT_AVAILABLE
+      - PRICE_OUT_OF_RANGE
+      # Checkout và thanh toán
+      - CHECKOUT_EXPIRED
+      - PAYMENT_FAILED
+      # Đơn hàng và trả hàng
+      - ORDER_NOT_CANCELLABLE
+      - RETURN_WINDOW_EXPIRED
+      # Marketplace
+      - SELLER_NOT_AUTHORIZED
+      - BRAND_PROTECTED
+      - SAMPLE_NOT_APPROVED
+      # Tài chính
+      - LEDGER_ENTRY_UNBALANCED
+      # Nội dung
+      - INVALID_PRODUCT_TAG
+
+parameters:
+  # --------------------------------------------------------------- Đường dẫn
+  ProductId:
+    name: product_id
+    in: path
+    required: true
+    schema:
+      $ref: '#/schemas/Id'
+
+  # ------------------------------------------------------------- Truy vấn
+  Limit:
+    name: limit
+    in: query
+    description: Số bản ghi tối đa mỗi trang.
+    schema:
+      type: integer
+      minimum: 1
+      maximum: 100
+      default: 20
+
+  Cursor:
+    name: cursor
+    in: query
+    description: Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+    schema:
+      type: string
+
+  Sort:
+    name: sort
+    in: query
+    description: |
+      Sắp xếp theo `field:asc` hoặc `field:desc`, nhiều trường phân tách bằng dấu phẩy.
+
+      **Chỉ hỗ trợ trường có chỉ mục** — lọc/sắp xếp tùy ý dẫn tới truy vấn
+      quét toàn bảng và là lỗ hổng gây quá tải.
+    schema:
+      type: string
+      examples: ['price:asc']
+
+  # --------------------------------------------------------------- Header
+  IdempotencyKey:
+    name: Idempotency-Key
+    in: header
+    required: true
+    description: |
+      ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+      lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+
+      - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+      - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+      - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+      - Key hết hạn (24 giờ) → xử lý như request mới
+    schema:
+      type: string
+      minLength: 16
+      maxLength: 64
+
+  RequestId:
+    name: X-Request-ID
+    in: header
+    required: false
+    description: Định danh request để truy vết. Server tự sinh nếu thiếu.
+    schema:
+      type: string
+
+  AcceptLanguage:
+    name: Accept-Language
+    in: header
+    required: false
+    schema:
+      type: string
+      default: vi-VN
+
+headers:
+  X-Request-ID:
+    description: Định danh request — **luôn có** trong mọi response.
+    schema:
+      type: string
+
+  X-RateLimit-Limit:
+    description: Số request tối đa trong cửa sổ hiện tại.
+    schema:
+      type: integer
+
+  X-RateLimit-Remaining:
+    description: Số request còn lại.
+    schema:
+      type: integer
+
+  X-RateLimit-Reset:
+    description: Thời điểm cửa sổ được đặt lại (Unix timestamp).
+    schema:
+      type: integer
+
+  Retry-After:
+    description: Số giây nên chờ trước khi thử lại.
+    schema:
+      type: integer
+
+  Deprecation:
+    description: Có mặt khi endpoint sắp ngừng hỗ trợ.
+    schema:
+      type: boolean
+
+  Sunset:
+    description: Thời điểm endpoint ngừng hoạt động (RFC 8594).
+    schema:
+      type: string
+
+responses:
+  BadRequest:
+    description: Dữ liệu không hợp lệ về định dạng.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+        example:
+          error:
+            code: VALIDATION_FAILED
+            message: Dữ liệu không hợp lệ
+            field_errors:
+              - field: quantity
+                code: MUST_BE_POSITIVE
+                message: Số lượng phải lớn hơn 0
+          request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+  Unauthorized:
+    description: |
+      Chưa xác thực hoặc token hết hạn. Client nên đăng nhập lại.
+
+      Phân biệt với `403`: `401` nghĩa là đăng nhập lại có ích.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  Forbidden:
+    description: |
+      Đã xác thực nhưng không đủ quyền. Đăng nhập lại **không** giúp ích.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  NotFound:
+    description: Không tìm thấy tài nguyên.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  Conflict:
+    description: |
+      Xung đột trạng thái hoặc idempotency key đã dùng cho request khác.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  UnprocessableEntity:
+    description: |
+      Đúng định dạng nhưng vi phạm quy tắc nghiệp vụ.
+
+      Ví dụ: `quantity` là số hợp lệ nhưng vượt tồn kho khả dụng.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  TooManyRequests:
+    description: Vượt giới hạn tốc độ.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+      X-RateLimit-Limit:
+        $ref: '#/headers/X-RateLimit-Limit'
+      X-RateLimit-Remaining:
+        $ref: '#/headers/X-RateLimit-Remaining'
+      X-RateLimit-Reset:
+        $ref: '#/headers/X-RateLimit-Reset'
+      Retry-After:
+        $ref: '#/headers/Retry-After'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'
+
+  InternalError:
+    description: |
+      Lỗi hệ thống. Response **không** chứa stack trace hay cấu trúc nội bộ.
+      Dùng `request_id` để tra cứu khi hỗ trợ.
+    headers:
+      X-Request-ID:
+        $ref: '#/headers/X-Request-ID'
+    content:
+      application/json:
+        schema:
+          $ref: '#/schemas/Error'

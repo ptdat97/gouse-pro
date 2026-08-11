@@ -1,0 +1,923 @@
+# Schema domain: sản phẩm, giỏ hàng, đơn hàng, tài chính, nội dung
+# Tham chiếu: components/schemas.yaml#/ProductSummary
+
+# ============================================================ SẢN PHẨM
+# Chuỗi phân cấp: Brand → Collection → Product → Variant → SKU → Offer → Inventory
+# Xem docs/02-domain/entities.md mục 1
+
+BrandRef:
+  type: object
+  required: [id, name]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    name:
+      type: string
+    slug:
+      type: string
+    logo_url:
+      type: string
+      format: uri
+
+CollectionRef:
+  type: object
+  description: |
+    Bộ sưu tập — khái niệm **hạng nhất** trong thời trang, không phải nhãn phân loại.
+    Có ngân sách sản xuất, mốc thời gian, và chỉ số sell-through riêng.
+  required: [id, name]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    name:
+      type: string
+      examples: ['Thu Đông 2026']
+    season:
+      type: string
+      examples: ['FW2026']
+
+SellerRef:
+  type: object
+  description: Thông tin seller hiển thị cho khách. Không chứa dữ liệu nội bộ.
+  required: [id, name]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    name:
+      type: string
+    rating:
+      type: number
+      format: float
+      minimum: 0
+      maximum: 5
+    response_time_hours:
+      type: integer
+    is_official:
+      type: boolean
+      description: True với own brand (seller nội bộ) hoặc đối tác chính hãng.
+
+ProductSummary:
+  type: object
+  description: Sản phẩm trong danh sách. Nhẹ hơn `ProductDetail`.
+  required: [id, name, brand, price_from]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    name:
+      type: string
+    slug:
+      type: string
+    brand:
+      $ref: '#/BrandRef'
+    primary_image_url:
+      type: string
+      format: uri
+    price_from:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Giá **thấp nhất** trong các offer — vì có thể có nhiều nhà bán.
+    compare_at_price:
+      $ref: './common.yaml#/schemas/Money'
+    rating:
+      type: object
+      properties:
+        average:
+          type: number
+          format: float
+        count:
+          type: integer
+    available_colors:
+      type: array
+      items:
+        $ref: './common.yaml#/schemas/Color'
+    available_sizes:
+      type: array
+      description: |
+        **Chỉ liệt kê size CÒN HÀNG.** Hiển thị size đã hết trong danh sách
+        là trải nghiệm tệ — khách chọn rồi mới biết không mua được.
+      items:
+        type: string
+    offer_count:
+      type: integer
+      description: Số nhà bán — cho khách biết có nhiều lựa chọn.
+    badges:
+      type: array
+      items:
+        type: string
+        enum: [FREE_SHIPPING, NEW_ARRIVAL, BEST_SELLER, LOW_STOCK, ON_SALE]
+
+ProductDetail:
+  type: object
+  description: |
+    Chi tiết sản phẩm. Ba trường đặc thù thời trang —
+    `material_composition`, `size_chart`, `size_recommendation` —
+    tác động **trực tiếp** tới tỷ lệ hoàn hàng.
+  required: [id, name, brand, variants]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    name:
+      type: string
+    description:
+      type: string
+    brand:
+      $ref: '#/BrandRef'
+    collection:
+      $ref: '#/CollectionRef'
+    category_id:
+      $ref: './common.yaml#/schemas/Id'
+    product_type:
+      type: string
+      enum: [TOP, BOTTOM, DRESS, OUTERWEAR, SHOES, BAG, ACCESSORY]
+    gender_target:
+      type: string
+      enum: [MEN, WOMEN, UNISEX, KIDS]
+    material_composition:
+      allOf:
+        - $ref: './common.yaml#/schemas/MaterialComposition'
+      description: Khách không biết chất liệu sẽ mua nhầm → hoàn hàng.
+    care_instructions:
+      type: string
+      examples: ['Giặt máy ở 30°C, không dùng chất tẩy']
+    origin_country:
+      type: string
+    images:
+      type: array
+      items:
+        $ref: '#/Image'
+    variants:
+      type: array
+      items:
+        $ref: '#/Variant'
+    size_chart:
+      allOf:
+        - $ref: './common.yaml#/schemas/SizeChart'
+      description: Số đo thực tế giúp khách chọn đúng size.
+    size_recommendation:
+      type: [object, "null"]
+      description: |
+        Gợi ý size dựa trên lịch sử mua của khách. Chỉ có với khách đã
+        đăng nhập và có dữ liệu. Cơ chế giảm trực tiếp tỷ lệ hoàn hàng.
+      properties:
+        suggested_size:
+          type: string
+        reason:
+          type: string
+          enum: [PREVIOUS_PURCHASE, BODY_MEASUREMENTS, RETURN_HISTORY]
+    buy_box_offer:
+      allOf:
+        - $ref: '#/Offer'
+      description: Offer hiển thị mặc định, chọn theo công thức buy box công khai.
+    other_offers_count:
+      type: integer
+
+Variant:
+  type: object
+  description: Tổ hợp thuộc tính (màu + size). Ảnh thay đổi theo màu, không theo size.
+  required: [id, color, skus]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    color:
+      $ref: './common.yaml#/schemas/Color'
+    images:
+      type: array
+      items:
+        $ref: '#/Image'
+    skus:
+      type: array
+      items:
+        $ref: '#/SKUSummary'
+
+SKUSummary:
+  type: object
+  description: |
+    Đơn vị lưu kho. **Định danh hàng hóa chung**, không thuộc seller nào —
+    đây là cái cho phép biết "ba seller đang bán cùng một món hàng".
+  required: [id, size, available]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    sku_code:
+      type: string
+      examples: ['SM-LIN-OXF-WHT-M']
+    size:
+      $ref: './common.yaml#/schemas/Size'
+    available:
+      type: boolean
+      description: |
+        Còn hàng hay không. Size hết hàng vẫn được trả về (để hiển thị
+        gạch chéo + cho phép đăng ký nhận thông báo), không ẩn đi.
+
+Image:
+  type: object
+  required: [url]
+  properties:
+    url:
+      type: string
+      format: uri
+    alt:
+      type: string
+      description: Bắt buộc cho khả năng tiếp cận và SEO.
+    order:
+      type: integer
+
+Offer:
+  type: object
+  description: |
+    Lời chào bán của **một seller** cho một SKU.
+
+    Đây là đơn vị khách thực sự mua. Offer **không chứa số lượng tồn kho** —
+    nguồn sự thật là `InventoryItem`; `availability` là dữ liệu dẫn xuất
+    cập nhật qua event.
+  required: [id, seller, price]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    sku_id:
+      $ref: './common.yaml#/schemas/Id'
+    seller:
+      $ref: '#/SellerRef'
+    price:
+      $ref: './common.yaml#/schemas/Money'
+    compare_at_price:
+      $ref: './common.yaml#/schemas/Money'
+    condition:
+      type: string
+      enum: [NEW, USED_LIKE_NEW, USED_GOOD]
+    estimated_delivery_days:
+      type: integer
+    shipping_fee:
+      $ref: './common.yaml#/schemas/Money'
+    return_policy_days:
+      type: integer
+    availability:
+      type: string
+      enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK]
+    is_buy_box:
+      type: boolean
+
+# ============================================================ GIỎ HÀNG
+Cart:
+  type: object
+  description: |
+    Giỏ hàng **không giữ tồn kho** — chỉ checkout mới giữ.
+
+    Hệ quả: hiển thị "còn hàng" ở giỏ là **thông tin tham khảo**, không phải
+    cam kết. Khách có thể thấy còn hàng ở giỏ nhưng hết ở checkout.
+  required: [id, groups, subtotal, total]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    groups:
+      type: array
+      description: |
+        Nhóm theo seller để khách hiểu hàng đến từ đâu và **thời gian giao
+        khác nhau** — tránh thắc mắc "sao chỉ nhận được một phần".
+      items:
+        $ref: '#/CartGroup'
+    subtotal:
+      $ref: './common.yaml#/schemas/Money'
+    estimated_shipping:
+      $ref: './common.yaml#/schemas/Money'
+    discount_amount:
+      $ref: './common.yaml#/schemas/Money'
+    total:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: |
+        **Do backend tính.** Frontend chỉ hiển thị — không tự cộng,
+        kể cả phép cộng đơn giản.
+    expires_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+
+CartGroup:
+  type: object
+  required: [seller, items]
+  properties:
+    seller:
+      $ref: '#/SellerRef'
+    items:
+      type: array
+      items:
+        $ref: '#/CartItem'
+    estimated_delivery_days:
+      type: integer
+    subtotal:
+      $ref: './common.yaml#/schemas/Money'
+
+CartItem:
+  type: object
+  required: [id, offer_id, product_name, unit_price, quantity, line_total]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    offer_id:
+      allOf:
+        - $ref: './common.yaml#/schemas/Id'
+      description: Trỏ tới **Offer**, không phải SKU — khách mua của một nhà bán cụ thể.
+    product_id:
+      $ref: './common.yaml#/schemas/Id'
+    product_name:
+      type: string
+    variant_description:
+      type: string
+      examples: ['Trắng / M']
+    image_url:
+      type: string
+      format: uri
+    unit_price:
+      $ref: './common.yaml#/schemas/Money'
+    quantity:
+      $ref: './common.yaml#/schemas/Quantity'
+    line_total:
+      $ref: './common.yaml#/schemas/Money'
+    availability:
+      type: string
+      enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK, UNAVAILABLE]
+      description: |
+        Món không còn hợp lệ được **đánh dấu**, không tự động xóa —
+        xóa im lặng làm khách bối rối.
+
+AttributionSource:
+  type: object
+  description: |
+    Nguồn giới thiệu, ghi nhận **ngay khi thêm giỏ** (không chờ tới lúc mua).
+
+    Cho phép đo tỷ lệ "thêm giỏ" của từng nội dung và quy kết chính xác hơn
+    khi khách mua sau vài ngày.
+  properties:
+    content_id:
+      $ref: './common.yaml#/schemas/Id'
+    creator_id:
+      $ref: './common.yaml#/schemas/Id'
+
+# ============================================================ CHECKOUT
+Checkout:
+  type: object
+  description: |
+    Phiên thanh toán. Khác giỏ hàng ở hai điểm quyết định:
+    **có giữ tồn kho** (TTL 15 phút) và **giá được đóng băng**.
+  required: [id, status, expires_at, lines, total]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    status:
+      type: string
+      enum: [STARTED, PENDING_PAYMENT, COMPLETED, EXPIRED, CANCELLED]
+    expires_at:
+      allOf:
+        - $ref: './common.yaml#/schemas/Timestamp'
+      description: |
+        Thời hạn giữ hàng. Hết hạn → tồn kho tự giải phóng, khách phải
+        bắt đầu checkout mới.
+    lines:
+      type: array
+      items:
+        $ref: '#/CheckoutLine'
+    shipping_address:
+      $ref: './common.yaml#/schemas/Address'
+    shipping_groups:
+      type: array
+      description: Thời gian giao hiển thị **riêng cho từng nhóm**, không gộp một con số.
+      items:
+        type: object
+        properties:
+          seller:
+            $ref: '#/SellerRef'
+          estimated_delivery_date:
+            type: string
+            format: date
+          shipping_fee:
+            $ref: './common.yaml#/schemas/Money'
+    subtotal:
+      $ref: './common.yaml#/schemas/Money'
+    shipping_fee:
+      $ref: './common.yaml#/schemas/Money'
+    discount_amount:
+      $ref: './common.yaml#/schemas/Money'
+    tax_amount:
+      $ref: './common.yaml#/schemas/Money'
+    total:
+      $ref: './common.yaml#/schemas/Money'
+
+CheckoutLine:
+  type: object
+  required: [offer_id, product_name, unit_price, quantity]
+  properties:
+    offer_id:
+      $ref: './common.yaml#/schemas/Id'
+    product_name:
+      type: string
+    variant_description:
+      type: string
+    unit_price:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: |
+        **Đã đóng băng** tại thời điểm bắt đầu checkout. Seller đổi giá
+        giữa chừng không ảnh hưởng phiên này.
+    quantity:
+      $ref: './common.yaml#/schemas/Quantity'
+    line_total:
+      $ref: './common.yaml#/schemas/Money'
+
+# ============================================================ ĐƠN HÀNG
+OrderSummary:
+  type: object
+  required: [id, order_number, status, total, placed_at]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    order_number:
+      type: string
+      description: Mã khách nhìn thấy, dễ đọc qua điện thoại.
+      examples: ['FC-2026-08-001234']
+    status:
+      $ref: '#/OrderStatus'
+    total:
+      $ref: './common.yaml#/schemas/Money'
+    item_count:
+      type: integer
+    placed_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+
+OrderDetail:
+  type: object
+  description: |
+    Đơn hàng — **hợp đồng với khách hàng**.
+
+    Khách thấy **một đơn** nhưng có thể có **nhiều lô giao** (`shipments`),
+    vì hàng đến từ nhiều nguồn không thể đóng chung gói.
+  required: [id, order_number, status, shipments, total, placed_at]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    order_number:
+      type: string
+    status:
+      $ref: '#/OrderStatus'
+    placed_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+    completed_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+    shipping_address:
+      allOf:
+        - $ref: './common.yaml#/schemas/Address'
+      description: Đã **sao chép** vào đơn — khách sửa sổ địa chỉ không làm đổi đơn cũ.
+    shipments:
+      type: array
+      description: Mỗi lô tương ứng một `FulfillmentOrder` (một nguồn hàng).
+      items:
+        $ref: '#/Shipment'
+    subtotal:
+      $ref: './common.yaml#/schemas/Money'
+    shipping_fee:
+      $ref: './common.yaml#/schemas/Money'
+    discount_amount:
+      $ref: './common.yaml#/schemas/Money'
+    total:
+      $ref: './common.yaml#/schemas/Money'
+    can_cancel:
+      type: boolean
+    can_return:
+      type: boolean
+
+OrderStatus:
+  type: string
+  description: |
+    Trạng thái tổng hợp, **suy ra** từ trạng thái các `FulfillmentOrder` —
+    không tự đặt.
+
+    `DELIVERED` khác `COMPLETED`: giao hàng xong chưa phải kết thúc, còn
+    thời hạn đổi trả. Payout cho seller chỉ diễn ra sau `COMPLETED`.
+  enum:
+    - PENDING_PAYMENT
+    - PAID
+    - PROCESSING
+    - PARTIALLY_SHIPPED
+    - SHIPPED
+    - PARTIALLY_DELIVERED
+    - DELIVERED
+    - COMPLETED
+    - PARTIALLY_CANCELLED
+    - CANCELLED
+
+Shipment:
+  type: object
+  description: Góc nhìn khách hàng của một `FulfillmentOrder`.
+  required: [fulfillment_number, seller, status, items]
+  properties:
+    fulfillment_number:
+      type: string
+      examples: ['FC-2026-08-001234-A']
+    seller:
+      $ref: '#/SellerRef'
+    status:
+      $ref: '#/FulfillmentStatus'
+    tracking_number:
+      type: [string, "null"]
+    shipping_provider:
+      type: [string, "null"]
+    estimated_delivery_date:
+      type: string
+      format: date
+    delivered_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+    return_deadline:
+      allOf:
+        - $ref: './common.yaml#/schemas/Timestamp'
+      description: |
+        Hạn đổi trả. Quan trọng với thời trang — khách cần biết còn bao lâu.
+    items:
+      type: array
+      items:
+        $ref: '#/OrderLineSummary'
+
+FulfillmentStatus:
+  type: string
+  enum:
+    - PENDING
+    - ALLOCATED
+    - PICKING
+    - PACKED
+    - HANDED_OVER
+    - IN_TRANSIT
+    - DELIVERED
+    - DELIVERY_FAILED
+    - RETURNED_TO_SENDER
+    - COMPLETED
+    - CANCELLED
+
+OrderLineSummary:
+  type: object
+  required: [order_line_id, product_name, quantity, unit_price]
+  properties:
+    order_line_id:
+      $ref: './common.yaml#/schemas/Id'
+    product_id:
+      $ref: './common.yaml#/schemas/Id'
+    sku_id:
+      $ref: './common.yaml#/schemas/Id'
+    product_name:
+      allOf:
+        - type: string
+      description: |
+        **Đóng băng** tại thời điểm mua. Seller đổi tên sản phẩm không làm
+        hóa đơn cũ hiển thị sai.
+    variant_description:
+      type: string
+    image_url:
+      type: string
+      format: uri
+    quantity:
+      $ref: './common.yaml#/schemas/Quantity'
+    unit_price:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Đóng băng — giá đổi không ảnh hưởng đơn cũ.
+    line_total:
+      $ref: './common.yaml#/schemas/Money'
+    status:
+      type: string
+      enum: [ACTIVE, CANCELLED, RETURNED]
+
+# ============================================================ TRẢ HÀNG
+ReturnReasonCode:
+  type: string
+  description: |
+    Lý do hoàn hàng **chuẩn hóa** — không phải văn bản tự do.
+
+    Lý do **quyết định dòng tiền** (bên nào chịu chi phí) và **hành động
+    khắc phục** (sửa bảng size, sửa mô tả, truy vết lô sản xuất).
+    Văn bản tự do không phân tích được.
+  enum:
+    - SIZE_TOO_SMALL
+    - SIZE_TOO_LARGE
+    - NOT_AS_DESCRIBED
+    - COLOR_DIFFERENT
+    - QUALITY_ISSUE
+    - DEFECTIVE
+    - WRONG_ITEM_SENT
+    - DAMAGED_IN_TRANSIT
+    - CHANGED_MIND
+    - LATE_DELIVERY
+
+ReturnRequest:
+  type: object
+  required: [id, status, lines, requested_at]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    order_id:
+      $ref: './common.yaml#/schemas/Id'
+    status:
+      type: string
+      enum:
+        - REQUESTED
+        - APPROVED
+        - REJECTED
+        - IN_TRANSIT
+        - RECEIVED
+        - INSPECTING
+        - INSPECTED
+        - REFUNDED
+        - COMPLETED
+    lines:
+      type: array
+      items:
+        type: object
+        properties:
+          order_line_id:
+            $ref: './common.yaml#/schemas/Id'
+          quantity:
+            $ref: './common.yaml#/schemas/Quantity'
+          reason_code:
+            $ref: '#/ReturnReasonCode'
+          refund_amount:
+            allOf:
+              - $ref: './common.yaml#/schemas/Money'
+            description: |
+              Tính theo **giá thực trả** (sau khi phân bổ giảm giá),
+              không phải giá niêm yết.
+    requested_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+
+# ============================================================ NỘI DUNG
+ContentSummary:
+  type: object
+  required: [id, content_type, title]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    content_type:
+      type: string
+      enum: [VIDEO, IMAGE, LOOKBOOK, ARTICLE, OUTFIT, LIVE]
+    title:
+      type: string
+    creator:
+      $ref: '#/CreatorRef'
+    is_sponsored:
+      type: boolean
+      description: |
+        Hệ thống **tự động** đặt khi nội dung thuộc chiến dịch có trả phí.
+        Creator không tự khai và không tắt được — nghĩa vụ pháp lý của nền tảng.
+    media:
+      type: array
+      items:
+        $ref: '#/Image'
+    published_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+    engagement:
+      type: object
+      properties:
+        views:
+          type: integer
+        likes:
+          type: integer
+        saves:
+          type: integer
+
+CreatorRef:
+  type: object
+  required: [id, display_name]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    display_name:
+      type: string
+    avatar_url:
+      type: string
+      format: uri
+    creator_type:
+      type: string
+      enum: [KOC, KOL, INFLUENCER, STYLIST, CONTENT_PARTNER]
+
+Outfit:
+  type: object
+  description: |
+    Bộ phối đồ — đơn vị nội dung **đặc thù thời trang**.
+
+    Không phải "bài viết có nhiều link": có tổng giá, cho phép mua cả bộ,
+    và có sản phẩm thay thế khi hết hàng.
+  required: [id, name, items]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    name:
+      type: string
+      examples: ['Đi làm mùa thu']
+    description:
+      type: string
+    creator:
+      $ref: '#/CreatorRef'
+    is_sponsored:
+      type: boolean
+    media:
+      type: array
+      items:
+        $ref: '#/Image'
+    items:
+      type: array
+      minItems: 2
+      items:
+        $ref: '#/OutfitItem'
+    total_price:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Tổng giá cả bộ — cho phép "mua cả bộ", tăng giá trị đơn hàng.
+    style_tags:
+      type: array
+      items:
+        type: string
+
+OutfitItem:
+  type: object
+  required: [product_id, name, price, available]
+  properties:
+    product_id:
+      $ref: './common.yaml#/schemas/Id'
+    variant_id:
+      $ref: './common.yaml#/schemas/Id'
+    name:
+      type: string
+    image_url:
+      type: string
+      format: uri
+    price:
+      $ref: './common.yaml#/schemas/Money'
+    role:
+      type: string
+      enum: [MAIN, COMPLEMENT, ACCESSORY]
+    available:
+      type: boolean
+    substitutes:
+      type: array
+      description: |
+        Sản phẩm thay thế khi hết hàng. **Nội dung sống lâu hơn sản phẩm** —
+        video hay được xem nhiều tháng khi sản phẩm gốc đã hết. Không được
+        để nội dung dẫn tới trang lỗi.
+      items:
+        $ref: '#/ProductSummary'
+
+ProductTag:
+  type: object
+  description: Gắn sản phẩm vào nội dung, có vị trí không gian hoặc thời gian.
+  required: [product_id]
+  properties:
+    product_id:
+      $ref: './common.yaml#/schemas/Id'
+    offer_id:
+      $ref: './common.yaml#/schemas/Id'
+    position_x:
+      type: number
+      format: float
+      minimum: 0
+      maximum: 1
+      description: Vị trí tương đối trên ảnh (0–1).
+    position_y:
+      type: number
+      format: float
+      minimum: 0
+      maximum: 1
+    timestamp_second:
+      type: integer
+      description: Vị trí trong video (giây).
+
+Review:
+  type: object
+  required: [id, rating, created_at]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    rating:
+      type: integer
+      minimum: 1
+      maximum: 5
+    title:
+      type: string
+    body:
+      type: string
+    images:
+      type: array
+      items:
+        $ref: '#/Image'
+    purchased_size:
+      type: string
+      description: Size khách đã mua — thông tin hữu ích cho người mua sau.
+    fit_feedback:
+      type: string
+      enum: [TOO_SMALL, TRUE_TO_SIZE, TOO_LARGE]
+      description: Phản hồi về form dáng — đầu vào cải thiện bảng size.
+    is_verified_purchase:
+      type: boolean
+      description: Chỉ khách **đã mua và nhận hàng** mới được đánh giá.
+    created_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+
+# ============================================================ TÀI CHÍNH
+SellerBalance:
+  type: object
+  description: |
+    Số dư seller ở **năm trạng thái**. Hiển thị đủ giúp seller hiểu vì sao
+    chưa nhận được tiền — giảm khiếu nại đáng kể.
+
+    Nguồn sự thật duy nhất là module `payment`. Không module nào khác
+    được tự cộng trừ bản ghi để tính.
+  required: [currency, pending, available]
+  properties:
+    currency:
+      type: string
+    pending:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Đơn đã giao, **đang trong thời hạn đổi trả** — chưa được rút.
+    available:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Đã hết hạn đổi trả, sẵn sàng chi trả.
+    processing:
+      $ref: './common.yaml#/schemas/Money'
+    on_hold:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Bị giữ do tranh chấp, vi phạm, hoặc yêu cầu pháp lý.
+    reserve_held:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: |
+        Giữ bảo đảm theo chính sách — cơ chế bảo vệ khi seller có tỷ lệ
+        hoàn hàng cao hoặc bỏ trốn với số dư âm.
+    next_settlement_date:
+      type: string
+      format: date
+
+Settlement:
+  type: object
+  description: |
+    Đối soát một kỳ. Seller phải xem được **từng dòng** cấu thành số tiền —
+    đối soát không minh bạch là nguyên nhân tranh chấp lớn nhất.
+  required: [id, period, status, summary]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    period:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+    status:
+      type: string
+      enum: [DRAFT, PENDING_CONFIRMATION, CONFIRMED, PAID]
+    summary:
+      type: object
+      properties:
+        gross_sales:
+          $ref: './common.yaml#/schemas/Money'
+        platform_commission:
+          $ref: './common.yaml#/schemas/Money'
+        payment_fee:
+          $ref: './common.yaml#/schemas/Money'
+        fulfillment_fee:
+          $ref: './common.yaml#/schemas/Money'
+        creator_commission:
+          $ref: './common.yaml#/schemas/Money'
+        refunds:
+          $ref: './common.yaml#/schemas/Money'
+        adjustments:
+          $ref: './common.yaml#/schemas/Money'
+        net_payout:
+          allOf:
+            - $ref: './common.yaml#/schemas/Money'
+          description: Có thể **âm** khi hoàn hàng vượt doanh thu kỳ — chuyển sang kỳ sau.
+
+LedgerLine:
+  type: object
+  description: |
+    Một dòng bút toán. Trong mỗi `LedgerEntry`, **Σ DEBIT phải = Σ CREDIT**.
+  required: [account_type, direction, amount]
+  properties:
+    account_type:
+      type: string
+      enum:
+        - PLATFORM_CASH
+        - PLATFORM_REVENUE
+        - SELLER_PAYABLE
+        - CREATOR_PAYABLE
+        - CUSTOMER_REFUND_PAYABLE
+        - SUPPLIER_PAYABLE
+        - COGS
+        - FEE_EXPENSE
+        - INVENTORY_ASSET
+    owner_id:
+      allOf:
+        - $ref: './common.yaml#/schemas/Id'
+      description: Chủ tài khoản (seller, creator, nhà cung cấp) nếu có.
+    direction:
+      type: string
+      enum: [DEBIT, CREDIT]
+    amount:
+      $ref: './common.yaml#/schemas/Money'

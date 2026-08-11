@@ -1,0 +1,827 @@
+# Admin API
+#
+# Hai yêu cầu bắt buộc:
+#   1. Xác thực hai lớp cho vai trò ADMIN và OPS_FINANCE
+#   2. Mọi truy cập dữ liệu cá nhân khách hàng đều ghi audit log kèm LÝ DO
+#
+# Thao tác nhạy cảm BẮT BUỘC trường `reason` (có độ dài tối thiểu) —
+# lý do trống làm audit log vô giá trị.
+
+seller_approve:
+  post:
+    tags: [Admin]
+    summary: Duyệt hồ sơ nhà bán
+    description: |
+      Duyệt và gán chính sách cho seller.
+
+      `reserve_rate` là cơ chế giữ lại một tỷ lệ doanh thu với seller mới —
+      bảo vệ khi seller có tỷ lệ hoàn hàng cao hoặc bỏ trốn với số dư âm.
+      Tỷ lệ này giảm dần khi seller chứng minh được độ tin cậy.
+    operationId: approveSeller
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: seller_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [seller_type, commission_policy_id]
+            properties:
+              seller_type:
+                type: string
+                enum: [INDIVIDUAL, BUSINESS, LOCAL_BRAND, STRATEGIC_PARTNER]
+              commission_policy_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              reserve_rate:
+                allOf:
+                  - $ref: '../components/common.yaml#/schemas/BasisPoints'
+                description: Tỷ lệ giữ bảo đảm (1000 = 10%).
+              reserve_hold_days:
+                type: integer
+              settlement_cycle:
+                type: string
+                enum: [WEEKLY, BIWEEKLY, MONTHLY]
+              notes:
+                type: string
+    responses:
+      '200':
+        description: Seller đã được duyệt
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                seller:
+                  type: object
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    status:
+                      type: string
+                    approved_at:
+                      $ref: '../components/common.yaml#/schemas/Timestamp'
+                side_effects:
+                  type: array
+                  description: |
+                    Các tác động diễn ra **bất đồng bộ** qua domain event.
+                    Hiển thị để người vận hành hiểu điều gì đã xảy ra.
+                  items:
+                    type: string
+            example:
+              seller:
+                id: sel_01J9XABC123DEF456GHJKMNPQR
+                status: APPROVED
+                approved_at: '2026-08-11T09:30:00Z'
+              side_effects:
+                - Đã cấp vai trò SELLER_OWNER
+                - Đã tạo tài khoản tài chính
+                - Đã gửi email thông báo
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+seller_suspend:
+  post:
+    tags: [Admin]
+    summary: Đình chỉ nhà bán
+    description: |
+      **Quy tắc quan trọng:** đình chỉ seller **không được hủy** đơn hàng
+      khách đã trả tiền.
+
+      Response trả về số đơn đang xử lý để người vận hành theo dõi — seller
+      phải hoàn tất, hoặc admin hủy có kiểm soát và hoàn tiền khách.
+    operationId: suspendSeller
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: seller_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason, reason_code]
+            properties:
+              reason:
+                type: string
+                minLength: 20
+                description: |
+                  **Bắt buộc**, tối thiểu 20 ký tự. Ghi vào audit log.
+                  Giá trị như "test" hoặc "fix" bị từ chối.
+              reason_code:
+                type: string
+                enum: [PERFORMANCE_VIOLATION, POLICY_VIOLATION, COUNTERFEIT, FRAUD, LEGAL_REQUEST]
+              hold_payouts:
+                type: boolean
+                default: true
+          example:
+            reason: Tỷ lệ hủy đơn 8% vượt ngưỡng 3% trong 30 ngày liên tiếp
+            reason_code: PERFORMANCE_VIOLATION
+            hold_payouts: true
+    responses:
+      '200':
+        description: Seller đã bị đình chỉ
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                seller:
+                  type: object
+                effects:
+                  type: object
+                  properties:
+                    offers_hidden:
+                      type: integer
+                    pending_fulfillment_orders:
+                      type: integer
+                    note:
+                      type: string
+            example:
+              seller:
+                id: sel_01J9XABC123DEF456GHJKMNPQR
+                status: SUSPENDED
+              effects:
+                offers_hidden: 142
+                pending_fulfillment_orders: 8
+                note: Đơn đang xử lý KHÔNG bị hủy — seller phải hoàn tất hoặc chuyển admin xử lý
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+ledger_adjustment:
+  post:
+    tags: [Admin]
+    summary: Ghi bút toán điều chỉnh
+    description: |
+      **Endpoint nhạy cảm nhất hệ thống.**
+
+      Không có endpoint nào **sửa** bút toán cũ — sổ cái bất biến. Sửa sai
+      bằng cách ghi bút toán điều chỉnh **mới**, giữ được lịch sử và giải
+      thích được khi kiểm toán.
+
+      Bút toán phải cân bằng: **Σ DEBIT = Σ CREDIT**.
+
+      Yêu cầu: xác thực hai lớp, `reason` bắt buộc, `Idempotency-Key` bắt buộc.
+    operationId: createLedgerAdjustment
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason, reference_type, reference_id, lines]
+            properties:
+              reason:
+                type: string
+                minLength: 20
+              reference_type:
+                type: string
+                enum: [ORDER, SETTLEMENT, RETURN, PRODUCTION_ORDER, MANUAL]
+              reference_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              lines:
+                type: array
+                minItems: 2
+                items:
+                  $ref: '../components/schemas.yaml#/LedgerLine'
+          example:
+            reason: Điều chỉnh hoa hồng đơn FC-2026-08-001234, ghi nhầm tỷ lệ 12% thay vì 10%
+            reference_type: ORDER
+            reference_id: ord_01J9XABC123DEF456GHJKMNPQR
+            lines:
+              - account_type: PLATFORM_REVENUE
+                direction: DEBIT
+                amount:
+                  amount: 5980
+                  currency: VND
+              - account_type: SELLER_PAYABLE
+                owner_id: sel_01J9XABC123DEF456GHJKMNPQR
+                direction: CREDIT
+                amount:
+                  amount: 5980
+                  currency: VND
+    responses:
+      '201':
+        description: Bút toán đã ghi
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ledger_entry:
+                  type: object
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    entry_type:
+                      type: string
+                    created_at:
+                      $ref: '../components/common.yaml#/schemas/Timestamp'
+      '422':
+        description: Bút toán không cân bằng
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: LEDGER_ENTRY_UNBALANCED
+                message: Tổng ghi nợ phải bằng tổng ghi có
+                details:
+                  total_debit: 5980
+                  total_credit: 5000
+                  difference: 980
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+payouts:
+  post:
+    tags: [Admin]
+    summary: Thực hiện chi trả
+    description: |
+      **Thao tác nguy hiểm nhất** — chuyển tiền thật ra ngoài hệ thống.
+      Chuyển tiền hai lần do lỗi thử lại rất khó thu hồi.
+
+      Yêu cầu bắt buộc:
+      - Xác thực hai lớp
+      - `Idempotency-Key`
+      - Kiểm tra trạng thái **trước khi** gọi API ngân hàng
+      - Ghi audit log đầy đủ
+
+      Response cảnh báo rõ các trường hợp bất thường (số dư âm) thay vì
+      im lặng bỏ qua.
+    operationId: executePayouts
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [settlement_ids]
+            properties:
+              settlement_ids:
+                type: array
+                minItems: 1
+                items:
+                  $ref: '../components/common.yaml#/schemas/Id'
+              scheduled_date:
+                type: string
+                format: date
+    responses:
+      '202':
+        description: Lô chi trả đã được nhận, đang xử lý
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                batch_id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                payouts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      recipient_type:
+                        type: string
+                        enum: [SELLER, CREATOR, SUPPLIER]
+                      recipient_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      amount:
+                        $ref: '../components/common.yaml#/schemas/Money'
+                      status:
+                        type: string
+                        enum: [PROCESSING, COMPLETED, FAILED]
+                total_amount:
+                  $ref: '../components/common.yaml#/schemas/Money'
+                warnings:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      recipient_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      code:
+                        type: string
+                      message:
+                        type: string
+            example:
+              batch_id: pbt_01J9XABC123DEF456GHJKMNPQR
+              payouts:
+                - id: pay_01J9XABC123DEF456GHJKMNPQR
+                  recipient_type: SELLER
+                  recipient_id: sel_01J9XABC123DEF456GHJKMNPQR
+                  amount:
+                    amount: 9692500
+                    currency: VND
+                  status: PROCESSING
+              total_amount:
+                amount: 24500000
+                currency: VND
+              warnings:
+                - recipient_id: sel_01J9XDEF456GHJKMNPQRSTVWXY
+                  code: NEGATIVE_BALANCE
+                  message: Số dư âm −450.000đ, chuyển sang kỳ sau
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+
+inventory_adjustment:
+  post:
+    tags: [Admin]
+    summary: Điều chỉnh tồn kho thủ công
+    description: |
+      Dùng khi kiểm kê phát hiện chênh lệch.
+
+      `reason` bắt buộc và được ghi vào nhật ký biến động tồn kho —
+      độ lệch kiểm kê > 1% cần điều tra (mất cắp, lấy nhầm không ghi nhận,
+      lỗi nhập liệu).
+    operationId: adjustInventory
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [sku_id, stock_location_id, reason, adjustments]
+            properties:
+              sku_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              stock_location_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              reason:
+                type: string
+                minLength: 10
+              adjustments:
+                type: object
+                description: |
+                  Giá trị **tuyệt đối** cho từng trạng thái. Tổng phải bằng
+                  số lượng vật lý thực tế; mọi thành phần ≥ 0.
+                properties:
+                  quantity_available:
+                    type: integer
+                    minimum: 0
+                  quantity_damaged:
+                    type: integer
+                    minimum: 0
+    responses:
+      '200':
+        description: Tồn kho đã điều chỉnh
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sku_id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                before:
+                  type: object
+                after:
+                  type: object
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+production_orders:
+  post:
+    tags: [Admin]
+    summary: Tạo đơn sản xuất
+    description: |
+      Đặt sản xuất theo tech pack cho own brand.
+
+      **Phân bổ theo size là bắt buộc** — sản xuất 500 áo không phải 500 chiếc
+      giống nhau. Phân bổ sai gây thiệt hại kép: hết size bán chạy (mất doanh
+      số) và tồn size ế (hàng mất giá).
+
+      Không tạo được đơn khi **mẫu chưa được duyệt**.
+    operationId: createProductionOrder
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [product_development_id, supplier_id, lines, unit_cost_agreed]
+            properties:
+              product_development_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              supplier_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              tech_pack_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              lines:
+                type: array
+                minItems: 1
+                description: Phân bổ số lượng theo từng SKU (bao gồm size).
+                items:
+                  type: object
+                  required: [sku_id, quantity]
+                  properties:
+                    sku_id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    size:
+                      type: string
+                    quantity:
+                      type: integer
+                      minimum: 1
+              unit_cost_agreed:
+                $ref: '../components/common.yaml#/schemas/Money'
+              expected_delivery_date:
+                type: string
+                format: date
+          example:
+            product_development_id: pdv_01J9XABC123DEF456GHJKMNPQR
+            supplier_id: sup_01J9XABC123DEF456GHJKMNPQR
+            tech_pack_id: tpk_01J9XABC123DEF456GHJKMNPQR
+            lines:
+              - sku_id: sku_01J9XABC123DEF456GHJKMNPQR
+                size: S
+                quantity: 75
+              - sku_id: sku_01J9XDEF456GHJKMNPQRSTVWXY
+                size: M
+                quantity: 150
+              - sku_id: sku_01J9XGHJ456KMNPQRSTVWXYZ23
+                size: L
+                quantity: 150
+              - sku_id: sku_01J9XJKM456NPQRSTVWXYZ2345
+                size: XL
+                quantity: 100
+              - sku_id: sku_01J9XMNP456QRSTVWXYZ234567
+                size: XXL
+                quantity: 25
+            unit_cost_agreed:
+              amount: 100000
+              currency: VND
+            expected_delivery_date: '2026-10-15'
+    responses:
+      '201':
+        description: Đơn sản xuất đã tạo
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                production_order:
+                  type: object
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    status:
+                      type: string
+                    total_quantity:
+                      type: integer
+                    total_cost:
+                      $ref: '../components/common.yaml#/schemas/Money'
+      '422':
+        description: Mẫu chưa được duyệt
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: SAMPLE_NOT_APPROVED
+                message: Không thể tạo đơn sản xuất khi mẫu chưa được duyệt
+                details:
+                  product_development_id: pdv_01J9XABC123DEF456GHJKMNPQR
+                  current_status: SAMPLING
+                  sample_round: 2
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+replenishment_suggestions:
+  get:
+    tags: [Admin]
+    summary: Đề xuất bổ sung hàng
+    description: |
+      **Hệ thống đề xuất, con người quyết định.**
+
+      Hệ thống KHÔNG tự đặt hàng — một lỗi tính toán có thể dẫn tới đơn sản
+      xuất sai hàng trăm triệu đồng.
+
+      Response hiển thị:
+      - Tín hiệu nhu cầu **đầy đủ**, bao gồm nhu cầu **bị bỏ lỡ** (hết hàng,
+        tìm không ra kết quả, đăng ký nhận thông báo)
+      - **Mâu thuẫn** giữa MOQ nhà cung cấp và dự báo
+      - **Ước tính tài chính** của từng phương án
+
+      Nếu chỉ nhìn doanh số lịch sử, hệ thống sẽ liên tục sản xuất thiếu
+      hàng bán chạy — sai lầm kinh điển của ngành.
+    operationId: listReplenishmentSuggestions
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: has_conflict
+        in: query
+        description: Chỉ đề xuất có mâu thuẫn MOQ/dự báo.
+        schema:
+          type: boolean
+    responses:
+      '200':
+        description: Danh sách đề xuất
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/ReplenishmentSuggestion'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+            example:
+              data:
+                - id: rps_01J9XABC123DEF456GHJKMNPQR
+                  sku_id: sku_01J9XABC123DEF456GHJKMNPQR
+                  sku_code: SM-LIN-OXF-WHT-M
+                  product_name: Áo sơ mi linen Oxford — Trắng / M
+                  current_stock: 42
+                  reorder_point: 400
+                  sales_velocity_per_week: 50
+                  lead_time_weeks: 6
+                  suggested_quantity: 500
+                  demand_signals:
+                    stockout_events_30d: 3
+                    search_no_result_30d: 240
+                    notify_requests: 85
+                    wishlist_adds_30d: 190
+                  constraints:
+                    supplier_moq: 500
+                    forecast_demand: 300
+                    conflict: true
+                    conflict_note: MOQ 500 vượt dự báo 300. Rủi ro tồn 200 đơn vị (~20 triệu đồng).
+                  options:
+                    - action: ORDER_MOQ
+                      quantity: 500
+                      estimated_excess_risk:
+                        amount: 20000000
+                        currency: VND
+                    - action: SKIP
+                      estimated_lost_sales:
+                        amount: 89700000
+                        currency: VND
+                    - action: ALTERNATE_SUPPLIER
+                      supplier_id: sup_01J9XDEF456GHJKMNPQRSTVWXY
+                      moq: 200
+                      unit_cost_delta:
+                        amount: 15000
+                        currency: VND
+              pagination:
+                has_more: false
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+customer_detail:
+  get:
+    tags: [Admin]
+    summary: Xem hồ sơ khách hàng
+    description: |
+      **Mọi lần gọi endpoint này đều ghi audit log** kèm `reason`.
+
+      Cảnh báo tự động khi nhân viên truy cập nhiều hồ sơ khách trong thời
+      gian ngắn mà không liên quan tới ticket hỗ trợ nào.
+
+      **Số đo cơ thể** không được trả về trừ khi có quyền đặc biệt — đây là
+      dữ liệu cá nhân nhạy cảm.
+    operationId: getCustomerAsAdmin
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: X-Access-Reason
+        in: header
+        required: true
+        description: |
+          **Bắt buộc.** Lý do truy cập, ghi vào audit log.
+        schema:
+          type: string
+          minLength: 10
+    responses:
+      '200':
+        description: Hồ sơ khách hàng (đã ghi audit)
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer:
+                  type: object
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    name:
+                      type: string
+                    email:
+                      type: string
+                    phone:
+                      type: string
+                    tier:
+                      type: string
+                    created_at:
+                      $ref: '../components/common.yaml#/schemas/Timestamp'
+                audit_logged:
+                  type: boolean
+                  description: Luôn `true` — xác nhận đã ghi nhật ký truy cập.
+      '400':
+        description: Thiếu lý do truy cập
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+audit_log:
+  get:
+    tags: [Admin]
+    summary: Nhật ký thao tác
+    description: |
+      Chỉ vai trò `ADMIN` truy cập được.
+
+      Audit log **bất biến** — không có endpoint nào sửa hoặc xóa. Nếu người
+      có quyền sửa được audit log, nó mất hết giá trị.
+    operationId: listAuditLog
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: resource_type
+        in: query
+        schema:
+          type: string
+          enum: [LEDGER, INVENTORY, SELLER, CREATOR, CUSTOMER, CONTENT, ORDER, CONFIG]
+      - name: action
+        in: query
+        schema:
+          type: string
+      - name: actor_id
+        in: query
+        schema:
+          type: string
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date
+    responses:
+      '200':
+        description: Nhật ký thao tác
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      actor_type:
+                        type: string
+                        enum: [USER, SYSTEM, API_CLIENT]
+                      actor_id:
+                        type: string
+                      action:
+                        type: string
+                      resource_type:
+                        type: string
+                      resource_id:
+                        type: string
+                      reason:
+                        type: string
+                      request_id:
+                        type: string
+                      occurred_at:
+                        $ref: '../components/common.yaml#/schemas/Timestamp'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+# --------------------------------------------------------------- Schema cục bộ
+ReplenishmentSuggestion:
+  type: object
+  description: |
+    Đề xuất bổ sung hàng — ví dụ điển hình của **phần mềm hỗ trợ ra quyết định**,
+    không phải phần mềm ghi chép quyết định.
+  required: [id, sku_id, current_stock, suggested_quantity]
+  properties:
+    id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    sku_id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    sku_code:
+      type: string
+    product_name:
+      type: string
+    current_stock:
+      type: integer
+    reorder_point:
+      type: integer
+      description: '(Tốc độ bán × Lead time) + Safety stock'
+    sales_velocity_per_week:
+      type: number
+    lead_time_weeks:
+      type: integer
+    suggested_quantity:
+      type: integer
+    demand_signals:
+      type: object
+      description: |
+        Bao gồm tín hiệu đo **nhu cầu không được đáp ứng** — thứ không xuất
+        hiện trong dữ liệu bán hàng.
+      properties:
+        stockout_events_30d:
+          type: integer
+        search_no_result_30d:
+          type: integer
+        notify_requests:
+          type: integer
+        wishlist_adds_30d:
+          type: integer
+    constraints:
+      type: object
+      properties:
+        supplier_moq:
+          type: integer
+        forecast_demand:
+          type: integer
+        season_weeks_remaining:
+          type: integer
+        conflict:
+          type: boolean
+        conflict_note:
+          type: string
+    options:
+      type: array
+      description: Các phương án kèm ước tính tài chính để người dùng cân nhắc.
+      items:
+        type: object
+        properties:
+          action:
+            type: string
+            enum: [ORDER_MOQ, ORDER_FORECAST, SKIP, ALTERNATE_SUPPLIER]
+          quantity:
+            type: integer
+          supplier_id:
+            $ref: '../components/common.yaml#/schemas/Id'
+          moq:
+            type: integer
+          unit_cost_delta:
+            $ref: '../components/common.yaml#/schemas/Money'
+          estimated_excess_risk:
+            $ref: '../components/common.yaml#/schemas/Money'
+          estimated_lost_sales:
+            $ref: '../components/common.yaml#/schemas/Money'

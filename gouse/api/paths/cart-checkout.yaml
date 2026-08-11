@@ -1,0 +1,542 @@
+# Giỏ hàng và Checkout
+#
+# Ranh giới quan trọng nhất:
+#   Cart     — KHÔNG giữ tồn kho, giá cập nhật động, sống nhiều ngày
+#   Checkout — CÓ giữ tồn kho (TTL 15 phút), giá ĐÓNG BĂNG, sống vài phút
+
+cart:
+  get:
+    tags: [Cart]
+    summary: Xem giỏ hàng
+    description: |
+      Giỏ hàng nhóm theo seller — khách cần biết hàng đến từ đâu và
+      **thời gian giao khác nhau**.
+
+      Món không còn hợp lệ được **đánh dấu** trong `availability`, không tự
+      động xóa — xóa im lặng làm khách bối rối.
+    operationId: getCart
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: X-Session-ID
+        in: header
+        description: Bắt buộc với khách vãng lai (chưa đăng nhập).
+        schema:
+          type: string
+    responses:
+      '200':
+        description: Giỏ hàng hiện tại
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cart:
+                  $ref: '../components/schemas.yaml#/Cart'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+cart_items:
+  post:
+    tags: [Cart]
+    summary: Thêm sản phẩm vào giỏ
+    description: |
+      Thêm một **offer** (không phải SKU) vào giỏ — khách mua của một nhà bán
+      cụ thể với giá cụ thể.
+
+      Trường `source` ghi nhận nguồn giới thiệu **ngay tại bước này**, không
+      chờ tới lúc mua. Cho phép đo tỷ lệ thêm giỏ của từng nội dung và quy kết
+      chính xác khi khách mua sau vài ngày.
+
+      **Không giữ tồn kho** — kiểm tra tồn kho ở đây chỉ để hiển thị.
+    operationId: addCartItem
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - $ref: '../components/common.yaml#/parameters/RequestId'
+      - name: X-Session-ID
+        in: header
+        schema:
+          type: string
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [offer_id, quantity]
+            properties:
+              offer_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              quantity:
+                type: integer
+                minimum: 1
+              source:
+                $ref: '../components/schemas.yaml#/AttributionSource'
+          example:
+            offer_id: off_01J9XABC123DEF456GHJKMNPQR
+            quantity: 2
+            source:
+              content_id: cnt_01J9XABC123DEF456GHJKMNPQR
+              creator_id: cre_01J9XABC123DEF456GHJKMNPQR
+    responses:
+      '200':
+        description: Giỏ hàng sau khi thêm
+        headers:
+          X-Request-ID:
+            $ref: '../components/common.yaml#/headers/X-Request-ID'
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cart:
+                  $ref: '../components/schemas.yaml#/Cart'
+            example:
+              cart:
+                id: crt_01J9XABC123DEF456GHJKMNPQR
+                groups:
+                  - seller:
+                      id: sel_01J9XABC123DEF456GHJKMNPQR
+                      name: Cửa hàng ABC
+                      rating: 4.8
+                    items:
+                      - id: cit_01J9XABC123DEF456GHJKMNPQR
+                        offer_id: off_01J9XABC123DEF456GHJKMNPQR
+                        product_name: Áo sơ mi linen Oxford
+                        variant_description: Trắng / M
+                        unit_price:
+                          amount: 299000
+                          currency: VND
+                        quantity: 2
+                        line_total:
+                          amount: 598000
+                          currency: VND
+                        availability: IN_STOCK
+                    estimated_delivery_days: 2
+                subtotal:
+                  amount: 598000
+                  currency: VND
+                estimated_shipping:
+                  amount: 30000
+                  currency: VND
+                total:
+                  amount: 628000
+                  currency: VND
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+      '422':
+        description: |
+          Vi phạm quy tắc nghiệp vụ. Thông báo lỗi nêu rõ **món nào** và
+          **còn bao nhiêu** — khách cần đủ thông tin để quyết định.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: INSUFFICIENT_INVENTORY
+                message: Sản phẩm không đủ số lượng
+                details:
+                  offer_id: off_01J9XABC123DEF456GHJKMNPQR
+                  requested: 2
+                  available: 1
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+cart_item_detail:
+  patch:
+    tags: [Cart]
+    summary: Cập nhật số lượng
+    operationId: updateCartItem
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: cart_item_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [quantity]
+            properties:
+              quantity:
+                type: integer
+                minimum: 1
+    responses:
+      '200':
+        description: Giỏ hàng sau khi cập nhật
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cart:
+                  $ref: '../components/schemas.yaml#/Cart'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+  delete:
+    tags: [Cart]
+    summary: Xóa món khỏi giỏ
+    operationId: removeCartItem
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: cart_item_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Giỏ hàng sau khi xóa
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cart:
+                  $ref: '../components/schemas.yaml#/Cart'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+checkout:
+  post:
+    tags: [Checkout]
+    summary: Bắt đầu phiên thanh toán
+    description: |
+      Hai việc quan trọng xảy ra ở đây:
+
+      1. **Giữ tồn kho** với TTL 15 phút (`expires_at`)
+      2. **Đóng băng giá** — seller đổi giá sau đó không ảnh hưởng phiên này
+
+      Nếu không đủ hàng, trả `422` nêu rõ món nào thiếu và còn bao nhiêu.
+    operationId: startCheckout
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - name: X-Session-ID
+        in: header
+        schema:
+          type: string
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [cart_id]
+            properties:
+              cart_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              guest_email:
+                type: string
+                format: email
+                description: Bắt buộc với khách vãng lai.
+              guest_phone:
+                type: string
+    responses:
+      '201':
+        description: Phiên thanh toán đã tạo, tồn kho đã được giữ
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Checkout'
+            example:
+              id: chk_01J9XABC123DEF456GHJKMNPQR
+              status: STARTED
+              expires_at: '2026-08-11T14:38:00Z'
+              lines:
+                - offer_id: off_01J9XABC123DEF456GHJKMNPQR
+                  product_name: Áo sơ mi linen Oxford
+                  variant_description: Trắng / M
+                  unit_price:
+                    amount: 299000
+                    currency: VND
+                  quantity: 2
+                  line_total:
+                    amount: 598000
+                    currency: VND
+              subtotal:
+                amount: 598000
+                currency: VND
+              shipping_fee:
+                amount: 30000
+                currency: VND
+              discount_amount:
+                amount: 0
+                currency: VND
+              total:
+                amount: 628000
+                currency: VND
+      '422':
+        description: Không đủ tồn kho
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: INSUFFICIENT_INVENTORY
+                message: Một số sản phẩm không đủ số lượng
+                details:
+                  unavailable_items:
+                    - offer_id: off_01J9XABC123DEF456GHJKMNPQR
+                      product_name: Áo sơ mi linen Oxford
+                      variant_description: Trắng / M
+                      requested: 2
+                      available: 1
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+checkout_detail:
+  get:
+    tags: [Checkout]
+    summary: Xem phiên thanh toán
+    operationId: getCheckout
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Phiên thanh toán
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Checkout'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+checkout_shipping_address:
+  patch:
+    tags: [Checkout]
+    summary: Đặt địa chỉ giao hàng
+    description: |
+      Sau khi đặt địa chỉ, hệ thống tính phí vận chuyển cho **từng nhóm hàng**
+      (theo nguồn xuất) và trả về `shipping_groups`.
+    operationId: setCheckoutShippingAddress
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../components/common.yaml#/schemas/Address'
+    responses:
+      '200':
+        description: Phiên thanh toán với phí vận chuyển đã tính
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Checkout'
+      '409':
+        description: Phiên đã hết hạn
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: CHECKOUT_EXPIRED
+                message: Phiên thanh toán đã hết hạn, vui lòng thử lại
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+checkout_shipping_method:
+  patch:
+    tags: [Checkout]
+    summary: Chọn phương thức vận chuyển
+    operationId: setCheckoutShippingMethod
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [shipping_method]
+            properties:
+              shipping_method:
+                type: string
+                enum: [STANDARD, EXPRESS]
+    responses:
+      '200':
+        description: Phiên thanh toán đã cập nhật
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Checkout'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+
+checkout_coupon:
+  post:
+    tags: [Checkout]
+    summary: Áp dụng mã giảm giá
+    description: |
+      Giảm giá được **phân bổ theo tỷ lệ xuống từng dòng hàng** và lưu lại —
+      cần cho việc hoàn tiền đúng khi khách trả một phần đơn.
+    operationId: applyCheckoutCoupon
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code]
+            properties:
+              code:
+                type: string
+    responses:
+      '200':
+        description: Phiên thanh toán với giảm giá đã áp dụng
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Checkout'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+checkout_complete:
+  post:
+    tags: [Checkout]
+    summary: Hoàn tất thanh toán và tạo đơn hàng
+    description: |
+      Bước cuối của luồng mua hàng.
+
+      **Idempotency bắt buộc** — khách bấm hai lần hoặc ứng dụng thử lại
+      không được tạo hai đơn hoặc trừ tiền hai lần.
+
+      Nếu thanh toán thất bại, phiên checkout **không bị hủy** — khách được
+      thử phương thức khác trong thời gian TTL còn lại.
+    operationId: completeCheckout
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - $ref: '../components/common.yaml#/parameters/RequestId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [payment_method]
+            properties:
+              payment_method:
+                type: string
+                enum: [CARD, BANK_TRANSFER, E_WALLET, COD]
+              payment_token:
+                type: string
+                description: |
+                  Token do cổng thanh toán cấp. Hệ thống **không bao giờ**
+                  nhận hay lưu số thẻ đầy đủ.
+    responses:
+      '201':
+        description: Đơn hàng đã được tạo
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order:
+                  $ref: '../components/schemas.yaml#/OrderSummary'
+                payment_redirect_url:
+                  type: [string, "null"]
+                  format: uri
+                  description: Có mặt khi phương thức thanh toán cần chuyển hướng.
+            example:
+              order:
+                id: ord_01J9XABC123DEF456GHJKMNPQR
+                order_number: FC-2026-08-001234
+                status: PAID
+                total:
+                  amount: 628000
+                  currency: VND
+                placed_at: '2026-08-11T14:25:11Z'
+      '409':
+        description: |
+          Phiên hết hạn, hoặc idempotency key đã dùng cho request khác.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            examples:
+              expired:
+                summary: Phiên hết hạn
+                value:
+                  error:
+                    code: CHECKOUT_EXPIRED
+                    message: Phiên thanh toán đã hết hạn, vui lòng thử lại
+                  request_id: req_01J9XABC123DEF456GHJKMNPQR
+              idempotency:
+                summary: Key đã dùng cho nội dung khác
+                value:
+                  error:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency key đã được dùng cho request khác
+                  request_id: req_01J9XABC123DEF456GHJKMNPQR
+      '422':
+        description: Thanh toán thất bại
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+            example:
+              error:
+                code: PAYMENT_FAILED
+                message: Thanh toán không thành công, vui lòng thử phương thức khác
+                details:
+                  reason: INSUFFICIENT_FUNDS
+              request_id: req_01J9XABC123DEF456GHJKMNPQR
