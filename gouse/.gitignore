@@ -1,0 +1,21 @@
+# Binary
+/bin/
+*.exe
+
+# Test và độ phủ
+coverage.out
+*.test
+
+# Sinh tự động từ đặc tả OpenAPI
+/api/generated/
+
+# Môi trường — KHÔNG BAO GIỜ commit bí mật
+.env
+.env.*
+!.env.example
+
+# Công cụ
+.DS_Store
+.idea/
+.vscode/
+node_modules/

@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"

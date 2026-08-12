@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  # Kiểm tra ranh giới module chạy RIÊNG và ĐẦU TIÊN.
+  #
+  # Vi phạm ranh giới làm CI THẤT BẠI, không phải cảnh báo — cảnh báo sẽ bị
+  # bỏ qua, và vi phạm nhỏ tích lũy tới mức không tách service được nữa.
+  #
+  # Xem docs/adr/0005-module-boundaries.md
+  architecture:
+    name: Ranh giới module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Kiểm tra ranh giới module
+        run: go run ./cmd/archcheck -v
+
+      - name: Test chính công cụ archcheck
+        # Công cụ bỏ sót vi phạm còn nguy hiểm hơn không có công cụ —
+        # nó tạo cảm giác an toàn giả.
+        run: go test ./cmd/archcheck/
+
+  quality:
+    name: Định dạng và phân tích tĩnh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Kiểm tra định dạng
+        run: |
+          out=$(gofmt -l . | grep -v '^$' || true)
+          if [ -n "$out" ]; then
+            echo "Các file chưa định dạng:"
+            echo "$out"
+            echo "Chạy: make fmt"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go mod tidy không tạo thay đổi
+        run: |
+          go mod tidy
+          if ! git diff --quiet go.mod go.sum 2>/dev/null; then
+            echo "go.mod/go.sum chưa được dọn. Chạy: make tidy"
+            git diff go.mod go.sum
+            exit 1
+          fi
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Test kèm race detector
+        # Race detector quan trọng với module inventory: khóa lạc quan
+        # phải chịu được tranh chấp đồng thời cao (live commerce).
+        run: go test -race ./...
+
+      - name: Báo cáo độ phủ
+        run: |
+          go test -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -1
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build binary
+        run: |
+          go build -o /tmp/api ./cmd/api
+          go build -o /tmp/worker ./cmd/worker
+
+      - name: Kiểm tra API khởi động và phục vụ được
+        # Biên dịch được KHÔNG có nghĩa là chạy được. Bước này kiểm chứng
+        # tiến trình thật sự khởi động và trả lời health check.
+        run: |
+          HTTP_PORT=18080 /tmp/api &
+          API_PID=$!
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:18080/health/live > /dev/null; then
+              echo "API đã sẵn sàng"
+              break
+            fi
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:18080/health/live || { echo "health/live thất bại"; exit 1; }
+          curl -sf http://127.0.0.1:18080/health/ready || { echo "health/ready thất bại"; exit 1; }
+          kill -TERM $API_PID
+          wait $API_PID 2>/dev/null || true
+          echo "API tắt có kiểm soát"
+
+  api-spec:
+    name: Đặc tả OpenAPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Kiểm tra đặc tả hợp lệ
+        run: npx --yes @redocly/cli@latest lint api/openapi.yaml
+
+      - name: Sinh kiểu TypeScript
+        # Kiểm chứng đặc tả DÙNG ĐƯỢC trong thực tế, không chỉ hợp lệ về cú pháp.
+        run: npx --yes openapi-typescript@latest api/openapi.yaml -o /tmp/types.ts
