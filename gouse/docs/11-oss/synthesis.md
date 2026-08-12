@@ -363,7 +363,7 @@ Fashion Commerce Platform độc quyền
 Bằng chứng cụ thể cho thấy chúng ta không bị OSS định đoạt:
 
 ```text
-24/61 năng lực phải TỰ XÂY vì OSS không có
+24/72 năng lực phải TỰ XÂY vì OSS không có
 Từ chối channel-per-seller dù 3 nền tảng lớn dùng nó
 Từ chối ORM dù đó là mặc định của hệ sinh thái Go
 Từ chối plugin system dù mọi nền tảng lớn đều có

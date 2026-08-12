@@ -179,10 +179,11 @@ Xem [creator-commerce.md](creator-commerce.md).
 
 | Quyết định | Số năng lực | Ý nghĩa |
 |---|---|---|
-| **ADOPT** | 14 | Mẫu đã kiểm chứng, lấy gần như nguyên vẹn |
-| **ADAPT** | 22 | Lấy ý tưởng, thiết kế lại cho domain thời trang/marketplace |
+| **ADOPT** | 16 | Mẫu đã kiểm chứng, lấy gần như nguyên vẹn |
+| **ADAPT** | 31 | Lấy ý tưởng, thiết kế lại cho domain thời trang/marketplace |
 | **BUILD** | 24 | Tự xây — OSS không có, hoặc đây là lợi thế cạnh tranh |
 | **REJECT** | 1 | Cố ý không làm (plugin system) |
+| **Tổng** | **72** | |
 
 ### Phân bố BUILD theo nhóm
 
