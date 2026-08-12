@@ -87,3 +87,7 @@ Xem [11-oss/synthesis.md](11-oss/synthesis.md) — tổng hợp sau khi nghiên 
 ## Tổng hợp bàn giao
 
 Xem [10-roadmap/deliverables.md](10-roadmap/deliverables.md) — tổng hợp toàn bộ bản đồ, ma trận, rủi ro và thứ tự triển khai đề xuất, kèm kết quả rà soát tính nhất quán của tài liệu.
+
+## Tiến độ triển khai
+
+Xem [10-roadmap/todo.md](10-roadmap/todo.md) — việc đã làm và việc còn lại theo 7 giai đoạn, đối chiếu với tiêu chí hoàn thành MVP. Cập nhật sau mỗi module.

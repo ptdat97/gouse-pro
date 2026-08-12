@@ -453,4 +453,5 @@ Ba điều cần giữ kỷ luật nhất trong quá trình code:
 
 - [../README.md](../README.md) — điều hướng toàn bộ tài liệu
 - [mvp.md](mvp.md) — phạm vi MVP chi tiết
+- [todo.md](todo.md) — tiến độ triển khai thực tế theo 7 giai đoạn ở mục 14
 - [../adr/README.md](../adr/README.md) — chỉ mục ADR
