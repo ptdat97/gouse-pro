@@ -80,6 +80,38 @@ api-lint: ## Kiểm tra đặc tả OpenAPI
 check: fmt-check vet arch test ## Chạy toàn bộ kiểm tra như CI
 	@echo -e "$(GREEN)✓ Mọi kiểm tra đều đạt$(RESET)"
 
+# ---------------------------------------------------------------- Database
+
+# DSN mặc định trỏ tới database phát triển cục bộ.
+# Ghi đè bằng: make migrate-up DATABASE_URL=postgres://...
+DATABASE_URL ?= postgres://postgres@127.0.0.1:5432/gouse?sslmode=disable
+
+.PHONY: migrate-up
+migrate-up: ## Áp dụng toàn bộ migration
+	migrate -path migrations -database "$(DATABASE_URL)" up
+
+.PHONY: migrate-down
+migrate-down: ## Lùi MỘT migration
+	migrate -path migrations -database "$(DATABASE_URL)" down 1
+
+.PHONY: migrate-reset
+migrate-reset: ## XÓA TOÀN BỘ bảng rồi tạo lại (chỉ dùng khi phát triển)
+	migrate -path migrations -database "$(DATABASE_URL)" down -all
+	migrate -path migrations -database "$(DATABASE_URL)" up
+
+.PHONY: migrate-version
+migrate-version: ## Xem phiên bản migration hiện tại
+	@migrate -path migrations -database "$(DATABASE_URL)" version
+
+.PHONY: migrate-new
+migrate-new: ## Tạo migration mới: make migrate-new NAME=ten_migration
+	@test -n "$(NAME)" || { echo "Thiếu NAME. Ví dụ: make migrate-new NAME=inventory"; exit 1; }
+	migrate create -ext sql -dir migrations -seq $(NAME)
+
+.PHONY: test-db
+test-db: ## Chạy test có dùng database thật
+	DATABASE_URL="$(DATABASE_URL)" go test ./... -count=1
+
 # ---------------------------------------------------------------- Tiện ích
 
 .PHONY: api-types
