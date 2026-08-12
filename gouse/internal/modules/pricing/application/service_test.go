@@ -194,6 +194,41 @@ type movingClock struct{ t time.Time }
 
 func (c *movingClock) Now() time.Time { return c.t }
 
+// Đổi giá rồi hỏi NGAY "giá thấp nhất 30 ngày" phải ra kết quả.
+//
+// Biên To của DateRange là biên MỞ, nên nếu khoảng truy vấn kết thúc đúng
+// tại thời điểm hiện tại thì điểm lịch sử vừa ghi bị loại — và câu trả lời
+// thành "chưa có dữ liệu". Với nghĩa vụ minh bạch giá, đó là câu trả lời
+// không được phép sai.
+//
+// Test này từng thất bại chập chờn: nó chỉ lộ ra khi đồng hồ trả về đúng
+// cùng một thời điểm cho cả lúc ghi lẫn lúc đọc.
+func TestDoiGiaRoiHoiNgayVanRaKetQua(t *testing.T) {
+	ctx := context.Background()
+	skuID := ids.MustNew(ids.PrefixSKU)
+
+	// Đồng hồ ĐỨNG YÊN: ghi và đọc ở cùng một thời điểm chính xác — đây là
+	// trường hợp biên mà đồng hồ hệ thống chỉ thỉnh thoảng mới tạo ra.
+	svc := application.NewInMemoryService(application.FixedClock{T: testNow})
+
+	if _, err := svc.SetPrice(ctx, application.SetPriceInput{
+		SKUID: skuID, Amount: vnd(299000), Reason: domain.ReasonSeasonEnd,
+	}); err != nil {
+		t.Fatalf("SetPrice: %v", err)
+	}
+
+	lowest, ok, err := svc.LowestPriceLast30Days(ctx, skuID)
+	if err != nil {
+		t.Fatalf("LowestPriceLast30Days: %v", err)
+	}
+	if !ok {
+		t.Fatal("giá vừa đặt bị loại khỏi khoảng 30 ngày — biên To đang là biên mở")
+	}
+	if lowest.Amount() != 299000 {
+		t.Errorf("giá thấp nhất = %v, mong 299000", lowest)
+	}
+}
+
 // Tra giá theo LÔ: hiển thị 50 sản phẩm là 1 lời gọi, không phải 50.
 func TestTraGiaTheoLo(t *testing.T) {
 	ctx := context.Background()

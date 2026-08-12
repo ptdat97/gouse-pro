@@ -350,6 +350,12 @@ func (s *Service) LowestPriceLast30Days(
 	now := s.clock.Now()
 	return s.LowestPriceIn(ctx, skuID, domain.DateRange{
 		From: now.AddDate(0, 0, -30),
-		To:   now,
+		// To để RỖNG nghĩa là "tới hiện tại, bao gồm cả hiện tại".
+		//
+		// KHÔNG dùng To: now — biên To là biên MỞ (xem DateRange.Contains),
+		// nên giá vừa đặt đúng thời điểm này sẽ bị loại khỏi kết quả. Hậu
+		// quả thật: đổi giá rồi hỏi ngay "giá thấp nhất 30 ngày" sẽ trả về
+		// "chưa có dữ liệu" — sai, và với nghĩa vụ minh bạch giá thì đó là
+		// câu trả lời không được phép sai.
 	})
 }
