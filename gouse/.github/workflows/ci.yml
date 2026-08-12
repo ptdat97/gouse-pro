@@ -68,12 +68,48 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+
+    # Database THẬT trong CI.
+    #
+    # Không có nó, toàn bộ test tầng kho lưu trữ sẽ tự bỏ qua và bộ test
+    # vẫn báo xanh — đúng loại "an toàn giả" mà archcheck sinh ra để tránh.
+    # Những ràng buộc quan trọng nhất (UNIQUE toàn cục trên sku_code, trigger
+    # chặn sửa lịch sử giá) CHỈ kiểm chứng được ở đây.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gouse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/gouse?sslmode=disable
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - name: Cài golang-migrate
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+      - name: Áp dụng migration
+        run: migrate -path migrations -database "$DATABASE_URL" up
+
+      - name: Kiểm tra migration đảo được
+        # Migration không lùi được là migration không sửa được khi có sự cố.
+        run: |
+          migrate -path migrations -database "$DATABASE_URL" down -all
+          migrate -path migrations -database "$DATABASE_URL" up
 
       - name: Test kèm race detector
         # Race detector quan trọng với module inventory: khóa lạc quan

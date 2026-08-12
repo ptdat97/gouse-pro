@@ -18,6 +18,16 @@ type SeedResult struct {
 	ThirdPartyID    string
 	LaunchedColID   string
 	UnlaunchedColID string
+
+	// MenTopsCategoryID là một danh mục lá, để module khác gắn sản phẩm mẫu
+	// vào một danh mục CÓ THẬT thay vì tự bịa định danh.
+	MenTopsCategoryID string
+
+	// AlreadySeeded báo dữ liệu đã có sẵn nên không nạp lại.
+	//
+	// Cần thiết với PostgreSQL: dữ liệu sống qua lần khởi động lại, và nạp
+	// lại sẽ vi phạm ràng buộc UNIQUE khiến tiến trình không khởi động được.
+	AlreadySeeded bool
 }
 
 // SeedDemo nạp dữ liệu mẫu tối thiểu để chạy thử khi dùng kho in-memory.
@@ -33,6 +43,19 @@ func SeedDemo(ctx context.Context, m *Module) (SeedResult, error) {
 	var out SeedResult
 	svc := m.svc
 	now := svc.Now()
+
+	// Với PostgreSQL, dữ liệu SỐNG QUA lần khởi động lại. Nạp lại sẽ vi phạm
+	// ràng buộc UNIQUE trên slug và làm tiến trình không khởi động được —
+	// nên phải kiểm tra trước.
+	//
+	// Kho in-memory luôn rỗng lúc khởi động nên nhánh này không ảnh hưởng.
+	existing, err := svc.ListBrands(ctx, domain.BrandFilter{Limit: 1})
+	if err != nil {
+		return out, fmt.Errorf("kiểm tra dữ liệu sẵn có: %w", err)
+	}
+	if len(existing) > 0 {
+		return SeedResult{AlreadySeeded: true}, nil
+	}
 
 	own, err := svc.CreateBrand(ctx, application.CreateBrandInput{
 		Name:            "Lumière",
@@ -115,8 +138,14 @@ func SeedDemo(ctx context.Context, m *Module) (SeedResult, error) {
 		{ParentID: men.ID(), Name: "Áo", Slug: "nam-ao", DisplayOrder: 1},
 		{ParentID: men.ID(), Name: "Quần", Slug: "nam-quan", DisplayOrder: 2},
 	} {
-		if _, err := svc.CreateCategory(ctx, c); err != nil {
+		created, err := svc.CreateCategory(ctx, c)
+		if err != nil {
 			return out, fmt.Errorf("nạp danh mục con %q: %w", c.Slug, err)
+		}
+		// Trả về một danh mục lá để module product gắn sản phẩm mẫu vào.
+		// Sản phẩm phải trỏ tới danh mục CÓ THẬT, nên không thể tự bịa id.
+		if c.Slug == "nam-ao" {
+			out.MenTopsCategoryID = created.ID().String()
 		}
 	}
 

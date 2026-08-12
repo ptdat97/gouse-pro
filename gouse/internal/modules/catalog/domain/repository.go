@@ -17,6 +17,19 @@ var ErrNotFound = errors.New("catalog: không tìm thấy")
 // phải duy nhất để không có hai trang cùng đường dẫn.
 var ErrSlugTaken = errors.New("catalog: slug đã được sử dụng")
 
+// ErrDuplicateAuthorization khi seller đã có ủy quyền đang hiệu lực cho
+// thương hiệu này.
+//
+// Hai bản ghi APPROVED cùng lúc sẽ khiến việc thu hồi không dứt điểm: thu
+// hồi một cái, cái còn lại vẫn cho phép bán.
+var ErrDuplicateAuthorization = errors.New("catalog: seller đã có ủy quyền đang hiệu lực cho thương hiệu này")
+
+// ErrDuplicateSizeChart khi thương hiệu đã có bảng size cho loại sản phẩm này.
+//
+// Hai bảng cùng (brand, product_type) thì không biết dùng bảng nào, và
+// khách sẽ thấy số đo khác nhau ở các trang khác nhau.
+var ErrDuplicateSizeChart = errors.New("catalog: thương hiệu đã có bảng size cho loại sản phẩm này")
+
 // BrandRepository là PORT do domain định nghĩa.
 //
 // Đây là đảo ngược phụ thuộc: domain nói "tôi cần lấy brand theo id",

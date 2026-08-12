@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
+	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
@@ -31,12 +32,29 @@ func newTestHandler(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("khởi tạo module catalog: %v", err)
 	}
-	if _, err := catalog.SeedDemo(context.Background(), catalogModule); err != nil {
+	seeded, err := catalog.SeedDemo(context.Background(), catalogModule)
+	if err != nil {
 		t.Fatalf("nạp dữ liệu mẫu: %v", err)
 	}
 
+	productModule, err := product.New(product.Config{
+		Storage: "memory",
+		Catalog: catalogModule,
+	})
+	if err != nil {
+		t.Fatalf("khởi tạo module product: %v", err)
+	}
+	if _, err := product.SeedDemo(context.Background(), productModule, product.SeedInput{
+		BrandID:      seeded.OwnBrandID,
+		CollectionID: seeded.LaunchedColID,
+		CategoryID:   seeded.MenTopsCategoryID,
+	}); err != nil {
+		t.Fatalf("nạp dữ liệu mẫu product: %v", err)
+	}
+
 	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, log, catalogModule)
+	// db = nil: test dùng kho in-memory nên không có database để kiểm tra.
+	registerRoutes(mux, cfg, log, nil, catalogModule, productModule)
 
 	// Nối cùng middleware với httpserver.New để test đúng hành vi thật.
 	return httpserver.Chain(mux,

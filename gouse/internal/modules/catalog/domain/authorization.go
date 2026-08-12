@@ -61,7 +61,11 @@ func NewBrandAuthorization(p NewAuthorizationParams) (*BrandAuthorization, error
 		return nil, ErrInvalidDateRange
 	}
 
-	id, err := ids.New(ids.PrefixBrand)
+	// Tiền tố RIÊNG, không dùng lại "brd" của thương hiệu: nếu trùng tiền
+	// tố thì id ủy quyền và id thương hiệu không phân biệt được, và việc
+	// truyền nhầm hai loại cho nhau sẽ không bị chặn — đúng thứ mà tiền tố
+	// sinh ra để ngăn.
+	id, err := ids.New(ids.PrefixAuthorization)
 	if err != nil {
 		return nil, err
 	}

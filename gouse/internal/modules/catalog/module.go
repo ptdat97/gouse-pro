@@ -11,7 +11,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/catalog/application"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/domain"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/infrastructure/inmemory"
+	"github.com/fashion-commerce/platform/internal/modules/catalog/infrastructure/postgres"
 	cataloghttp "github.com/fashion-commerce/platform/internal/modules/catalog/interfaces/http"
+	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
 // Module là cài đặt của API công khai.
@@ -34,6 +36,9 @@ type Config struct {
 	// database — mẫu adapter giả từ Flamingo.
 	Storage string
 
+	// DB là kết nối database. BẮT BUỘC khi Storage = "postgres".
+	DB *database.DB
+
 	// Clock cho phép test kiểm soát thời gian. Nil = đồng hồ hệ thống.
 	Clock application.Clock
 }
@@ -52,10 +57,21 @@ func New(cfg Config) (*Module, error) {
 		})}, nil
 
 	case "postgres":
-		// Cài đặt PostgreSQL sẽ nằm ở infrastructure/postgres/ và thỏa mãn
-		// CÙNG các port trong domain — đổi kho lưu trữ không sửa domain
-		// hay application.
-		return nil, errors.New("catalog: kho lưu trữ postgres chưa được cài đặt")
+		// Cùng các port, khác cài đặt: domain và application KHÔNG đổi một
+		// dòng nào khi chuyển kho lưu trữ. Đây là điểm mà kiến trúc ports
+		// & adapters trả lại giá trị.
+		if cfg.DB == nil {
+			return nil, errors.New("catalog: kho lưu trữ postgres cần kết nối database")
+		}
+		pool := cfg.DB.Pool()
+		return &Module{svc: application.NewService(application.Deps{
+			Brands:      postgres.NewBrandStore(pool),
+			Auths:       postgres.NewAuthorizationStore(pool),
+			Collections: postgres.NewCollectionStore(pool),
+			Categories:  postgres.NewCategoryStore(pool),
+			SizeCharts:  postgres.NewSizeChartStore(pool),
+			Clock:       cfg.Clock,
+		})}, nil
 
 	default:
 		return nil, errors.New("catalog: kho lưu trữ không hợp lệ: " + cfg.Storage)
