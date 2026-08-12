@@ -36,6 +36,16 @@ type Config struct {
 	HTTP     HTTPConfig
 	Log      LogConfig
 	Database DatabaseConfig
+	Modules  ModulesConfig
+}
+
+// ModulesConfig là cấu hình chung cho các module nghiệp vụ.
+type ModulesConfig struct {
+	// Storage chọn kho lưu trữ: "memory" hoặc "postgres".
+	//
+	// "memory" cho phép chạy và kiểm chứng mô hình domain khi chưa dựng
+	// database. Dữ liệu MẤT khi tiến trình dừng, nên bị cấm ở production.
+	Storage string
 }
 
 type HTTPConfig struct {
@@ -126,6 +136,20 @@ func Load() (*Config, error) {
 		collect(errors.New("DATABASE_URL bắt buộc ở môi trường production"))
 	}
 
+	storage := strings.ToLower(getEnvDefault("MODULES_STORAGE", defaultStorage(env)))
+	switch storage {
+	case "memory":
+		// Kho in-memory mất TOÀN BỘ dữ liệu khi tiến trình khởi động lại.
+		// Bật nhầm ở production nghĩa là mất đơn hàng — chặn từ lúc khởi
+		// động thay vì phát hiện sau sự cố.
+		if env.IsProduction() {
+			collect(errors.New("MODULES_STORAGE=memory bị cấm ở production: dữ liệu sẽ mất khi khởi động lại"))
+		}
+	case "postgres":
+	default:
+		collect(fmt.Errorf("MODULES_STORAGE không hợp lệ: %q (phải là memory|postgres)", storage))
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("cấu hình không hợp lệ:\n%w", errors.Join(errs...))
 	}
@@ -140,7 +164,8 @@ func Load() (*Config, error) {
 			ShutdownTimeout: shutdownTimeout,
 			MaxRequestBytes: maxBytes,
 		},
-		Log: LogConfig{Level: logLevel, Format: logFormat},
+		Log:     LogConfig{Level: logLevel, Format: logFormat},
+		Modules: ModulesConfig{Storage: storage},
 		Database: DatabaseConfig{
 			DSN:             dsn,
 			MaxOpenConns:    maxOpen,
@@ -157,6 +182,15 @@ func defaultLogLevel(env Environment) string {
 		return "debug"
 	}
 	return "info"
+}
+
+// defaultStorage: khi phát triển, chạy được ngay không cần dựng database;
+// ngoài ra luôn mặc định PostgreSQL để không vô tình chạy bằng bộ nhớ.
+func defaultStorage(env Environment) string {
+	if env.IsDevelopment() {
+		return "memory"
+	}
+	return "postgres"
 }
 
 // defaultLogFormat: text dễ đọc khi phát triển, JSON để truy vấn khi vận hành.

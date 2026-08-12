@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
@@ -25,8 +27,16 @@ func newTestHandler(t *testing.T) http.Handler {
 	}
 	log := logger.NewWithWriter(io.Discard, "error", "json")
 
+	catalogModule, err := catalog.New(catalog.Config{Storage: "memory"})
+	if err != nil {
+		t.Fatalf("khởi tạo module catalog: %v", err)
+	}
+	if _, err := catalog.SeedDemo(context.Background(), catalogModule); err != nil {
+		t.Fatalf("nạp dữ liệu mẫu: %v", err)
+	}
+
 	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, log)
+	registerRoutes(mux, cfg, log, catalogModule)
 
 	// Nối cùng middleware với httpserver.New để test đúng hành vi thật.
 	return httpserver.Chain(mux,
