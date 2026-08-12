@@ -159,6 +159,9 @@ CREATE TABLE attribution (
     attribution_model  TEXT NOT NULL,
     attribution_weight NUMERIC(5,4) NOT NULL,
     commission_rate    INT NOT NULL,      -- basis points, ĐÓNG BĂNG
+    commission_base    BIGINT NOT NULL,   -- ĐÓNG BĂNG: giá niêm yết − adjustment
+                                          -- do SELLER chịu; xem
+                                          -- 01-business/monetization.md mục 3.3
     commission_amount  BIGINT NOT NULL,   -- ĐÓNG BĂNG
     cost_bearer        TEXT NOT NULL,
     status             TEXT NOT NULL,     -- PENDING | CONFIRMED | REVERSED

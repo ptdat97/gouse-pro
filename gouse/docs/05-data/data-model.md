@@ -72,6 +72,56 @@ Không có khóa ngoại nghĩa là database không đảm bảo tính toàn v�
 
 Điểm 3 là quan trọng nhất: nếu không bao giờ xóa cứng, vấn đề tham chiếu treo gần như không xảy ra.
 
+### 3.4 Link table — quan hệ nhiều-nhiều vượt ranh giới module
+
+Ba mục trên xử lý quan hệ **một-nhiều** (order_line trỏ tới offer). Nhưng còn quan hệ **nhiều-nhiều** vượt module thì bảng trung gian đặt ở đâu?
+
+Ví dụ: một nội dung gắn nhiều sản phẩm; một sản phẩm xuất hiện trong nhiều nội dung. Bảng `product_tag` thuộc module `content` hay `product`?
+
+**Giải pháp: link table** — mẫu lấy từ Medusa (xem [../11-oss/medusa.md](../11-oss/medusa.md)).
+
+```text
+Link table là loại bảng RIÊNG với ba quy tắc:
+
+1. CHỈ chứa hai định danh + metadata của CHÍNH QUAN HỆ
+   → không chứa dữ liệu thuộc về hai thực thể được liên kết
+
+2. KHÔNG có ràng buộc khóa ngoại vượt module
+   → giống mọi tham chiếu vượt module khác
+
+3. Thuộc về module SỞ HỮU Ý NGHĨA của quan hệ
+   → "gắn sản phẩm vào nội dung" là khái niệm của content
+   → product_tag thuộc module content
+```
+
+**Bốn link table trong hệ thống:**
+
+| Link table | Liên kết | Module sở hữu | Metadata của quan hệ |
+|---|---|---|---|
+| `product_tag` | content ↔ product | `content` | vị trí trên ảnh, giây trong video |
+| `outfit_item` | outfit ↔ product | `content` | vai trò (MAIN/COMPLEMENT), sản phẩm thay thế |
+| `campaign_participant` | campaign ↔ creator | `campaign` | trạng thái tham gia, ngày duyệt |
+| `brand_authorization` | brand ↔ seller | `catalog` | giấy tờ, hạn hiệu lực |
+
+```sql
+-- Ví dụ: product_tag thuộc module content
+CREATE TABLE content.product_tag (
+    id               UUID PRIMARY KEY,
+    content_id       UUID NOT NULL REFERENCES content.content(id),  -- ✓ cùng module
+    product_id       UUID NOT NULL,     -- ✗ KHÔNG REFERENCES (module product)
+    offer_id         UUID,              -- ✗ KHÔNG REFERENCES (module marketplace)
+    -- metadata CỦA CHÍNH QUAN HỆ:
+    position_x       NUMERIC(4,3),
+    position_y       NUMERIC(4,3),
+    timestamp_second INT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+**Vì sao quy tắc 1 quan trọng:** nếu `product_tag` chứa `product_name` (để tránh gọi module product), nó trở thành bản sao dữ liệu và sẽ lệch khi tên sản phẩm đổi. Chỉ metadata **của chính quan hệ** — vị trí tag — mới thuộc về link table.
+
+Link table cũng nằm trong phạm vi job đối chiếu ở mục 3.3: phát hiện tag trỏ tới sản phẩm không tồn tại.
+
 ---
 
 ## 4. Sơ đồ quan hệ tổng thể

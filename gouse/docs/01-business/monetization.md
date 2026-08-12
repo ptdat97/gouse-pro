@@ -128,6 +128,58 @@ Campaign {
 
 Không thiết kế `Campaign` chỉ với một trường `commission_rate` — sẽ không mô hình hóa được KOL yêu cầu phí cố định.
 
+### 3.3 Cơ sở tính hoa hồng — định nghĩa bắt buộc
+
+Nói "hoa hồng 5% giá trị đơn" là **chưa đủ**. Khi một dòng hàng có nhiều khoản điều chỉnh với bên chịu chi phí khác nhau, "giá trị đơn" là số nào?
+
+```text
+Giá niêm yết                      300.000đ
+  − Giảm giá seller (10%)         −30.000đ   cost_bearer = SELLER
+  − Mã giảm giá nền tảng tài trợ  −20.000đ   cost_bearer = PLATFORM
+  + Thuế VAT                      +25.000đ
+  ─────────────────────────────────────────
+  Khách trả                       275.000đ
+```
+
+Bốn cách hiểu cho bốn kết quả khác nhau — chênh tới 20%:
+
+| Cơ sở | Số tiền | Hoa hồng 5% |
+|---|---|---|
+| Giá niêm yết | 300.000đ | 15.000đ |
+| Sau giảm giá seller | 270.000đ | **13.500đ** |
+| Sau mọi giảm giá | 250.000đ | 12.500đ |
+| Số khách thực trả | 275.000đ | 13.750đ |
+
+**Quyết định:**
+
+```text
+Cơ sở tính hoa hồng (nền tảng và creator)
+  = giá niêm yết
+  − các Adjustment có cost_bearer = SELLER
+  KHÔNG trừ Adjustment có cost_bearer = PLATFORM
+  KHÔNG tính thuế
+```
+
+Với ví dụ trên: cơ sở = **270.000đ**.
+
+**Vì sao không trừ phần nền tảng tài trợ:**
+
+Giảm giá do nền tảng chịu là **chi phí marketing của nền tảng** để thúc đẩy doanh số. Nếu trừ nó khỏi cơ sở tính, creator và seller bị **giảm thu nhập vì nền tảng chạy khuyến mãi** — điều này khiến họ ngại tham gia đúng lúc nền tảng cần họ nhất.
+
+**Vì sao không tính thuế:** thuế là khoản thu hộ nhà nước, không phải doanh thu của bất kỳ bên nào.
+
+**Hệ quả kiến trúc:** phải đóng băng cả **cơ sở tính**, không chỉ tỷ lệ:
+
+```text
+OrderLine {
+    commission_rate     ← ĐÓNG BĂNG
+    commission_base     ← ĐÓNG BĂNG (bổ sung)
+    commission_amount   ← ĐÓNG BĂNG
+}
+```
+
+Nếu chỉ lưu tỷ lệ, đối soát sau này phải tính lại cơ sở từ các adjustment — và kết quả có thể khác nếu quy tắc đã đổi. Xem [../11-oss/creator-commerce.md](../11-oss/creator-commerce.md) mục 3.
+
 ---
 
 ## 4. Ví dụ tính toán đầy đủ

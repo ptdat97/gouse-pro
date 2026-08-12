@@ -235,6 +235,19 @@ Phase 4 (không thêm module — nâng cấp chiều sâu)
 | [0007](../adr/0007-marketplace-order-model.md) | Offer + tách Order/FulfillmentOrder |
 | [0008](../adr/0008-financial-ledger.md) | Sổ cái bất biến |
 | [0009](../adr/0009-service-extraction.md) | Hoãn tách service |
+| [0010](../adr/0010-database-layer.md) | PostgreSQL + sqlc cho tầng dữ liệu |
+
+### Bổ sung sau nghiên cứu OSS (12/08/2026)
+
+Nghiên cứu 12 dự án OSS xác nhận phần lớn thiết kế và **thay đổi ba điểm**:
+
+| Thay đổi | Nguồn | Tài liệu đã cập nhật |
+|---|---|---|
+| Link table cho quan hệ nhiều-nhiều vượt module | Medusa | [05-data/data-model.md](../05-data/data-model.md) mục 3.4 |
+| `Adjustment` là thực thể hạng nhất | Sylius | [02-domain/entities.md](../02-domain/entities.md) mục 2.10, [04-modules/order.md](../04-modules/order.md) mục 7 |
+| Định nghĩa cơ sở tính hoa hồng | Sylius + TikTok Shop | [01-business/monetization.md](../01-business/monetization.md) mục 3.3, [04-modules/affiliate.md](../04-modules/affiliate.md) |
+
+Chi tiết: [11-oss/synthesis.md](../11-oss/synthesis.md).
 
 ---
 

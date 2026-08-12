@@ -17,7 +17,8 @@ Tài liệu được xây dựng theo thứ tự **nghiệp vụ trước, kỹ 
 9. `08-frontend/` — Kiến trúc Next.js
 10. `09-operations/` — Vận hành, bảo mật, quan sát hệ thống
 11. `10-roadmap/` — Lộ trình MVP → Phase 4
-12. `adr/` — Các quyết định kiến trúc và lý do
+12. `11-oss/` — Nghiên cứu mã nguồn mở và tổng hợp kiến trúc
+13. `adr/` — Các quyết định kiến trúc và lý do
 
 ## Kiến trúc tổng thể (một hình duy nhất)
 
@@ -68,7 +69,8 @@ Tài liệu được xây dựng theo thứ tự **nghiệp vụ trước, kỹ 
 | 08-frontend | Hoàn thành | |
 | 09-operations | Hoàn thành | |
 | 10-roadmap | Hoàn thành | |
-| adr | Hoàn thành | 9 ADR |
+| 11-oss | Hoàn thành | 12 dự án + 2 mô hình kinh doanh |
+| adr | Hoàn thành | 10 ADR |
 
 ## Đặc tả OpenAPI
 
@@ -77,6 +79,10 @@ Hợp đồng API nằm ở [`/api/openapi.yaml`](../api/README.md) — **nguồ
 ```text
 62 operation · 0 lỗi lint · sinh kiểu TypeScript thành công
 ```
+
+## Nghiên cứu mã nguồn mở
+
+Xem [11-oss/synthesis.md](11-oss/synthesis.md) — tổng hợp sau khi nghiên cứu 12 dự án OSS và 2 mô hình kinh doanh. Nghiên cứu **xác nhận** phần lớn thiết kế và **thay đổi ba điểm**: link table, Adjustment, cơ sở tính hoa hồng creator.
 
 ## Tổng hợp bàn giao
 

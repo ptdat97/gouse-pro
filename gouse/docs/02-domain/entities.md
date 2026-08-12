@@ -311,6 +311,62 @@ FulfillmentLine {
 
 Trường `production_batch_id` là mắt xích cho phép tính COGS chính xác và truy vết thu hồi. Xem [../01-business/supply-chain.md](../01-business/supply-chain.md) mục 8.
 
+### 2.10 Adjustment — mọi khoản cộng/trừ là thực thể
+
+Mẫu lấy từ Sylius (xem [../11-oss/sylius.md](../11-oss/sylius.md)), bổ sung `cost_bearer` cho marketplace.
+
+```text
+OrderLineAdjustment {
+    id
+    order_line_id
+    type          PROMOTION | TAX | SHIPPING | COMMISSION | FEE | MANUAL
+    label         nhãn hiển thị: "Giảm giá THUDONG20"
+    amount        Money — ÂM là giảm, DƯƠNG là tăng
+    source_type   PROMOTION | TAX_RULE | SHIPPING_METHOD | COMMISSION_RULE
+    source_id     định danh nguồn gốc
+    cost_bearer   PLATFORM | SELLER | SHARED    ← bổ sung cho marketplace
+    created_at
+}
+```
+
+**Vì sao là thực thể chứ không phải trường trên `Order`:**
+
+| Nếu là trường (`discount_amount`) | Nếu là thực thể |
+|---|---|
+| Không biết giảm giá từ đâu ra | Truy vết được tới quy tắc cụ thể |
+| Không biết ai chịu chi phí | `cost_bearer` rõ ràng |
+| Hoàn từng phần tính sai | Adjustment gắn từng dòng → tính đúng |
+| Tính lại giỏ dễ sót/trùng | Xóa hết rồi tính lại, an toàn |
+| Không giải thích được cho khách | Liệt kê được từng khoản |
+
+**Ví dụ giải quyết vấn đề hoàn tiền từng phần:**
+
+```text
+Đơn 3 món, tổng 500.000đ, giảm 50.000đ (10%)
+
+Không có Adjustment:
+    order.discount_amount = 50000
+    → khách trả món C (100.000đ), hoàn bao nhiêu?
+    → phải tính lại tỷ lệ, dễ sai
+
+Có Adjustment (phân bổ khi đặt hàng):
+    OrderLine A → Adjustment{PROMOTION, −20.000, SELLER}
+    OrderLine B → Adjustment{PROMOTION, −20.000, SELLER}
+    OrderLine C → Adjustment{PROMOTION, −10.000, SELLER}
+    → khách trả món C, hoàn 100.000 − 10.000 = 90.000đ
+    → đọc trực tiếp, không tính lại
+```
+
+Đây là cơ chế mà [../07-workflows/return.md](../07-workflows/return.md) mục 5 yêu cầu nhưng trước đây chưa định nghĩa.
+
+**Bất biến:**
+
+```text
+OrderLine.line_total = unit_price × quantity + Σ Adjustment.amount
+```
+
+**Phân bổ giảm giá cấp đơn xuống dòng hàng** dùng `Money.Allocate()` theo tỷ lệ `line_total` — không mất đồng nào.
+
 ---
 
 ## 3. Entity — Inventory Context

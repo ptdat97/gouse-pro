@@ -228,9 +228,34 @@ Quyết định này phải được ghi rõ trong quy tắc nghiệp vụ, khô
 ```sql
 "order"                 -- đơn hàng (order là từ khóa SQL, cần đặt trong dấu ngoặc kép)
 order_line              -- dòng hàng
+order_line_adjustment   -- khoản cộng/trừ trên dòng hàng
 order_address           -- địa chỉ đã đóng băng
 order_status_history    -- lịch sử chuyển trạng thái
 ```
+
+### Bảng `order_line_adjustment`
+
+Mọi khoản cộng/trừ (giảm giá, thuế, phí ship, hoa hồng) là bản ghi riêng, không phải cột trên `order_line`. Xem [../02-domain/entities.md](../02-domain/entities.md) mục 2.10.
+
+```sql
+CREATE TABLE order_line_adjustment (
+    id              UUID PRIMARY KEY,
+    order_line_id   UUID NOT NULL REFERENCES order_line(id),
+    type            TEXT NOT NULL,     -- PROMOTION | TAX | SHIPPING | COMMISSION | FEE
+    label           TEXT NOT NULL,
+    amount          BIGINT NOT NULL,   -- âm = giảm, dương = tăng
+    currency        CHAR(3) NOT NULL,
+    source_type     TEXT NOT NULL,
+    source_id       UUID,              -- không REFERENCES: nguồn ở module khác
+    cost_bearer     TEXT NOT NULL,     -- PLATFORM | SELLER | SHARED
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_adjustment_line ON order_line_adjustment (order_line_id);
+CREATE INDEX idx_adjustment_type ON order_line_adjustment (type, cost_bearer);
+```
+
+Chỉ mục thứ hai phục vụ đối soát: "tổng giảm giá do seller chịu trong kỳ này là bao nhiêu".
 
 ### Bảng `order`
 

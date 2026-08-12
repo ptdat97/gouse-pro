@@ -40,6 +40,7 @@ Deprecated — không còn áp dụng
 | [0007](0007-marketplace-order-model.md) | Offer và tách Order/FulfillmentOrder | Accepted | Commerce, Marketplace |
 | [0008](0008-financial-ledger.md) | Sổ cái bất biến | Accepted | Financial |
 | [0009](0009-service-extraction.md) | Hoãn tách service | Accepted | Toàn hệ thống |
+| [0010](0010-database-layer.md) | PostgreSQL + sqlc cho tầng dữ liệu | Accepted | Toàn hệ thống |
 
 ## Quy trình thêm ADR mới
 

@@ -144,7 +144,18 @@ Khách trả món C:
     ĐÚNG: hoàn  90.000đ  (giá thực trả)
 ```
 
-Vì vậy giảm giá phải được **phân bổ theo tỷ lệ xuống từng dòng hàng và lưu lại** ngay khi đặt hàng. Xem [../04-modules/promotion.md](../04-modules/promotion.md) mục 8.
+Vì vậy giảm giá phải được **phân bổ theo tỷ lệ xuống từng dòng hàng và lưu lại** ngay khi đặt hàng.
+
+**Cơ chế:** lưu thành `OrderLineAdjustment` — mỗi khoản cộng/trừ là một bản ghi gắn vào dòng hàng, có loại, nguồn gốc và bên chịu chi phí:
+
+```text
+OrderLine C (100.000đ) → Adjustment{PROMOTION, −10.000đ, cost_bearer: SELLER}
+    → khách trả món C, hoàn 90.000đ (đọc trực tiếp, không tính lại)
+```
+
+Phân bổ dùng `Money.Allocate()` theo tỷ lệ `line_total` — không mất đồng nào.
+
+Xem [../02-domain/entities.md](../02-domain/entities.md) mục 2.10 và [../04-modules/promotion.md](../04-modules/promotion.md) mục 8.
 
 ---
 
