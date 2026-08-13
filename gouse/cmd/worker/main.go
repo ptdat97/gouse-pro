@@ -22,7 +22,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/modules/cart"
+	"github.com/fashion-commerce/platform/internal/modules/catalog"
+	"github.com/fashion-commerce/platform/internal/modules/checkout"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
+	"github.com/fashion-commerce/platform/internal/modules/marketplace"
+	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/product"
+	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
@@ -50,6 +57,20 @@ const (
 	// Con số vượt ngưỡng nghĩa là tốc độ dọn không theo kịp tốc độ hết
 	// hạn, hoặc có bản ghi bị kẹt — cả hai đều dẫn tới hàng bị khóa dần.
 	expiredPendingAlert = 100
+
+	// expireCheckoutsInterval là nhịp dọn phiên thanh toán quá hạn.
+	//
+	// Chạy DÀY HƠN việc dọn reservation (30 giây) một chút không cần
+	// thiết: hai job dọn hai đầu của cùng một sợi dây. Phiên hết hạn thì
+	// reservation của nó cũng hết hạn, nên dù job này chậm thì job kia
+	// vẫn nhả hàng đúng giờ.
+	//
+	// Việc dọn phiên chủ yếu để trạng thái phiên phản ánh đúng thực tế —
+	// khách quay lại phải thấy "đã hết hạn", không phải "đang chờ thanh
+	// toán" cho một phiên mà hàng đã bị nhả.
+	expireCheckoutsInterval = 60 * time.Second
+
+	expireCheckoutsBatch = 200
 )
 
 func main() {
@@ -95,15 +116,106 @@ func run() error {
 		return err
 	}
 
+	// checkout cần bốn module để khởi tạo. Worker dựng chúng chỉ để có
+	// checkoutModule — nó không tự chạy job nào.
+	sellerModule, err := seller.New(seller.Config{Storage: "postgres", DB: db})
+	if err != nil {
+		return err
+	}
+	catalogModule, err := catalog.New(catalog.Config{Storage: "postgres", DB: db})
+	if err != nil {
+		return err
+	}
+	productModule, err := product.New(product.Config{
+		Storage: "postgres",
+		Catalog: catalogModule,
+		DB:      db,
+	})
+	if err != nil {
+		return err
+	}
+	marketplaceModule, err := marketplace.New(marketplace.Config{
+		Storage:   "postgres",
+		DB:        db,
+		Catalog:   catalogModule,
+		Product:   productModule,
+		Seller:    sellerModule,
+		Inventory: inventoryModule,
+	})
+	if err != nil {
+		return err
+	}
+	orderModule, err := order.New(order.Config{Storage: "postgres", DB: db})
+	if err != nil {
+		return err
+	}
+	cartModule, err := cart.New(cart.Config{
+		Storage:     "postgres",
+		DB:          db,
+		Marketplace: marketplaceModule,
+		Product:     productModule,
+		Seller:      sellerModule,
+		Inventory:   inventoryModule,
+	})
+	if err != nil {
+		return err
+	}
+	checkoutModule, err := checkout.New(checkout.Config{
+		Storage:     "postgres",
+		DB:          db,
+		Cart:        cartModule,
+		Inventory:   inventoryModule,
+		Marketplace: marketplaceModule,
+		Order:       orderModule,
+	})
+	if err != nil {
+		return err
+	}
+
 	jobs := []job{
 		{
 			name:     "dọn giữ hàng quá hạn",
 			interval: expireReservationsInterval,
 			run:      expireReservations(inventoryModule, log),
 		},
+		{
+			name:     "dọn phiên thanh toán quá hạn",
+			interval: expireCheckoutsInterval,
+			run:      expireCheckouts(checkoutModule, log),
+		},
 	}
 
 	return runJobs(ctx, log, jobs)
+}
+
+// expireCheckouts dọn phiên thanh toán quá hạn và NHẢ HÀNG.
+//
+// Đây là hàm biến lời hứa "giữ hàng có thời hạn" thành sự thật. Không có
+// nó thì mọi phiên khách bỏ dở đều khóa hàng cho tới khi có người phát
+// hiện thủ công — và không ai đi tìm cho tới lúc hết hàng bán dù kho đầy.
+func expireCheckouts(m *checkout.Module, log *slog.Logger) func(context.Context) error {
+	return func(ctx context.Context) error {
+		daDon, err := m.ExpireStale(ctx, expireCheckoutsBatch)
+		if err != nil {
+			return fmt.Errorf("dọn phiên thanh toán quá hạn: %w", err)
+		}
+		if daDon > 0 {
+			log.Info("đã dọn phiên thanh toán quá hạn và nhả hàng",
+				"số_lượng", daDon)
+		}
+
+		conLai, err := m.CountExpiredPending(ctx)
+		if err != nil {
+			return fmt.Errorf("đếm phiên thanh toán quá hạn: %w", err)
+		}
+		if conLai > expiredPendingAlert {
+			log.Warn("tồn đọng phiên thanh toán quá hạn vượt ngưỡng",
+				"còn_lại", conLai,
+				"ngưỡng", expiredPendingAlert,
+				"gợi_ý", "khách quay lại sẽ thấy phiên còn sống dù hàng đã bị nhả")
+		}
+		return nil
+	}
 }
 
 // job là một tác vụ chạy lặp theo nhịp.

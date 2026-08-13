@@ -277,6 +277,43 @@ func (m *Module) ProcessReturnInspection(ctx context.Context, req InspectionRequ
 
 // ---------------------------------------------------------------- Chuyển đổi
 
+func (m *Module) GetItemsBySKUs(
+	ctx context.Context, skuIDs []string, locationID string,
+) (map[string][]ItemView, error) {
+	parsed := make([]ids.ID, 0, len(skuIDs))
+	for _, raw := range skuIDs {
+		id, err := ids.Parse(raw, ids.PrefixSKU)
+		if err != nil {
+			continue
+		}
+		parsed = append(parsed, id)
+	}
+
+	var locID ids.ID
+	if locationID != "" {
+		id, err := ids.Parse(locationID, ids.PrefixStockLocation)
+		if err != nil {
+			return nil, ErrInvalidID
+		}
+		locID = id
+	}
+
+	found, err := m.svc.GetItemsBySKUs(ctx, parsed, locID)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	out := make(map[string][]ItemView, len(found))
+	for skuID, items := range found {
+		views := make([]ItemView, 0, len(items))
+		for _, it := range items {
+			views = append(views, toItemView(it))
+		}
+		out[skuID.String()] = views
+	}
+	return out, nil
+}
+
 func toItemView(i *domain.InventoryItem) ItemView {
 	q := i.Quantities()
 	return ItemView{

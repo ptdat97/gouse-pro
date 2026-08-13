@@ -3,8 +3,7 @@
 Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển khai ở
 [deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
 
-**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 4 **đang làm** (3/4 module —
-còn `checkout`)
+**Cập nhật:** 14/08/2026 · **Trạng thái:** Giai đoạn 4 **HOÀN THÀNH** (4/4 module)
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -16,12 +15,12 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      148 file · 40.567 dòng · 416 hàm test    → Giai đoạn 4/7
-Migration    18 file SQL · 9 module · đảo được
+Code Go      158 file · 44.819 dòng · 441 hàm test    → Hết giai đoạn 4/7
+Migration    20 file SQL · 10 module · đảo được
 
-Module MVP đã có code:  9/14  (catalog · product · pricing ·
+Module MVP đã có code: 10/14  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
-                               payment · order · cart)
+                               payment · order · cart · checkout)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -32,12 +31,12 @@ Kiểm chứng lần cuối (13/08/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 148 file, không vi phạm ranh giới
+✓ archcheck    OK — 158 file, không vi phạm ranh giới
 ✓ go test      toàn bộ package pass, CÓ database thật
-✓ chạy thật    server chạy trên PostgreSQL, 9 module khởi tạo được,
-               rà soát sổ sách lúc khởi động: Σ DEBIT = Σ CREDIT
+✓ chạy thật    api chạy đủ 10 module trên PostgreSQL; worker chạy 2 job
+               (dọn giữ hàng 30s, dọn phiên thanh toán 60s)
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    9/9 áp dụng được, đảo được
+✓ migration    10/10 áp dụng được, đảo được
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
 ✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id
@@ -45,6 +44,9 @@ Kiểm chứng lần cuối (13/08/2026):
 ✓ đóng băng    đối soát ra cùng con số sau khi giá và chính sách đổi
 ✓ giỏ hàng     10 tab cùng mở → ĐÚNG 1 giỏ; giá theo giá hiện tại;
                món hết hàng được đánh dấu chứ không bị xóa
+✓ tranh chấp   10 khách checkout, kho còn 5 → ĐÚNG 5 người giữ được
+✓ giá đóng băng seller đổi giá giữa chừng → đơn vẫn ghi giá khách đã thấy
+✓ nhả hàng     hết hạn và hủy phiên đều trả hàng về kho, đếm khớp
 ```
 
 **Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
@@ -479,10 +481,10 @@ sẽ có hai nơi cùng tính một con số.
 
 ---
 
-## 5. Giai đoạn 4 — Giao dịch `[~]`
+## 5. Giai đoạn 4 — Giao dịch `[x]`
 
 - [x] `cart` — **không giữ tồn kho**, giá cập nhật động
-- [ ] `checkout` — giữ hàng, đóng băng giá
+- [x] `checkout` — **giữ hàng**, **đóng băng giá**
 - [x] `order` — đóng băng dữ liệu, **tách Order/FulfillmentOrder**
 - [x] `payment` — **sổ cái bất biến**, trigger chặn UPDATE/DELETE ở database
 - [x] Bất biến Σ DEBIT = Σ CREDIT kiểm tra trong constructor
@@ -546,6 +548,52 @@ xuất để xác nhận test thật sự bắt được, không phải pass vì
 **chín cái đi tới tận ràng buộc UNIQUE của database**. Kiểm tra khóa ở tầng
 ứng dụng chỉ tiết kiệm một lần ghi trong trường hợp thường, nó không phải
 cơ chế bảo vệ. Nếu chỉ có nó, khách bấm hai lần sẽ thành hai đơn.
+
+### `checkout` — nơi giá chuyển từ động sang tĩnh
+
+Ba bảng đọc liền nhau thì thấy toàn bộ thiết kế của luồng mua hàng:
+
+| Bảng | Giá | Khóa hàng | Sống |
+|---|---|---|---|
+| `cart_item` | ĐỘNG | không | 30 ngày |
+| `checkout_line` | **ĐÓNG BĂNG** | **CÓ** | 15 phút |
+| `order_line` | ĐÓNG BĂNG | (đã chuyển sang đơn) | vĩnh viễn |
+
+Cột `reservation_id` là thứ `cart_item` không có và `order_line` không cần:
+nó chỉ tồn tại trong 15 phút giữa lúc khách bấm "Thanh toán" và lúc đơn
+được tạo. Đó là toàn bộ lý do checkout là aggregate riêng.
+
+**`checkout` gần như không sở hữu luật nghiệp vụ nào** — nó gọi bốn module
+và làm đúng hai việc không module nào khác làm: giữ tồn kho và đóng băng
+giá. Việc khó nhất không phải logic mà là **xử lý thất bại giữa chừng**.
+
+Kiểm chứng ngược, năm phép phá:
+
+| Phá gì | Test bắt được |
+|---|---|
+| Không nhả hàng khi thất bại giữa chừng | 5 sản phẩm bị khóa 15 phút cho một phiên **chưa từng tồn tại** |
+| `ExpireStale` không nhả hàng | Hàng khóa vĩnh viễn cho phiên đã chết — không tiến trình nào tìm nó nữa |
+| Bỏ lớp idempotency thứ nhất | Không tạo đơn thừa (lớp 2 chặn) nhưng khách nhận **lỗi cho một đơn đã đặt thành công** |
+| `mutable` chỉ nhìn trạng thái, bỏ kiểm tra đồng hồ | Phiên đã quá hạn vẫn thanh toán được, dù hàng có thể đã bị nhả |
+| Bỏ giới hạn gia hạn | Khóa hàng vô hạn — đúng thứ việc tách checkout khỏi giỏ sinh ra để tránh |
+
+Phép thứ ba đáng ghi lại: hai lớp idempotency phục vụ **hai mục đích khác
+nhau**. Lớp 2 (ràng buộc UNIQUE ở `order`) ngăn đơn trùng; lớp 1 (kiểm tra
+trạng thái phiên) khiến lần gọi thứ hai trả về **đơn cũ** thay vì lỗi. Bỏ
+lớp 1 thì dữ liệu vẫn đúng nhưng khách thấy thông báo thất bại cho giao
+dịch đã thành công.
+
+### Một data race có thật, phát hiện nhờ test tranh chấp
+
+Test "10 khách tranh 5 sản phẩm" làm lộ một lỗi **có sẵn từ giai đoạn 3**
+trong `inventory`: `withRetry` dùng chung một `*rand.Rand` không khóa để
+sinh khoảng chờ giữa các lần thử lại. `math/rand.Rand` giữ trạng thái nội
+bộ và không an toàn khi nhiều goroutine gọi cùng lúc.
+
+Đây đúng là hàm bị gọi song song nhiều nhất hệ thống — mọi tranh chấp tồn
+kho đều đi qua nó — nhưng không test nào trước đó gọi `Reserve` song song
+qua nhiều `Service`, nên `-race` chưa từng thấy. Đã chuyển sang bộ sinh
+toàn cục của `math/rand/v2`.
 
 ### Vì sao `order` và `payment` từ chối chạy khi không có PostgreSQL
 
@@ -614,7 +662,7 @@ thì viết lại code; cái này sai thì không có gì để viết lại.
 | Không có thư mục `common/` `utils/` `helpers/` `services/` | `[x]` archcheck R7 |
 | Kiểm tra ranh giới module trong CI đều xanh | `[x]` job `architecture` chạy đầu tiên, thất bại = chặn merge |
 | Không có JOIN vượt ranh giới module | `[x]` không bảng nào có `REFERENCES` vượt module — `order_line.offer_id` chỉ giữ định danh |
-| Mọi lệnh ghi API đều idempotent | `[~]` `PlaceOrder` và ghi sổ đã idempotent; các endpoint còn lại chưa có |
+| Mọi lệnh ghi API đều idempotent | `[~]` `PlaceOrder`, `CompleteCheckout` và ghi sổ đã idempotent; các endpoint còn lại chưa có |
 | Outbox hoạt động, không có event kẹt | `[ ]` `platform/eventbus` còn rỗng |
 
 ### Chức năng · Chất lượng
@@ -626,26 +674,39 @@ Chưa đánh giá được — cần đủ module giao dịch. Riêng "API p95 <
 
 ## 11. Việc tiếp theo
 
-Còn lại của **giai đoạn 4 — Giao dịch**: chỉ `checkout`.
-
-`checkout` là **người điều phối**, không sở hữu luật nghiệp vụ nào của
-riêng nó:
+**Giai đoạn 4 đã xong.** Luồng mua hàng chạy đầu-cuối trên PostgreSQL thật:
 
 ```text
-1. Đọc giỏ, lấy các món MUA ĐƯỢC (cart.PurchasableItems)
-2. GIỮ HÀNG qua inventory.Reserve — đây là nơi DUY NHẤT khóa tồn kho
-3. ĐÓNG BĂNG giá: con số khách nhìn thấy ở màn hình này là con số vào đơn
-4. Gọi order.PlaceOrder với các con số đã chốt
-5. cart.MarkConverted
+cart.AddItem → checkout.StartCheckout → inventory.Reserve
+             → checkout.CompleteCheckout → order.PlaceOrder
+             → cart.MarkConverted
 ```
 
-**Nền đã sẵn cho `checkout`:**
+Tiếp theo là **giai đoạn 5 — Thực hiện đơn**:
 
-- `inventory.Reserve` — khóa lạc quan, đã kiểm chứng bằng test tranh chấp thật
-- `marketplace.GetCommissionRate` — trả **tỷ lệ**, không tính tiền
-- `order.PlaceOrder` — nhận giá và tỷ lệ TRUYỀN XUỐNG, không tự đi tra
-- `cart.GetCart` / `MarkConverted` — giỏ không giữ hàng, nên checkout là
-  bên duy nhất phải lo việc nhả chỗ khi hết hạn
+```text
+1. fulfillment   — tách đơn theo nguồn hàng
+2. notification  — thông báo cho khách và seller
+```
+
+**Lưu ý về `fulfillment`:** phần khó nhất của nó — tách đơn theo nguồn hàng
+— ĐÃ LÀM XONG ở module `order` (`SplitIntoFulfillmentOrders`), vì việc tách
+là chuyện của hợp đồng chứ không phải của vận hành. Module `fulfillment` sẽ
+lo phần còn lại: chọn kho xuất hàng, tính phí ship thật, gắn mã vận đơn.
+
+**Còn thiếu ở tầng nền:** `platform/eventbus` vẫn rỗng. Hiện `checkout` gọi
+`order` đồng bộ — chạy được nhưng là nợ kỹ thuật đã biết. Giai đoạn 5 cần
+Outbox thật để phát `order.placed` cho inventory chuyển Reserved → Committed,
+và cho notification gửi thông báo.
+
+**Nợ kỹ thuật khác đã ghi nhận:**
+
+- `checkout` chọn kho theo quy tắc "kho đầu tiên còn đủ hàng". Chọn kho gần
+  khách nhất sẽ giảm phí ship và thời gian giao, nhưng cần địa chỉ — thứ
+  khách chưa nhập tại thời điểm giữ hàng. Đổi tiêu chí chỉ ảnh hưởng một
+  hàm (`pickStockItem`).
+- Phí vận chuyển hiện do bên gọi truyền vào; `fulfillment.EstimateShipping`
+  chưa có.
 
 Điểm cuối là ràng buộc quan trọng nhất khi viết `checkout`: giá đưa vào
 `PlaceOrder` phải là giá **khách đã nhìn thấy** ở màn hình thanh toán, không

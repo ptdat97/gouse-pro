@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -39,13 +39,6 @@ type Service struct {
 	uow   domain.UnitOfWork
 	repos domain.Repos
 	clock Clock
-
-	// rng sinh khoảng chờ ngẫu nhiên giữa các lần thử lại.
-	//
-	// Ngẫu nhiên là cần thiết: nếu mọi request xung đột cùng chờ đúng
-	// 10ms rồi cùng thử lại, chúng lại xung đột tiếp — hiện tượng "bầy
-	// đàn đồng bộ". Khoảng chờ ngẫu nhiên làm chúng tản ra.
-	rng *rand.Rand
 }
 
 // Deps gom các phụ thuộc.
@@ -68,7 +61,6 @@ func NewService(d Deps) *Service {
 		uow:   d.UnitOfWork,
 		repos: d.Repos,
 		clock: clock,
-		rng:   rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -106,6 +98,17 @@ func (s *Service) GetAvailability(
 		out[skuID] = Availability{SKUID: skuID, Available: total, InStock: total > 0}
 	}
 	return out, nil
+}
+
+// GetItemsBySKUs trả các bản ghi tồn kho của nhiều SKU.
+//
+// Checkout cần hàm này: nó biết SKU khách mua, nhưng Reserve làm việc trên
+// InventoryItem (một SKU có thể nằm ở nhiều kho). Không có hàm này thì
+// checkout không giữ được hàng.
+func (s *Service) GetItemsBySKUs(
+	ctx context.Context, skuIDs []ids.ID, locationID ids.ID,
+) (map[ids.ID][]*domain.InventoryItem, error) {
+	return s.repos.Items.FindBySKUs(ctx, skuIDs, locationID)
 }
 
 func (s *Service) GetItem(ctx context.Context, id ids.ID) (*domain.InventoryItem, error) {
@@ -545,7 +548,14 @@ func (s *Service) withRetry(ctx context.Context, fn func(domain.Repos) error) er
 		// Ngẫu nhiên là cần thiết: nếu mọi request xung đột cùng chờ đúng
 		// một khoảng rồi cùng thử lại, chúng lại xung đột tiếp.
 		if lan < maxRetries-1 {
-			delay := time.Duration(s.rng.Intn(10*(lan+1))+1) * time.Millisecond
+			// Dùng bộ sinh TOÀN CỤC của math/rand/v2, an toàn khi nhiều
+			// goroutine gọi cùng lúc.
+			//
+			// Một *rand.Rand dùng chung KHÔNG an toàn: nó giữ trạng thái
+			// nội bộ và nhiều request tranh nhau ghi vào đó. Đây đúng là
+			// hàm bị gọi song song nhiều nhất trong hệ thống — mỗi lần
+			// tranh chấp tồn kho đều đi qua đây.
+			delay := time.Duration(rand.IntN(10*(lan+1))+1) * time.Millisecond
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

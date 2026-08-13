@@ -35,6 +35,16 @@ type API interface {
 	// nào không mua được để bỏ ra, không phải "giỏ hàng có vấn đề".
 	CheckAvailability(ctx context.Context, items []AvailabilityRequest) (AvailabilityResult, error)
 
+	// GetItemsBySKUs trả bản ghi tồn kho của nhiều SKU.
+	//
+	// Cần cho checkout: nó biết SKU khách mua, nhưng Reserve làm việc trên
+	// InventoryItem — một SKU có thể nằm ở nhiều kho, và việc chọn kho nào
+	// là quyết định của bên giữ hàng.
+	//
+	// Một SKU trả về NHIỀU item vì cùng món hàng có thể nằm ở Hà Nội và
+	// TP.HCM; bên gọi chọn theo tiêu chí của mình.
+	GetItemsBySKUs(ctx context.Context, skuIDs []string, locationID string) (map[string][]ItemView, error)
+
 	// ---- Giữ hàng ----
 
 	Reserve(ctx context.Context, req ReserveRequest) (*ReservationView, error)

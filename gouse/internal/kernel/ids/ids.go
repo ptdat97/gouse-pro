@@ -47,6 +47,7 @@ const (
 	PrefixCart              Prefix = "crt"
 	PrefixCartItem          Prefix = "cit"
 	PrefixCheckout          Prefix = "chk"
+	PrefixCheckoutLine      Prefix = "cln"
 	PrefixProduct           Prefix = "prd"
 	PrefixVariant           Prefix = "var"
 	PrefixSKU               Prefix = "sku"

@@ -21,6 +21,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
+	"github.com/fashion-commerce/platform/internal/modules/checkout"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
@@ -125,6 +126,7 @@ func run() error {
 		paymentModule     *payment.Module
 		orderModule       *order.Module
 		cartModule        *cart.Module
+		checkoutModule    *checkout.Module
 	)
 	if cfg.Modules.Storage == "postgres" {
 		inventoryModule, err = inventory.New(inventory.Config{
@@ -224,11 +226,37 @@ func run() error {
 			return err
 		}
 		log.Info("module cart đã sẵn sàng (giỏ KHÔNG giữ tồn kho)")
+
+		// checkout là module ĐIỀU PHỐI: nó gọi bốn module trên và là nơi
+		// DUY NHẤT trong hệ thống khóa tồn kho cho khách.
+		checkoutModule, err = checkout.New(checkout.Config{
+			Storage:     "postgres",
+			DB:          db,
+			Cart:        cartModule,
+			Inventory:   inventoryModule,
+			Marketplace: marketplaceModule,
+			Order:       orderModule,
+		})
+		if err != nil {
+			return err
+		}
+
+		// Chỉ báo giám sát: phiên quá hạn chưa dọn.
+		//
+		// Con số này tăng dần nghĩa là tiến trình dọn đã ngừng chạy, và
+		// hàng đang bị khóa cho những phiên đã chết — cuối cùng không bán
+		// được gì dù kho vẫn đầy.
+		stalePending, err := checkoutModule.CountExpiredPending(ctx)
+		if err != nil {
+			return fmt.Errorf("kiểm tra phiên thanh toán quá hạn: %w", err)
+		}
+		log.Info("module checkout đã sẵn sàng (giữ hàng + đóng băng giá)",
+			"phien_qua_han_chua_don", stalePending)
 	} else {
-		log.Warn("bỏ qua inventory, seller, marketplace, payment, order, cart: " +
-			"cần MODULES_STORAGE=postgres")
+		log.Warn("bỏ qua inventory, seller, marketplace, payment, order, " +
+			"cart, checkout: cần MODULES_STORAGE=postgres")
 	}
-	_, _, _, _ = marketplaceModule, paymentModule, orderModule, cartModule
+	_, _, _ = paymentModule, cartModule, checkoutModule
 
 	// Nạp dữ liệu mẫu ở môi trường phát triển.
 	//

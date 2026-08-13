@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS checkout_line;
+DROP TABLE IF EXISTS checkout;
