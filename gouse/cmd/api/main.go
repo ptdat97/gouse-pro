@@ -21,8 +21,10 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
+	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
+	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/database"
@@ -114,7 +116,10 @@ func run() error {
 	// khóa lạc quan, thứ không kiểm chứng được bằng bộ nhớ. Với kho
 	// in-memory, module này đơn giản là KHÔNG được khởi tạo — thà thiếu
 	// tính năng còn hơn có một bản giả tạo cảm giác an toàn sai.
-	var inventoryModule *inventory.Module
+	var (
+		inventoryModule   *inventory.Module
+		marketplaceModule *marketplace.Module
+	)
 	if cfg.Modules.Storage == "postgres" {
 		inventoryModule, err = inventory.New(inventory.Config{
 			Storage: "postgres",
@@ -134,10 +139,39 @@ func run() error {
 		}
 		log.Info("module inventory đã sẵn sàng (khóa lạc quan)",
 			"reservation_qua_han_chua_don", pending)
+
+		// seller và marketplace cũng cần PostgreSQL. Thứ tự khởi tạo phản
+		// ánh đồ thị phụ thuộc: marketplace gọi cả bốn module kia.
+		sellerModule, err := seller.New(seller.Config{Storage: "postgres", DB: db})
+		if err != nil {
+			return err
+		}
+
+		// Own brand là một seller INTERNAL, không phải đường đi riêng —
+		// nhờ vậy đơn lẫn own brand và hàng seller đi CHUNG một luồng.
+		ownBrand, err := sellerModule.Service().EnsureInternalSeller(
+			ctx, "Lumière", seller.InternalSellerSlug)
+		if err != nil {
+			return fmt.Errorf("tạo seller nội bộ: %w", err)
+		}
+
+		marketplaceModule, err = marketplace.New(marketplace.Config{
+			Storage:   "postgres",
+			DB:        db,
+			Catalog:   catalogModule,
+			Product:   productModule,
+			Seller:    sellerModule,
+			Inventory: inventoryModule,
+		})
+		if err != nil {
+			return err
+		}
+		log.Info("module seller và marketplace đã sẵn sàng",
+			"own_brand_seller_id", ownBrand.ID().String())
 	} else {
-		log.Warn("bỏ qua module inventory: cần MODULES_STORAGE=postgres — " +
-			"khóa lạc quan không kiểm chứng được bằng bộ nhớ")
+		log.Warn("bỏ qua inventory, seller, marketplace: cần MODULES_STORAGE=postgres")
 	}
+	_ = marketplaceModule
 
 	// Nạp dữ liệu mẫu ở môi trường phát triển.
 	//
