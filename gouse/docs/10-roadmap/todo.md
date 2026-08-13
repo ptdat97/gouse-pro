@@ -3,7 +3,7 @@
 Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển khai ở
 [deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
 
-**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 3 đang làm (1/3 module) · **khóa lạc quan đã kiểm chứng**
+**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 3 **hoàn thành** (3/3 module)
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -15,10 +15,11 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      100 file · 24.429 dòng · 303 hàm test    → Giai đoạn 3/7
-Migration    8 file SQL · 4 module · đảo được
+Code Go      117 file · 28.868 dòng · 337 hàm test    → Hết giai đoạn 3/7
+Migration    12 file SQL · 6 module · đảo được
 
-Module MVP đã có code:  4/14  (catalog · product · pricing · inventory)
+Module MVP đã có code:  6/14  (catalog · product · pricing ·
+                               inventory · seller · marketplace)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -29,8 +30,8 @@ Kiểm chứng lần cuối (12/08/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 100 file, không vi phạm ranh giới
-✓ go test      25/25 package pass, có -race, CÓ database thật
+✓ archcheck    OK — 117 file, không vi phạm ranh giới
+✓ go test      28/28 package pass, có -race, CÓ database thật
 ✓ chạy thật    server chạy trên PostgreSQL: brand kèm bộ sưu tập,
                sản phẩm đủ 3 biến thể + SKU, hàng nháp trả 404
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
@@ -320,7 +321,7 @@ biệt được, đúng thứ mà tiền tố sinh ra để ngăn. Đã thêm `a
 
 ---
 
-## 4. Giai đoạn 3 — Tồn kho và bán hàng `[~]` đang làm
+## 4. Giai đoạn 3 — Tồn kho và bán hàng ✓
 
 ### 4.1 Module `inventory` ✓
 
@@ -387,10 +388,83 @@ quan trọng nhất. Module từ chối khởi tạo nếu không có PostgreSQL
 tiến trình nền gọi nó định kỳ**. Hiện phải gọi thủ công. Đây là việc của
 `cmd/worker` — nếu quên, hàng sẽ bị khóa dần và cuối cùng không bán được gì.
 
-### 4.2 Còn lại của giai đoạn 3
+### 4.2 `cmd/worker` — tiến trình nền ✓
 
-- [ ] `marketplace` — mô hình **Offer** (một trong 4 thứ phải làm đúng ngay ở MVP)
-- [ ] `seller` — own brand nội bộ trước
+Khoảng trống đã nêu ở đợt trước, nay đã đóng.
+
+- [x] Job dọn giữ hàng quá hạn, nhịp 30 giây theo khuyến nghị mục 6.3
+- [x] Chạy NGAY một lượt lúc khởi động, không chờ hết nhịp đầu — worker vừa
+      khởi động lại sau sự cố có thể đang có tồn đọng
+- [x] Xử lý theo lô (200 bản ghi) để tồn đọng lớn không tạo giao dịch khổng lồ
+- [x] Lỗi một lượt **ghi log chứ không làm chết tiến trình** — lượt sau có
+      thể thành công
+- [x] Cảnh báo khi tồn đọng > 100 (mục 13)
+- [x] Tắt êm: chờ job hoàn tất lượt đang chạy, không cắt ngang giao dịch
+- [x] Kiểm chứng đầu-cuối: 3 khách bỏ checkout → khả dụng 10→4 → worker
+      chạy → **quay lại 10**, tồn đọng 0
+
+### 4.3 Module `seller` ✓
+
+Đối chiếu [../04-modules/seller.md](../04-modules/seller.md). (1.505 dòng)
+
+- [x] Vòng đời 8 trạng thái, `TERMINATED` là trạng thái **cuối**
+- [x] **Quy tắc 1**: ACTIVE phải có tài khoản ngân hàng đã xác minh —
+      cưỡng chế ở cả domain lẫn `CHECK` của database
+- [x] **Own brand là seller INTERNAL**, không phải đường đi riêng: đơn lẫn
+      own brand và hàng seller đi CHUNG một luồng
+- [x] Own brand hoạt động ngay, không cần duyệt, **không chịu hoa hồng**
+      (nền tảng không thu của chính mình)
+- [x] Đình chỉ/từ chối/chấm dứt **bắt buộc nêu lý do** — ràng buộc ở database
+- [x] Đình chỉ làm **ẩn offer** nhưng KHÔNG hủy đơn đang xử lý
+- [x] `EnsureInternalSeller` idempotent
+
+**Không lưu số dư** (quy tắc 4): muốn biết seller còn bao nhiêu tiền → gọi
+`payment.GetBalance()`. Hai nơi cùng lưu một sự thật thì sớm muộn chúng
+lệch nhau, và khi lệch thì không biết bên nào đúng.
+
+### 4.4 Module `marketplace` ✓ — **Offer, 1 trong 4 thứ phải làm đúng ngay**
+
+Đối chiếu [../04-modules/marketplace.md](../04-modules/marketplace.md). (2.560 dòng)
+
+**Offer** — đơn vị khách THỰC SỰ mua
+
+- [x] **Quy tắc 1**: một seller chỉ MỘT offer ACTIVE cho một SKU —
+      `UNIQUE INDEX ... WHERE status = 'ACTIVE'` ở database
+- [x] Offer **KHÔNG lưu số lượng tồn kho**: nguồn sự thật là `InventoryItem`,
+      `OUT_OF_STOCK` là dữ liệu dẫn xuất
+- [x] **Quy tắc 5**: lịch sử giá bất biến, trigger chặn UPDATE/DELETE
+
+**Chống hàng giả** (mục 5) — rủi ro SỐNG CÒN của marketplace thời trang
+
+- [x] Kiểm tra quyền bán thương hiệu **trước khi tạo** offer
+- [x] **Kiểm tra lại trước khi đưa lên bán**: giữa hai thời điểm có thể đã
+      nhiều ngày và giấy ủy quyền có thể đã hết hạn
+- [x] Kiểm chứng ngược bằng cách **bỏ qua kết quả kiểm tra** → cả hai test fail
+
+**Buy box** — công thức CÔNG KHAI (mục 4)
+
+- [x] Trọng số **giá 40% · giao hàng 30% · hiệu suất 30%**
+- [x] Ràng buộc bắt buộc: offer ACTIVE, seller ACTIVE, **còn hàng**
+- [x] Trả kèm **điểm số** để seller hiểu vì sao mình không thắng
+- [x] Kết quả **ổn định** giữa các lần gọi
+- [x] Buy box theo lô khớp với tra từng cái
+
+**Một điều chỉnh nhờ test bắt được:** trọng số ban đầu là 50/25/25. Test
+phát hiện với giá chiếm một nửa, một offer rẻ hơn **10%** thắng được offer
+kém nhất ở CẢ HAI tiêu chí còn lại (52 điểm so với 50) — đúng cuộc đua giảm
+giá mà đặc tả cảnh báo. Đã đổi sang **40/30/30**: chất lượng phục vụ (60%)
+đủ sức thắng khoảng chênh giá nhỏ, nhưng giá vẫn là yếu tố đơn lẻ nặng nhất.
+
+**Hoa hồng** — phân vai rõ ràng (quy tắc 8)
+
+```text
+marketplace → ĐỊNH NGHĨA quy tắc
+order       → ĐÓNG BĂNG vào OrderLine
+payment     → GHI SỔ vào ledger
+```
+
+`GetCommissionRate` chỉ trả **tỷ lệ**, không tính số tiền — nếu tính luôn,
+sẽ có hai nơi cùng tính một con số.
 
 ---
 
@@ -434,13 +508,15 @@ tiến trình nền gọi nó định kỳ**. Hiện phải gọi thủ công. �
 
 | # | Hạng mục | Trạng thái | Ghi chú |
 |---|---|---|---|
-| 1 | Mô hình `Offer` | `[ ]` | Giai đoạn 3 — rủi ro cao, dễ bị hoãn vì "phức tạp quá" |
+| 1 | Mô hình `Offer` | `[x]` | **Xong** — giai đoạn 3, kèm chống hàng giả và buy box |
 | 2 | Tách `Order`/`FulfillmentOrder` | `[ ]` | Giai đoạn 4 |
 | 3 | Sổ cái bất biến | `[ ]` | Giai đoạn 4 |
 | 4 | Ghi `demand_signal` | `[ ]` | Giai đoạn 7 — **dữ liệu lịch sử không tạo ngược được** |
 
-Cả bốn đều **chưa bắt đầu**. Đây là rủi ro cần theo dõi: tài liệu xếp chúng
-vào giai đoạn muộn, nhưng cả bốn đều nằm trong tiêu chí hoàn thành MVP.
+**1/4 đã xong.** Ba cái còn lại vẫn là rủi ro cần theo dõi: hai cái ở giai
+đoạn 4 (ngay tiếp theo), riêng `demand_signal` ở giai đoạn 7 là đáng lo
+nhất — dữ liệu lịch sử không tạo ngược được, bỏ qua thì Phase 3 chậm gần
+một năm.
 
 ---
 
@@ -468,17 +544,25 @@ Chưa đánh giá được — cần đủ module giao dịch. Riêng "API p95 <
 
 ## 11. Việc tiếp theo
 
+Bắt đầu **giai đoạn 4 — Giao dịch**:
+
 ```text
-1. cmd/worker  — tiến trình nền dọn reservation quá hạn (ĐANG THIẾU)
-2. marketplace — mô hình Offer, một trong 4 thứ phải làm đúng ngay ở MVP
-3. seller      — own brand nội bộ trước
+1. cart      — không giữ tồn kho
+2. checkout  — giữ hàng (gọi inventory.Reserve), đóng băng giá
+3. order     — đóng băng dữ liệu, TÁCH Order/FulfillmentOrder
+4. payment   — sổ cái bất biến
 ```
 
-**Vì sao `cmd/worker` đứng trước:** `ExpireReservations` đã viết và đã kiểm
-chứng, nhưng chưa có gì gọi nó định kỳ. Đặc tả nói rõ cơ chế này phải ĐÁNG
-TIN CẬY — nếu không chạy, hàng bị khóa dần và cuối cùng không bán được gì
-(mục 6.3). Càng nhiều module dùng `inventory` trước khi có worker, hậu quả
-càng khó phát hiện.
+**Hai trong bốn thứ "phải làm đúng ngay ở MVP" nằm ở giai đoạn này.** Sửa
+sau là viết lại, nên không được rút gọn.
+
+**Nền đã sẵn:** `checkout` gọi được `inventory.Reserve` với khóa lạc quan
+đã kiểm chứng; `order` lấy được tỷ lệ hoa hồng từ `marketplace.GetCommissionRate`
+để đóng băng vào `OrderLine`.
+
+**Còn thiếu ở tầng nền:** `platform/eventbus` vẫn rỗng. Giai đoạn 4 cần
+Outbox để phát `order.placed` cho inventory chuyển Reserved → Committed.
+Hiện các module chỉ gọi đồng bộ được.
 
 **Lưu ý về thứ tự:** ba module dữ liệu chính (`catalog` · `product` · `pricing`)
 đang được kiểm chứng bằng kho in-memory theo đúng khuyến nghị của ADR-0010 —
