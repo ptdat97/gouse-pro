@@ -33,6 +33,15 @@ type API interface {
 	// GetOffersBySKUs nhận DANH SÁCH để tránh N+1.
 	GetOffersBySKUs(ctx context.Context, skuIDs []string) (map[string][]OfferView, error)
 
+	// GetOffersByIDs tra nhiều offer theo định danh, cũng để tránh N+1.
+	//
+	// Module cart giữ offer_id của từng món trong giỏ, nên hiển thị giỏ
+	// 10 món cần đúng hàm này — một lượt gọi, không phải mười.
+	//
+	// Offer không tồn tại thì KHÔNG có mặt trong map trả về; bên gọi hiểu
+	// đó là "đã bị gỡ".
+	GetOffersByIDs(ctx context.Context, offerIDs []string) (map[string]OfferView, error)
+
 	// ---- Buy box ----
 
 	// GetBuyBoxOffer trả offer hiển thị mặc định cho một SKU.

@@ -146,6 +146,37 @@ func (s *OfferStore) FindBySKUs(
 	return out, nil
 }
 
+// FindByIDs lấy nhiều offer theo định danh.
+func (s *OfferStore) FindByIDs(
+	ctx context.Context, offerIDs []ids.ID,
+) (map[ids.ID]*domain.Offer, error) {
+	out := make(map[ids.ID]*domain.Offer, len(offerIDs))
+	if len(offerIDs) == 0 {
+		return out, nil
+	}
+
+	strs := make([]string, len(offerIDs))
+	for i, id := range offerIDs {
+		strs[i] = id.String()
+	}
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+offerCols+` FROM offer WHERE id = ANY($1) ORDER BY id`, strs)
+	if err != nil {
+		return nil, fmt.Errorf("marketplace: đọc offer theo định danh: %w", err)
+	}
+	defer rows.Close()
+
+	list, err := collectOffers(rows)
+	if err != nil {
+		return nil, fmt.Errorf("marketplace: đọc offer theo định danh: %w", err)
+	}
+	for _, o := range list {
+		out[o.ID()] = o
+	}
+	return out, nil
+}
+
 // FindBySeller lấy offer của MỘT seller.
 //
 // BẢO MẬT: lọc theo seller nằm trong TRUY VẤN, không ở tầng hiển thị —

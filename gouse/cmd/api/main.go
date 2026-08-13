@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
@@ -123,6 +124,7 @@ func run() error {
 		marketplaceModule *marketplace.Module
 		paymentModule     *payment.Module
 		orderModule       *order.Module
+		cartModule        *cart.Module
 	)
 	if cfg.Modules.Storage == "postgres" {
 		inventoryModule, err = inventory.New(inventory.Config{
@@ -204,11 +206,29 @@ func run() error {
 		log.Info("module payment và order đã sẵn sàng",
 			"but_toan_da_ra_soat", integrity.CheckedEntries,
 			"so_sach_can_bang", integrity.IsHealthy)
+
+		// cart cần bốn module để đồng bộ giá và tình trạng hàng.
+		//
+		// LƯU Ý khi đọc đoạn này: KHÔNG có inventory.Reserve ở đây. Giỏ
+		// hàng chỉ ĐỌC tồn kho để hiển thị, không giữ chỗ — giữ chỗ ở giỏ
+		// nghĩa là khách bỏ quên hai tuần thì hàng khóa hai tuần.
+		cartModule, err = cart.New(cart.Config{
+			Storage:     "postgres",
+			DB:          db,
+			Marketplace: marketplaceModule,
+			Product:     productModule,
+			Seller:      sellerModule,
+			Inventory:   inventoryModule,
+		})
+		if err != nil {
+			return err
+		}
+		log.Info("module cart đã sẵn sàng (giỏ KHÔNG giữ tồn kho)")
 	} else {
-		log.Warn("bỏ qua inventory, seller, marketplace, payment, order: " +
+		log.Warn("bỏ qua inventory, seller, marketplace, payment, order, cart: " +
 			"cần MODULES_STORAGE=postgres")
 	}
-	_, _, _ = marketplaceModule, paymentModule, orderModule
+	_, _, _, _ = marketplaceModule, paymentModule, orderModule, cartModule
 
 	// Nạp dữ liệu mẫu ở môi trường phát triển.
 	//

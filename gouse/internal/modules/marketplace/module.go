@@ -229,6 +229,32 @@ func (m *Module) GetOffersBySKUs(
 	return out, nil
 }
 
+func (m *Module) GetOffersByIDs(
+	ctx context.Context, offerIDs []string,
+) (map[string]OfferView, error) {
+	parsed := make([]ids.ID, 0, len(offerIDs))
+	for _, raw := range offerIDs {
+		id, err := ids.Parse(raw, ids.PrefixOffer)
+		if err != nil {
+			// Định danh hỏng được BỎ QUA, không làm hỏng cả lượt gọi: một
+			// món lỗi trong giỏ không nên khiến chín món còn lại biến mất.
+			continue
+		}
+		parsed = append(parsed, id)
+	}
+
+	found, err := m.svc.GetOffersByIDs(ctx, parsed)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	out := make(map[string]OfferView, len(found))
+	for id, o := range found {
+		out[id.String()] = toView(o)
+	}
+	return out, nil
+}
+
 func (m *Module) GetBuyBoxOffer(ctx context.Context, skuID string) (*BuyBoxView, error) {
 	id, err := ids.Parse(skuID, ids.PrefixSKU)
 	if err != nil {

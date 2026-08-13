@@ -27,6 +27,12 @@ type OfferRepository interface {
 	// phải là 1 truy vấn, không phải 50.
 	FindBySKUs(ctx context.Context, skuIDs []ids.ID) (map[ids.ID][]*Offer, error)
 
+	// FindByIDs lấy nhiều offer theo định danh, tránh N+1.
+	//
+	// Module cart giữ offer_id của từng món, nên hiển thị giỏ 10 món cần
+	// đúng hàm này — một truy vấn, không phải mười.
+	FindByIDs(ctx context.Context, offerIDs []ids.ID) (map[ids.ID]*Offer, error)
+
 	// FindBySeller lấy offer của MỘT seller.
 	//
 	// BẢO MẬT: seller không bao giờ được thấy offer của seller khác (quy

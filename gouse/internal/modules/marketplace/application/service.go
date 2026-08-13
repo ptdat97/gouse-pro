@@ -467,6 +467,13 @@ func (s *Service) GetOffersBySKUs(
 	return s.offers.FindBySKUs(ctx, skuIDs)
 }
 
+// GetOffersByIDs lấy nhiều offer theo định danh.
+func (s *Service) GetOffersByIDs(
+	ctx context.Context, offerIDs []ids.ID,
+) (map[ids.ID]*domain.Offer, error) {
+	return s.offers.FindByIDs(ctx, offerIDs)
+}
+
 // GetOffersBySeller lấy offer của MỘT seller.
 //
 // BẢO MẬT: sellerID bắt buộc. Thiếu thì trả lỗi thay vì trả offer của mọi

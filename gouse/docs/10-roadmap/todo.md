@@ -3,8 +3,8 @@
 Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển khai ở
 [deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
 
-**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 4 **đang làm** (2/4 module —
-`order` và `payment` xong, `cart` và `checkout` còn lại)
+**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 4 **đang làm** (3/4 module —
+còn `checkout`)
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -16,12 +16,12 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      138 file · 36.944 dòng · 393 hàm test    → Giai đoạn 4/7
-Migration    16 file SQL · 8 module · đảo được
+Code Go      148 file · 40.567 dòng · 416 hàm test    → Giai đoạn 4/7
+Migration    18 file SQL · 9 module · đảo được
 
-Module MVP đã có code:  8/14  (catalog · product · pricing ·
+Module MVP đã có code:  9/14  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
-                               payment · order)
+                               payment · order · cart)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -32,17 +32,19 @@ Kiểm chứng lần cuối (13/08/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 138 file, không vi phạm ranh giới
+✓ archcheck    OK — 148 file, không vi phạm ranh giới
 ✓ go test      toàn bộ package pass, CÓ database thật
-✓ chạy thật    server chạy trên PostgreSQL, 8 module khởi tạo được,
+✓ chạy thật    server chạy trên PostgreSQL, 9 module khởi tạo được,
                rà soát sổ sách lúc khởi động: Σ DEBIT = Σ CREDIT
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    8/8 áp dụng được, đảo được
+✓ migration    9/9 áp dụng được, đảo được
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
 ✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id
 ✓ idempotency  10 request song song cùng khóa → ĐÚNG 1 đơn hàng
 ✓ đóng băng    đối soát ra cùng con số sau khi giá và chính sách đổi
+✓ giỏ hàng     10 tab cùng mở → ĐÚNG 1 giỏ; giá theo giá hiện tại;
+               món hết hàng được đánh dấu chứ không bị xóa
 ```
 
 **Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
@@ -479,7 +481,7 @@ sẽ có hai nơi cùng tính một con số.
 
 ## 5. Giai đoạn 4 — Giao dịch `[~]`
 
-- [ ] `cart` — không giữ tồn kho
+- [x] `cart` — **không giữ tồn kho**, giá cập nhật động
 - [ ] `checkout` — giữ hàng, đóng băng giá
 - [x] `order` — đóng băng dữ liệu, **tách Order/FulfillmentOrder**
 - [x] `payment` — **sổ cái bất biến**, trigger chặn UPDATE/DELETE ở database
@@ -488,6 +490,45 @@ sẽ có hai nơi cùng tính một con số.
 **Hai thứ khó nhất của giai đoạn 4 đã xong trước** — có chủ ý: cả hai đều
 thuộc nhóm "sửa sau là viết lại" ở mục 9. `cart` và `checkout` xây trên
 chúng, không ngược lại.
+
+### `cart` — ranh giới với `order` là toàn bộ lý do nó tồn tại riêng
+
+|  | `cart` | `order` |
+|---|---|---|
+| Bản chất | Ý ĐỊNH mua | HỢP ĐỒNG |
+| Giá | Cập nhật động | ĐÓNG BĂNG |
+| Giữ tồn kho | **KHÔNG** | (checkout giữ) |
+| Thời gian sống | 30 ngày | vĩnh viễn |
+| Món không hợp lệ | Đánh dấu, khách tự xóa | Không áp dụng |
+
+Hai bảng `cart_item` và `order_line` trông gần giống nhau nhưng ý nghĩa
+ngược nhau: sửa giá trong `order_line` là làm sai hóa đơn cũ, còn sửa giá
+trong `cart_item` là hành vi ĐÚNG và diễn ra thường xuyên.
+
+**Vì sao giỏ không giữ tồn kho:** khách thêm rồi bỏ quên hai tuần thì hàng
+khóa hai tuần. Với hàng khan hiếm, vài trăm giỏ bỏ quên = hết hàng ảo,
+không bán được cho khách thật sự muốn mua. Hệ quả phải chấp nhận là khách
+có thể tới lúc checkout mới biết hết hàng — đánh đổi đúng, vì số lượng
+hiển thị ở giỏ là **thông tin tham khảo**, không phải cam kết.
+
+Kiểm chứng ngược, bốn phép phá:
+
+| Phá gì | Test bắt được |
+|---|---|
+| `Sync` tự giảm số lượng về mức tồn kho | Hệ thống quyết thay khách: chọn 10 thành 3 |
+| `Sync` không cập nhật giá (đóng băng như order) | Giỏ hiện 299.000 sau khi seller giảm còn 249.000 |
+| Gộp giỏ cắt số lượng mà không cảnh báo | Khách đăng nhập xong thấy ít hàng hơn, không biết vì sao |
+| Bỏ UNIQUE có điều kiện trên `cart` | 10 tab → **3 giỏ ACTIVE** cho cùng một khách |
+
+**Một lỗ hổng trong bộ test đã được sửa nhờ kiểm chứng ngược.** Phép phá
+thứ hai ban đầu KHÔNG bị bắt: `GetCart` tự đồng bộ trước khi trả, nên giá
+mới luôn xuất hiện kể cả khi nó không hề được ghi xuống database. Hai lần
+gọi `GetCart` không phân biệt được "đã lưu" với "tính lại mỗi lần đọc".
+
+Hậu quả thật nếu để lọt: khách luôn thấy giá đúng, nhưng mọi thứ đọc thẳng
+bảng `cart_item` — job nhắc giỏ bỏ quên, phân tích, tín hiệu nhu cầu — sẽ
+thấy giá cũ mãi mãi. Test đã sửa để truy vấn trực tiếp thay vì đi qua
+service.
 
 ### `order` — đã kiểm chứng những gì
 
@@ -585,24 +626,26 @@ Chưa đánh giá được — cần đủ module giao dịch. Riêng "API p95 <
 
 ## 11. Việc tiếp theo
 
-Còn lại của **giai đoạn 4 — Giao dịch**:
+Còn lại của **giai đoạn 4 — Giao dịch**: chỉ `checkout`.
+
+`checkout` là **người điều phối**, không sở hữu luật nghiệp vụ nào của
+riêng nó:
 
 ```text
-1. cart      — không giữ tồn kho
-2. checkout  — giữ hàng (gọi inventory.Reserve), đóng băng giá,
-               rồi gọi order.PlaceOrder
+1. Đọc giỏ, lấy các món MUA ĐƯỢC (cart.PurchasableItems)
+2. GIỮ HÀNG qua inventory.Reserve — đây là nơi DUY NHẤT khóa tồn kho
+3. ĐÓNG BĂNG giá: con số khách nhìn thấy ở màn hình này là con số vào đơn
+4. Gọi order.PlaceOrder với các con số đã chốt
+5. cart.MarkConverted
 ```
-
-Thứ tự đã đảo có chủ ý: `order` và `payment` làm trước vì chúng là hai
-trong bốn thứ "sửa sau là viết lại" ở mục 9. `checkout` chỉ là **người
-điều phối** — nó giữ hàng, chốt giá, rồi gọi `order.PlaceOrder` với các con
-số đã chốt. Xây nó trước sẽ phải đoán hình dạng của thứ nó gọi.
 
 **Nền đã sẵn cho `checkout`:**
 
 - `inventory.Reserve` — khóa lạc quan, đã kiểm chứng bằng test tranh chấp thật
 - `marketplace.GetCommissionRate` — trả **tỷ lệ**, không tính tiền
 - `order.PlaceOrder` — nhận giá và tỷ lệ TRUYỀN XUỐNG, không tự đi tra
+- `cart.GetCart` / `MarkConverted` — giỏ không giữ hàng, nên checkout là
+  bên duy nhất phải lo việc nhả chỗ khi hết hạn
 
 Điểm cuối là ràng buộc quan trọng nhất khi viết `checkout`: giá đưa vào
 `PlaceOrder` phải là giá **khách đã nhìn thấy** ở màn hình thanh toán, không
