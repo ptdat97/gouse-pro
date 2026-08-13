@@ -22,6 +22,8 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
+	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
@@ -119,6 +121,8 @@ func run() error {
 	var (
 		inventoryModule   *inventory.Module
 		marketplaceModule *marketplace.Module
+		paymentModule     *payment.Module
+		orderModule       *order.Module
 	)
 	if cfg.Modules.Storage == "postgres" {
 		inventoryModule, err = inventory.New(inventory.Config{
@@ -168,10 +172,43 @@ func run() error {
 		}
 		log.Info("module seller và marketplace đã sẵn sàng",
 			"own_brand_seller_id", ownBrand.ID().String())
+
+		// payment và order cũng CHỈ chạy với PostgreSQL, vì cùng một lý do
+		// nhưng ở hai chỗ khác nhau: sổ cái cần trigger chặn UPDATE/DELETE,
+		// còn đơn hàng cần ràng buộc UNIQUE trên khóa idempotency. Cả hai
+		// đều là thứ chỉ database cưỡng chế được dưới tải song song.
+		paymentModule, err = payment.New(payment.Config{Storage: "postgres", DB: db})
+		if err != nil {
+			return err
+		}
+
+		// Rà soát sổ sách ngay lúc khởi động: Σ DEBIT phải bằng Σ CREDIT.
+		// Lệch nghĩa là có bút toán không cân bằng đã lọt vào database —
+		// sự cố nghiêm trọng, cần biết ngay chứ không đợi job hàng ngày.
+		integrity, err := paymentModule.CheckIntegrity(ctx)
+		if err != nil {
+			return fmt.Errorf("rà soát toàn vẹn sổ sách: %w", err)
+		}
+		if !integrity.IsHealthy {
+			log.Error("SỔ SÁCH KHÔNG CÂN BẰNG",
+				"tong_ghi_no", integrity.TotalDebit,
+				"tong_ghi_co", integrity.TotalCredit,
+				"chenh_lech", integrity.Difference,
+				"but_toan_lech", integrity.UnbalancedEntryIDs)
+		}
+
+		orderModule, err = order.New(order.Config{Storage: "postgres", DB: db})
+		if err != nil {
+			return err
+		}
+		log.Info("module payment và order đã sẵn sàng",
+			"but_toan_da_ra_soat", integrity.CheckedEntries,
+			"so_sach_can_bang", integrity.IsHealthy)
 	} else {
-		log.Warn("bỏ qua inventory, seller, marketplace: cần MODULES_STORAGE=postgres")
+		log.Warn("bỏ qua inventory, seller, marketplace, payment, order: " +
+			"cần MODULES_STORAGE=postgres")
 	}
-	_ = marketplaceModule
+	_, _, _ = marketplaceModule, paymentModule, orderModule
 
 	// Nạp dữ liệu mẫu ở môi trường phát triển.
 	//

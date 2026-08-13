@@ -43,6 +43,7 @@ const (
 	PrefixOrder             Prefix = "ord"
 	PrefixOrderLine         Prefix = "oln"
 	PrefixFulfillmentOrder  Prefix = "ful"
+	PrefixAdjustment        Prefix = "adj"
 	PrefixCart              Prefix = "crt"
 	PrefixCartItem          Prefix = "cit"
 	PrefixCheckout          Prefix = "chk"

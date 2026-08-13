@@ -3,7 +3,8 @@
 Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển khai ở
 [deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
 
-**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 3 **hoàn thành** (3/3 module)
+**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 4 **đang làm** (2/4 module —
+`order` và `payment` xong, `cart` và `checkout` còn lại)
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -15,30 +16,38 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      117 file · 28.868 dòng · 337 hàm test    → Hết giai đoạn 3/7
-Migration    12 file SQL · 6 module · đảo được
+Code Go      138 file · 36.944 dòng · 393 hàm test    → Giai đoạn 4/7
+Migration    16 file SQL · 8 module · đảo được
 
-Module MVP đã có code:  6/14  (catalog · product · pricing ·
-                               inventory · seller · marketplace)
+Module MVP đã có code:  8/14  (catalog · product · pricing ·
+                               inventory · seller · marketplace ·
+                               payment · order)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
 ```
 
-Kiểm chứng lần cuối (12/08/2026):
+Kiểm chứng lần cuối (13/08/2026):
 
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 117 file, không vi phạm ranh giới
-✓ go test      28/28 package pass, có -race, CÓ database thật
-✓ chạy thật    server chạy trên PostgreSQL: brand kèm bộ sưu tập,
-               sản phẩm đủ 3 biến thể + SKU, hàng nháp trả 404
+✓ archcheck    OK — 138 file, không vi phạm ranh giới
+✓ go test      toàn bộ package pass, CÓ database thật
+✓ chạy thật    server chạy trên PostgreSQL, 8 module khởi tạo được,
+               rà soát sổ sách lúc khởi động: Σ DEBIT = Σ CREDIT
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    down -all rồi up lại thành công (đảo được)
+✓ migration    8/8 áp dụng được, đảo được
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
+✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id
+✓ idempotency  10 request song song cùng khóa → ĐÚNG 1 đơn hàng
+✓ đóng băng    đối soát ra cùng con số sau khi giá và chính sách đổi
 ```
+
+**Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
+**phá code sản xuất rồi chạy lại test** — nếu test vẫn xanh sau khi bất
+biến bị phá, nó không kiểm chứng được gì. Xem mục 5 để biết đã phá những gì.
 
 ---
 
@@ -468,13 +477,45 @@ sẽ có hai nơi cùng tính một con số.
 
 ---
 
-## 5. Giai đoạn 4 — Giao dịch `[ ]`
+## 5. Giai đoạn 4 — Giao dịch `[~]`
 
 - [ ] `cart` — không giữ tồn kho
 - [ ] `checkout` — giữ hàng, đóng băng giá
-- [ ] `order` — đóng băng dữ liệu, **tách Order/FulfillmentOrder**
-- [ ] `payment` — **sổ cái bất biến**, RULE chặn UPDATE/DELETE ở database
-- [ ] Bất biến Σ DEBIT = Σ CREDIT kiểm tra trong constructor
+- [x] `order` — đóng băng dữ liệu, **tách Order/FulfillmentOrder**
+- [x] `payment` — **sổ cái bất biến**, trigger chặn UPDATE/DELETE ở database
+- [x] Bất biến Σ DEBIT = Σ CREDIT kiểm tra trong constructor
+
+**Hai thứ khó nhất của giai đoạn 4 đã xong trước** — có chủ ý: cả hai đều
+thuộc nhóm "sửa sau là viết lại" ở mục 9. `cart` và `checkout` xây trên
+chúng, không ngược lại.
+
+### `order` — đã kiểm chứng những gì
+
+Bốn bất biến quan trọng nhất đều **kiểm chứng ngược**: cố tình phá code sản
+xuất để xác nhận test thật sự bắt được, không phải pass vì may.
+
+| Bất biến | Cách phá | Test bắt được |
+|---|---|---|
+| Cách ly seller | Bỏ lọc `seller_id` trong SQL | Lớp domain `BelongsTo` vẫn chặn — **hai lớp hoạt động độc lập**; phá cả hai thì test báo rò rỉ thật |
+| Idempotency | Bỏ nhánh xử lý `ErrDuplicateOrder` | 9/10 request song song đụng UNIQUE — **kiểm tra trước khi ghi không chặn được gì** |
+| Đóng băng | Tính hoa hồng lúc đọc theo tỷ lệ mới | Đối soát ra 35.880đ thay vì 29.900đ — đúng kịch bản đặc tả cảnh báo |
+| Trạng thái tổng hợp | Xét "tất cả đã xuất" trước "một số đã giao" | Đơn báo SHIPPED khi một gói đã giao — hiển thị **lùi** so với thực tế |
+
+Điều đáng ghi lại nhất là hàng thứ hai: dưới 10 request song song cùng khóa,
+**chín cái đi tới tận ràng buộc UNIQUE của database**. Kiểm tra khóa ở tầng
+ứng dụng chỉ tiết kiệm một lần ghi trong trường hợp thường, nó không phải
+cơ chế bảo vệ. Nếu chỉ có nó, khách bấm hai lần sẽ thành hai đơn.
+
+### Vì sao `order` và `payment` từ chối chạy khi không có PostgreSQL
+
+Cùng một lý do ở hai chỗ khác nhau:
+
+- `payment` cần **trigger** chặn UPDATE/DELETE trên sổ cái
+- `order` cần **UNIQUE** trên khóa idempotency và **SEQUENCE** cho mã đơn
+
+Cả hai đều là thứ chỉ database cưỡng chế được dưới tải song song. Bản
+in-memory chỉ "không cung cấp phương thức sửa" và "kiểm tra trước khi ghi" —
+với tiền và đơn hàng, khác biệt đó quá lớn để chấp nhận.
 
 ---
 
@@ -509,14 +550,14 @@ sẽ có hai nơi cùng tính một con số.
 | # | Hạng mục | Trạng thái | Ghi chú |
 |---|---|---|---|
 | 1 | Mô hình `Offer` | `[x]` | **Xong** — giai đoạn 3, kèm chống hàng giả và buy box |
-| 2 | Tách `Order`/`FulfillmentOrder` | `[ ]` | Giai đoạn 4 |
-| 3 | Sổ cái bất biến | `[ ]` | Giai đoạn 4 |
+| 2 | Tách `Order`/`FulfillmentOrder` | `[x]` | **Xong** — giai đoạn 4, kiểm chứng ngược cách ly seller |
+| 3 | Sổ cái bất biến | `[x]` | **Xong** — giai đoạn 4, trigger chặn UPDATE/DELETE |
 | 4 | Ghi `demand_signal` | `[ ]` | Giai đoạn 7 — **dữ liệu lịch sử không tạo ngược được** |
 
-**1/4 đã xong.** Ba cái còn lại vẫn là rủi ro cần theo dõi: hai cái ở giai
-đoạn 4 (ngay tiếp theo), riêng `demand_signal` ở giai đoạn 7 là đáng lo
-nhất — dữ liệu lịch sử không tạo ngược được, bỏ qua thì Phase 3 chậm gần
-một năm.
+**3/4 đã xong.** Còn lại `demand_signal` ở giai đoạn 7 — và giờ nó là rủi ro
+**duy nhất** trong nhóm này, nên cũng là rủi ro đáng lo nhất: dữ liệu lịch
+sử không tạo ngược được, bỏ qua thì Phase 3 chậm gần một năm. Ba cái kia sai
+thì viết lại code; cái này sai thì không có gì để viết lại.
 
 ---
 
@@ -531,8 +572,8 @@ một năm.
 | Không có phụ thuộc vòng giữa module | `[x]` archcheck R5 |
 | Không có thư mục `common/` `utils/` `helpers/` `services/` | `[x]` archcheck R7 |
 | Kiểm tra ranh giới module trong CI đều xanh | `[x]` job `architecture` chạy đầu tiên, thất bại = chặn merge |
-| Không có JOIN vượt ranh giới module | `[ ]` chưa có database |
-| Mọi lệnh ghi API đều idempotent | `[ ]` chưa có endpoint ghi |
+| Không có JOIN vượt ranh giới module | `[x]` không bảng nào có `REFERENCES` vượt module — `order_line.offer_id` chỉ giữ định danh |
+| Mọi lệnh ghi API đều idempotent | `[~]` `PlaceOrder` và ghi sổ đã idempotent; các endpoint còn lại chưa có |
 | Outbox hoạt động, không có event kẹt | `[ ]` `platform/eventbus` còn rỗng |
 
 ### Chức năng · Chất lượng
@@ -544,25 +585,33 @@ Chưa đánh giá được — cần đủ module giao dịch. Riêng "API p95 <
 
 ## 11. Việc tiếp theo
 
-Bắt đầu **giai đoạn 4 — Giao dịch**:
+Còn lại của **giai đoạn 4 — Giao dịch**:
 
 ```text
 1. cart      — không giữ tồn kho
-2. checkout  — giữ hàng (gọi inventory.Reserve), đóng băng giá
-3. order     — đóng băng dữ liệu, TÁCH Order/FulfillmentOrder
-4. payment   — sổ cái bất biến
+2. checkout  — giữ hàng (gọi inventory.Reserve), đóng băng giá,
+               rồi gọi order.PlaceOrder
 ```
 
-**Hai trong bốn thứ "phải làm đúng ngay ở MVP" nằm ở giai đoạn này.** Sửa
-sau là viết lại, nên không được rút gọn.
+Thứ tự đã đảo có chủ ý: `order` và `payment` làm trước vì chúng là hai
+trong bốn thứ "sửa sau là viết lại" ở mục 9. `checkout` chỉ là **người
+điều phối** — nó giữ hàng, chốt giá, rồi gọi `order.PlaceOrder` với các con
+số đã chốt. Xây nó trước sẽ phải đoán hình dạng của thứ nó gọi.
 
-**Nền đã sẵn:** `checkout` gọi được `inventory.Reserve` với khóa lạc quan
-đã kiểm chứng; `order` lấy được tỷ lệ hoa hồng từ `marketplace.GetCommissionRate`
-để đóng băng vào `OrderLine`.
+**Nền đã sẵn cho `checkout`:**
 
-**Còn thiếu ở tầng nền:** `platform/eventbus` vẫn rỗng. Giai đoạn 4 cần
-Outbox để phát `order.placed` cho inventory chuyển Reserved → Committed.
-Hiện các module chỉ gọi đồng bộ được.
+- `inventory.Reserve` — khóa lạc quan, đã kiểm chứng bằng test tranh chấp thật
+- `marketplace.GetCommissionRate` — trả **tỷ lệ**, không tính tiền
+- `order.PlaceOrder` — nhận giá và tỷ lệ TRUYỀN XUỐNG, không tự đi tra
+
+Điểm cuối là ràng buộc quan trọng nhất khi viết `checkout`: giá đưa vào
+`PlaceOrder` phải là giá **khách đã nhìn thấy** ở màn hình thanh toán, không
+phải giá tại thời điểm ghi database. `order` cố ý không có đường nào tự tra
+giá, nên chỗ này không thể làm sai một cách im lặng.
+
+**Còn thiếu ở tầng nền:** `platform/eventbus` vẫn rỗng. Cần Outbox để phát
+`order.placed` cho inventory chuyển Reserved → Committed. Hiện `checkout`
+sẽ phải gọi đồng bộ — chấp nhận được ở MVP, nhưng là nợ kỹ thuật đã biết.
 
 **Lưu ý về thứ tự:** ba module dữ liệu chính (`catalog` · `product` · `pricing`)
 đang được kiểm chứng bằng kho in-memory theo đúng khuyến nghị của ADR-0010 —
