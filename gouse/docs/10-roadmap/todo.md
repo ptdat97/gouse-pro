@@ -3,7 +3,7 @@
 Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển khai ở
 [deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
 
-**Cập nhật:** 12/08/2026 · **Trạng thái:** Giai đoạn 2 xong · **PostgreSQL đã chạy thật**
+**Cập nhật:** 13/08/2026 · **Trạng thái:** Giai đoạn 3 đang làm (1/3 module) · **khóa lạc quan đã kiểm chứng**
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -15,10 +15,10 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      87 file · 20.418 dòng · 275 hàm test     → Hết giai đoạn 2/7
-Migration    6 file SQL · 3 module · đảo được
+Code Go      100 file · 24.429 dòng · 303 hàm test    → Giai đoạn 3/7
+Migration    8 file SQL · 4 module · đảo được
 
-Module MVP đã có code:  3/14  (catalog · product · pricing)
+Module MVP đã có code:  4/14  (catalog · product · pricing · inventory)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -29,12 +29,14 @@ Kiểm chứng lần cuối (12/08/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 87 file, không vi phạm ranh giới
-✓ go test      22/22 package pass, có -race, CÓ database thật
+✓ archcheck    OK — 100 file, không vi phạm ranh giới
+✓ go test      25/25 package pass, có -race, CÓ database thật
 ✓ chạy thật    server chạy trên PostgreSQL: brand kèm bộ sưu tập,
                sản phẩm đủ 3 biến thể + SKU, hàng nháp trả 404
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
 ✓ migration    down -all rồi up lại thành công (đảo được)
+✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
+               19 xung đột phiên bản được phát hiện và từ chối
 ```
 
 ---
@@ -318,11 +320,75 @@ biệt được, đúng thứ mà tiền tố sinh ra để ngăn. Đã thêm `a
 
 ---
 
-## 4. Giai đoạn 3 — Tồn kho và bán hàng `[ ]`
+## 4. Giai đoạn 3 — Tồn kho và bán hàng `[~]` đang làm
 
-- [ ] `inventory` — đủ 6 trạng thái, **khóa lạc quan** (không dùng khóa phân tán)
-- [ ] Ràng buộc `CHECK >= 0` ở tầng database
-- [ ] `Reservation` có TTL, tự giải phóng
+### 4.1 Module `inventory` ✓
+
+Đối chiếu [../04-modules/inventory.md](../04-modules/inventory.md).
+
+**Domain** (1.376 dòng)
+
+- [x] `Quantities` — value object BẤT BIẾN giữ bất biến sáu trạng thái
+- [x] Mọi chuyển đổi đi qua `move()` nên tổng được bảo toàn theo **cấu trúc**,
+      không phải nhờ người viết nhớ kiểm tra
+- [x] Chỉ `Receive` và `Ship` làm đổi tổng — vì hàng thật sự vào/ra khỏi kho
+- [x] `InventoryItem` — khóa nghiệp vụ `(sku, địa điểm, chủ sở hữu)`
+- [x] Tách `owner` khỏi `location`: hàng seller gửi kho nền tảng **vẫn thuộc
+      sở hữu seller**, không được ghi nhận là tài sản nền tảng
+- [x] `Reservation` — TTL bắt buộc, giới hạn 3 lần gia hạn
+- [x] `InventoryMovement` — nhật ký bất biến, số lượng luôn dương
+- [x] **Test theo tính chất**: 200 chuỗi 40 thao tác ngẫu nhiên, bất biến
+      giữ vững sau mỗi bước
+
+**Infrastructure** (928 dòng) — **CHỈ PostgreSQL, không có bản in-memory**
+
+- [x] `ApplyChange` — `UPDATE ... WHERE id = ? AND version = ?`
+- [x] 0 dòng bị ảnh hưởng → `ErrVersionConflict`, phân biệt rõ với hết hàng
+- [x] `UnitOfWork` — đổi số lượng và ghi nhật ký trong **một giao dịch**
+- [x] Ràng buộc `CHECK >= 0` ở tầng database — lớp bảo vệ cuối cùng
+- [x] Trigger chặn `UPDATE`/`DELETE` trên nhật ký biến động
+
+**Application** (558 dòng)
+
+- [x] Thử lại **đúng loại lỗi**: xung đột phiên bản → thử lại tối đa 3 lần
+      với khoảng chờ **ngẫu nhiên**; hết hàng → trả lỗi ngay
+- [x] Chờ ngẫu nhiên tránh "bầy đàn đồng bộ" — cùng chờ một khoảng rồi
+      cùng thử lại thì lại xung đột tiếp
+- [x] `ExpireReservations` dọn **từng cái** trong giao dịch riêng: một bản
+      ghi hỏng không được làm kẹt toàn bộ cơ chế
+- [x] `CountExpiredPending` — chỉ báo giám sát, cảnh báo khi > 100
+
+**KIỂM CHỨNG TRANH CHẤP THẬT** — điều in-memory không thể chứng minh
+
+| Kịch bản | Kết quả |
+|---|---|
+| 20 khách mua 1 sản phẩm | **đúng 1 thắng**, 19 xung đột bị từ chối |
+| 30 khách tranh 10 sản phẩm | **đúng 10 thắng**, `available+reserved = 10` |
+| Vô hiệu khóa lạc quan | **20 người mua 1 món**, **30 người mua 10 món** |
+
+Dòng cuối là bằng chứng test có giá trị: bỏ điều kiện `version` khỏi `WHERE`
+thì hệ thống bán quá số lượng ngay lập tức, và cả hai test đều fail.
+
+**Không có kho in-memory** là quyết định có chủ đích: khóa lạc quan cần hai
+giao dịch database thật chạy song song trên cùng một dòng. Một bản in-memory
+sẽ tạo **cảm giác an toàn giả** — test xanh mà không chứng minh được điều
+quan trọng nhất. Module từ chối khởi tạo nếu không có PostgreSQL.
+
+**Chưa làm — đúng phạm vi giai đoạn sau** (mục 14 của đặc tả):
+
+| Hạng mục | Giai đoạn |
+|---|---|
+| Nhiều địa điểm, chuyển kho | Phase 2 |
+| Truy vết theo lô sản xuất | Phase 3 |
+| Chia ô tồn kho cho tranh chấp cực cao | Phase 4 |
+| Tiến trình nền tự động dọn reservation | cần `cmd/worker` |
+
+**Lưu ý:** `ExpireReservations` đã có và đã kiểm chứng, nhưng **chưa có
+tiến trình nền gọi nó định kỳ**. Hiện phải gọi thủ công. Đây là việc của
+`cmd/worker` — nếu quên, hàng sẽ bị khóa dần và cuối cùng không bán được gì.
+
+### 4.2 Còn lại của giai đoạn 3
+
 - [ ] `marketplace` — mô hình **Offer** (một trong 4 thứ phải làm đúng ngay ở MVP)
 - [ ] `seller` — own brand nội bộ trước
 
@@ -403,15 +469,16 @@ Chưa đánh giá được — cần đủ module giao dịch. Riêng "API p95 <
 ## 11. Việc tiếp theo
 
 ```text
-1. inventory   — giai đoạn 3, giờ đã CÓ database để làm khóa lạc quan
+1. cmd/worker  — tiến trình nền dọn reservation quá hạn (ĐANG THIẾU)
 2. marketplace — mô hình Offer, một trong 4 thứ phải làm đúng ngay ở MVP
 3. seller      — own brand nội bộ trước
 ```
 
-**Database đã sẵn sàng cho `inventory`.** Khóa lạc quan cần `UPDATE ... WHERE
-version = ?` thật với hai giao dịch chạy song song — giờ kiểm chứng được.
-Cùng với `CHECK số lượng >= 0` ở tầng database, đây là hai chốt chặn cho
-kịch bản live commerce.
+**Vì sao `cmd/worker` đứng trước:** `ExpireReservations` đã viết và đã kiểm
+chứng, nhưng chưa có gì gọi nó định kỳ. Đặc tả nói rõ cơ chế này phải ĐÁNG
+TIN CẬY — nếu không chạy, hàng bị khóa dần và cuối cùng không bán được gì
+(mục 6.3). Càng nhiều module dùng `inventory` trước khi có worker, hậu quả
+càng khó phát hiện.
 
 **Lưu ý về thứ tự:** ba module dữ liệu chính (`catalog` · `product` · `pricing`)
 đang được kiểm chứng bằng kho in-memory theo đúng khuyến nghị của ADR-0010 —
@@ -425,11 +492,14 @@ phỏng nay đã kiểm chứng thật:
 
 ```text
 ✓ UNIQUE toàn cục trên sku_code     — product (quy tắc 1)
-✓ Trigger chặn UPDATE/DELETE        — pricing.price_history (mẫu của ADR-0008)
+✓ Trigger chặn UPDATE/DELETE        — pricing.price_history, inventory_movement
 ✓ UNIQUE có điều kiện               — brand_authorization (chỉ áp cho APPROVED)
-□ CHECK số lượng >= 0               — inventory (giai đoạn 3)
-□ Khóa lạc quan có tranh chấp thật  — inventory (giai đoạn 3)
+✓ CHECK số lượng >= 0               — inventory_item, sáu trạng thái
+✓ Khóa lạc quan có tranh chấp thật  — 20 khách → đúng 1 người thắng
 ```
+
+**Cả năm đã kiểm chứng thật.** Không còn ràng buộc quan trọng nào chỉ được
+mô phỏng.
 
 Việc chuyển kho lưu trữ **không sửa một dòng nào** trong `domain/` và
 `application/` của cả ba module — đây là chỗ kiến trúc ports & adapters trả
