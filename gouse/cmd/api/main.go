@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
+	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
@@ -107,6 +108,35 @@ func run() error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// Module inventory CHỈ chạy với PostgreSQL: cơ chế cốt lõi của nó là
+	// khóa lạc quan, thứ không kiểm chứng được bằng bộ nhớ. Với kho
+	// in-memory, module này đơn giản là KHÔNG được khởi tạo — thà thiếu
+	// tính năng còn hơn có một bản giả tạo cảm giác an toàn sai.
+	var inventoryModule *inventory.Module
+	if cfg.Modules.Storage == "postgres" {
+		inventoryModule, err = inventory.New(inventory.Config{
+			Storage: "postgres",
+			DB:      db,
+		})
+		if err != nil {
+			return err
+		}
+		// Chỉ báo giám sát: reservation quá hạn chưa dọn.
+		//
+		// Con số này tăng dần nghĩa là tiến trình dọn đã ngừng chạy, và
+		// hàng đang bị khóa mà không ai biết — cuối cùng không bán được gì
+		// (docs/04-modules/inventory.md mục 6.3 và 13).
+		pending, err := inventoryModule.Service().CountExpiredPending(ctx)
+		if err != nil {
+			return fmt.Errorf("kiểm tra giữ hàng quá hạn: %w", err)
+		}
+		log.Info("module inventory đã sẵn sàng (khóa lạc quan)",
+			"reservation_qua_han_chua_don", pending)
+	} else {
+		log.Warn("bỏ qua module inventory: cần MODULES_STORAGE=postgres — " +
+			"khóa lạc quan không kiểm chứng được bằng bộ nhớ")
 	}
 
 	// Nạp dữ liệu mẫu ở môi trường phát triển.
