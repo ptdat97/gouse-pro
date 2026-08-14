@@ -208,7 +208,82 @@ Event thứ hai là mắt xích quan trọng: lý do trả hàng "không vừa s
 
 ---
 
-## 12. Tài liệu liên quan
+## 12. Trạng thái triển khai (MVP — 14/08/2026)
+
+Mã nguồn: `internal/modules/customer/`. Migration: `000017_customer`.
+Kiểm chứng: 28 test tích hợp trên PostgreSQL thật, đã kiểm chứng ngược.
+
+**Đã có (đúng phạm vi MVP ở mục 11):** hồ sơ · sổ địa chỉ · wishlist ·
+đồng ý cơ bản · ẩn danh hóa · gắn tài khoản cho khách vãng lai.
+
+**Chưa có (Phase 2 trở đi):** dữ liệu size và gợi ý size · phát event ·
+phân khúc khách hàng.
+
+### Bốn chỗ code KHÁC tài liệu — và vì sao code đúng
+
+Theo nguyên tắc P17, phần này ghi lại thực tế thay vì ép code khớp bản
+thiết kế.
+
+**1. Không có `customer_preference` ở MVP**
+
+Mục 3 mô tả dữ liệu size rất kỹ, nhưng mục 11 xếp nó vào **Phase 2**. Code
+theo mục 11. Bảng chưa tồn tại vì chưa có gì ghi vào nó: `return.inspected`
+là nguồn dữ liệu chính, mà module `return` chưa được xây.
+
+Tạo bảng rỗng từ giờ không giúp gì — nó chỉ tạo cảm giác tính năng đã có.
+
+**2. `MergeGuestIdentity` KHÔNG chuyển đơn hàng**
+
+Mục 5 mô tả bốn bước, trong đó bước 2 là "liên kết các đơn cũ vào
+customer_id mới". Code chỉ làm bước 1 và 3 (xác minh, ghi nhật ký) rồi ẩn
+danh hồ sơ nguồn.
+
+Lý do: bảng `order` thuộc module khác. `customer` sửa bảng đó là vi phạm
+quy tắc R2 — hai module dùng chung bảng thì thực chất là một module. Việc
+chuyển đơn thuộc `order`, kích hoạt bằng event.
+
+Ở MVP chưa phát event, nên bước đó **chưa chạy**. Đây là giới hạn thật,
+không phải thiết kế xong.
+
+**3. Interface công khai khác mục 8**
+
+Thiếu `GetSizeRecommendation` (thuộc Phase 2, xem điểm 1). Thêm:
+`EnsureByEmail`, `LinkUser`, `Anonymize`, `CountWishlistForProduct`.
+
+`EnsureByEmail` là hàm quan trọng nhất không có trong bản thiết kế: khách
+vãng lai quay lại phải vào ĐÚNG hồ sơ cũ, và nó phải an toàn khi mười
+request chạy song song.
+
+**4. Chưa phát event nào**
+
+Mục 9 liệt kê năm event. Chưa event nào được phát, vì chưa có bên nghe —
+`analytics` chưa tồn tại. `wishlist.item_added` sẽ có giá trị nhất (tín
+hiệu nhu cầu cho `supplychain`), nhưng phát event không ai nghe là thêm
+chỗ hỏng mà không đổi lấy gì.
+
+### Hai phát hiện từ kiểm chứng ngược
+
+**Địa chỉ có hai lớp cách ly, không phải một.** `BelongsTo` ở tầng
+application và điều kiện `customer_id` trong SQL. Ban đầu chỉ có lớp thứ
+nhất; kiểm chứng ngược cho thấy phá nó là seller đọc/sửa được địa chỉ nhà
+của người khác mà không gì chặn lại.
+
+**Điều kiện `status <> 'ANONYMIZED'` trong `FindByEmail` là lớp phòng xa.**
+Bỏ nó KHÔNG làm test nào đỏ, vì `Anonymize` đã thay email bằng chuỗi giả.
+Giữ lại và ghi rõ vai trò thật của nó, kèm một test cô lập riêng — thay vì
+để lại một dòng trông như đang gánh việc.
+
+### Giới hạn đã biết, có chủ ý
+
+| Giới hạn | Vì sao chấp nhận ở MVP |
+|---|---|
+| Ẩn danh hóa không chạy trong MỘT giao dịch | Cập nhật hồ sơ rồi xóa từng địa chỉ. Thất bại giữa chừng để lại hồ sơ đã ẩn danh mà địa chỉ còn — gọi lại `Anonymize` là dọn xong, vì nó idempotent. |
+| Số đo cơ thể chưa mã hóa | Chưa có bảng nào lưu chúng (xem điểm 1). Khi thêm, phải mã hóa theo mục 3. |
+| Chưa có giới hạn số địa chỉ mỗi khách | Một tài khoản bị chiếm có thể thêm hàng nghìn địa chỉ. Cần giới hạn ở tầng interfaces. |
+
+---
+
+## 13. Tài liệu liên quan
 
 - [../01-business/customer.md](../01-business/customer.md) — tác nhân khách hàng
 - [identity.md](identity.md) — tài khoản đăng nhập

@@ -69,6 +69,8 @@ const (
 	PrefixUser              Prefix = "usr"
 	PrefixSession           Prefix = "ses"
 	PrefixAddress           Prefix = "adr"
+	PrefixWishlist          Prefix = "wsh"
+	PrefixConsent           Prefix = "cst"
 	PrefixPromotion         Prefix = "pmo"
 	PrefixInventoryItem     Prefix = "inv"
 	PrefixInventoryMovement Prefix = "imv"

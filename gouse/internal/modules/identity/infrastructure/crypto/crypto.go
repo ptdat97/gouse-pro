@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/fashion-commerce/platform/internal/modules/identity/domain"
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
 
 // BcryptHasher băm mật khẩu bằng bcrypt.
@@ -123,13 +124,7 @@ func (g *RandomTokenGenerator) HashToken(plain string) string {
 
 // HashIP băm địa chỉ IP để lưu nhật ký.
 //
-// Lưu IP nguyên văn là dữ liệu cá nhân, cần cơ sở pháp lý. Băm cho phép
-// vẫn phát hiện được "nhiều lần thử từ cùng một nguồn" mà không lưu chính
-// địa chỉ đó.
-func HashIP(ip string) string {
-	if ip == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(ip))
-	return hex.EncodeToString(sum[:])
-}
+// Ủy quyền cho platform/privacy: module `customer` cần đúng việc này, và
+// hai bản sao chép sẽ trôi xa nhau. Khi đó cùng một địa chỉ băm ra hai giá
+// trị khác nhau — đủ để phá mọi truy vấn "nhiều lần thử từ cùng một nguồn".
+func HashIP(ip string) string { return privacy.HashIP(ip) }

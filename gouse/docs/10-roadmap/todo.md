@@ -16,17 +16,17 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      201 file · 55.010 dòng · 499 hàm test    → Hết giai đoạn 5/7
-Migration    32 file SQL · 14 module + outbox · đảo được
+Code Go      212 file · 59.283 dòng · 527 hàm test    → Hết giai đoạn 5/7
+Migration    34 file SQL · 15 module + outbox · đảo được
 
-Module MVP đã có code: 14/16  (catalog · product · pricing ·
+Module MVP đã có code: 15/16  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
                                payment · order · cart · checkout ·
                                fulfillment · notification ·
                                supply-chain — chỉ ghi demand_signal ·
-                               identity)
+                               identity · customer)
 
-Còn thiếu ở MVP:        customer · promotion · analytics
+Còn thiếu ở MVP:        promotion · analytics
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -849,7 +849,7 @@ trị thật của kiến trúc event, giờ đã kiểm chứng được bằng
 
 Tiếp theo là **giai đoạn 6 — Marketplace hoàn chỉnh**, nhưng bốn module MVP
 còn thiếu (`identity`, `customer`, `promotion`, `analytics`) được làm trước.
-`identity` đã xong; còn `customer`, `promotion`, `analytics`.
+`identity` và `customer` đã xong; còn `promotion`, `analytics`.
 
 **Vì sao làm chúng trước giai đoạn 6:** giai đoạn 6 xây tính năng cho seller
 và creator, mà mọi tính năng đó đều bắt đầu bằng câu hỏi "ai đang gọi, và họ
