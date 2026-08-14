@@ -221,7 +221,81 @@ Xem [../02-domain/value-objects.md](../02-domain/value-objects.md) mục 2.4.
 
 ---
 
-## 12. Tài liệu liên quan
+## 12. Trạng thái triển khai (MVP — 14/08/2026)
+
+Mã nguồn: `internal/modules/promotion/`. Migration: `000018_promotion`.
+Kiểm chứng: 26 test tích hợp trên PostgreSQL thật, đã kiểm chứng ngược.
+
+**Đã có (đúng phạm vi MVP ở mục 11):** mã giảm giá theo phần trăm và số
+tiền cố định · miễn phí ship theo ngưỡng · trần giảm giá · giới hạn lượt
+toàn cục và theo khách · ngân sách · phân bổ xuống dòng hàng · phân bổ chi
+phí ba kiểu (PLATFORM/SELLER/SHARED) · ghi nhận và giải phóng idempotent.
+
+**Chưa có (Phase 2 trở đi):** khuyến mãi tự động · combo/outfit · mua X
+tặng Y · quy tắc chồng lấn · phát event.
+
+### Ba chỗ code KHÁC tài liệu — và vì sao code đúng
+
+**1. Chưa có `promotion_rule`, `promotion_condition`, `promotion_budget`**
+
+Mục 6 liệt kê sáu bảng; code có ba (`promotion`, `coupon`,
+`coupon_usage`).
+
+Điều kiện áp dụng ở MVP chỉ có MỘT loại — ngưỡng giá trị đơn — nên nó là
+một cột chứ không phải một bảng. Bảng điều kiện có nghĩa khi điều kiện
+KẾT HỢP được (danh mục AND thương hiệu OR hạng khách), và đó là Phase 2.
+
+Ngân sách cũng vậy: hai cột `max_budget`/`used_budget` đủ cho một ngân
+sách toàn cục. Bảng riêng cần khi ngân sách chia theo ngày hoặc theo
+kênh — Phase 3, đúng như mục 11 xếp.
+
+**2. `CalculateDiscount` gộp vào `ValidateCoupon`**
+
+Mục 7 tách hai hàm. Code gộp: tính giảm giá mà chưa kiểm tra điều kiện là
+tính một con số KHÔNG ĐƯỢC PHÉP dùng, và tách ra tạo đúng một chỗ để ai đó
+gọi nhầm thứ tự.
+
+`GetAutoPromotions` chưa có vì khuyến mãi tự động thuộc Phase 2.
+
+**3. Chưa phát event nào**
+
+Mục 9 liệt kê ba event. Chưa event nào được phát vì chưa có bên nghe.
+Chiều ngược lại (nghe `order.placed`, `order.cancelled`) cũng chưa nối —
+`RecordUsage` và `ReleaseUsage` đã sẵn sàng và ĐÃ idempotent, chỉ còn
+thiếu handler.
+
+### Phát hiện từ kiểm chứng ngược: một lỗi thật, tìm ra trước khi chạy
+
+Test tranh chấp phát hiện bộ đếm chỉ tăng **4 lần** trong khi bảng lượt
+sử dụng có **12 hàng**.
+
+```text
+Nguyên nhân: RecordUsage ghi lượt vào bảng THÀNH CÔNG, rồi cập nhật bộ
+             đếm bằng khóa lạc quan — và trả LỖI khi xung đột.
+
+Hậu quả:     mã giới hạn 100 lượt được dùng vài trăm lần, vì bộ đếm mãi
+             không chạm tới giới hạn.
+```
+
+Đã sửa bằng `retryUpdate`: đọc lại rồi cộng thêm, tối đa 10 lần. Thử lại
+được vì thao tác là ĐỌC-RỒI-CỘNG chứ không phải ghi đè giá trị tính sẵn.
+`ReleaseUsage` có đúng lỗi đó và được sửa cùng.
+
+Đây là loại lỗi chỉ lộ ra dưới tải: một mã đang chạy quảng cáo có hàng
+trăm người áp trong một giây, còn test tuần tự thì không bao giờ thấy.
+
+### Giới hạn đã biết, có chủ ý
+
+| Giới hạn | Vì sao chấp nhận ở MVP |
+|---|---|
+| Chưa có quy tắc chồng lấn (mục 5) | MVP áp MỘT mã mỗi đơn. Giới hạn tổng mức giảm — cơ chế bảo vệ bắt buộc — hiện là `MaxDiscountAmount` của từng khuyến mãi. |
+| `RecordUsage` không nằm trong MỘT giao dịch với việc đặt đơn | Ghi lượt xong mà đặt đơn hỏng sẽ để lại một lượt bị chiếm. `ReleaseUsage` gỡ được, nhưng cần handler nghe `order.cancelled`. |
+| Bộ đếm trên `coupon` không có khóa lạc quan | Nó CHỈ để hiển thị ("mã đã dùng 47 lần"). Giới hạn thật nằm ở `promotion`, và nguồn sự thật là bảng `coupon_usage`. |
+| Khách vãng lai không áp được `MaxUsesPerCustomer` | Không có `customer_id` thì không có gì để đếm. Cần rate limit theo thiết bị ở tầng interfaces. |
+
+---
+
+## 13. Tài liệu liên quan
 
 - [pricing.md](pricing.md) — giá gốc
 - [campaign.md](campaign.md) — chiến dịch creator

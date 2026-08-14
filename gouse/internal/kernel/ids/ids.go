@@ -72,6 +72,7 @@ const (
 	PrefixWishlist          Prefix = "wsh"
 	PrefixConsent           Prefix = "cst"
 	PrefixPromotion         Prefix = "pmo"
+	PrefixCoupon            Prefix = "cpn"
 	PrefixInventoryItem     Prefix = "inv"
 	PrefixInventoryMovement Prefix = "imv"
 	PrefixReservation       Prefix = "rsv"
