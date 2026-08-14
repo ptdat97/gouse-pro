@@ -58,8 +58,18 @@ type CartPort interface {
 type CartSnapshot struct {
 	CartID     ids.ID
 	CustomerID ids.ID
-	Currency   money.Currency
-	Items      []CartItemSnapshot
+
+	// GuestEmail và GuestPhone để notification liên hệ được với khách
+	// vãng lai.
+	//
+	// Bắt buộc phải có trong payload: module notification KHÔNG được gọi
+	// ngược lại checkout hay customer để lấy — nó phụ thuộc toàn hệ thống
+	// thì không tách được, và một module lỗi làm hỏng cả việc gửi email.
+	GuestEmail string
+	GuestPhone string
+
+	Currency money.Currency
+	Items    []CartItemSnapshot
 }
 
 // CartItemSnapshot là một món mua được trong giỏ.
@@ -133,7 +143,17 @@ type CheckoutCompleted struct {
 
 	CartID     ids.ID
 	CustomerID ids.ID
-	Currency   money.Currency
+
+	// GuestEmail và GuestPhone để notification liên hệ được với khách
+	// vãng lai.
+	//
+	// Bắt buộc phải có trong payload: module notification KHÔNG được gọi
+	// ngược lại checkout hay customer để lấy — nó phụ thuộc toàn hệ thống
+	// thì không tách được, và một module lỗi làm hỏng cả việc gửi email.
+	GuestEmail string
+	GuestPhone string
+
+	Currency money.Currency
 
 	// Reservations là các dòng hàng đã giữ chỗ, kèm đủ dữ liệu cho mọi
 	// bên nhận.
@@ -161,6 +181,10 @@ type ReservedLine struct {
 	SKUID    ids.ID
 	SellerID ids.ID
 	Quantity int
+
+	// ProductName để notification viết được email mà không phải gọi ngược
+	// module product.
+	ProductName string
 
 	// Tiền ĐÃ ĐÓNG BĂNG, để seller đối soát phần của mình mà không cần
 	// thấy toàn bộ đơn hàng.
@@ -742,6 +766,7 @@ func (s *Service) completedEvent(
 			SKUID:            l.SKUID(),
 			SellerID:         l.SellerID(),
 			Quantity:         l.Quantity(),
+			ProductName:      l.ProductName(),
 			LineTotal:        lineTotal,
 			CommissionAmount: commission,
 		})
@@ -753,6 +778,8 @@ func (s *Service) completedEvent(
 		OrderNumber:  orderNumber,
 		CartID:       c.CartID(),
 		CustomerID:   c.CustomerID(),
+		GuestEmail:   c.GuestEmail(),
+		GuestPhone:   c.GuestPhone(),
 		Currency:     c.Currency(),
 		Reservations: reservations,
 	}

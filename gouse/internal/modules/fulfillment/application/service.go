@@ -53,8 +53,16 @@ type ProgressChanged struct {
 	OrderID ids.ID
 
 	// FulfillmentID là nguồn hàng vừa đổi trạng thái.
-	FulfillmentID ids.ID
-	NewStatus     string
+	FulfillmentID  ids.ID
+	FONumber       string
+	NewStatus      string
+	TrackingNumber string
+
+	// Địa chỉ liên hệ, để notification gửi được mà không gọi ngược module
+	// nào — xem notification.md quy tắc 1.
+	CustomerID ids.ID
+	Email      string
+	Phone      string
 
 	// Progress là tiến độ của TẤT CẢ nguồn hàng trong đơn.
 	Progress []LineProgress
@@ -268,10 +276,15 @@ func (s *Service) publishProgress(ctx context.Context, changed *domain.Fulfillme
 	}
 
 	return s.events.PublishProgress(ctx, ProgressChanged{
-		OrderID:       changed.OrderID(),
-		FulfillmentID: changed.ID(),
-		NewStatus:     string(changed.Status()),
-		Progress:      progress,
+		OrderID:        changed.OrderID(),
+		FulfillmentID:  changed.ID(),
+		FONumber:       changed.FONumber(),
+		NewStatus:      string(changed.Status()),
+		TrackingNumber: changed.TrackingNumber(),
+		CustomerID:     changed.CustomerID(),
+		Email:          changed.NotifyEmail(),
+		Phone:          changed.NotifyPhone(),
+		Progress:       progress,
 	})
 }
 

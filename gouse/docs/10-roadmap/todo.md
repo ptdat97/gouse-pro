@@ -3,7 +3,8 @@
 Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển khai ở
 [deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
 
-**Cập nhật:** 14/08/2026 · **Trạng thái:** Giai đoạn 4 **HOÀN THÀNH** (4/4 module)
+**Cập nhật:** 14/08/2026 · **Trạng thái:** Giai đoạn 5 **HOÀN THÀNH**
+(fulfillment · notification)
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -15,13 +16,16 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      173 file · 48.063 dòng · 462 hàm test    → Hết giai đoạn 4/7
-Migration    24 file SQL · 11 module + outbox · đảo được
+Code Go      191 file · 51.660 dòng · 476 hàm test    → Hết giai đoạn 5/7
+Migration    30 file SQL · 13 module + outbox · đảo được
 
-Module MVP đã có code: 11/16  (catalog · product · pricing ·
+Module MVP đã có code: 13/16  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
                                payment · order · cart · checkout ·
+                               fulfillment · notification ·
                                supply-chain — chỉ ghi demand_signal)
+
+Còn thiếu ở MVP:        identity · customer · promotion · analytics
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -32,12 +36,12 @@ Kiểm chứng lần cuối (13/08/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 173 file, không vi phạm ranh giới
+✓ archcheck    OK — 191 file, không vi phạm ranh giới
 ✓ go test      toàn bộ package pass, CÓ database thật
 ✓ chạy thật    api chạy đủ 10 module trên PostgreSQL; worker chạy 3 job
                (phát event 5s, dọn giữ hàng 30s, dọn phiên 60s)
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    12/12 áp dụng được, đảo được
+✓ migration    15/15 áp dụng được, đảo được
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
 ✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id
@@ -53,6 +57,10 @@ Kiểm chứng lần cuối (13/08/2026):
 ✓ commit kho   đặt hàng xong → 7/3/0 thành 7/0/3 qua event thật
 ✓ tín hiệu     thêm giỏ và đặt hàng sinh demand_signal qua event;
                phát lại KHÔNG ghi hai lần
+✓ tách đơn     3 nguồn hàng → 3 đơn thực hiện; seller không thấy đơn
+               của seller khác dù biết định danh
+✓ email        10 request song song → ĐÚNG 1 email; thiếu địa chỉ thì
+               ghi SKIPPED chứ không báo lỗi
 ```
 
 **Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
@@ -615,10 +623,68 @@ với tiền và đơn hàng, khác biệt đó quá lớn để chấp nhận.
 
 ---
 
-## 6. Giai đoạn 5 — Thực hiện đơn `[~]`
+## 6. Giai đoạn 5 — Thực hiện đơn `[x]`
 
 - [x] `fulfillment` — tách đơn theo nguồn hàng, vòng đời giao hàng đầy đủ
-- [ ] `notification`
+- [x] `notification` — email giao dịch, chống gửi trùng
+
+### `notification` — ràng buộc quan trọng nhất là thứ nó KHÔNG làm
+
+```text
+Module này KHÔNG GỌI bất kỳ module nghiệp vụ nào.
+```
+
+Nếu nó gọi `order` để lấy tên sản phẩm và `customer` để lấy email, nó phụ
+thuộc toàn hệ thống — và một module lỗi sẽ làm hỏng việc gửi **mọi loại**
+thông báo, kể cả mã OTP.
+
+**Hệ quả buộc phải nhận:** payload event phải mang đủ dữ liệu. Đã bổ sung:
+
+| Event | Thêm gì | Vì sao |
+|---|---|---|
+| `checkout.completed` | `guest_email`, `product_name` | notification cần để soạn email |
+| `fulfillment.progress_changed` | `email`, `tracking_number`, `fo_number` | như trên |
+| `fulfillment_order` (bảng) | `notify_email`, `customer_id` | fulfillment không biết email nếu không lưu |
+
+Cột `notify_email` là **nhân bản có chủ ý**, cùng loại với việc đóng băng
+giá ở `order_line`. Ba lựa chọn và lý do chọn cái thứ ba:
+
+```text
+1. notification gọi order       → vi phạm quy tắc 1
+2. fulfillment gọi order        → phụ thuộc VÒNG (order đã nghe event từ đây)
+3. Lưu email lúc tách đơn       → nhân bản, nhưng KHÔNG phụ thuộc gì  ← CHỌN
+```
+
+### SKIPPED khác FAILED
+
+```text
+SKIPPED  quyết định CÓ CHỦ Ý không gửi (thiếu địa chỉ, chưa có đồng ý)
+FAILED   sự cố thật, cần xem và thử lại
+```
+
+Gộp chung sẽ làm cảnh báo vận hành kêu vì những việc hoàn toàn bình
+thường — và rồi không ai đọc cảnh báo nữa. Cả hai đều **được ghi log**:
+khách hỏi "sao tôi không nhận được email" thì phải trả lời được.
+
+### Bộ gửi ghi-log ở MVP
+
+Nền tảng chưa ký hợp đồng với nhà cung cấp dịch vụ email, nhưng luồng phải
+chạy được đầu-cuối ngay — nếu không, việc soạn nội dung, chống gửi trùng và
+ghi nhật ký sẽ không được kiểm chứng cho tới tận lúc tích hợp thật.
+
+Đổi sang nhà cung cấp thật: viết một package cài `domain.Sender`, đổi một
+dòng ở nơi khởi tạo. Module không đổi gì (nguyên tắc P13).
+
+Kiểm chứng ngược, ba phép phá:
+
+| Phá gì | Test bắt được |
+|---|---|
+| Gửi trước, ghi log sau | **11 email cho 10 request song song** — thứ tự "ghi trước" là thứ chặn |
+| Thiếu địa chỉ thì trả lỗi | Event bị thử lại vô ích rồi rơi vào dead letter |
+| Gửi email cho mọi bước tiến độ | 4 email cho các bước nội bộ của seller — làm phiền khách |
+
+Phép đầu là kết quả rõ nhất: chỉ mục UNIQUE chỉ chặn được nếu bản ghi vào
+**trước** khi gửi.
 
 ### Một ranh giới đặt sai đã được sửa
 
@@ -760,17 +826,27 @@ cart.AddItem → checkout.StartCheckout → inventory.Reserve
              → cart.MarkConverted
 ```
 
-Tiếp theo là **giai đoạn 5 — Thực hiện đơn**:
+**Giai đoạn 5 đã xong.** Luồng chạy đầu-cuối từ giỏ hàng tới email xác nhận:
 
 ```text
-1. fulfillment   — tách đơn theo nguồn hàng
-2. notification  — thông báo cho khách và seller
+cart → checkout → inventory.Reserve → order.PlaceOrder
+                → checkout.completed (event)
+                     ├──→ inventory     : Reserved → Committed
+                     ├──→ fulfillment   : tách đơn theo nguồn hàng
+                     ├──→ supply-chain  : ghi tín hiệu ORDER
+                     └──→ notification  : email xác nhận đơn
+
+seller giao hàng → fulfillment.progress_changed (event)
+                     ├──→ order         : tính trạng thái tổng hợp
+                     └──→ notification  : email "đã gửi" / "đã giao"
 ```
 
-**Lưu ý về `fulfillment`:** phần khó nhất của nó — tách đơn theo nguồn hàng
-— ĐÃ LÀM XONG ở module `order` (`SplitIntoFulfillmentOrders`), vì việc tách
-là chuyện của hợp đồng chứ không phải của vận hành. Module `fulfillment` sẽ
-lo phần còn lại: chọn kho xuất hàng, tính phí ship thật, gắn mã vận đơn.
+Năm bên nhận, và **không module nào biết bên nào nghe mình** — đó là giá
+trị thật của kiến trúc event, giờ đã kiểm chứng được bằng luồng chạy thật.
+
+Tiếp theo là **giai đoạn 6 — Marketplace hoàn chỉnh**, nhưng bốn module MVP
+còn thiếu (`identity`, `customer`, `promotion`, `analytics`) nên cân nhắc
+làm chúng trước.
 
 **Còn thiếu ở tầng nền:** `platform/eventbus` vẫn rỗng. Hiện `checkout` gọi
 `order` đồng bộ — chạy được nhưng là nợ kỹ thuật đã biết. Giai đoạn 5 cần

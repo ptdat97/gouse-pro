@@ -76,14 +76,17 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 		INSERT INTO fulfillment_order (
 			id, order_id, fo_number, seller_id, status,
 			subtotal, commission_amount, currency, cancel_reason,
-			fulfillment_type, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			fulfillment_type, customer_id, notify_email, notify_phone,
+			created_at, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (id) DO NOTHING`,
 		fo.ID().String(), fo.OrderID().String(), fo.FONumber(),
 		fo.SellerID().String(), string(fo.Status()),
 		fo.Subtotal().Amount(), fo.CommissionAmount().Amount(),
 		string(fo.Subtotal().Currency()), fo.CancelReason(),
-		string(fo.Type()), fo.CreatedAt(), fo.UpdatedAt())
+		string(fo.Type()), fo.CustomerID().String(),
+		fo.NotifyEmail(), fo.NotifyPhone(),
+		fo.CreatedAt(), fo.UpdatedAt())
 	if err != nil {
 		return err
 	}
@@ -148,6 +151,7 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 const foCols = `
 	id, order_id, fo_number, seller_id, status,
 	subtotal, commission_amount, currency, cancel_reason, failure_reason,
+	customer_id, notify_email, notify_phone,
 	stock_location_id, fulfillment_type, shipping_method, shipping_provider,
 	tracking_number, estimated_delivery_date,
 	confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
@@ -286,6 +290,9 @@ func (s *FulfillmentStore) withLineIDs(
 		CommissionAmount:  fo.CommissionAmount(),
 		CancelReason:      fo.CancelReason(),
 		FailureReason:     fo.FailureReason(),
+		CustomerID:        fo.CustomerID(),
+		NotifyEmail:       fo.NotifyEmail(),
+		NotifyPhone:       fo.NotifyPhone(),
 		StockLocationID:   fo.StockLocationID(),
 		Type:              fo.Type(),
 		ShippingMethod:    fo.ShippingMethod(),
@@ -310,6 +317,7 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 		sellerID, status, currency  string
 		subtotal, commission        int64
 		cancelReason, failureReason string
+		customerID, email, phone    string
 		locationID, foType          string
 		method, provider, tracking  string
 		estimatedDelivery           *time.Time
@@ -320,6 +328,7 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 	if err := row.Scan(
 		&id, &orderID, &foNumber, &sellerID, &status,
 		&subtotal, &commission, &currency, &cancelReason, &failureReason,
+		&customerID, &email, &phone,
 		&locationID, &foType, &method, &provider, &tracking, &estimatedDelivery,
 		&confirmed, &packed, &shipped, &delivered, &cancelled,
 		&completed, &p.CreatedAt, &p.UpdatedAt,
@@ -337,6 +346,9 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 	p.CommissionAmount = mustMoney(commission, cur)
 	p.CancelReason = cancelReason
 	p.FailureReason = failureReason
+	p.CustomerID = ids.ID(customerID)
+	p.NotifyEmail = email
+	p.NotifyPhone = phone
 	p.StockLocationID = ids.ID(locationID)
 	p.Type = domain.FulfillmentType(foType)
 	p.ShippingMethod = method

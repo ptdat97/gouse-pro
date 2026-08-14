@@ -54,15 +54,28 @@ func (p *eventPublisher) PublishProgress(
 		eventbus.AggregateFulfillment,
 		in.FulfillmentID,
 		struct {
-			OrderID       string         `json:"order_id"`
-			FulfillmentID string         `json:"fulfillment_id"`
-			NewStatus     string         `json:"new_status"`
-			Progress      []lineProgress `json:"progress"`
+			OrderID        string `json:"order_id"`
+			FulfillmentID  string `json:"fulfillment_id"`
+			FONumber       string `json:"fo_number"`
+			NewStatus      string `json:"new_status"`
+			TrackingNumber string `json:"tracking_number"`
+
+			// Địa chỉ liên hệ, để notification gửi được mà không gọi ngược.
+			CustomerID string `json:"customer_id"`
+			Email      string `json:"email"`
+			Phone      string `json:"phone"`
+
+			Progress []lineProgress `json:"progress"`
 		}{
-			OrderID:       in.OrderID.String(),
-			FulfillmentID: in.FulfillmentID.String(),
-			NewStatus:     in.NewStatus,
-			Progress:      progress,
+			OrderID:        in.OrderID.String(),
+			FulfillmentID:  in.FulfillmentID.String(),
+			FONumber:       in.FONumber,
+			NewStatus:      in.NewStatus,
+			TrackingNumber: in.TrackingNumber,
+			CustomerID:     in.CustomerID.String(),
+			Email:          in.Email,
+			Phone:          in.Phone,
+			Progress:       progress,
 		})
 	if err != nil {
 		return err
@@ -126,9 +139,15 @@ func (h *SplitOnCheckoutCompleted) EventTypes() []string {
 
 // splitPayload là phần dữ liệu bên nhận này cần.
 type splitPayload struct {
-	OrderID      string `json:"order_id"`
-	OrderNumber  string `json:"order_number"`
-	Currency     string `json:"currency"`
+	OrderID     string `json:"order_id"`
+	OrderNumber string `json:"order_number"`
+	Currency    string `json:"currency"`
+
+	// Thông tin liên hệ, sao chép xuống đơn thực hiện để event phát từ
+	// module này mang theo được — notification không gọi ngược để lấy.
+	CustomerID   string `json:"customer_id"`
+	GuestEmail   string `json:"guest_email"`
+	GuestPhone   string `json:"guest_phone"`
 	Reservations []struct {
 		LineID           string `json:"line_id"`
 		SKUID            string `json:"sku_id"`
@@ -166,6 +185,9 @@ func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event)
 		OrderID:     ids.ID(p.OrderID),
 		OrderNumber: p.OrderNumber,
 		Currency:    currency,
+		CustomerID:  ids.ID(p.CustomerID),
+		NotifyEmail: p.GuestEmail,
+		NotifyPhone: p.GuestPhone,
 	}
 
 	for _, r := range p.Reservations {

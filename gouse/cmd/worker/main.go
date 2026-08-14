@@ -28,6 +28,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
+	"github.com/fashion-commerce/platform/internal/modules/notification"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
@@ -203,6 +204,20 @@ func run() error {
 		return err
 	}
 
+	// notification gửi email giao dịch.
+	//
+	// Chưa cấu hình Senders nên nó dùng bộ GHI-LOG: nội dung được ghi ra
+	// nhật ký thay vì gửi đi. Nhờ vậy luồng chạy được đầu-cuối trước khi
+	// nền tảng ký hợp đồng với nhà cung cấp dịch vụ email.
+	notificationModule, err := notification.New(notification.Config{
+		Storage: "postgres",
+		DB:      db,
+		Log:     log,
+	})
+	if err != nil {
+		return err
+	}
+
 	// supply-chain ở MVP CHỈ ghi tín hiệu nhu cầu — chưa dự báo, chưa lập
 	// kế hoạch. Nhưng phải có từ MVP vì dữ liệu lịch sử không tạo ngược được.
 	supplyModule, err := supplychain.New(supplychain.Config{
@@ -235,6 +250,7 @@ func run() error {
 	bus.Subscribe(supplychain.NewSignalHandler(supplyModule))
 	bus.Subscribe(fulfillment.NewSplitHandler(fulfillmentModule, log))
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
+	bus.Subscribe(notification.NewOrderNotifier(notificationModule, log))
 
 	jobs := []job{
 		{

@@ -190,6 +190,15 @@ type FulfillmentOrder struct {
 	// failureReason khi giao thất bại.
 	failureReason string
 
+	// Thông tin liên hệ, NHÂN BẢN từ đơn hàng lúc tách.
+	//
+	// Nhân bản có chủ ý: module notification không được gọi module nghiệp
+	// vụ nào, nên event phát từ đây phải mang theo địa chỉ liên hệ. Xem
+	// migration 000014.
+	customerID  ids.ID
+	notifyEmail string
+	notifyPhone string
+
 	// stockLocationID là kho xuất hàng.
 	//
 	// Rỗng với đơn seller tự giao: nền tảng không biết và không cần biết
@@ -223,6 +232,11 @@ type NewFulfillmentOrderParams struct {
 	LineIDs          []ids.ID
 	Subtotal         money.Money
 	CommissionAmount money.Money
+
+	// Thông tin liên hệ để thông báo cho khách về đơn này.
+	CustomerID  ids.ID
+	NotifyEmail string
+	NotifyPhone string
 
 	// Type mặc định SELLER nếu để trống — đó là trường hợp phổ biến nhất
 	// của marketplace.
@@ -267,6 +281,9 @@ func NewFulfillmentOrder(p NewFulfillmentOrderParams) (*FulfillmentOrder, error)
 		status:           FOPending,
 		subtotal:         p.Subtotal,
 		commissionAmount: p.CommissionAmount,
+		customerID:       p.CustomerID,
+		notifyEmail:      strings.TrimSpace(p.NotifyEmail),
+		notifyPhone:      strings.TrimSpace(p.NotifyPhone),
 		fulfillmentType:  fulfillmentType,
 		createdAt:        now,
 		updatedAt:        now,
@@ -285,6 +302,9 @@ type RestoreFOParams struct {
 	CommissionAmount  money.Money
 	CancelReason      string
 	FailureReason     string
+	CustomerID        ids.ID
+	NotifyEmail       string
+	NotifyPhone       string
 	StockLocationID   ids.ID
 	Type              FulfillmentType
 	ShippingMethod    string
@@ -314,6 +334,9 @@ func RestoreFulfillmentOrder(p RestoreFOParams) *FulfillmentOrder {
 		commissionAmount:  p.CommissionAmount,
 		cancelReason:      p.CancelReason,
 		failureReason:     p.FailureReason,
+		customerID:        p.CustomerID,
+		notifyEmail:       p.NotifyEmail,
+		notifyPhone:       p.NotifyPhone,
 		stockLocationID:   p.StockLocationID,
 		fulfillmentType:   p.Type,
 		shippingMethod:    p.ShippingMethod,
@@ -340,6 +363,9 @@ func (f *FulfillmentOrder) Subtotal() money.Money         { return f.subtotal }
 func (f *FulfillmentOrder) CommissionAmount() money.Money { return f.commissionAmount }
 func (f *FulfillmentOrder) CancelReason() string          { return f.cancelReason }
 func (f *FulfillmentOrder) FailureReason() string         { return f.failureReason }
+func (f *FulfillmentOrder) CustomerID() ids.ID            { return f.customerID }
+func (f *FulfillmentOrder) NotifyEmail() string           { return f.notifyEmail }
+func (f *FulfillmentOrder) NotifyPhone() string           { return f.notifyPhone }
 func (f *FulfillmentOrder) StockLocationID() ids.ID       { return f.stockLocationID }
 func (f *FulfillmentOrder) Type() FulfillmentType         { return f.fulfillmentType }
 func (f *FulfillmentOrder) ShippingMethod() string        { return f.shippingMethod }
@@ -531,7 +557,16 @@ type SplitInput struct {
 	OrderID     ids.ID
 	OrderNumber string
 	Currency    money.Currency
-	Lines       []SplitLine
+
+	// Thông tin liên hệ, sao chép xuống từng đơn thực hiện.
+	//
+	// Cần thiết để event phát từ module này mang theo địa chỉ — module
+	// notification không được gọi ngược để lấy.
+	CustomerID  ids.ID
+	NotifyEmail string
+	NotifyPhone string
+
+	Lines []SplitLine
 }
 
 // SplitLine là một dòng hàng cần phân về nguồn.
@@ -586,6 +621,9 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 			LineIDs:          g.lineIDs,
 			Subtotal:         g.subtotal,
 			CommissionAmount: g.commission,
+			CustomerID:       in.CustomerID,
+			NotifyEmail:      in.NotifyEmail,
+			NotifyPhone:      in.NotifyPhone,
 			Now:              now,
 		})
 		if err != nil {

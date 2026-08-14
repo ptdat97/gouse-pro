@@ -54,6 +54,7 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 		SKUID           string `json:"sku_id"`
 		SellerID        string `json:"seller_id"`
 		Quantity        int    `json:"quantity"`
+		ProductName     string `json:"product_name"`
 
 		// Tiền ĐÃ ĐÓNG BĂNG, để fulfillment tính phần của từng seller.
 		LineTotal        int64 `json:"line_total"`
@@ -69,6 +70,7 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			SKUID:            r.SKUID.String(),
 			SellerID:         r.SellerID.String(),
 			Quantity:         r.Quantity,
+			ProductName:      r.ProductName,
 			LineTotal:        r.LineTotal.Amount(),
 			CommissionAmount: r.CommissionAmount.Amount(),
 		})
@@ -88,6 +90,8 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			OrderNumber  string               `json:"order_number"`
 			CartID       string               `json:"cart_id"`
 			CustomerID   string               `json:"customer_id"`
+			GuestEmail   string               `json:"guest_email"`
+			GuestPhone   string               `json:"guest_phone"`
 			Currency     string               `json:"currency"`
 			Reservations []reservationPayload `json:"reservations"`
 		}{
@@ -96,6 +100,8 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			OrderNumber:  in.OrderNumber,
 			CartID:       in.CartID.String(),
 			CustomerID:   in.CustomerID.String(),
+			GuestEmail:   in.GuestEmail,
+			GuestPhone:   in.GuestPhone,
 			Currency:     string(in.Currency),
 			Reservations: reservations,
 		})
