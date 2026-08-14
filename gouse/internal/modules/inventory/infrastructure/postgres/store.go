@@ -284,6 +284,23 @@ func (u *UnitOfWork) Do(ctx context.Context, fn func(domain.Repos) error) error 
 	return nil
 }
 
+// ReposForTx trả bộ repository dùng GIAO DỊCH CỦA BÊN GỌI.
+//
+// Cần cho bên nhận domain event: dispatcher đã mở một giao dịch để đánh
+// dấu event đã xử lý, và việc thay đổi tồn kho phải nằm TRONG giao dịch
+// đó. Hai giao dịch tách rời nghĩa là commit tồn kho có thể thành công
+// trong khi việc đánh dấu thất bại — lần thử lại sẽ commit lần thứ hai.
+//
+// KHÔNG dùng cho đường đi thông thường: UnitOfWork có cơ chế thử lại khi
+// xung đột phiên bản, còn hàm này không.
+func ReposForTx(tx querier) domain.Repos {
+	return domain.Repos{
+		Items:        NewItemStore(tx),
+		Reservations: NewReservationStore(tx),
+		Movements:    NewMovementStore(tx),
+	}
+}
+
 // Repos trả về bộ repository dùng NGOÀI giao dịch (chỉ đọc là chính).
 func Repos(pool *pgxpool.Pool) domain.Repos {
 	return domain.Repos{

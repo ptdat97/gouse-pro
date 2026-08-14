@@ -15,8 +15,8 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      158 file · 44.819 dòng · 441 hàm test    → Hết giai đoạn 4/7
-Migration    20 file SQL · 10 module · đảo được
+Code Go      165 file · 47.400 dòng · 453 hàm test    → Hết giai đoạn 4/7
+Migration    22 file SQL · 10 module + outbox · đảo được
 
 Module MVP đã có code: 10/14  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
@@ -31,12 +31,12 @@ Kiểm chứng lần cuối (13/08/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 158 file, không vi phạm ranh giới
+✓ archcheck    OK — 165 file, không vi phạm ranh giới
 ✓ go test      toàn bộ package pass, CÓ database thật
-✓ chạy thật    api chạy đủ 10 module trên PostgreSQL; worker chạy 2 job
-               (dọn giữ hàng 30s, dọn phiên thanh toán 60s)
+✓ chạy thật    api chạy đủ 10 module trên PostgreSQL; worker chạy 3 job
+               (phát event 5s, dọn giữ hàng 30s, dọn phiên 60s)
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    10/10 áp dụng được, đảo được
+✓ migration    11/11 áp dụng được, đảo được
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
 ✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id
@@ -47,6 +47,9 @@ Kiểm chứng lần cuối (13/08/2026):
 ✓ tranh chấp   10 khách checkout, kho còn 5 → ĐÚNG 5 người giữ được
 ✓ giá đóng băng seller đổi giá giữa chừng → đơn vẫn ghi giá khách đã thấy
 ✓ nhả hàng     hết hạn và hủy phiên đều trả hàng về kho, đếm khớp
+✓ outbox       giao dịch rollback → event KHÔNG phát; phát lại → bên
+               nhận xử lý ĐÚNG 1 lần; event hỏng → dead letter sau 5 lần
+✓ commit kho   đặt hàng xong → 7/3/0 thành 7/0/3 qua event thật
 ```
 
 **Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
@@ -701,14 +704,15 @@ và cho notification gửi thông báo.
 
 **Nợ kỹ thuật ưu tiên cao — chặn giai đoạn 5:**
 
-| # | Nợ | Hậu quả nếu để lâu |
+| # | Nợ | Trạng thái |
 |---|---|---|
-| 1 | `Reserved → Committed` chưa tự động | Hàng đã bán vẫn nằm ở trạng thái "đang giữ"; báo cáo tồn kho sai, và tiến trình dọn có thể nhả hàng của đơn đã thanh toán |
-| 2 | `demand_signal` chưa được ghi | **Dữ liệu lịch sử không tạo ngược được** — đây là 1 trong 4 thứ "sửa sau là viết lại" ở mục 9 |
-| 3 | `platform/eventbus` rỗng, chưa có outbox | Không có đường cho notification/analytics nghe `order.placed` |
+| 1 | `Reserved → Committed` chưa tự động | **XONG** — `inventory` nghe `checkout.completed`, đã kiểm chứng ngược |
+| 2 | `platform/eventbus` rỗng, chưa có outbox | **XONG** — Transactional Outbox + dispatcher, worker phát mỗi 5 giây |
+| 3 | `demand_signal` chưa được ghi | **CÒN LẠI** — dữ liệu lịch sử không tạo ngược được, 1 trong 4 thứ "sửa sau là viết lại" ở mục 9 |
 
-Ba việc này liên quan nhau: (3) là hạ tầng cho (1) và (2). Xem
-[ADR-0006](../adr/0006-internal-events.md) mục "Trạng thái triển khai".
+Hạ tầng cho (3) giờ đã có: chỉ cần một bên nhận nghe `cart.item_added` và
+`order.placed`. Xem [ADR-0006](../adr/0006-internal-events.md) mục "Trạng
+thái triển khai".
 
 **Nợ kỹ thuật khác đã ghi nhận:**
 

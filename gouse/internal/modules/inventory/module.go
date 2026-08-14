@@ -10,6 +10,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/inventory/domain"
 	inventorypg "github.com/fashion-commerce/platform/internal/modules/inventory/infrastructure/postgres"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // Module là cài đặt của API công khai.
@@ -195,6 +196,25 @@ func (m *Module) Commit(ctx context.Context, reservationID string) error {
 		return ErrInvalidID
 	}
 	return translateErr(m.svc.Commit(ctx, id))
+}
+
+// CommitInEventTx chuyển Reserved → Committed bằng giao dịch của dispatcher.
+//
+// Ngữ cảnh PHẢI mang giao dịch do eventbus mở. Thiếu nó thì trả lỗi chứ
+// KHÔNG âm thầm mở giao dịch riêng — âm thầm mở nghĩa là mất đúng thứ đảm
+// bảo mà hàm này tồn tại để cung cấp, và không có gì báo cho người gọi biết.
+func (m *Module) CommitInEventTx(ctx context.Context, reservationID string) error {
+	id, err := ids.Parse(reservationID, ids.PrefixReservation)
+	if err != nil {
+		return ErrInvalidID
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	return translateErr(m.svc.CommitInRepos(ctx, inventorypg.ReposForTx(tx), id))
 }
 
 func (m *Module) Ship(ctx context.Context, itemID string, quantity int, orderID string) error {

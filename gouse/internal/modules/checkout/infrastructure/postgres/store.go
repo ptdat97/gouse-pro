@@ -34,6 +34,20 @@ var _ domain.Repository = (*CheckoutStore)(nil)
 // nên không có câu UPDATE nào chạm vào chúng ở đây hay bất kỳ đâu khác
 // trong package này. Chỉ phiên (địa chỉ, phí ship, trạng thái) đổi được.
 func (s *CheckoutStore) Save(ctx context.Context, c *domain.Checkout) error {
+	return s.SaveWithEvents(ctx, c, nil)
+}
+
+// SaveWithEvents ghi phiên VÀ chạy fn trong CÙNG một giao dịch.
+//
+// fn là nơi tầng application phát domain event. Ngữ cảnh truyền cho fn
+// mang giao dịch này, nên event vào outbox cùng lúc với thay đổi phiên —
+// cùng thành công hoặc cùng thất bại.
+//
+// Không có điều đó thì phiên có thể chuyển COMPLETED mà event không được
+// ghi, và tồn kho sẽ mãi nằm ở Reserved cho một đơn đã bán xong.
+func (s *CheckoutStore) SaveWithEvents(
+	ctx context.Context, c *domain.Checkout, fn domain.TxFunc,
+) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("checkout: mở giao dịch: %w", err)
@@ -120,10 +134,32 @@ func (s *CheckoutStore) Save(ctx context.Context, c *domain.Checkout) error {
 		}
 	}
 
+	if fn != nil {
+		if err := fn(withTx(ctx, tx)); err != nil {
+			return err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("checkout: xác nhận giao dịch: %w", err)
 	}
 	return nil
+}
+
+// txKey gắn giao dịch vào ngữ cảnh cho TxFunc.
+//
+// Dùng kiểu riêng chứ không phải chuỗi: hai gói cùng dùng khóa "tx" sẽ ghi
+// đè nhau mà không ai biết.
+type txKey struct{}
+
+func withTx(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, txKey{}, tx)
+}
+
+// TxFrom lấy giao dịch mà SaveWithEvents đang mở.
+func TxFrom(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return tx, ok
 }
 
 const checkoutCols = `

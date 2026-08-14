@@ -16,6 +16,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // Module là cài đặt của API công khai.
@@ -45,6 +46,13 @@ type Config struct {
 	Order       order.API
 
 	Clock application.Clock
+
+	// Events phát domain event. Nil nghĩa là KHÔNG phát.
+	//
+	// Ở production đây là thiếu sót nghiêm trọng: không có event thì tồn
+	// kho không chuyển Reserved → Committed, và tiến trình dọn có thể nhả
+	// hàng của một đơn đã thanh toán.
+	Events *eventbus.Outbox
 }
 
 // New khởi tạo module checkout.
@@ -72,14 +80,19 @@ func New(cfg Config) (*Module, error) {
 		}
 	}
 
-	return &Module{svc: application.NewService(application.Deps{
+	deps := application.Deps{
 		Checkouts:   checkoutpg.NewCheckoutStore(cfg.DB.Pool()),
 		Carts:       &cartAdapter{api: cfg.Cart},
 		Inventory:   &inventoryAdapter{api: cfg.Inventory},
 		Commissions: &commissionAdapter{api: cfg.Marketplace},
 		Orders:      &orderAdapter{api: cfg.Order},
 		Clock:       cfg.Clock,
-	})}, nil
+	}
+	if cfg.Events != nil {
+		deps.Events = &eventPublisher{outbox: cfg.Events}
+	}
+
+	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.

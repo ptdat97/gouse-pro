@@ -32,6 +32,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
@@ -229,6 +230,11 @@ func run() error {
 
 		// checkout là module ĐIỀU PHỐI: nó gọi bốn module trên và là nơi
 		// DUY NHẤT trong hệ thống khóa tồn kho cho khách.
+		// API GHI event vào outbox; WORKER phát chúng đi.
+		//
+		// Tách hai việc là chủ ý: request của khách không phải chờ chín
+		// bên nhận xử lý xong, và một bên nhận lỗi không làm hỏng việc
+		// đặt hàng.
 		checkoutModule, err = checkout.New(checkout.Config{
 			Storage:     "postgres",
 			DB:          db,
@@ -236,6 +242,7 @@ func run() error {
 			Inventory:   inventoryModule,
 			Marketplace: marketplaceModule,
 			Order:       orderModule,
+			Events:      eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
 			return err
@@ -250,8 +257,24 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("kiểm tra phiên thanh toán quá hạn: %w", err)
 		}
+		// Chỉ báo giám sát: event chưa phát và event đã bỏ cuộc.
+		//
+		// Dead letter khác 0 nghĩa là có sự thật nghiệp vụ không tới được
+		// bên nhận — đơn đã đặt mà tồn kho chưa cập nhật.
+		outboxStats, err := eventbus.NewOutbox(db.Pool()).Stats(ctx)
+		if err != nil {
+			return fmt.Errorf("kiểm tra outbox: %w", err)
+		}
+		if outboxStats.DeadLettered > 0 {
+			log.Error("CÓ EVENT KHÔNG PHÁT ĐƯỢC",
+				"số_lượng", outboxStats.DeadLettered,
+				"gợi_ý", "xem cột last_error trong bảng event_outbox")
+		}
+
 		log.Info("module checkout đã sẵn sàng (giữ hàng + đóng băng giá)",
-			"phien_qua_han_chua_don", stalePending)
+			"phien_qua_han_chua_don", stalePending,
+			"event_cho_phat", outboxStats.Pending,
+			"event_bo_cuoc", outboxStats.DeadLettered)
 	} else {
 		log.Warn("bỏ qua inventory, seller, marketplace, payment, order, " +
 			"cart, checkout: cần MODULES_STORAGE=postgres")

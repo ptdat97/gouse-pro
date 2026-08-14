@@ -230,6 +230,8 @@ func newHarness(t *testing.T) *harness {
 		"TRUNCATE inventory_movement CASCADE",
 		"TRUNCATE inventory_item CASCADE",
 		"DELETE FROM stock_location",
+		"TRUNCATE event_processed",
+		"TRUNCATE event_outbox",
 	} {
 		if _, err := db.Pool().Exec(ctx, stmt); err != nil {
 			t.Fatalf("dọn dữ liệu (%s): %v", stmt, err)

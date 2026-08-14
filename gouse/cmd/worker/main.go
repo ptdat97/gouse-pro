@@ -32,6 +32,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
@@ -71,6 +72,25 @@ const (
 	expireCheckoutsInterval = 60 * time.Second
 
 	expireCheckoutsBatch = 200
+
+	// dispatchEventsInterval là nhịp phát domain event từ outbox.
+	//
+	// DÀY NHẤT trong các job: mỗi event chờ ở đây là một việc chưa xảy ra
+	// mà lẽ ra đã phải xảy ra — tồn kho chưa chuyển sang Committed, email
+	// xác nhận chưa gửi.
+	//
+	// 5 giây là điểm cân bằng: đủ nhanh để khách không thấy độ trễ, đủ thưa
+	// để không tạo truy vấn vô ích khi hệ thống rảnh.
+	dispatchEventsInterval = 5 * time.Second
+
+	dispatchEventsBatch = 100
+
+	// outboxLagAlert là ngưỡng cảnh báo độ trễ.
+	//
+	// Vượt ngưỡng nghĩa là bộ phát đã chết hoặc không theo kịp — và hệ quả
+	// nghiêm trọng nhất là hàng đã bán vẫn nằm ở Reserved, nơi tiến trình
+	// dọn có thể nhả nó và bán cho khách khác.
+	outboxLagAlert = 60 * time.Second
 )
 
 func main() {
@@ -167,12 +187,26 @@ func run() error {
 		Inventory:   inventoryModule,
 		Marketplace: marketplaceModule,
 		Order:       orderModule,
+		Events:      eventbus.NewOutbox(db.Pool()),
 	})
 	if err != nil {
 		return err
 	}
 
+	// Bus event: bộ phát đọc outbox và đưa event tới các bên nhận.
+	//
+	// Đăng ký bên nhận Ở ĐÂY, tại điểm khởi chạy — không phải bên trong
+	// module. Nhờ vậy module phát event không biết ai nghe, và thêm bên
+	// nghe mới chỉ sửa file này.
+	bus := eventbus.NewDispatcher(db.Pool(), log)
+	bus.Subscribe(inventory.NewCommitHandler(inventoryModule, log))
+
 	jobs := []job{
+		{
+			name:     "phát domain event",
+			interval: dispatchEventsInterval,
+			run:      dispatchEvents(bus, log),
+		},
 		{
 			name:     "dọn giữ hàng quá hạn",
 			interval: expireReservationsInterval,
@@ -186,6 +220,45 @@ func run() error {
 	}
 
 	return runJobs(ctx, log, jobs)
+}
+
+// dispatchEvents phát domain event từ outbox tới các bên nhận.
+//
+// Đây là thứ biến Transactional Outbox thành sự thật: không có job này,
+// event nằm mãi trong bảng và không việc gì xảy ra sau khi đặt hàng.
+func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Context) error {
+	return func(ctx context.Context) error {
+		daPhat, err := bus.DispatchBatch(ctx, dispatchEventsBatch)
+		if err != nil {
+			return fmt.Errorf("phát domain event: %w", err)
+		}
+		if daPhat > 0 {
+			log.Info("đã phát domain event", "số_lượng", daPhat)
+		}
+
+		stats, err := bus.Outbox().Stats(ctx)
+		if err != nil {
+			return fmt.Errorf("đọc chỉ số outbox: %w", err)
+		}
+
+		// Dead letter là sự cố NGHIÊM TRỌNG: có sự thật nghiệp vụ không
+		// tới được bên nhận. Đơn đã đặt mà tồn kho chưa cập nhật, hoặc
+		// khách không nhận được email xác nhận.
+		if stats.DeadLettered > 0 {
+			log.Error("CÓ EVENT KHÔNG PHÁT ĐƯỢC — cần người xem",
+				"số_lượng", stats.DeadLettered,
+				"gợi_ý", "xem cột last_error trong bảng event_outbox")
+		}
+
+		if stats.OldestPendingAge > outboxLagAlert {
+			log.Warn("độ trễ phát event vượt ngưỡng",
+				"độ_trễ", stats.OldestPendingAge.String(),
+				"ngưỡng", outboxLagAlert.String(),
+				"còn_chờ", stats.Pending,
+				"hệ_quả", "hàng đã bán có thể vẫn ở trạng thái đang giữ")
+		}
+		return nil
+	}
 }
 
 // expireCheckouts dọn phiên thanh toán quá hạn và NHẢ HÀNG.

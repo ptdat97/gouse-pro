@@ -7,9 +7,26 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
+// TxFunc chạy bên trong giao dịch mà kho lưu trữ đã mở.
+//
+// Ngữ cảnh truyền vào MANG giao dịch đó. Đây là cách tầng application phát
+// domain event mà không cần biết database — nó chỉ nhận một ngữ cảnh và
+// đưa cho bộ phát event.
+//
+// VÌ SAO CẦN: ghi trạng thái phiên và ghi event vào outbox phải cùng thành
+// công hoặc cùng thất bại. Phiên chuyển COMPLETED mà event không được ghi
+// nghĩa là tồn kho không bao giờ chuyển sang Committed — hàng đã bán vẫn
+// nằm ở trạng thái "đang giữ" cho tới khi có người phát hiện thủ công.
+type TxFunc func(ctx context.Context) error
+
 // Repository là PORT cho kho lưu trữ phiên thanh toán.
 type Repository interface {
 	Save(ctx context.Context, c *Checkout) error
+
+	// SaveWithEvents ghi phiên VÀ chạy fn trong CÙNG một giao dịch.
+	//
+	// fn thất bại → toàn bộ hoàn tác, kể cả thay đổi phiên.
+	SaveWithEvents(ctx context.Context, c *Checkout, fn TxFunc) error
 
 	FindByID(ctx context.Context, id ids.ID) (*Checkout, error)
 

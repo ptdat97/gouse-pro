@@ -246,34 +246,58 @@ func (s *Service) Reserve(ctx context.Context, in ReserveInput) (*domain.Reserva
 // Commit chuyển hàng đang giữ thành cam kết cho đơn đã xác nhận.
 func (s *Service) Commit(ctx context.Context, reservationID ids.ID) error {
 	return s.withRetry(ctx, func(r domain.Repos) error {
-		reservation, err := r.Reservations.FindByID(ctx, reservationID)
-		if err != nil {
-			return err
-		}
-
-		now := s.clock.Now()
-		if err := reservation.Convert(now); err != nil {
-			return err
-		}
-
-		item, err := r.Items.FindByID(ctx, reservation.InventoryItemID())
-		if err != nil {
-			return err
-		}
-
-		var saved *domain.InventoryItem
-		if err := s.mutate(ctx, r, item, mutation{
-			apply:       func(i *domain.InventoryItem, t time.Time) error { return i.Commit(reservation.Quantity(), t) },
-			movement:    domain.MovementCommit,
-			quantity:    reservation.Quantity(),
-			referenceID: reservation.ID(),
-			result:      &saved,
-		}); err != nil {
-			return err
-		}
-
-		return r.Reservations.Save(ctx, reservation)
+		return s.commitWith(ctx, r, reservationID)
 	})
+}
+
+// CommitInRepos chuyển Reserved → Committed bằng GIAO DỊCH CỦA BÊN GỌI.
+//
+// Dành cho bên nhận domain event: dispatcher đã mở giao dịch để đánh dấu
+// event đã xử lý, và thay đổi tồn kho phải nằm trong CÙNG giao dịch đó.
+// Nếu tách rời, commit tồn kho có thể thành công trong khi đánh dấu thất
+// bại — lần thử lại sẽ commit lần thứ hai.
+//
+// KHÁC BIỆT VỚI Commit: hàm này KHÔNG có cơ chế thử lại khi xung đột phiên
+// bản, vì việc thử lại phải do bên gọi làm (dispatcher thử lại cả event).
+// Thử lại bên trong một giao dịch đã hỏng là vô nghĩa: PostgreSQL từ chối
+// mọi lệnh sau lỗi đầu tiên.
+func (s *Service) CommitInRepos(
+	ctx context.Context, r domain.Repos, reservationID ids.ID,
+) error {
+	return s.commitWith(ctx, r, reservationID)
+}
+
+// commitWith là phần logic dùng chung của hai hàm trên.
+func (s *Service) commitWith(
+	ctx context.Context, r domain.Repos, reservationID ids.ID,
+) error {
+	reservation, err := r.Reservations.FindByID(ctx, reservationID)
+	if err != nil {
+		return err
+	}
+
+	now := s.clock.Now()
+	if err := reservation.Convert(now); err != nil {
+		return err
+	}
+
+	item, err := r.Items.FindByID(ctx, reservation.InventoryItemID())
+	if err != nil {
+		return err
+	}
+
+	var saved *domain.InventoryItem
+	if err := s.mutate(ctx, r, item, mutation{
+		apply:       func(i *domain.InventoryItem, t time.Time) error { return i.Commit(reservation.Quantity(), t) },
+		movement:    domain.MovementCommit,
+		quantity:    reservation.Quantity(),
+		referenceID: reservation.ID(),
+		result:      &saved,
+	}); err != nil {
+		return err
+	}
+
+	return r.Reservations.Save(ctx, reservation)
 }
 
 // Release giải phóng hàng đang giữ khi khách hủy checkout.

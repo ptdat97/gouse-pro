@@ -107,6 +107,42 @@ type CommissionPort interface {
 	RateForSeller(ctx context.Context, sellerID ids.ID) (types.BasisPoints, error)
 }
 
+// EventPublisher phát domain event.
+//
+// Là PORT do tầng application định nghĩa, nên nó không biết outbox hay
+// database — chỉ biết "có một sự thật cần thông báo".
+//
+// Ngữ cảnh truyền vào PHẢI mang giao dịch của kho lưu trữ (xem
+// domain.TxFunc): event ghi ở giao dịch khác nghĩa là phiên có thể chuyển
+// COMPLETED trong khi event không tồn tại, và tồn kho sẽ mãi ở Reserved
+// cho một đơn đã bán xong.
+type EventPublisher interface {
+	PublishCheckoutCompleted(ctx context.Context, e CheckoutCompleted) error
+}
+
+// CheckoutCompleted là sự thật "phiên thanh toán đã tạo đơn thành công".
+//
+// Payload chứa ĐỦ thông tin để bên nhận xử lý mà KHÔNG phải gọi ngược lại:
+// inventory cần reservationID để commit, và nó không nên phải hỏi checkout.
+type CheckoutCompleted struct {
+	CheckoutID ids.ID
+	OrderID    ids.ID
+	CartID     ids.ID
+	CustomerID ids.ID
+
+	// Reservations là các mã giữ hàng cần chuyển Reserved → Committed.
+	Reservations []ReservedLine
+}
+
+// ReservedLine là một dòng hàng đã giữ chỗ.
+type ReservedLine struct {
+	ReservationID   ids.ID
+	InventoryItemID ids.ID
+	SKUID           ids.ID
+	SellerID        ids.ID
+	Quantity        int
+}
+
 // OrderPort là những gì checkout cần từ module order.
 type OrderPort interface {
 	// PlaceOrder tạo đơn từ các con số ĐÃ CHỐT.
@@ -166,6 +202,7 @@ type Service struct {
 	commissions CommissionPort
 	orders      OrderPort
 	clock       Clock
+	events      EventPublisher
 }
 
 type Deps struct {
@@ -175,6 +212,12 @@ type Deps struct {
 	Commissions CommissionPort
 	Orders      OrderPort
 	Clock       Clock
+
+	// Events có thể nil: khi đó phiên vẫn hoạt động nhưng KHÔNG phát event.
+	//
+	// Chấp nhận được khi chạy test tầng dưới. KHÔNG chấp nhận được ở
+	// production: thiếu event nghĩa là tồn kho không chuyển sang Committed.
+	Events EventPublisher
 }
 
 func NewService(d Deps) *Service {
@@ -189,6 +232,7 @@ func NewService(d Deps) *Service {
 		commissions: d.Commissions,
 		orders:      d.Orders,
 		clock:       clock,
+		events:      d.Events,
 	}
 }
 
@@ -619,7 +663,19 @@ func (s *Service) CompleteCheckout(
 	if err := c.Complete(placed.OrderID, idempotencyKey, now); err != nil {
 		return nil, err
 	}
-	if err := s.checkouts.Save(ctx, c); err != nil {
+
+	// Ghi trạng thái phiên VÀ phát event trong CÙNG một giao dịch.
+	//
+	// Đây là chỗ Transactional Outbox phát huy tác dụng: nếu phiên chuyển
+	// COMPLETED mà event không được ghi, tồn kho sẽ mãi nằm ở Reserved cho
+	// một đơn đã bán xong — và không tiến trình nào đi tìm nó, vì phiên đã
+	// kết thúc nên job dọn không quét tới.
+	if err := s.checkouts.SaveWithEvents(ctx, c, func(txCtx context.Context) error {
+		if s.events == nil {
+			return nil
+		}
+		return s.events.PublishCheckoutCompleted(txCtx, s.completedEvent(c, placed.OrderID))
+	}); err != nil {
 		return nil, err
 	}
 
@@ -636,6 +692,32 @@ func (s *Service) CompleteCheckout(
 		OrderNumber: placed.OrderNumber,
 		Replayed:    placed.Replayed,
 	}, nil
+}
+
+// completedEvent dựng dữ liệu event từ phiên đã hoàn tất.
+func (s *Service) completedEvent(c *domain.Checkout, orderID ids.ID) CheckoutCompleted {
+	lines := c.Lines()
+	reservations := make([]ReservedLine, 0, len(lines))
+	for _, l := range lines {
+		if !l.HasStock() {
+			continue
+		}
+		reservations = append(reservations, ReservedLine{
+			ReservationID:   l.ReservationID(),
+			InventoryItemID: l.InventoryItemID(),
+			SKUID:           l.SKUID(),
+			SellerID:        l.SellerID(),
+			Quantity:        l.Quantity(),
+		})
+	}
+
+	return CheckoutCompleted{
+		CheckoutID:   c.ID(),
+		OrderID:      orderID,
+		CartID:       c.CartID(),
+		CustomerID:   c.CustomerID(),
+		Reservations: reservations,
+	}
 }
 
 // ---------------------------------------------------------------- Dọn dẹp

@@ -305,7 +305,7 @@ khóa vĩnh viễn.
 ```text
 order.placed
     │
-    ├──→ inventory        : chuyển Reserved → Committed
+    ├──→ (inventory KHÔNG nghe event này — xem ghi chú dưới)
     ├──→ fulfillment      : tạo FulfillmentOrder theo từng seller
     ├──→ payment          : ghi bút toán doanh thu, hoa hồng
     ├──→ affiliate        : xác nhận quy kết, tạo bản ghi hoa hồng creator
@@ -316,7 +316,28 @@ order.placed
     └──→ promotion        : cập nhật số lần dùng mã giảm giá
 ```
 
-**Quan sát:** module `order` **không biết** chín bên này tồn tại. Thêm bên nghe thứ mười không cần sửa module order. Đây chính là giá trị của event.
+**Quan sát:** module `order` **không biết** các bên này tồn tại. Thêm bên
+nghe mới không cần sửa module order. Đây chính là giá trị của event.
+
+### Vì sao `inventory` nghe `checkout.completed`, không phải `order.placed`
+
+Bảng trên từng ghi `order.placed → inventory: Reserved → Committed`. Khi
+triển khai thì thấy không làm được: inventory cần `reservation_id` để biết
+commit cái nào, mà `Order` **không giữ** nó — reservation là dữ liệu VẬN
+HÀNH, không thuộc hợp đồng với khách.
+
+```text
+Nhồi reservation_id vào Order        → làm bẩn hợp đồng với khách bằng
+                                       chi tiết vận hành
+Nghe checkout.completed  ← ĐÃ CHỌN   → checkout biết CẢ HAI đầu:
+                                       mã đơn vừa tạo và các mã giữ hàng
+```
+
+Payload của `checkout.completed` chứa danh sách reservation, nên inventory
+xử lý được mà KHÔNG phải gọi ngược lại checkout.
+
+Xem [../adr/0006-internal-events.md](../adr/0006-internal-events.md) mục
+"Trạng thái triển khai".
 
 ---
 

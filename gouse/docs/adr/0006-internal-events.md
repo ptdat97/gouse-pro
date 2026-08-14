@@ -1,6 +1,6 @@
 # ADR-0006: Domain event nội bộ + Transactional Outbox
 
-**Trạng thái:** Accepted — **CHƯA TRIỂN KHAI** (xem mục cuối)
+**Trạng thái:** Accepted — **đã triển khai** (xem mục cuối)
 
 ---
 
@@ -276,63 +276,82 @@ Nhưng cũng **không nhồi toàn bộ aggregate** — chỉ những gì bên n
 
 ## Trạng thái triển khai (14/08/2026)
 
-**Chưa có gì được cài đặt.** `internal/platform/eventbus/` là thư mục rỗng;
-không có bảng `event_outbox` trong migration nào.
+**Đã cài đặt.** `internal/platform/eventbus/` có `Event`, `Outbox`,
+`Dispatcher`; migration `000011_event_outbox` tạo hai bảng `event_outbox`
+và `event_processed`. Worker chạy job "phát domain event" mỗi 5 giây.
 
-### Vì sao chưa cài mà vẫn chạy được 10 module
-
-Luồng mua hàng đầu-cuối hiện chạy **hoàn toàn bằng lời gọi đồng bộ**:
-
-```text
-cart → checkout → inventory.Reserve      (đồng bộ, cần kết quả)
-                → order.PlaceOrder       (đồng bộ, cần mã đơn)
-                → cart.MarkConverted     (đồng bộ, chấp nhận lỗi)
-```
-
-Điều này **đúng với nguyên tắc** ở mục "Chọn đồng bộ hay event": cả ba lời
-gọi đều cần kết quả để quyết định việc tiếp theo. Không có event nào bị bỏ
-sót ở đây — chúng vốn không nên là event.
-
-### Cái gì đang thiếu vì chưa có outbox
-
-Những việc **chỉ thông báo**, đúng ra phải qua event, hiện chưa có bên nào
-làm — không phải làm sai, mà là chưa làm:
-
-| Việc | Đúng ra nghe event nào | Hiện tại |
-|---|---|---|
-| Gửi email xác nhận đơn | `order.placed` | Chưa có module notification |
-| Ghi nhận chuyển đổi | `order.placed` | Chưa có module analytics |
-| Ghi `demand_signal` | `cart.item_added`, `order.placed` | **Chưa ghi — rủi ro đã biết** |
-| Quy kết creator | `order.placed` | Phase 2 |
-| Reserved → Committed | `order.placed` | **Hiện chưa chuyển** |
-
-Hai dòng in đậm là nợ kỹ thuật thật, đã ghi ở
-[../10-roadmap/todo.md](../10-roadmap/todo.md).
-
-### Vì sao KHÔNG cài outbox sớm hơn
-
-Outbox chỉ có giá trị khi có bên nghe. Xây bus và bảng outbox trước khi có
-module `notification` hay `analytics` là xây hạ tầng cho lưu lượng bằng
-không — vi phạm nguyên tắc P15.
-
-### Khi nào bắt buộc phải có
+### Bên nhận đầu tiên: Reserved → Committed
 
 ```text
-Giai đoạn 5 (fulfillment + notification)
-    → có bên nghe thật đầu tiên
-    → order.placed phải tới được notification
-    → Reserved → Committed phải tự động
-
-Đây là điều kiện CHẶN của giai đoạn 5, không phải việc tùy chọn.
+checkout.CompleteCheckout
+    ↓  ghi trạng thái phiên + ghi event vào outbox — CÙNG một giao dịch
+checkout.completed  (outbox)
+    ↓  worker phát, mỗi 5 giây
+inventory.CommitOnCheckoutCompleted
+    ↓  chạy trong giao dịch của dispatcher
+Reserved → Committed
 ```
 
-### Điều KHÔNG được làm khi cài
+**Vì sao bên nhận này phải có trước mọi bên nhận khác:** tiến trình dọn
+reservation quá hạn sẽ NHẢ hàng còn ở trạng thái Reserved. Đơn đã thanh
+toán mà hàng vẫn Reserved nghĩa là tiến trình đó biến một đơn đã thu tiền
+thành đơn không có hàng — và bán hàng đó cho khách khác.
+
+### Vì sao nghe `checkout.completed` chứ không phải `order.placed`
+
+Đặc tả ở [../02-domain/domain-events.md](../02-domain/domain-events.md)
+ghi `order.placed → inventory: Reserved → Committed`. Khi triển khai thì
+thấy không làm được: inventory cần `reservation_id`, mà `Order` không giữ
+nó — reservation là dữ liệu **vận hành**, không thuộc hợp đồng với khách.
+
+Hai lựa chọn, và lựa chọn thứ hai được chọn:
+
+```text
+1. Nhồi reservation_id vào Order
+   → làm bẩn hợp đồng với khách bằng chi tiết vận hành
+   → Order mang dữ liệu chỉ một bên nhận dùng tới
+
+2. Nghe checkout.completed         ← ĐÃ CHỌN
+   → checkout biết CẢ HAI đầu: mã đơn vừa tạo và các mã giữ hàng
+   → Order giữ nguyên vai trò "hợp đồng với khách"
+```
+
+Đây là ví dụ của nguyên tắc P17: tài liệu mô tả ý định, triển khai cho thấy
+một chi tiết chưa được nghĩ tới, và tài liệu được cập nhật thay vì ép code
+mang dữ liệu không thuộc về nó.
+
+### Ba bất biến, đều kiểm chứng ngược
+
+| Phá gì | Test bắt được |
+|---|---|
+| `PublishTx` ghi bằng kết nối riêng thay vì tx của bên gọi | Giao dịch rollback mà event vẫn phát — bên nhận xử lý sự thật chưa xảy ra |
+| Bỏ cưỡng chế `event_processed` | Bên nhận xử lý 2 lần — với tiền là ghi sổ hai lần |
+| Bỏ giới hạn số lần thử | Event hỏng thử lại 10+ lần, kẹt hàng đợi vĩnh viễn |
+
+Và ở tầng nghiệp vụ:
+
+| Phá gì | Test bắt được |
+|---|---|
+| Không phát event khi hoàn tất | Hàng kẹt ở Reserved: 7/3/0 thay vì 7/0/3 |
+| Handler không commit | Như trên |
+| `SaveWithEvents` phát ngoài giao dịch | `eventPublisher` từ chối phát, báo lỗi rõ ràng |
+
+### Điều KHÔNG làm
 
 ```text
 ✗ Kafka / NATS / RabbitMQ — một tiến trình, một database, chưa cần
 ✓ Bảng event_outbox trong PostgreSQL + worker đọc bảng đó
 ```
 
-Nếu sau này thật sự cần broker, hợp đồng event đã được định nghĩa ở
-[../02-domain/domain-events.md](../02-domain/domain-events.md) nên việc
-chuyển là thay cài đặt, không phải thiết kế lại.
+Khi thật sự cần broker: **chỉ thay `Dispatcher`**. Module phát event vẫn
+phát như cũ, bên nhận vẫn nhận như cũ — đó là lý do outbox được chọn thay
+vì gọi handler trực tiếp lúc phát.
+
+### Còn thiếu
+
+| Việc | Nghe event nào | Trạng thái |
+|---|---|---|
+| Ghi `demand_signal` | `cart.item_added`, `order.placed` | **Chưa — rủi ro đã biết** |
+| Gửi email xác nhận | `order.placed` | Chưa có module notification |
+| Ghi nhận chuyển đổi | `order.placed` | Chưa có module analytics |
+| Quy kết creator | `order.placed` | Phase 2 |

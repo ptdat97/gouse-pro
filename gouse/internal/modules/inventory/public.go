@@ -54,6 +54,18 @@ type API interface {
 	// Commit chuyển hàng đang giữ thành cam kết cho đơn đã xác nhận.
 	Commit(ctx context.Context, reservationID string) error
 
+	// CommitInEventTx chuyển Reserved → Committed bằng GIAO DỊCH của
+	// dispatcher event.
+	//
+	// Dành riêng cho bên nhận domain event. Ngữ cảnh truyền vào phải mang
+	// giao dịch do eventbus mở — nếu không, hàm trả lỗi thay vì âm thầm mở
+	// giao dịch riêng.
+	//
+	// VÌ SAO CẦN HÀM RIÊNG: việc thay đổi tồn kho và việc đánh dấu event
+	// đã xử lý phải cùng thành công hoặc cùng thất bại. Tách rời nghĩa là
+	// commit thành công + đánh dấu thất bại → lần thử lại commit lần hai.
+	CommitInEventTx(ctx context.Context, reservationID string) error
+
 	// ---- Vận hành kho ----
 
 	Ship(ctx context.Context, itemID string, quantity int, orderID string) error
