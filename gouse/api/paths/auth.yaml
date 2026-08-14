@@ -1,0 +1,228 @@
+# Xác thực
+#
+# Access token thời hạn ngắn (15 phút) trả trong body — client giữ TRONG BỘ NHỚ.
+# Refresh token thời hạn dài (30 ngày) đặt trong cookie httpOnly — JavaScript
+# không đọc được, nên XSS không lấy được nó.
+#
+# Vì sao tách hai nơi: localStorage đọc được bằng JavaScript, nên một lỗ hổng
+# XSS duy nhất là mất tài khoản. Access token trong bộ nhớ mất khi tải lại
+# trang, và đó là lý do cần refresh token ở cookie.
+
+login:
+  post:
+    tags: [Auth]
+    summary: Đăng nhập
+    description: |
+      Xác thực và mở phiên.
+
+      **Mọi lý do thất bại trả CÙNG MỘT lỗi `UNAUTHORIZED`** — email không
+      tồn tại, sai mật khẩu, tài khoản bị treo. Phân biệt chúng cho client
+      là để lộ email nào có tài khoản thật, biến đường đăng nhập thành công
+      cụ dò danh sách người dùng.
+
+      Ngoại lệ duy nhất: `ACCOUNT_LOCKED` — người dùng thật cần biết vì sao
+      mật khẩu đúng mà vẫn không vào được.
+
+      Refresh token đặt vào cookie `Set-Cookie: refresh_token=...;
+      HttpOnly; Secure; SameSite=Strict`. **Không bao giờ** trả trong body.
+    operationId: login
+    security: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/RequestId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, password]
+            additionalProperties: false
+            properties:
+              email:
+                type: string
+                format: email
+                description: |
+                  Không cần chuẩn hóa trước — server tự hạ chữ thường và cắt
+                  khoảng trắng.
+              password:
+                type: string
+                minLength: 8
+                description: |
+                  Mật khẩu nguyên văn. **Không bao giờ** được ghi ra nhật ký,
+                  kể cả khi gỡ lỗi.
+    responses:
+      '200':
+        description: Đăng nhập thành công
+        headers:
+          Set-Cookie:
+            description: |
+              `refresh_token` với `HttpOnly`, `Secure`, `SameSite=Strict`.
+            schema:
+              type: string
+        content:
+          application/json:
+            schema:
+              $ref: '#/AuthResult'
+      '401':
+        description: |
+          Đăng nhập thất bại. `UNAUTHORIZED` cho mọi lý do thông thường;
+          `ACCOUNT_LOCKED` khi tài khoản tạm khóa do sai mật khẩu nhiều lần.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '429':
+        $ref: '../components/common.yaml#/responses/TooManyRequests'
+
+refresh:
+  post:
+    tags: [Auth]
+    summary: Làm mới phiên
+    description: |
+      Đổi refresh token lấy access token mới.
+
+      **Token cũ bị thu hồi.** Nếu nó bị đánh cắp và dùng sau đó, lần dùng
+      thất bại chính là dấu hiệu phát hiện được — đây là lý do xoay token
+      thay vì dùng lại token cũ.
+
+      Đọc refresh token từ cookie, không từ body.
+    operationId: refreshSession
+    security: []
+    responses:
+      '200':
+        description: Phiên đã làm mới
+        headers:
+          Set-Cookie:
+            description: Refresh token mới; token cũ đã bị thu hồi.
+            schema:
+              type: string
+        content:
+          application/json:
+            schema:
+              $ref: '#/AuthResult'
+      '401':
+        description: Phiên không hợp lệ, đã thu hồi, hoặc hết hạn. Client phải đăng nhập lại.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+
+logout:
+  post:
+    tags: [Auth]
+    summary: Đăng xuất
+    description: |
+      Thu hồi phiên hiện tại và xóa cookie.
+
+      **Idempotent**: đăng xuất một phiên đã đăng xuất là thành công, vì kết
+      quả mong muốn đã đạt được.
+    operationId: logout
+    security: []
+    responses:
+      '204':
+        description: |
+          Đã đăng xuất. Trả 204 kể cả khi phiên không tồn tại hoặc đã thu
+          hồi — kết quả mong muốn đã đạt được, và báo lỗi ở đây chỉ tiết lộ
+          token nào từng có thật.
+        headers:
+          Set-Cookie:
+            description: Cookie `refresh_token` bị xóa (`Max-Age=0`).
+            schema:
+              type: string
+      '429':
+        $ref: '../components/common.yaml#/responses/TooManyRequests'
+
+admin_me:
+  get:
+    tags: [Auth]
+    summary: Thông tin người đang đăng nhập
+    description: |
+      Trả vai trò và phạm vi để giao diện dựng menu.
+
+      **Đây CHỈ là trải nghiệm, không phải bảo mật.** Backend luôn kiểm tra
+      lại quyền ở từng endpoint — người dùng có thể gọi API trực tiếp, bỏ
+      qua hoàn toàn giao diện.
+    operationId: getAdminMe
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Thông tin tài khoản
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, email, roles, scope]
+              properties:
+                id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                email:
+                  type: string
+                display_name:
+                  type: string
+                roles:
+                  type: array
+                  description: |
+                    Client **phải** xử lý được vai trò chưa biết mà không
+                    crash — server có thể thêm vai trò mới.
+                  items:
+                    type: string
+                    enum:
+                      - ADMIN
+                      - OPS_MERCHANDISING
+                      - OPS_WAREHOUSE
+                      - OPS_FINANCE
+                      - OPS_SUPPORT
+                      - OPS_CONTENT
+                scope:
+                  type: string
+                  enum: [OWN, SELLER, ALL]
+                  description: Phạm vi rộng nhất của người dùng.
+                requires_two_factor:
+                  type: boolean
+                  description: |
+                    Vai trò `ADMIN` và `OPS_FINANCE` bắt buộc xác thực hai
+                    lớp. Luồng 2FA **chưa triển khai** — trường này báo cho
+                    giao diện biết tài khoản nào sẽ cần, để không phát hành
+                    khi chưa có.
+            example:
+              id: usr_01J9XABC123DEF456GHJKMNPQR
+              email: nv.hoa@example.com
+              display_name: Nguyễn Thị Hoa
+              roles: [OPS_FINANCE]
+              scope: ALL
+              requires_two_factor: true
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+# --------------------------------------------------------------- Schema cục bộ
+AuthResult:
+  type: object
+  required: [access_token, expires_in, user]
+  properties:
+    access_token:
+      type: string
+      description: |
+        Thời hạn 15 phút. Client giữ **trong bộ nhớ**, không localStorage.
+
+        Ngắn có chủ ý: token không tra database mỗi request, nên thu hồi
+        không có hiệu lực tức thì. Mười lăm phút là khoảng thời gian tối đa
+        một tài khoản đã bị treo còn dùng được.
+    expires_in:
+      type: integer
+      description: Số giây tới khi access token hết hạn.
+      examples: [900]
+    user:
+      type: object
+      required: [id, email, roles]
+      properties:
+        id:
+          $ref: '../components/common.yaml#/schemas/Id'
+        email:
+          type: string
+        display_name:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string

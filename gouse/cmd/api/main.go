@@ -23,6 +23,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
+	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
@@ -31,11 +32,13 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
+	"github.com/fashion-commerce/platform/internal/platform/token"
 )
 
 // version được đặt lúc build qua -ldflags.
@@ -130,8 +133,41 @@ func run() error {
 		cartModule        *cart.Module
 		checkoutModule    *checkout.Module
 		fulfillmentModule *fulfillment.Module
+		identityModule    *identity.Module
+		auditRecorder     *audit.Recorder
 	)
 	if cfg.Modules.Storage == "postgres" {
+		// Audit log là năng lực platform (ADR-0011), không phải module —
+		// nên nó được khởi tạo ở đây và trao cho những nơi cần ghi vết.
+		auditRecorder = audit.NewRecorder(db.Pool())
+
+		// Bộ phát hành access token. Khóa được kiểm tra độ dài ở CẢ config
+		// lẫn token — config chặn sớm với thông báo hướng dẫn được, token
+		// chặn lần cuối cho mọi đường khởi tạo khác.
+		issuer, err := token.NewIssuer(token.Config{Secret: cfg.Auth.JWTSecret})
+		if err != nil {
+			return err
+		}
+
+		// identity CHỈ chạy với PostgreSQL: email duy nhất và token duy
+		// nhất dựa vào chỉ mục UNIQUE. Kiểm tra trước khi ghi vẫn lọt khi
+		// hai request đăng ký cùng lúc, và hai tài khoản cùng email là bế
+		// tắc chỉ quản trị viên gỡ được.
+		identityModule, err = identity.New(identity.Config{
+			Storage:      "postgres",
+			DB:           db,
+			Log:          log,
+			Issuer:       issuer,
+			SecureCookie: cfg.Auth.SecureCookie,
+		})
+		if err != nil {
+			return err
+		}
+		if !cfg.Auth.SecureCookie {
+			log.Warn("cookie refresh token KHÔNG bật cờ Secure — " +
+				"chỉ chấp nhận được khi phát triển trên http://localhost")
+		}
+
 		inventoryModule, err = inventory.New(inventory.Config{
 			Storage: "postgres",
 			DB:      db,
@@ -350,7 +386,8 @@ func run() error {
 	}
 
 	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, log, db, catalogModule, productModule)
+	registerRoutes(mux, cfg, log, db, catalogModule, productModule,
+		identityModule, auditRecorder)
 
 	srv := httpserver.New(cfg.HTTP, log, mux)
 	return srv.Run(ctx)
@@ -367,11 +404,48 @@ func registerRoutes(
 	db *database.DB,
 	catalogModule *catalog.Module,
 	productModule *product.Module,
+	identityModule *identity.Module,
+	auditRecorder *audit.Recorder,
 ) {
 	// Mỗi module tự đăng ký route của mình. main không biết đường dẫn hay
 	// hình dạng response của module nào — nó chỉ trao mux.
 	catalogModule.RegisterRoutes(mux, log)
 	productModule.RegisterRoutes(mux, log)
+
+	if identityModule != nil {
+		// Endpoint công khai: login, refresh, logout.
+		identityModule.RegisterRoutes(mux, log)
+
+		// Endpoint cần xác thực đi qua một mux RIÊNG đã bọc middleware
+		// Auth, rồi mới gắn vào mux gốc.
+		//
+		// Vì sao không dùng chung mux: middleware bọc quanh mux gốc sẽ áp
+		// cho MỌI route, kể cả login — và khi đó không ai đăng nhập được
+		// vì muốn đăng nhập phải có token, mà muốn có token phải đăng nhập.
+		protected := http.NewServeMux()
+		identityModule.RegisterProtectedRoutes(protected, log)
+
+		authed := httpserver.Chain(protected, httpserver.Auth(identityModule))
+		mux.Handle("GET /api/v1/admin/me", authed)
+
+		// Nhật ký thao tác: CHỈ vai trò ADMIN (admin-api.md mục 7).
+		//
+		// Chuỗi middleware theo thứ tự Auth → RequireRole. Đảo lại thì
+		// RequireRole chạy khi context chưa có AuthContext và mọi request
+		// bị từ chối — hỏng theo hướng an toàn, nhưng vẫn là lỗi nối dây.
+		if auditRecorder != nil {
+			auditMux := http.NewServeMux()
+			audit.NewHandler(auditRecorder, log).Register(auditMux)
+
+			mux.Handle("GET /api/v1/admin/audit-log", httpserver.Chain(
+				auditMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN"),
+			))
+		}
+	} else {
+		log.Warn("bỏ qua endpoint xác thực: cần MODULES_STORAGE=postgres")
+	}
 
 	// Danh sách kiểm tra sức khỏe cho endpoint `ready`.
 	//

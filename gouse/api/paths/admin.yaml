@@ -7,6 +7,111 @@
 # Thao tác nhạy cảm BẮT BUỘC trường `reason` (có độ dài tối thiểu) —
 # lý do trống làm audit log vô giá trị.
 
+sellers:
+  get:
+    tags: [Admin]
+    summary: Danh sách nhà bán
+    description: |
+      Lọc theo trạng thái để dựng hàng đợi duyệt hồ sơ.
+
+      `status=PENDING` là màn hình làm việc chính của `OPS_MERCHANDISING` —
+      nhân viên vào để xử lý việc, nên hồ sơ chờ duyệt phải lên đầu.
+    operationId: listSellers
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [PENDING, APPROVED, SUSPENDED, REJECTED]
+      - name: seller_type
+        in: query
+        schema:
+          type: string
+          enum: [INTERNAL, INDIVIDUAL, BUSINESS, LOCAL_BRAND, STRATEGIC_PARTNER]
+      - name: q
+        in: query
+        description: Tìm theo tên hoặc slug.
+        schema:
+          type: string
+    responses:
+      '200':
+        description: Danh sách nhà bán
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/AdminSellerSummary'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+seller_detail:
+  get:
+    tags: [Admin]
+    summary: Chi tiết nhà bán
+    description: |
+      Hồ sơ đầy đủ phục vụ màn hình duyệt.
+
+      **Xác minh tài khoản ngân hàng là bước bắt buộc trước khi duyệt** —
+      sai tài khoản nghĩa là chuyển tiền nhầm người, rất khó thu hồi. Vì
+      thế response tách riêng tên chủ tài khoản và tên đăng ký để người
+      duyệt tự đối chiếu, thay vì hệ thống tự kết luận là khớp.
+    operationId: getSellerDetail
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: seller_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Chi tiết nhà bán
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/AdminSellerSummary'
+                - type: object
+                  properties:
+                    tax_code:
+                      type: string
+                    business_license_url:
+                      type: string
+                    bank_account:
+                      type: object
+                      description: |
+                        `verified` do người duyệt xác nhận, **không** do hệ
+                        thống so chuỗi tự động — "CONG TY ABC" và "Công ty
+                        ABC" khác nhau về ký tự nhưng cùng một pháp nhân.
+                      properties:
+                        bank_name:
+                          type: string
+                        account_number_masked:
+                          type: string
+                        account_holder_name:
+                          type: string
+                        registered_name:
+                          type: string
+                        verified:
+                          type: boolean
+                    applied_at:
+                      $ref: '../components/common.yaml#/schemas/Timestamp'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
 seller_approve:
   post:
     tags: [Admin]
@@ -675,6 +780,232 @@ customer_detail:
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
 
+orders:
+  get:
+    tags: [Admin]
+    summary: Danh sách đơn hàng
+    description: |
+      Tra cứu đơn cho nhân viên hỗ trợ.
+
+      Trả **dữ liệu tóm tắt, không có thông tin cá nhân khách hàng** — tên và
+      số điện thoại chỉ xuất hiện ở endpoint chi tiết, nơi có ghi audit. Nếu
+      danh sách trả sẵn thông tin cá nhân, mọi lần mở màn hình tìm kiếm đều
+      là một lần truy cập dữ liệu khách không có lý do kèm theo.
+    operationId: listAdminOrders
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - $ref: '../components/common.yaml#/parameters/Cursor'
+      - name: order_number
+        in: query
+        description: Tra cứu chính xác theo mã đơn.
+        schema:
+          type: string
+      - name: status
+        in: query
+        schema:
+          type: string
+      - name: seller_id
+        in: query
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date
+    responses:
+      '200':
+        description: Danh sách đơn hàng
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      order_number:
+                        type: string
+                      status:
+                        type: string
+                      total:
+                        $ref: '../components/common.yaml#/schemas/Money'
+                      fulfillment_count:
+                        type: integer
+                      has_sla_breach:
+                        type: boolean
+                        description: |
+                          Có lô giao quá hạn SLA. Hiển thị nổi bật — số liệu
+                          bất thường không được giấu.
+                      placed_at:
+                        $ref: '../components/common.yaml#/schemas/Timestamp'
+                pagination:
+                  $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+order_detail:
+  get:
+    tags: [Admin]
+    summary: Chi tiết đơn hàng
+    description: |
+      **Mỗi lần gọi đều ghi audit log** — response chứa thông tin cá nhân
+      khách hàng.
+
+      Tham số `reason` **bắt buộc**: nhân viên phải nêu lý do truy cập trước
+      khi xem. Lý do trống làm audit log vô giá trị.
+
+      Màn hình này liên kết mọi thứ nhân viên hỗ trợ cần: đơn → lô giao →
+      bút toán → lịch sử thao tác.
+    operationId: getAdminOrderDetail
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: reason
+        in: query
+        required: true
+        description: |
+          Lý do truy cập, tối thiểu 20 ký tự. Ghi vào audit log kèm định danh
+          nhân viên.
+        schema:
+          type: string
+          minLength: 20
+    responses:
+      '200':
+        description: Chi tiết đơn hàng
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                order_number:
+                  type: string
+                status:
+                  type: string
+                customer:
+                  type: object
+                  description: Dữ liệu cá nhân — truy cập đã được ghi audit.
+                  properties:
+                    id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    display_name:
+                      type: string
+                    phone:
+                      type: string
+                total:
+                  $ref: '../components/common.yaml#/schemas/Money'
+                placed_at:
+                  $ref: '../components/common.yaml#/schemas/Timestamp'
+                fulfillment_orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      seller_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      seller_name:
+                        type: string
+                      status:
+                        type: string
+                      tracking_number:
+                        type: string
+                      sla_breached:
+                        type: boolean
+                timeline:
+                  type: array
+                  description: Lịch sử thao tác trên đơn, cũ nhất trước.
+                  items:
+                    type: object
+                    properties:
+                      occurred_at:
+                        $ref: '../components/common.yaml#/schemas/Timestamp'
+                      actor:
+                        type: string
+                      action:
+                        type: string
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+order_cancel:
+  post:
+    tags: [Admin]
+    summary: Hủy đơn hàng
+    description: |
+      Hủy có kiểm soát kèm hoàn tiền khách.
+
+      Bắt buộc `reason` — đây là thao tác nhạy cảm, ghi audit log.
+    operationId: cancelAdminOrder
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason]
+            properties:
+              reason:
+                type: string
+                minLength: 20
+              fulfillment_order_id:
+                description: |
+                  Chỉ hủy một lô. Bỏ trống để hủy toàn bộ đơn.
+                allOf:
+                  - $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Đơn đã hủy
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order:
+                  type: object
+                effects:
+                  type: object
+                  properties:
+                    refund_amount:
+                      $ref: '../components/common.yaml#/schemas/Money'
+                    inventory_released:
+                      type: integer
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
 audit_log:
   get:
     tags: [Admin]
@@ -751,6 +1082,40 @@ audit_log:
         $ref: '../components/common.yaml#/responses/Forbidden'
 
 # --------------------------------------------------------------- Schema cục bộ
+AdminSellerSummary:
+  type: object
+  description: |
+    Nhà bán, góc nhìn quản trị.
+
+    **Không chứa số dư** — muốn biết seller còn bao nhiêu tiền thì gọi API
+    tài chính. Gộp số dư vào đây làm module seller phình ra và không tách
+    được sau này.
+  required: [id, name, status, seller_type]
+  properties:
+    id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    name:
+      type: string
+    slug:
+      type: string
+    seller_type:
+      type: string
+      enum: [INTERNAL, INDIVIDUAL, BUSINESS, LOCAL_BRAND, STRATEGIC_PARTNER]
+    status:
+      type: string
+      enum: [PENDING, APPROVED, SUSPENDED, REJECTED]
+    commission_rate_bp:
+      $ref: '../components/common.yaml#/schemas/BasisPoints'
+    is_active:
+      type: boolean
+    is_internal:
+      type: boolean
+      description: Own brand của nền tảng.
+    offers_hidden:
+      type: boolean
+    created_at:
+      $ref: '../components/common.yaml#/schemas/Timestamp'
+
 ReplenishmentSuggestion:
   type: object
   description: |

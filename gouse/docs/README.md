@@ -149,7 +149,7 @@ Ba chỗ tài liệu đã được sửa cho khớp code thật, kèm lý do:
 Hợp đồng API nằm ở [`/api/openapi.yaml`](../api/README.md) — **nguồn sự thật duy nhất**, được cập nhật cùng pull request với thay đổi code.
 
 ```text
-62 operation · 0 lỗi lint · sinh kiểu TypeScript thành công
+71 operation · 0 lỗi lint · sinh kiểu TypeScript thành công
 ```
 
 ## Nghiên cứu mã nguồn mở

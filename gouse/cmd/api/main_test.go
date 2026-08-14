@@ -54,7 +54,13 @@ func newTestHandler(t *testing.T) http.Handler {
 
 	mux := http.NewServeMux()
 	// db = nil: test dùng kho in-memory nên không có database để kiểm tra.
-	registerRoutes(mux, cfg, log, nil, catalogModule, productModule)
+	//
+	// identityModule = nil: identity CHỈ chạy với PostgreSQL (email duy nhất
+	// cần chỉ mục UNIQUE), nên với kho in-memory nó không được khởi tạo —
+	// giống hệt điều xảy ra khi chạy thật với MODULES_STORAGE=memory.
+	// auditRecorder = nil: audit log cũng chỉ chạy với PostgreSQL, vì nó
+	// dựa vào trigger chặn UPDATE/DELETE ở tầng database.
+	registerRoutes(mux, cfg, log, nil, catalogModule, productModule, nil, nil)
 
 	// Nối cùng middleware với httpserver.New để test đúng hành vi thật.
 	return httpserver.Chain(mux,

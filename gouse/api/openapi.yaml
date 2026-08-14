@@ -52,6 +52,8 @@ servers:
     description: Development
 
 tags:
+  - name: Auth
+    description: Đăng nhập, làm mới phiên, đăng xuất
   - name: Catalog
     description: Duyệt sản phẩm, thương hiệu, bộ sưu tập (công khai)
   - name: Content
@@ -78,6 +80,14 @@ security:
   - {}   # nhiều endpoint cho phép khách vãng lai
 
 paths:
+  # ---------------------------------------------------------------------- Auth
+  /api/v1/auth/login:
+    $ref: './paths/auth.yaml#/login'
+  /api/v1/auth/refresh:
+    $ref: './paths/auth.yaml#/refresh'
+  /api/v1/auth/logout:
+    $ref: './paths/auth.yaml#/logout'
+
   # ---------------------------------------------------------------- Storefront
   /api/v1/products:
     $ref: './paths/storefront.yaml#/products'
@@ -175,6 +185,12 @@ paths:
     $ref: './paths/creator.yaml#/analytics'
 
   # -------------------------------------------------------------------- Admin
+  /api/v1/admin/me:
+    $ref: './paths/auth.yaml#/admin_me'
+  /api/v1/admin/sellers:
+    $ref: './paths/admin.yaml#/sellers'
+  /api/v1/admin/sellers/{seller_id}:
+    $ref: './paths/admin.yaml#/seller_detail'
   /api/v1/admin/sellers/{seller_id}/approve:
     $ref: './paths/admin.yaml#/seller_approve'
   /api/v1/admin/sellers/{seller_id}/suspend:
@@ -191,6 +207,12 @@ paths:
     $ref: './paths/admin.yaml#/replenishment_suggestions'
   /api/v1/admin/customers/{customer_id}:
     $ref: './paths/admin.yaml#/customer_detail'
+  /api/v1/admin/orders:
+    $ref: './paths/admin.yaml#/orders'
+  /api/v1/admin/orders/{order_id}:
+    $ref: './paths/admin.yaml#/order_detail'
+  /api/v1/admin/orders/{order_id}/cancel:
+    $ref: './paths/admin.yaml#/order_cancel'
   /api/v1/admin/audit-log:
     $ref: './paths/admin.yaml#/audit_log'
 

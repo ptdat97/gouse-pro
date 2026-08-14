@@ -127,7 +127,7 @@ Phạm vi được áp dụng **trong truy vấn ở tầng repository**, không
 ## Trạng thái hiện tại
 
 ```text
-62 operation
+71 operation
 0 lỗi lint
 4 cảnh báo (server URL mẫu và license — cấu hình khi triển khai thật)
 532 tham chiếu $ref, tất cả phân giải được

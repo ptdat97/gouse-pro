@@ -43,6 +43,7 @@ func TestDevelopmentDefaultsFavorReadability(t *testing.T) {
 func TestProductionDefaultsFavorQueryability(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+	t.Setenv("AUTH_JWT_SECRET", "khoa-bi-mat-du-dai-cho-production-32-ky-tu")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -68,6 +69,79 @@ func TestProductionRequiresDatabaseURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "DATABASE_URL") {
 		t.Errorf("thông báo lỗi phải nêu rõ biến thiếu, nhận: %v", err)
+	}
+}
+
+// TestProductionRequiresJWTSecret: thiếu khóa ký ở production là lỗi khởi
+// động, KHÔNG phải sinh khóa ngẫu nhiên thay thế.
+//
+// Sinh ngẫu nhiên nghe tiện nhưng khi chạy nhiều bản sao thì mỗi bản ký
+// bằng một khóa khác nhau: token do bản A cấp bị bản B từ chối, và người
+// dùng bị đăng xuất ngẫu nhiên tùy vào bản nào nhận request.
+func TestProductionRequiresJWTSecret(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+	t.Setenv("AUTH_JWT_SECRET", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("thiếu AUTH_JWT_SECRET ở production phải là lỗi khởi động")
+	}
+	if !strings.Contains(err.Error(), "AUTH_JWT_SECRET") {
+		t.Errorf("thông báo lỗi phải nêu rõ biến thiếu, nhận: %v", err)
+	}
+}
+
+// TestShortJWTSecretRejected: khóa ngắn dò được bằng vét cạn, và khi đó bất
+// kỳ ai cũng tự phát hành được token vai trò ADMIN.
+func TestShortJWTSecretRejected(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("AUTH_JWT_SECRET", "qua-ngan")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("khóa ngắn hơn 32 ký tự phải bị từ chối, kể cả khi phát triển")
+	}
+}
+
+// TestDevelopmentUsesDefaultJWTSecret: chạy được ngay không cần cấu hình.
+//
+// An toàn vì production bắt buộc AUTH_JWT_SECRET và sẽ không khởi động nếu
+// thiếu — kiểm chứng ở TestProductionRequiresJWTSecret.
+func TestDevelopmentUsesDefaultJWTSecret(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("AUTH_JWT_SECRET", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("development phải chạy được không cần cấu hình: %v", err)
+	}
+	if len(cfg.Auth.JWTSecret) < 32 {
+		t.Errorf("khóa mặc định phải đủ dài, nhận %d ký tự", len(cfg.Auth.JWTSecret))
+	}
+}
+
+// TestSecureCookieOffOnlyInDevelopment: trình duyệt không gửi cookie Secure
+// qua HTTP, nên bật nó ở localhost sẽ làm đăng nhập không chạy được.
+func TestSecureCookieOffOnlyInDevelopment(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load lỗi: %v", err)
+	}
+	if cfg.Auth.SecureCookie {
+		t.Error("development phải TẮT Secure — localhost chạy HTTP")
+	}
+
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+	t.Setenv("AUTH_JWT_SECRET", "khoa-bi-mat-du-dai-cho-production-32-ky-tu")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("Load lỗi: %v", err)
+	}
+	if !cfg.Auth.SecureCookie {
+		t.Error("production PHẢI bật Secure — cookie không được đi qua HTTP")
 	}
 }
 

@@ -85,6 +85,7 @@ const (
 	PrefixProductionBatch   Prefix = "pbt"
 	PrefixRequest           Prefix = "req"
 	PrefixEvent             Prefix = "evt"
+	PrefixAuditLog          Prefix = "aud"
 )
 
 // ID là định danh có tiền tố, ví dụ "ord_01J9XABC123DEF456GHJKMNPQR".

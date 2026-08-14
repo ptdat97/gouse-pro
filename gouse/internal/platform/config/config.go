@@ -37,6 +37,38 @@ type Config struct {
 	Log      LogConfig
 	Database DatabaseConfig
 	Modules  ModulesConfig
+	Auth     AuthConfig
+}
+
+const (
+	// minJWTSecretLen khớp yêu cầu của platform/token (RFC 7518 mục 3.2
+	// cho HS256). Kiểm tra ở CẢ HAI nơi có chủ ý: config chặn sớm với thông
+	// báo hướng dẫn được, token chặn lần cuối cho mọi đường khởi tạo khác.
+	minJWTSecretLen = 32
+
+	// devJWTSecret là khóa mặc định KHI PHÁT TRIỂN.
+	//
+	// Nằm trong mã nguồn nên ai đọc repo cũng ký được token ADMIN. Chỉ dùng
+	// được vì production bắt buộc AUTH_JWT_SECRET và sẽ không khởi động nếu
+	// thiếu — xem Load().
+	devJWTSecret = "development-only-jwt-secret-do-not-use-in-production"
+)
+
+// AuthConfig là cấu hình xác thực.
+type AuthConfig struct {
+	// JWTSecret là khóa ký access token. Tối thiểu 32 ký tự.
+	//
+	// Ở production BẮT BUỘC đặt qua biến môi trường. Khi phát triển, giá
+	// trị mặc định được dùng để chạy ngay không cần cấu hình — nhưng chính
+	// vì nó nằm trong mã nguồn nên KHÔNG BAO GIỜ được dùng ngoài máy lập
+	// trình viên: ai đọc repo cũng tự ký được token vai trò ADMIN.
+	JWTSecret string
+
+	// SecureCookie bật cờ Secure trên cookie refresh token.
+	//
+	// Bật ở mọi môi trường trừ development: trình duyệt không gửi cookie
+	// Secure qua HTTP, nên bật nó ở localhost sẽ làm đăng nhập không chạy.
+	SecureCookie bool
 }
 
 // ModulesConfig là cấu hình chung cho các module nghiệp vụ.
@@ -150,6 +182,27 @@ func Load() (*Config, error) {
 		collect(fmt.Errorf("MODULES_STORAGE không hợp lệ: %q (phải là memory|postgres)", storage))
 	}
 
+	jwtSecret := os.Getenv("AUTH_JWT_SECRET")
+	if jwtSecret == "" {
+		// Ở production, thiếu khóa là lỗi khởi động. Sinh khóa ngẫu nhiên
+		// thay thế nghe có vẻ tiện, nhưng khi chạy nhiều bản sao thì mỗi
+		// bản ký bằng một khóa khác nhau: token do bản A cấp bị bản B từ
+		// chối, và người dùng bị đăng xuất ngẫu nhiên.
+		if env.IsProduction() {
+			collect(errors.New(
+				"AUTH_JWT_SECRET bắt buộc ở môi trường production"))
+		} else {
+			jwtSecret = devJWTSecret
+		}
+	}
+	if jwtSecret != "" && len(jwtSecret) < minJWTSecretLen {
+		collect(fmt.Errorf(
+			"AUTH_JWT_SECRET phải dài tối thiểu %d ký tự, nhận %d — "+
+				"khóa ngắn dò được bằng vét cạn, và khi đó bất kỳ ai cũng "+
+				"tự phát hành được token vai trò ADMIN",
+			minJWTSecretLen, len(jwtSecret)))
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("cấu hình không hợp lệ:\n%w", errors.Join(errs...))
 	}
@@ -166,6 +219,12 @@ func Load() (*Config, error) {
 		},
 		Log:     LogConfig{Level: logLevel, Format: logFormat},
 		Modules: ModulesConfig{Storage: storage},
+		Auth: AuthConfig{
+			JWTSecret: jwtSecret,
+			// Bật ở mọi nơi TRỪ development — localhost chạy HTTP, mà trình
+			// duyệt không gửi cookie Secure qua HTTP.
+			SecureCookie: !env.IsDevelopment(),
+		},
 		Database: DatabaseConfig{
 			DSN:             dsn,
 			MaxOpenConns:    maxOpen,

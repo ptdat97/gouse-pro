@@ -4,21 +4,32 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/identity/application"
 	"github.com/fashion-commerce/platform/internal/modules/identity/domain"
 	"github.com/fashion-commerce/platform/internal/modules/identity/infrastructure/crypto"
 	identitypg "github.com/fashion-commerce/platform/internal/modules/identity/infrastructure/postgres"
+	identityhttp "github.com/fashion-commerce/platform/internal/modules/identity/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/httpserver"
+	"github.com/fashion-commerce/platform/internal/platform/token"
 )
 
 // Module là cài đặt của API công khai.
 type Module struct {
-	svc *application.Service
+	svc    *application.Service
+	issuer *token.Issuer
+
+	// secureCookie bật cờ Secure trên cookie refresh token.
+	secureCookie bool
 }
 
-var _ API = (*Module)(nil)
+var (
+	_ API                      = (*Module)(nil)
+	_ httpserver.TokenVerifier = (*Module)(nil)
+)
 
 // Config cấu hình module khi khởi tạo.
 type Config struct {
@@ -39,6 +50,18 @@ type Config struct {
 	BcryptCost int
 
 	Clock application.Clock
+
+	// Issuer phát hành và xác minh access token.
+	//
+	// BẮT BUỘC: không có nó thì đăng nhập thành công nhưng không cấp được
+	// token, và mọi endpoint cần xác thực đều không dùng được.
+	Issuer *token.Issuer
+
+	// SecureCookie bật cờ Secure trên cookie refresh token.
+	//
+	// Tắt để phát triển trên http://localhost — trình duyệt không gửi cookie
+	// Secure qua HTTP. Môi trường thật LUÔN bật.
+	SecureCookie bool
 }
 
 // New khởi tạo module identity.
@@ -51,17 +74,74 @@ func New(cfg Config) (*Module, error) {
 	if cfg.DB == nil {
 		return nil, errors.New("identity: bắt buộc phải có kết nối database")
 	}
+	if cfg.Issuer == nil {
+		return nil, errors.New(
+			"identity: bắt buộc phải có Issuer — không có nó thì đăng nhập " +
+				"thành công nhưng không cấp được access token")
+	}
 
 	pool := cfg.DB.Pool()
 
-	return &Module{svc: application.NewService(application.Deps{
-		Users:    identitypg.NewUserStore(pool),
-		Sessions: identitypg.NewSessionStore(pool),
-		Attempts: identitypg.NewLoginAttemptStore(pool),
-		Hasher:   crypto.NewBcryptHasher(cfg.BcryptCost),
-		Tokens:   crypto.NewTokenGenerator(),
-		Clock:    cfg.Clock,
-	})}, nil
+	return &Module{
+		svc: application.NewService(application.Deps{
+			Users:    identitypg.NewUserStore(pool),
+			Sessions: identitypg.NewSessionStore(pool),
+			Attempts: identitypg.NewLoginAttemptStore(pool),
+			Hasher:   crypto.NewBcryptHasher(cfg.BcryptCost),
+			Tokens:   crypto.NewTokenGenerator(),
+			Clock:    cfg.Clock,
+		}),
+		issuer:       cfg.Issuer,
+		secureCookie: cfg.SecureCookie,
+	}, nil
+}
+
+// RegisterRoutes gắn các endpoint công khai của module vào mux.
+//
+// CHỈ các endpoint KHÔNG cần xác thực: login, refresh, logout. Endpoint cần
+// xác thực đăng ký qua RegisterProtectedRoutes.
+func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
+	identityhttp.NewHandler(m.svc, m.issuer, m.secureCookie, log).Register(mux)
+}
+
+// RegisterProtectedRoutes gắn các endpoint CẦN xác thực.
+//
+// Tách riêng vì mux nhận vào đây phải đã bọc middleware Auth. Gộp chung với
+// RegisterRoutes sẽ khiến người nối dây dễ quên, và quên ở đây nghĩa là
+// endpoint trả dữ liệu tài khoản cho request chưa đăng nhập.
+func (m *Module) RegisterProtectedRoutes(mux *http.ServeMux, log *slog.Logger) {
+	identityhttp.NewHandler(m.svc, m.issuer, m.secureCookie, log).RegisterProtected(mux)
+}
+
+// VerifyAccessToken cài đặt httpserver.TokenVerifier.
+//
+// Đây là cầu nối giữ được quy tắc R3: platform khai báo interface nó cần,
+// module này cài đặt. Chiều phụ thuộc là identity → platform, nên platform
+// không bao giờ phải biết module nghiệp vụ nào tồn tại.
+//
+// # Vì sao KHÔNG tra database ở đây
+//
+// Access token tự chứa và có thời hạn 15 phút. Tra database mỗi request để
+// kiểm tra phiên còn sống sẽ thêm một truy vấn vào MỌI lời gọi API — cái
+// giá phải trả ở đường đi nóng nhất của hệ thống.
+//
+// Đánh đổi: một tài khoản bị treo vẫn dùng được tối đa 15 phút. Đó là lý do
+// TTL ngắn, và là quyết định đã ghi ở domain/session.go.
+func (m *Module) VerifyAccessToken(
+	_ context.Context, accessToken string,
+) (httpserver.AuthContext, error) {
+	claims, err := m.issuer.Verify(accessToken)
+	if err != nil {
+		return httpserver.AuthContext{}, err
+	}
+
+	return httpserver.AuthContext{
+		UserID:    claims.UserID,
+		Roles:     claims.Roles,
+		Scope:     claims.Scope,
+		SellerIDs: claims.SellerIDs,
+		SessionID: claims.SessionID,
+	}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.

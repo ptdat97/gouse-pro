@@ -15,6 +15,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/modules/identity/domain"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/token"
 )
 
 // fakeClock cho phép test nhảy tới tương lai mà không phải chờ thật.
@@ -69,6 +70,13 @@ func newModule(t *testing.T, clock *fakeClock) (*identity.Module, *pgxpool.Pool)
 		}
 	}
 
+	issuer, err := token.NewIssuer(token.Config{
+		Secret: "khoa-bi-mat-chi-dung-trong-test-du-dai-32-ky-tu",
+	})
+	if err != nil {
+		t.Fatalf("token.NewIssuer: %v", err)
+	}
+
 	m, err := identity.New(identity.Config{
 		Storage: "postgres",
 		DB:      db,
@@ -76,6 +84,7 @@ func newModule(t *testing.T, clock *fakeClock) (*identity.Module, *pgxpool.Pool)
 		// lần băm, và một test khóa tài khoản gọi nó sáu lần.
 		BcryptCost: 4,
 		Clock:      clock,
+		Issuer:     issuer,
 	})
 	if err != nil {
 		t.Fatalf("identity.New: %v", err)

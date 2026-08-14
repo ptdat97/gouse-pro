@@ -7,7 +7,7 @@ Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển k
 (fulfillment · notification · analytics nối vào bus event)
 
 **17/17 module MVP đã có logic nghiệp vụ.** Việc còn lại lớn nhất là
-**tầng HTTP**: 5/62 endpoint đã cài đặt.
+**tầng HTTP**: 10/71 endpoint đã cài đặt.
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -17,10 +17,10 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 
 ```text
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
-Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
+Đặc tả API   12 file YAML · 71 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
 Code Go      231 file · 66.610 dòng · 586 hàm test    → Hết giai đoạn 5/7
-Migration    38 file SQL · 17 module + outbox · đảo được
+Migration    40 file SQL · 17 module + outbox + audit · đảo được
 
 Module MVP đã có code: 17/17  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
@@ -32,8 +32,10 @@ Module MVP đã có code: 17/17  (catalog · product · pricing ·
 
 Còn thiếu ở MVP:        (không còn)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
-Endpoint đã cài đặt:    5/62  (brand, collection, categories,
-                               product detail, product list)
+Endpoint đã cài đặt:   10/71  (brand, collection, categories,
+                               product detail, product list,
+                               login, refresh, logout, admin/me,
+                               admin/audit-log)
 ```
 
 Kiểm chứng lần cuối (13/08/2026):
@@ -787,7 +789,7 @@ hàng nào".
 **Việc còn lại của giai đoạn 7 là TẦNG HTTP**, không phải logic nghiệp vụ:
 
 ```text
-Đặc tả API      62 operation
+Đặc tả API      71 operation
 Đã cài đặt       5 endpoint nghiệp vụ  (brand, collection, categories,
                                         product detail, product list)
                  + 3 endpoint vận hành (health/live, health/ready, version)
