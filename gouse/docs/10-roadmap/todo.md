@@ -16,16 +16,17 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      191 file · 51.660 dòng · 476 hàm test    → Hết giai đoạn 5/7
-Migration    30 file SQL · 13 module + outbox · đảo được
+Code Go      201 file · 55.010 dòng · 499 hàm test    → Hết giai đoạn 5/7
+Migration    32 file SQL · 14 module + outbox · đảo được
 
-Module MVP đã có code: 13/16  (catalog · product · pricing ·
+Module MVP đã có code: 14/16  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
                                payment · order · cart · checkout ·
                                fulfillment · notification ·
-                               supply-chain — chỉ ghi demand_signal)
+                               supply-chain — chỉ ghi demand_signal ·
+                               identity)
 
-Còn thiếu ở MVP:        identity · customer · promotion · analytics
+Còn thiếu ở MVP:        customer · promotion · analytics
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -105,8 +106,10 @@ Tài liệu yêu cầu làm việc này **trước module đầu tiên**; đã t
 ### 2.4 Chưa làm ở giai đoạn 1
 
 - [x] `platform/database` — **đã cài đặt** (pool pgx, health check, ping lúc khởi động)
-- [ ] `platform/eventbus` — **thư mục rỗng**, cần cho Outbox (ADR-0006)
-- [ ] `identity` — module MVP, chưa bắt đầu
+- [x] `platform/eventbus` — **đã cài đặt** (outbox, dispatcher, event_processed)
+- [x] `identity` — **đã cài đặt** (đăng ký · đăng nhập · phiên thu hồi được ·
+      vai trò + phạm vi). Chưa có: xác thực hai lớp, đăng nhập mạng xã hội,
+      đặt lại mật khẩu qua email — đều SAU MVP.
 
 ### 2.5 CI ✓
 
@@ -845,13 +848,14 @@ Năm bên nhận, và **không module nào biết bên nào nghe mình** — đ�
 trị thật của kiến trúc event, giờ đã kiểm chứng được bằng luồng chạy thật.
 
 Tiếp theo là **giai đoạn 6 — Marketplace hoàn chỉnh**, nhưng bốn module MVP
-còn thiếu (`identity`, `customer`, `promotion`, `analytics`) nên cân nhắc
-làm chúng trước.
+còn thiếu (`identity`, `customer`, `promotion`, `analytics`) được làm trước.
+`identity` đã xong; còn `customer`, `promotion`, `analytics`.
 
-**Còn thiếu ở tầng nền:** `platform/eventbus` vẫn rỗng. Hiện `checkout` gọi
-`order` đồng bộ — chạy được nhưng là nợ kỹ thuật đã biết. Giai đoạn 5 cần
-Outbox thật để phát `order.placed` cho inventory chuyển Reserved → Committed,
-và cho notification gửi thông báo.
+**Vì sao làm chúng trước giai đoạn 6:** giai đoạn 6 xây tính năng cho seller
+và creator, mà mọi tính năng đó đều bắt đầu bằng câu hỏi "ai đang gọi, và họ
+được xem dữ liệu của gian hàng nào". Xây tính năng trước rồi gắn phân quyền
+sau nghĩa là phải sửa lại từng truy vấn — và bỏ sót một truy vấn là seller
+đọc được đơn của đối thủ.
 
 **Nợ kỹ thuật ưu tiên cao — chặn giai đoạn 5:**
 

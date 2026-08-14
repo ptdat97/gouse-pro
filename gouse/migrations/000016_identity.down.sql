@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS login_attempt;
+DROP TABLE IF EXISTS session;
+DROP TABLE IF EXISTS user_role;
+DROP TABLE IF EXISTS user_credential;
+DROP TABLE IF EXISTS "user";

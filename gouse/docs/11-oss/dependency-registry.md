@@ -23,8 +23,9 @@ Rejected               Đã xét và loại
 | Thư viện | Mục đích | Sao | Cập nhật | License | Trạng thái |
 |---|---|---|---|---|---|
 | `sqlc-dev/sqlc` | Sinh code Go từ SQL | 18.158 | 2026-08-11 | MIT | **KHÔNG dùng** — xem [ADR-0010](../adr/0010-database-layer.md) mục sửa đổi |
-| `jackc/pgx` | Driver PostgreSQL | 14.129 | 2026-08-01 | MIT | **Kế hoạch** |
-| `golang-migrate/migrate` | Migration có phiên bản | 18.810 | 2026-07-05 | MIT | **Kế hoạch** |
+| `jackc/pgx` | Driver PostgreSQL | 14.129 | 2026-08-01 | MIT | **ĐANG DÙNG** — v5, toàn bộ tầng lưu trữ |
+| `golang-migrate/migrate` | Migration có phiên bản | 18.810 | 2026-07-05 | MIT | **ĐANG DÙNG** — 32 file SQL |
+| `golang.org/x/crypto/bcrypt` | Băm mật khẩu | — | 2026 | BSD-3 | **ĐANG DÙNG** — `identity` |
 
 ### Đánh giá rủi ro
 
@@ -40,6 +41,37 @@ pgx      → cần đổi driver, ảnh hưởng rộng
 migrate  → dễ thay nhất, file SQL vẫn dùng được với công cụ khác
            → rủi ro THẤP
 ```
+
+### Vì sao `bcrypt` chứ không phải argon2id
+
+Argon2id chống dò bằng GPU tốt hơn — đó là sự thật, và nếu chỉ so sức mạnh
+thuật toán thì nó thắng.
+
+Nhưng cái sai thật sự trong thực tế hiếm khi là "thuật toán chưa đủ mạnh":
+
+```text
+bcrypt    muối và chi phí NẰM SẴN trong chuỗi kết quả
+          → không có chỗ nào để quên thêm muối
+          → không có tham số nào để đặt sai
+
+argon2id  phải tự chọn bộ nhớ, số vòng, mức song song
+          phải tự sinh muối và tự mã hóa chuỗi lưu trữ
+          → mỗi thứ đó là một chỗ có thể làm hỏng
+```
+
+Chọn bcrypt là chọn thứ **khó dùng sai**. `golang.org/x/crypto` do chính
+nhóm Go bảo trì, license BSD-3, và `bcrypt.CompareHashAndPassword` so sánh
+theo thời gian hằng định sẵn — không phải tự viết vòng lặp so sánh.
+
+**Giới hạn đã biết:** bcrypt chỉ dùng 72 byte đầu và ÂM THẦM bỏ phần dư.
+Cài đặt ở `identity` **báo lỗi** thay vì cắt, vì người dùng đặt mật khẩu
+100 ký tự đang tin nó an toàn hơn thực tế.
+
+**Khi nào đổi:** khi có bằng chứng đo được rằng chi phí bcrypt không còn đủ,
+hoặc khi cần băm ở quy mô lớn hơn đăng nhập. Đổi là viết một cài đặt mới của
+port `domain.PasswordHasher` — không sửa module.
+
+---
 
 Đây là lý do chọn **SQL viết tay thay vì ORM**: thứ duy nhất phụ thuộc là driver, còn SQL thì không phụ thuộc gì. Một ORM ngừng bảo trì kéo theo toàn bộ tầng dữ liệu.
 

@@ -214,7 +214,71 @@ Nghe event:    seller, creator (chỉ để cấp vai trò)
 
 ---
 
-## 12. Tài liệu liên quan
+## 12. Trạng thái triển khai (MVP — 14/08/2026)
+
+Mã nguồn: `internal/modules/identity/`. Migration: `000016_identity`.
+Kiểm chứng: 23 test tích hợp trên PostgreSQL thật, đã kiểm chứng ngược.
+
+**Đã có:** đăng ký · đăng nhập · xoay refresh token · thu hồi phiên ·
+khóa tạm sau 5 lần sai · vai trò + phạm vi · nhật ký đăng nhập.
+
+**Chưa có (đúng kế hoạch, thuộc Phase 2+):** xác thực hai lớp · đăng nhập
+mạng xã hội · đặt lại mật khẩu qua email · phát event.
+
+### Ba chỗ code KHÁC tài liệu — và vì sao code đúng
+
+Theo nguyên tắc P17, phần này ghi lại thực tế thay vì ép code khớp bản
+thiết kế.
+
+**1. Không có bảng `role`, `permission`, `role_permission`**
+
+Mục 6 mô tả năm bảng cho mô hình quyền. Code chỉ có `user_role` với hai
+cột `role` + `scope_id`, ràng buộc bằng `CHECK`.
+
+```text
+Bảng permission có nghĩa khi quyền do NGƯỜI DÙNG tự định nghĩa lúc chạy.
+Ở đây tập vai trò là hằng số của hệ thống — thêm vai trò là sửa code.
+
+Ba bảng để lưu một danh sách cố định chín dòng chỉ thêm ba lần JOIN vào
+truy vấn chạy ở MỌI request.
+```
+
+Khi nào cần bảng thật: khi seller tự tạo vai trò cho nhân viên của mình
+(Phase 3, mục 11). Lúc đó thêm bảng là việc cục bộ, vì bên ngoài chỉ thấy
+`AuthContext`.
+
+**2. Interface công khai khác mục 7**
+
+Không có `ValidateToken` và `HasPermission`.
+
+`HasPermission(userID, action)` bị bỏ có chủ ý: nó buộc identity phải biết
+mọi hành động tồn tại trong hệ thống — đúng thứ mục 2 cấm. Thay vào đó
+`Authenticate` trả `AuthContext{Scope, SellerIDs}` và module sở hữu dữ liệu
+tự dịch phạm vi đó sang truy vấn của mình.
+
+`ValidateToken` chưa có vì MVP chưa phát access token; tầng interfaces sẽ
+dùng `AccessTokenTTL` trong `AuthResult` để tự phát khi có HTTP layer.
+
+**3. Chưa phát event nào**
+
+Mục 8 liệt kê năm event. Chưa event nào được phát, vì chưa có bên nghe:
+`analytics` chưa tồn tại, và `customer` cũng vậy. Phát event không ai nghe
+là thêm chỗ hỏng mà không đổi lấy gì.
+
+Chiều ngược lại (nghe `seller.approved` để cấp vai trò) cũng chưa cài —
+`seller` hiện chưa phát event này.
+
+### Giới hạn đã biết, có chủ ý
+
+| Giới hạn | Vì sao chấp nhận ở MVP |
+|---|---|
+| `Refresh` chưa nằm trong một giao dịch | Hai tab cùng làm mới có thể tạo hai phiên hợp lệ. Cả hai đều thuộc đúng người, và token gốc LUÔN chết — nên kẻ đánh cắp nó vẫn không dùng được. Đã có test ghi nhận hành vi này. |
+| Chưa giới hạn tần suất đăng ký | `Register` trả `ErrDuplicateEmail` nên đường này dò được email nào đã đăng ký. Cần rate limit ở tầng interfaces trước khi mở ra Internet. |
+| Cân bằng thời gian phản hồi chỉ ở nhánh "email không tồn tại" | Nhánh tài khoản bị treo vẫn trả về sớm hơn. Đo được nhưng cần nhiều mẫu hơn hẳn so với việc bỏ hẳn băm. |
+
+---
+
+## 13. Tài liệu liên quan
 
 - [../09-operations/security.md](../09-operations/security.md) — bảo mật tổng thể
 - [customer.md](customer.md) — hồ sơ khách hàng
