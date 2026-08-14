@@ -16,17 +16,18 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      221 file · 63.046 dòng · 553 hàm test    → Hết giai đoạn 5/7
-Migration    36 file SQL · 16 module + outbox · đảo được
+Code Go      229 file · 65.727 dòng · 577 hàm test    → Hết giai đoạn 5/7
+Migration    38 file SQL · 17 module + outbox · đảo được
 
-Module MVP đã có code: 16/16  (catalog · product · pricing ·
+Module MVP đã có code: 17/17  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
                                payment · order · cart · checkout ·
                                fulfillment · notification ·
                                supply-chain — chỉ ghi demand_signal ·
-                               identity · customer · promotion)
+                               identity · customer · promotion ·
+                               analytics)
 
-Còn thiếu ở MVP:        analytics
+Còn thiếu ở MVP:        (không còn)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -847,9 +848,8 @@ seller giao hàng → fulfillment.progress_changed (event)
 Năm bên nhận, và **không module nào biết bên nào nghe mình** — đó là giá
 trị thật của kiến trúc event, giờ đã kiểm chứng được bằng luồng chạy thật.
 
-Tiếp theo là **giai đoạn 6 — Marketplace hoàn chỉnh**, nhưng bốn module MVP
-còn thiếu (`identity`, `customer`, `promotion`, `analytics`) được làm trước.
-`identity`, `customer` và `promotion` đã xong; còn `analytics`.
+Tiếp theo là **giai đoạn 6 — Marketplace hoàn chỉnh**. Bốn module MVP còn
+thiếu (`identity`, `customer`, `promotion`, `analytics`) ĐÃ XONG cả bốn.
 
 **Vì sao làm chúng trước giai đoạn 6:** giai đoạn 6 xây tính năng cho seller
 và creator, mà mọi tính năng đó đều bắt đầu bằng câu hỏi "ai đang gọi, và họ

@@ -178,7 +178,78 @@ type PublicAPI interface {
 
 ---
 
-## 14. Tài liệu liên quan
+## 14. Trạng thái triển khai (MVP — 14/08/2026)
+
+Mã nguồn: `internal/modules/analytics/`. Migration: `000019_analytics`.
+Kiểm chứng: 24 test tích hợp trên PostgreSQL thật, đã kiểm chứng ngược.
+
+**Đã có (đúng phạm vi MVP ở mục 13):** ghi sự kiện đơn lẻ và theo lô · lọc
+dữ liệu nhạy cảm · chống ghi trùng sự kiện nghiệp vụ · năm chỉ số cốt lõi
+(GMV, số đơn, AOV, tỷ lệ chuyển đổi, số phiên) · cắt lát theo seller ·
+chuỗi thời gian · ẩn danh hóa.
+
+**Chưa có (Phase 2 trở đi):** phễu chuyển đổi từng bước · chỉ số creator ·
+dashboard seller · cohort · kho dữ liệu.
+
+### Ba chỗ code KHÁC tài liệu — và vì sao code đúng
+
+**1. Chưa có `funnel_snapshot`, `cohort_data`**
+
+Mục 9 liệt kê bốn bảng; code có hai (`event_log`, `metric_snapshot`).
+
+Phễu và cohort thuộc Phase 2–3 theo chính mục 13. Bảng rỗng chỉ tạo cảm
+giác tính năng đã có. Dữ liệu THÔ để dựng chúng sau này ĐÃ được ghi đầy đủ
+từ đầu (`session_id` nối các sự kiện của một lượt truy cập) — đó mới là
+phần không tạo ngược được, đúng quy tắc 6.
+
+**2. `event_log` chưa phân vùng theo ngày**
+
+Mục 6 nói "phân vùng theo ngày". Code dùng bảng thường có chỉ mục theo
+`occurred_at`.
+
+Phân vùng có giá khi bảng đủ lớn để việc dọn dữ liệu cũ trở thành vấn đề —
+`DROP PARTITION` tức thì so với `DELETE` quét hàng triệu hàng. Ở quy mô
+MVP thì chưa, và chính mục 6 nói **không tách hạ tầng khi chưa đo được vấn
+đề**. Chuyển sang bảng phân vùng sau này là một migration, không phải viết
+lại module.
+
+**3. Interface công khai khác mục 10**
+
+`GetFunnel` chưa có (Phase 2). Thêm: `TrackBatch`, `ComputeMetrics`,
+`CountEvents`, `AnonymizeCustomer`.
+
+`TrackBatch` cần vì sự kiện hành vi có khối lượng rất lớn — ghi từng cái
+là một lượt đi-về database cho mỗi lần khách di chuột.
+
+`AnonymizeCustomer` là nghĩa vụ pháp lý (mục 8), không có trong bản thiết
+kế nhưng bắt buộc phải có.
+
+### Hai phát hiện từ kiểm chứng ngược
+
+**Tỷ lệ chuyển đổi phải đếm theo PHIÊN, không theo sự kiện.** Test dựng
+một phiên xem 20 sản phẩm cộng ba phiên xem một lần, một phiên mua. Đếm
+đúng ra 25%; đếm theo sự kiện ra 4,3% — **sai gần sáu lần**, và người đọc
+sẽ đi tìm một vấn đề không tồn tại.
+
+**Chống ghi trùng có hai lớp, và test chỉ bắt được một.** Chỉ mục UNIQUE
+chặn hàng thứ hai; việc dịch lỗi thành `ErrDuplicateEvent` quyết định bên
+gọi thấy `nil` sạch hay một lỗi bị nuốt lặng. Bỏ lớp thứ hai, test đếm
+hàng vẫn xanh — nhưng mỗi lần xử lý lại event sinh một CẢNH BÁO GIẢ. Cảnh
+báo giả nhiều tới mức không ai đọc nữa là cách chắc chắn nhất để bỏ lỡ
+cảnh báo thật. Đã thêm test cô lập lớp đó bằng cách đếm bản ghi nhật ký.
+
+### Giới hạn đã biết, có chủ ý
+
+| Giới hạn | Vì sao chấp nhận ở MVP |
+|---|---|
+| `ComputeMetrics` tính TỪNG seller một | Sàn có 10.000 seller nghĩa là 10.000 lần gọi. Cần gom nhóm bằng `GROUP BY` khi số seller đủ lớn — nhưng tối ưu trước khi đo là điều mục 6 cấm. |
+| Chưa kiểm tra `customer_consent` loại PERSONALIZATION | Mục 8 yêu cầu tôn trọng tùy chọn theo dõi. Module `customer` đã có `HasConsent`, nhưng gọi nó ở đây vi phạm quy tắc 1 (không gọi module nghiệp vụ). Đúng cách là tầng interfaces kiểm tra trước khi gọi `TrackEvent`. |
+| Chưa có worker chạy định kỳ | `ComputeMetrics` phải được gọi từ ngoài. Chỉ số chưa tính trả về 0 chứ không lỗi, nên dashboard vẫn dùng được. |
+| Ghi sự kiện là ĐỒNG BỘ | Mục 10 nói "bất đồng bộ". Hiện tại ghi thẳng vào database nhưng KHÔNG BAO GIỜ trả lỗi hạ tầng ra ngoài — đã đạt mục tiêu thật (không chặn luồng chính) mà chưa cần hàng đợi. |
+
+---
+
+## 15. Tài liệu liên quan
 
 - [../01-business/kpi.md](../01-business/kpi.md) — danh sách chỉ số đầy đủ
 - [supply-chain.md](supply-chain.md) — tiêu thụ dữ liệu hành vi
