@@ -43,7 +43,7 @@ Chi phí làm bốn thứ này ở MVP là nhỏ. Chi phí không làm, ở Phas
 
 ---
 
-## 3. Module trong MVP (14 module)
+## 3. Module trong MVP (16 module)
 
 ### Tầng nền
 

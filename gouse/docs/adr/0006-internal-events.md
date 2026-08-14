@@ -1,6 +1,6 @@
 # ADR-0006: Domain event nội bộ + Transactional Outbox
 
-**Trạng thái:** Accepted
+**Trạng thái:** Accepted — **CHƯA TRIỂN KHAI** (xem mục cuối)
 
 ---
 
@@ -270,3 +270,69 @@ Nhưng cũng **không nhồi toàn bộ aggregate** — chỉ những gì bên n
 - [../05-data/idempotency.md](../05-data/idempotency.md)
 - [../05-data/consistency.md](../05-data/consistency.md)
 - [ADR-0005](0005-module-boundaries.md)
+
+
+---
+
+## Trạng thái triển khai (14/08/2026)
+
+**Chưa có gì được cài đặt.** `internal/platform/eventbus/` là thư mục rỗng;
+không có bảng `event_outbox` trong migration nào.
+
+### Vì sao chưa cài mà vẫn chạy được 10 module
+
+Luồng mua hàng đầu-cuối hiện chạy **hoàn toàn bằng lời gọi đồng bộ**:
+
+```text
+cart → checkout → inventory.Reserve      (đồng bộ, cần kết quả)
+                → order.PlaceOrder       (đồng bộ, cần mã đơn)
+                → cart.MarkConverted     (đồng bộ, chấp nhận lỗi)
+```
+
+Điều này **đúng với nguyên tắc** ở mục "Chọn đồng bộ hay event": cả ba lời
+gọi đều cần kết quả để quyết định việc tiếp theo. Không có event nào bị bỏ
+sót ở đây — chúng vốn không nên là event.
+
+### Cái gì đang thiếu vì chưa có outbox
+
+Những việc **chỉ thông báo**, đúng ra phải qua event, hiện chưa có bên nào
+làm — không phải làm sai, mà là chưa làm:
+
+| Việc | Đúng ra nghe event nào | Hiện tại |
+|---|---|---|
+| Gửi email xác nhận đơn | `order.placed` | Chưa có module notification |
+| Ghi nhận chuyển đổi | `order.placed` | Chưa có module analytics |
+| Ghi `demand_signal` | `cart.item_added`, `order.placed` | **Chưa ghi — rủi ro đã biết** |
+| Quy kết creator | `order.placed` | Phase 2 |
+| Reserved → Committed | `order.placed` | **Hiện chưa chuyển** |
+
+Hai dòng in đậm là nợ kỹ thuật thật, đã ghi ở
+[../10-roadmap/todo.md](../10-roadmap/todo.md).
+
+### Vì sao KHÔNG cài outbox sớm hơn
+
+Outbox chỉ có giá trị khi có bên nghe. Xây bus và bảng outbox trước khi có
+module `notification` hay `analytics` là xây hạ tầng cho lưu lượng bằng
+không — vi phạm nguyên tắc P15.
+
+### Khi nào bắt buộc phải có
+
+```text
+Giai đoạn 5 (fulfillment + notification)
+    → có bên nghe thật đầu tiên
+    → order.placed phải tới được notification
+    → Reserved → Committed phải tự động
+
+Đây là điều kiện CHẶN của giai đoạn 5, không phải việc tùy chọn.
+```
+
+### Điều KHÔNG được làm khi cài
+
+```text
+✗ Kafka / NATS / RabbitMQ — một tiến trình, một database, chưa cần
+✓ Bảng event_outbox trong PostgreSQL + worker đọc bảng đó
+```
+
+Nếu sau này thật sự cần broker, hợp đồng event đã được định nghĩa ở
+[../02-domain/domain-events.md](../02-domain/domain-events.md) nên việc
+chuyển là thay cài đặt, không phải thiết kế lại.

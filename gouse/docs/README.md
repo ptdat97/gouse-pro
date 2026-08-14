@@ -47,12 +47,71 @@ Tài liệu được xây dựng theo thứ tự **nghiệp vụ trước, kỹ 
           Database     Storage    External APIs
 ```
 
+## Tài liệu nói gì, code nói gì
+
+> **Tài liệu mô tả kiến trúc dự định và các ranh giới. Code, test và hành vi
+> thật trên production là thẩm quyền cuối cùng. Khi triển khai cho thấy một
+> giả định là sai, hãy cập nhật ADR và tài liệu — đừng ép code chạy theo
+> tài liệu.**
+
+Kiến trúc phục vụ việc triển khai, không phải ngược lại. Xem nguyên tắc P17
+tại [00-overview/principles.md](00-overview/principles.md).
+
+Điều này KHÔNG có nghĩa là tài liệu tùy tiện sửa cho khớp code. Khi sửa,
+phải ghi lại **vì sao** giả định ban đầu sai — đó mới là thứ có giá trị cho
+người đọc sau.
+
 **Quy tắc bất biến:**
 
 - Next.js **không** chứa logic nghiệp vụ. Không truy cập database trực tiếp.
 - Go backend là nơi duy nhất sở hữu domain logic, dữ liệu và giao dịch.
 - Bắt đầu bằng **Modular Monolith**, không phải microservices.
 - Mọi năng lực đều được lộ ra qua API trước (API First).
+
+## Architecture Freeze — 14/08/2026
+
+**Kiến trúc hiện tại ĐỦ để triển khai. Dừng thêm trừu tượng hóa.**
+
+Từ thời điểm này, tài liệu kiến trúc chuyển sang chế độ **chỉ sửa khi
+triển khai chứng minh là cần**. Quy trình bắt buộc:
+
+```text
+Architecture  →  Implementation  →  Test  →  Vấn đề THẬT  →  ADR  →  Cập nhật architecture
+```
+
+Không phải:
+
+```text
+Architecture  →  Architecture  →  Architecture  →  ...
+```
+
+### Điều KHÔNG được làm nữa
+
+```text
+✗ Thêm tầng trừu tượng khi chưa có vấn đề triển khai cụ thể
+✗ Thêm module mới ngoài 28 module đã liệt kê, trừ khi có ADR
+✗ Thêm mẫu kiến trúc vì "OSS khác có" (P15)
+✗ Viết thêm tài liệu kiến trúc mà không có code tương ứng
+```
+
+### Điều VẪN nên làm
+
+```text
+✓ Cập nhật tài liệu khi triển khai cho thấy giả định sai (P17)
+✓ Ghi ADR mới khi gặp quyết định kiến trúc THẬT trong lúc code
+✓ Bổ sung chi tiết còn thiếu của module chưa triển khai
+✓ Sửa mâu thuẫn giữa tài liệu và code
+```
+
+### Thước đo một thay đổi kiến trúc có chính đáng không
+
+Trả lời được câu này thì làm, không thì đừng:
+
+> **Vấn đề cụ thể nào trong code hiện tại buộc phải thay đổi này?**
+
+"Sẽ cần sau này", "chuẩn hơn", "OSS khác làm thế" — đều không phải câu trả lời.
+
+---
 
 ## Trạng thái tài liệu
 
@@ -62,7 +121,7 @@ Tài liệu được xây dựng theo thứ tự **nghiệp vụ trước, kỹ 
 | 01-business | Hoàn thành | Định nghĩa tác nhân nghiệp vụ |
 | 02-domain | Hoàn thành | Là "hợp đồng" của toàn hệ thống |
 | 03-architecture | Hoàn thành | Quy tắc bắt buộc khi code |
-| 04-modules | Hoàn thành | 27 module |
+| 04-modules | Hoàn thành | 28 module (MVP 16 · Phase 2 +7 · Phase 3 +5) |
 | 05-data | Hoàn thành | |
 | 06-api | Hoàn thành | |
 | 07-workflows | Hoàn thành | |
@@ -70,7 +129,20 @@ Tài liệu được xây dựng theo thứ tự **nghiệp vụ trước, kỹ 
 | 09-operations | Hoàn thành | |
 | 10-roadmap | Hoàn thành | |
 | 11-oss | Hoàn thành | 12 dự án + 2 mô hình kinh doanh |
-| adr | Hoàn thành | 10 ADR |
+| adr | Hoàn thành | 10 ADR — ADR-0006 và ADR-0010 có mục "trạng thái triển khai" |
+
+**Đối chiếu với code (14/08/2026):** 10/16 module MVP đã triển khai
+(catalog · product · pricing · inventory · seller · marketplace · payment ·
+order · cart · checkout). Chi tiết ở
+[10-roadmap/todo.md](10-roadmap/todo.md).
+
+Ba chỗ tài liệu đã được sửa cho khớp code thật, kèm lý do:
+
+| Tài liệu | Giả định ban đầu | Thực tế | Ghi ở |
+|---|---|---|---|
+| ADR-0010 | Dùng `sqlc` sinh code | `pgx` + SQL viết tay | ADR-0010 mục cuối |
+| 05-data | Định danh kiểu `UUID` | `TEXT` + ULID có tiền tố | data-model.md mục 1.1 |
+| 05-data | Tách 7 schema PostgreSQL | Dùng `public`, hoãn tới khi tách service | database.md mục 3 |
 
 ## Đặc tả OpenAPI
 

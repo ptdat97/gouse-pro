@@ -403,9 +403,23 @@ type PublicAPI interface {
 | `order.placed` | order | Reserved → Committed |
 | `order.cancelled` | order | Giải phóng hàng |
 | `order.line_cancelled` | order | Giải phóng phần bị hủy |
-| `checkout.expired` | checkout | Giải phóng reservation |
 | `warehouse.goods_received` | warehouse | Tăng Available |
 | `return.inspected` | return | Returned → Available hoặc Damaged |
+
+### Những việc KHÔNG đi qua event
+
+Ba thao tác dưới đây được gọi **ĐỒNG BỘ** qua interface công khai, vì bên
+gọi cần biết kết quả ngay:
+
+| Thao tác | Ai gọi | Vì sao phải đồng bộ |
+|---|---|---|
+| `Reserve` | checkout | Không giữ được hàng thì không mở phiên thanh toán |
+| `ReleaseReservation` | checkout | Nhả qua event mà event lỗi = hàng khóa vĩnh viễn |
+| `ExtendReservation` | checkout | Phiên sống lâu hơn reservation = mất hàng đúng lúc khách trả tiền |
+
+Ngoài ra, `inventory` còn có **tiến trình dọn riêng** (30 giây/lượt) nhả các
+reservation quá hạn. Đây là lớp bảo vệ độc lập: kể cả khi module gọi quên
+nhả, hàng vẫn được trả về sau khi hết TTL.
 
 ---
 

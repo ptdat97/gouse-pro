@@ -178,6 +178,31 @@ Kiểm tra tự động bằng lint phụ thuộc trong CI.
 
 ---
 
+## P17. Code là trọng tài cuối cùng, không phải tài liệu
+
+**Nguyên tắc:** Tài liệu mô tả kiến trúc **dự định** và các ranh giới. Code, test và hành vi thật trên production là **thẩm quyền cuối cùng**. Khi triển khai cho thấy một giả định trong tài liệu là sai, hãy **cập nhật ADR và tài liệu**, đừng ép code chạy theo tài liệu.
+
+**Lý do:** Tài liệu được viết trước khi biết sự thật. Code là nơi sự thật xuất hiện. Một tài liệu nói "dùng công cụ X" trong khi mười module đã chạy tốt với công cụ Y không làm cho Y sai — nó làm cho tài liệu cũ.
+
+Ép code theo tài liệu trong tình huống đó là viết lại thứ đang chạy được để phục vụ một câu văn. Đó là chi phí thật đổi lấy sự nhất quán hình thức.
+
+**Quy trình khi phát hiện lệch:**
+
+```text
+Code khác tài liệu
+    ↓
+Code sai?          → sửa code, giữ tài liệu
+Tài liệu sai?      → sửa tài liệu; nếu là quyết định kiến trúc thì
+                     ghi ADR mới hoặc cập nhật ADR cũ kèm LÝ DO THẬT
+Cả hai đều đúng?   → tài liệu thiếu ngữ cảnh; bổ sung điều kiện áp dụng
+```
+
+**Điều kiện bắt buộc:** không im lặng sửa tài liệu cho khớp code. Phải ghi lại **vì sao** giả định ban đầu sai — đó là thứ có giá trị cho người đọc sau, còn bản thân sự nhất quán thì không.
+
+**Ví dụ đã xảy ra trong dự án này:** [ADR-0010](../adr/0010-database-layer.md) chọn `sqlc`; mười module triển khai bằng `pgx` viết tay. ADR đã được cập nhật với lý do thật thay vì viết lại mười module.
+
+---
+
 ## Bảng tra cứu nhanh: nguyên tắc → tài liệu chi tiết
 
 | Nguyên tắc | Chi tiết tại |
@@ -190,3 +215,4 @@ Kiểm tra tự động bằng lint phụ thuộc trong CI.
 | P10 Idempotency | [05-data/idempotency.md](../05-data/idempotency.md) |
 | P11 Nhất quán | [05-data/consistency.md](../05-data/consistency.md) |
 | P13, P14 Interface thay thế được | [04-modules/recommendation.md](../04-modules/recommendation.md) |
+| P17 Code là trọng tài | [ADR-0010](../adr/0010-database-layer.md) — ví dụ đã xảy ra thật |

@@ -81,6 +81,39 @@ Vì sao: nếu chỉ lưu click được quy kết, sau này muốn đổi sang 
 
 Đây là ứng dụng trực tiếp của nguyên tắc P14: chính sách đơn giản trước, **dữ liệu đầy đủ ngay từ đầu**.
 
+### 3.4 Click là MỘT LOẠI điểm chạm, không phải loại duy nhất
+
+Mô hình dữ liệu hiện tại ghi `Click`. Về khái niệm, đó là một **Touchpoint**
+— một lần khách tiếp xúc với nội dung của creator trước khi mua.
+
+```text
+Touchpoint (khái niệm)
+    ├── CLICK        ← MVP/Phase 2: bấm vào link affiliate
+    ├── VIEW         ← Phase 3: xem nội dung đủ lâu, không bấm
+    ├── LIVE_JOIN    ← Phase 4: vào phiên live
+    └── SAVE         ← Phase 3: lưu outfit, thêm wishlist từ nội dung
+```
+
+**MVP chỉ cài `CLICK`.** Không xây bảng `touchpoint` tổng quát ngay — đó là
+trừu tượng hóa sớm (P15), và ba loại kia chưa có nguồn dữ liệu.
+
+**Nhưng phải chuẩn bị sẵn hai thứ:**
+
+```text
+1. Bảng click có cột `touchpoint_type` với giá trị mặc định 'CLICK'
+   → thêm loại mới không phải migration đau đớn
+
+2. attribution.click_id được hiểu là "điểm chạm được quy kết",
+   không phải "cú bấm chuột được quy kết"
+   → đổi tên thành touchpoint_id khi có loại thứ hai
+```
+
+**Vì sao ghi khái niệm này ra dù chưa cài:** mô hình quy kết chỉ dựa trên
+click sẽ bỏ sót phần lớn ảnh hưởng thật của creator. Người xem một video
+rồi ba ngày sau tự tìm sản phẩm để mua là trường hợp **phổ biến hơn** người
+bấm link mua ngay. Nếu cấu trúc dữ liệu chỉ biết đến click, sau này thêm
+`VIEW` sẽ phải viết lại toàn bộ đường quy kết.
+
 ---
 
 ## 4. Đảo ngược khi hoàn hàng

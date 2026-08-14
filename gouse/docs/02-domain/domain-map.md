@@ -57,6 +57,85 @@ Việc phân loại này **quyết định phân bổ nguồn lực**:
 
 ---
 
+## 2.1. Ràng buộc bắt buộc: ai được quyết định hình dạng của domain
+
+Phân loại ở trên không chỉ để đọc. Nó quyết định **ai được phép định hình
+mô hình dữ liệu và ranh giới** của từng miền.
+
+### Domain chiến lược — chúng ta kiểm soát, không phải OSS
+
+Mười bốn miền dưới đây là lợi thế cạnh tranh. **Không OSS, framework hay
+nhà cung cấp nào được quyết định hình dạng của chúng.**
+
+```text
+Marketplace Offer          Demand Signal
+Seller                     Demand Planning
+Creator                    Fashion Product Intelligence
+Content Commerce           Supplier Network
+Attribution                Procurement
+                           Manufacturing
+                           Quality
+                           Replenishment
+                           Own Brand Operations
+```
+
+**Lưu ý về phân loại hai tầng:** một số miền trong danh sách này (`Seller`,
+`Procurement`, `Quality`) được xếp **Supporting** ở mục 2 theo tiêu chí
+"mức đầu tư", nhưng vẫn là **chiến lược** theo tiêu chí "ai định hình mô
+hình". Hai tiêu chí khác nhau:
+
+```text
+Core/Supporting/Generic  →  đầu tư BAO NHIÊU công sức
+Chiến lược/Hạ tầng       →  AI được quyết định hình dạng
+```
+
+`Seller` là ví dụ rõ nhất: quản lý hồ sơ nhà bán là nghiệp vụ chuẩn
+(Supporting, làm vừa đủ), nhưng ranh giới "seller không bao giờ thấy dữ
+liệu seller khác" là ràng buộc do **chúng ta** đặt, không phải do một
+framework marketplace nào đó đặt hộ.
+
+**Được và không được:**
+
+| Được | Không được |
+|---|---|
+| Đọc OSS để hiểu vấn đề | Dùng model dữ liệu của OSS làm model domain |
+| Lấy thuật toán rời rạc rồi tự cài | Để framework quyết định aggregate/ranh giới |
+| Học cách đặt tên, cách chia trạng thái | Ép nghiệp vụ theo hình dạng công cụ |
+
+### Hạ tầng chung — nên tận dụng OSS
+
+```text
+Adapter thanh toán     Jobs / hàng đợi
+Tìm kiếm               Caching
+Media / xử lý ảnh      Observability
+Lưu trữ file           Hạ tầng trang quản trị
+Gửi email              Driver database, migration
+```
+
+Nhóm này dùng OSS thoải mái, nhưng **đặt sau interface do domain định
+nghĩa** (`WRAP`) nếu sẽ đổi nhà cung cấp — nguyên tắc P13.
+
+### Vì sao ràng buộc này đáng ghi thành quy tắc
+
+Nhầm lẫn theo hai chiều đều tốn kém, nhưng không tốn như nhau:
+
+```text
+Nhầm chiến lược thành hạ tầng
+    → dùng framework cho Offer/Attribution
+    → sửa = VIẾT LẠI DOMAIN
+
+Nhầm hạ tầng thành chiến lược
+    → tự xây email, hàng đợi, tìm kiếm
+    → sửa = vứt code đi, dùng OSS
+```
+
+Chiều thứ nhất tệ hơn nhiều: nó làm hỏng đúng thứ tạo ra giá trị.
+
+Chi tiết cách phân loại và ví dụ đã áp dụng:
+[../11-oss/adoption-policy.md](../11-oss/adoption-policy.md) mục 1.1.
+
+---
+
 ## 3. Core Domain — chi tiết và lý do
 
 ### 3.1 Marketplace & Offer Model

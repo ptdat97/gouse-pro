@@ -17,7 +17,7 @@ Thay đổi:  1. Link table cho quan hệ vượt module      (từ Medusa)
            2. Adjustment là thực thể hạng nhất        (từ Sylius)
            3. Định nghĩa cơ sở tính hoa hồng creator  (từ Sylius + TikTok)
 
-Xác lập:   PostgreSQL + sqlc cho tầng dữ liệu         (ADR-0010)
+Xác lập:   PostgreSQL + SQL viết tay cho tầng dữ liệu  (ADR-0010)
 ```
 
 Không có phát hiện nào buộc phải thiết kế lại kiến trúc. Điều này có ý nghĩa: nếu nghiên cứu OSS **trước khi** thiết kế, có nguy cơ bị OSS định đoạt domain. Làm ngược lại — thiết kế từ nghiệp vụ, rồi đối chiếu OSS — cho kết quả tốt hơn.
@@ -58,7 +58,7 @@ Không có phát hiện nào buộc phải thiết kế lại kiến trúc. Đi�
   Seller
 
 Hạ tầng:
-  PostgreSQL + sqlc · Object Storage · CDN
+  PostgreSQL + pgx · Object Storage · CDN
   Outbox (trong DB) · OpenTelemetry (Phase 2)
 ```
 

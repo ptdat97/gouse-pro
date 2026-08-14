@@ -201,7 +201,7 @@ Nguyên tắc bắt buộc:
 ## 10. Phạm vi theo giai đoạn
 
 ```text
-MVP (14 module)
+MVP (16 module)
     identity · notification · analytics
     customer · catalog · product · pricing · inventory
     marketplace · seller · promotion

@@ -230,8 +230,40 @@ type PublicAPI interface {
 
 ## 12. Giai đoạn triển khai
 
+### Trạng thái ở MVP — đọc kỹ để tránh hiểu nhầm
+
+```text
+Domain model:   CÓ    — mô hình đã thiết kế xong, giữ nguyên trong tài liệu
+Database:       CÓ    — bảng có thể tạo từ MVP nếu cần lưu vết
+API:            KHÔNG — Phase 2
+UI:             KHÔNG — Phase 2
+Workflow:       THỦ CÔNG ở MVP — xử lý ngoài hệ thống, ghi lại bằng tay
+Automation:     KHÔNG — Phase 3
+```
+
+**Vì sao giữ domain model dù chưa cài:** hoàn hàng là **luồng chính** của
+thương mại thời trang, không phải ngoại lệ hiếm gặp. Mô hình dữ liệu của
+`order` và `payment` đã được thiết kế để chịu được hoàn từng phần — nếu bỏ
+domain model của return, hai module kia sẽ được thiết kế thiếu và phải sửa
+lại khi Phase 2 tới.
+
+**Cụ thể những gì MVP đã chuẩn bị sẵn cho return:**
+
+| Đã có ở MVP | Ở module | Vì sao cần cho return |
+|---|---|---|
+| `Adjustment` gắn từng dòng hàng | `order` | Hoàn từng phần đọc thẳng số tiền, không tính lại tỷ lệ |
+| `order_line.status = RETURNED` | `order` | Đánh dấu dòng đã trả mà không xóa dữ liệu |
+| Bút toán đảo ngược | `payment` | Ghi sổ hoàn tiền không sửa bút toán cũ |
+| Trạng thái `Returned` trong kho | `inventory` | Hàng hoàn không tự vào `Available` |
+| Hoa hồng chỉ khả dụng sau hạn đổi trả | `payment` | Phần lớn hoàn xảy ra trước khi tiền được chi |
+
+Nói cách khác: **return chưa có API, nhưng hệ thống đã chịu được nó.**
+
+### Lộ trình
+
 | Giai đoạn | Phạm vi |
 |---|---|
+| **MVP** | Không có API/UI. Xử lý thủ công, dùng bút toán điều chỉnh của `payment` |
 | **Phase 2** | Yêu cầu trả, duyệt, kiểm định, hoàn tiền, lý do chuẩn hóa |
 | **Phase 3** | Đổi hàng (không chỉ trả), phân tích nguyên nhân, tự động duyệt |
 | **Phase 4** | Dự đoán rủi ro hoàn hàng, gợi ý size chủ động |

@@ -699,6 +699,17 @@ lo phần còn lại: chọn kho xuất hàng, tính phí ship thật, gắn mã
 Outbox thật để phát `order.placed` cho inventory chuyển Reserved → Committed,
 và cho notification gửi thông báo.
 
+**Nợ kỹ thuật ưu tiên cao — chặn giai đoạn 5:**
+
+| # | Nợ | Hậu quả nếu để lâu |
+|---|---|---|
+| 1 | `Reserved → Committed` chưa tự động | Hàng đã bán vẫn nằm ở trạng thái "đang giữ"; báo cáo tồn kho sai, và tiến trình dọn có thể nhả hàng của đơn đã thanh toán |
+| 2 | `demand_signal` chưa được ghi | **Dữ liệu lịch sử không tạo ngược được** — đây là 1 trong 4 thứ "sửa sau là viết lại" ở mục 9 |
+| 3 | `platform/eventbus` rỗng, chưa có outbox | Không có đường cho notification/analytics nghe `order.placed` |
+
+Ba việc này liên quan nhau: (3) là hạ tầng cho (1) và (2). Xem
+[ADR-0006](../adr/0006-internal-events.md) mục "Trạng thái triển khai".
+
 **Nợ kỹ thuật khác đã ghi nhận:**
 
 - `checkout` chọn kho theo quy tắc "kho đầu tiên còn đủ hàng". Chọn kho gần

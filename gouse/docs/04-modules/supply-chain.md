@@ -29,6 +29,63 @@
 
 ---
 
+## 2.1. Ranh giới quan trọng nhất: own brand ≠ hàng seller
+
+Chuỗi cung ứng ở tài liệu này **chỉ áp dụng cho hàng own brand**. Hàng của
+seller đi một đường hoàn toàn khác.
+
+```text
+OWN BRAND                          MARKETPLACE SELLER
+─────────────────────────          ──────────────────────────
+Tín hiệu nhu cầu                   Seller tự quyết định nhập gì
+    ↓                                  ↓
+Dự báo · Kế hoạch sản phẩm         (nền tảng KHÔNG can thiệp)
+    ↓                                  ↓
+Thu mua / Sản xuất                 Seller tự nhập hàng
+    ↓                                  ↓
+Kiểm định chất lượng               Nền tảng chỉ QUAN SÁT tồn kho khai báo
+    ↓                                  ↓
+Kho nền tảng                       Kho của seller
+    ↓                                  ↓
+Nền tảng SỞ HỮU hàng               Seller SỞ HỮU hàng
+```
+
+### Hệ quả bắt buộc, không được nhầm
+
+| | Own brand | Seller |
+|---|---|---|
+| Ai sở hữu hàng trong kho | Nền tảng | Seller |
+| Ghi sổ khi bán | Doanh thu **toàn bộ** + giá vốn (COGS) | Chỉ **hoa hồng** |
+| Hàng trong kho là tài sản của ai | Nền tảng | **KHÔNG** phải của nền tảng |
+| Ai quyết định nhập bao nhiêu | Module này | Seller tự quyết |
+| Chuỗi cung ứng có áp dụng không | **Có** | **Không** |
+
+Điểm thứ hai và thứ ba là chỗ sai sẽ tạo ra báo cáo tài chính sai: gộp hàng
+seller vào tài sản nền tảng làm phồng bảng cân đối kế toán bằng hàng không
+thuộc về mình. Xem [ADR-0008](../adr/0008-financial-ledger.md).
+
+### Vì sao KHÔNG gộp hai luồng thành một trừu tượng
+
+Cám dỗ tự nhiên là dựng một khái niệm "nguồn cung" chung cho cả hai. Đừng.
+
+```text
+Hai luồng khác nhau ở:
+    - Ai ra quyết định       (nền tảng vs seller)
+    - Ai sở hữu tài sản      (khác nhau về kế toán)
+    - Dữ liệu nào có sẵn     (own brand có lô sản xuất, seller không)
+    - Chu kỳ thời gian       (sản xuất hàng tháng vs nhập hàng hàng tuần)
+```
+
+Trừu tượng hóa sớm ở đây sẽ tạo ra một mô hình mà cả hai luồng đều phải bẻ
+cong để vừa — và chỗ bẻ cong đầu tiên sẽ là quyền sở hữu tài sản, tức là
+phần kế toán. Nguyên tắc P15 và P16.
+
+**Điểm giao duy nhất giữa hai luồng:** cả hai đều kết thúc ở `inventory`
+với `owner_id` khác nhau. Đó là chỗ hợp nhất đúng — sau khi hàng đã nằm
+trong kho, việc bán ra giống nhau.
+
+---
+
 ## 3. Vì sao là Core Domain
 
 Đây là năng lực khó sao chép nhất:

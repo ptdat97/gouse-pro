@@ -6,11 +6,102 @@
 |---|---|---|
 | 1 | Mỗi bảng thuộc **đúng một module** | Điều kiện để tách service (P5) |
 | 2 | Không khóa ngoại vượt ranh giới module | Khóa ngoại cứng ngăn việc tách |
-| 3 | Không JOIN vượt ranh giới module | Ràng buộc ranh giới ở tầng truy vấn |
-| 4 | Định danh dùng UUID/ULID | Không lộ quy mô, dễ tách |
+| 3 | Không JOIN vượt ranh giới module **trong đường ghi** | Ràng buộc ranh giới ở tầng truy vấn — xem mục 1.2 |
+| 4 | Định danh dùng **ULID có tiền tố loại** | Không lộ quy mô, sắp xếp được theo thời gian, đọc log biết ngay loại |
 | 5 | Tiền dùng số nguyên + đơn vị tiền tệ | Tránh sai số dấu chấm động |
 | 6 | Không xóa cứng dữ liệu giao dịch | Nghĩa vụ lưu trữ |
 | 7 | Bảng quan trọng có `version` cho khóa lạc quan | Chống mất cập nhật |
+
+---
+
+## 1.1. Định danh: ULID có tiền tố, kiểu cột là TEXT
+
+**Quy ước đang dùng trong code** — đây là nguồn sự thật, các đoạn SQL minh
+họa ở tài liệu module có thể viết `UUID` cho ngắn gọn:
+
+```sql
+id TEXT PRIMARY KEY CHECK (id LIKE 'ord\_%' AND length(id) = 30)
+```
+
+```text
+ord_01KZXPRRKN1F3JVC6ZE97QH11A
+│   └── ULID 26 ký tự, mã hóa Crockford base32
+└────── tiền tố 3 ký tự cho biết LOẠI thực thể
+```
+
+**Vì sao tiền tố:** đọc log thấy `sel_01K…` là biết ngay đó là seller, không
+phải đoán. Và một `order_id` truyền nhầm vào chỗ nhận `seller_id` bị chặn
+ngay ở `ids.Parse` chứ không đi tới database.
+
+**Vì sao TEXT chứ không phải kiểu UUID:** ULID có tiền tố không phải UUID
+hợp lệ. Đổi lại, ràng buộc `CHECK` ở mỗi bảng cưỡng chế đúng tiền tố và
+đúng độ dài — chặt hơn kiểu `UUID` vốn chấp nhận mọi UUID của mọi loại
+thực thể.
+
+**Vì sao ULID chứ không phải UUIDv4:** ULID sắp xếp được theo thời gian tạo,
+nên chỉ mục B-tree không bị phân mảnh khi ghi. Xem `internal/kernel/ids`.
+
+Định dạng này khớp với mẫu trong đặc tả OpenAPI:
+`^[a-z]+_[0-9A-HJKMNP-TV-Z]{26}$`.
+
+---
+
+## 1.2. JOIN vượt module: cấm ở đường GHI, cho phép ở đường ĐỌC
+
+Đây là chỗ dễ hiểu sai nhất của nguyên tắc 3. Nói "không JOIN vượt module
+trong mọi trường hợp" sẽ làm kiến trúc đọc trở nên vô lý: một báo cáo doanh
+thu theo thương hiệu buộc phải kéo hàng vạn dòng về bộ nhớ ứng dụng rồi tự
+gộp.
+
+**Phân biệt hai đường:**
+
+```text
+ĐƯỜNG GHI (domain transaction)          ĐƯỜNG ĐỌC (read model / báo cáo)
+────────────────────────────────        ─────────────────────────────────
+Sửa trạng thái, cưỡng chế bất biến      Chỉ đọc, không quyết định gì
+    ↓                                       ↓
+KHÔNG chạm bảng của module khác         ĐƯỢC JOIN, view, projection
+Gọi API công khai hoặc nghe event       Miễn là CHỈ ĐỌC
+```
+
+### Đường ghi — cấm tuyệt đối
+
+```text
+✗ Module order UPDATE bảng inventory_item
+✗ Module order JOIN order với inventory_item để QUYẾT ĐỊNH có bán được không
+✗ Khóa ngoại cứng giữa bảng của hai module
+```
+
+Lý do không đổi: quyết định nghiệp vụ dựa trên bảng của module khác nghĩa là
+module đó không còn kiểm soát được bất biến của chính nó.
+
+### Đường đọc — được phép, có điều kiện
+
+```text
+✓ Truy vấn báo cáo JOIN nhiều bảng của nhiều module
+✓ VIEW hoặc MATERIALIZED VIEW phục vụ trang quản trị
+✓ Read model dựng sẵn, đồng bộ qua event
+✓ Truy vấn phân tích trong tiến trình worker
+```
+
+**Bốn điều kiện bắt buộc:**
+
+| # | Điều kiện | Vì sao |
+|---|---|---|
+| 1 | **CHỈ ĐỌC** — không `INSERT`/`UPDATE`/`DELETE` | Ghi vượt module là phá ranh giới sở hữu |
+| 2 | Đặt trong module **báo cáo/analytics**, không nằm trong module nghiệp vụ | Giữ đường ghi của module nghiệp vụ sạch |
+| 3 | Kết quả **không quay lại làm đầu vào quyết định** của đường ghi | Nếu quay lại, nó là đường ghi trá hình |
+| 4 | Đăng ký tường minh: ghi rõ truy vấn đọc bảng nào của module nào | Khi tách service, đây là danh sách việc phải làm |
+
+**Vì sao nới lỏng có kiểm soát tốt hơn cấm tuyệt đối:** cấm tuyệt đối không
+làm biến mất nhu cầu báo cáo — nó chỉ đẩy việc gộp dữ liệu lên tầng ứng
+dụng, nơi làm việc đó chậm hơn và không ai nhìn thấy sự phụ thuộc. Một câu
+`JOIN` được đăng ký tường minh dễ tìm và dễ sửa hơn một vòng lặp Go gọi ba
+module.
+
+**Khi tách service:** mỗi truy vấn đọc vượt module trở thành một việc phải
+xử lý — hoặc dựng read model đồng bộ qua event, hoặc gọi API. Điều kiện 4
+tồn tại chính vì lúc đó cần biết danh sách này.
 
 ---
 
@@ -326,17 +417,26 @@ CREATE TABLE click_2026_08 PARTITION OF click
 
 ---
 
-## 11. Định danh: UUID hay ULID
+## 11. Định danh: ULID có tiền tố
+
+> Quy ước đầy đủ ở [mục 1.1](#11-định-danh-ulid-có-tiền-tố-kiểu-cột-là-text).
+> Mục này giữ phần lập luận.
 
 ```text
-Khuyến nghị: ULID cho hầu hết bảng
+Đang dùng: ULID có tiền tố loại, lưu ở cột TEXT
 
 Lý do:
     - Sắp xếp được theo thời gian tạo (tốt cho chỉ mục B-tree)
     - Không lộ quy mô kinh doanh như số tự tăng
-    - Tương thích định dạng UUID
+    - Tiền tố cho biết LOẠI thực thể ngay khi đọc log
     - Chèn tuần tự → ít phân mảnh chỉ mục hơn UUID ngẫu nhiên
 ```
+
+**Giả định ban đầu đã sai:** tài liệu này từng ghi "ULID lưu dạng UUID".
+Khi triển khai thì thêm tiền tố loại (`ord_`, `sel_`) — thứ khiến chuỗi
+không còn là UUID hợp lệ. Đổi lại được hai điều đáng giá hơn: đọc log biết
+ngay loại thực thể, và `ids.Parse` chặn được việc truyền nhầm `order_id`
+vào chỗ nhận `seller_id`. Cột chuyển sang `TEXT` kèm ràng buộc `CHECK`.
 
 **Vì sao không dùng số tự tăng:**
 
@@ -360,7 +460,7 @@ FC-2026-08-001234
 
 | Loại | Kiểu PostgreSQL | Ghi chú |
 |---|---|---|
-| Định danh | `UUID` | ULID lưu dạng UUID |
+| Định danh | `TEXT` + `CHECK` | ULID có tiền tố loại — xem mục 1.1 |
 | Tiền | `BIGINT` + `CHAR(3)` | **Không bao giờ dùng FLOAT** |
 | Số lượng | `INT` | Có `CHECK >= 0` |
 | Phần trăm | `INT` | Basis points |

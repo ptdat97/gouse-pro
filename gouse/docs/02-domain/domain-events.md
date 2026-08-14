@@ -34,6 +34,56 @@ Kiểm tra tồn kho trước khi cho đặt hàng
 → EVENT. Ba việc độc lập, không cần đồng bộ.
 ```
 
+## 2.1. Quy tắc quyết định: đồng bộ hay event
+
+Một câu hỏi duy nhất:
+
+```text
+Bên gọi có cần KẾT QUẢ để quyết định việc tiếp theo không?
+
+    CÓ  → gọi ĐỒNG BỘ qua interface công khai
+    KHÔNG → phát DOMAIN EVENT
+```
+
+### Áp dụng vào các luồng thật
+
+```text
+Checkout  →  Inventory (giữ hàng)
+    Cần biết giữ được không mới quyết định mở phiên
+    → ĐỒNG BỘ
+
+Checkout  →  Order (tạo đơn)
+    Cần mã đơn để trả cho khách và ghi vào phiên
+    → ĐỒNG BỘ
+
+Order  →  Marketplace (tỷ lệ hoa hồng)
+    Cần con số để đóng băng vào dòng hàng
+    → ĐỒNG BỘ
+
+OrderPlaced  →  Notification · Analytics · Search · Attribution
+    Không việc nào ảnh hưởng tới việc đơn có được tạo hay không
+    → EVENT
+```
+
+### Không biến mọi phụ thuộc thành event
+
+Event **không phải** cách để giảm số lượng phụ thuộc trên giấy. Một lời gọi
+đồng bộ qua interface công khai đã là phụ thuộc **tường minh và kiểm soát
+được** — đó là điều tốt, không phải điều cần né tránh.
+
+```text
+✗ Sai: "module A không được biết module B, nên phát event"
+       → thực chất A vẫn cần kết quả của B
+       → phải chờ event trả về = xây lại lời gọi đồng bộ, phức tạp hơn
+
+✓ Đúng: A cần kết quả  → gọi B trực tiếp, ghi vào đồ thị phụ thuộc
+        A chỉ thông báo → phát event, không quan tâm ai nghe
+```
+
+**Dấu hiệu dùng event sai:** bên phát cần biết bên nhận đã xử lý xong chưa.
+Nếu có, đó là lời gọi đồng bộ được ngụy trang, và nó sẽ mang mọi nhược điểm
+của cả hai cách.
+
 ---
 
 ## 3. Cấu trúc event chuẩn
@@ -81,13 +131,39 @@ Nhưng cũng không nhồi toàn bộ aggregate — chỉ những gì bên nhậ
 | `offer.out_of_stock` | Hết hàng | offer_id, sku_id | search, content, supply-chain |
 | `cart.item_added` | Thêm giỏ | cart_id, offer_id, source_content_id | analytics, supply-chain |
 | `cart.abandoned` | Bỏ giỏ | cart_id, items | notification, analytics |
-| `checkout.started` | Bắt đầu thanh toán | checkout_id, cart_id | inventory (giữ hàng), analytics |
-| `checkout.expired` | Hết hạn | checkout_id | inventory (giải phóng) |
+| `checkout.started` | Bắt đầu thanh toán, **hàng ĐÃ giữ xong** | checkout_id, cart_id | analytics — **KHÔNG phải inventory**, xem ghi chú dưới |
+| `checkout.expired` | Hết hạn | checkout_id | analytics, notification — inventory đã được nhả đồng bộ |
 | **`order.placed`** | Đơn được tạo | order_id, lines, total, customer | **rất nhiều** — xem mục 5 |
-| `order.paid` | Thanh toán thành công | order_id, payment_id, amount | fulfillment, financial, notification |
-| `order.cancelled` | Hủy toàn bộ | order_id, reason | inventory, financial, notification |
-| `order.line_cancelled` | Hủy một phần | order_id, order_line_id, quantity | inventory, financial |
-| `order.completed` | Hoàn tất (hết hạn đổi trả) | order_id | financial (chuyển số dư), loyalty |
+| `order.paid` | Thanh toán thành công | order_id, payment_id, amount | fulfillment, payment, notification |
+| `order.cancelled` | Hủy toàn bộ | order_id, reason | inventory, payment, notification |
+| `order.line_cancelled` | Hủy một phần | order_id, order_line_id, quantity | inventory, payment |
+| `order.completed` | Hoàn tất (hết hạn đổi trả) | order_id | payment (chuyển số dư), loyalty |
+
+### Ghi chú quan trọng: giữ hàng KHÔNG đi qua event
+
+`checkout.started` là **thông báo việc đã xảy ra**, không phải mệnh lệnh
+giữ hàng. Thứ tự thật:
+
+```text
+1. checkout gọi inventory.Reserve()      ← ĐỒNG BỘ, chờ kết quả
+2. Không giữ được hàng → dừng, KHÔNG có phiên nào được tạo
+3. Giữ được → tạo phiên → PHÁT checkout.started
+```
+
+**Vì sao không thể dùng event ở bước 1:** checkout phải biết **ngay** có
+giữ được hàng hay không để quyết định có mở phiên hay không. Nếu phát event
+rồi đi tiếp, sẽ có lúc khách thấy màn hình thanh toán cho hàng đã hết —
+phát hiện ra sau khi họ đã nhập địa chỉ và thông tin thẻ.
+
+Tương tự với `checkout.expired`: hàng được nhả **đồng bộ** trong cùng thao
+tác dọn phiên, không phải qua event. Nhả hàng qua event nghĩa là có khoảng
+thời gian phiên đã chết mà hàng vẫn khóa, và nếu event thất bại thì hàng
+khóa vĩnh viễn.
+
+Đây là ví dụ trực tiếp của quy tắc ở [mục 2](#2-event-dùng-cho-việc-gì-và-không-dùng-cho-việc-gì).
+
+---
+
 
 ### 4.2 Fulfillment
 
@@ -97,9 +173,9 @@ Nhưng cũng không nhồi toàn bộ aggregate — chỉ những gì bên nhậ
 | `fulfillment_order.allocated` | Đã phân bổ nguồn hàng | inventory |
 | `fulfillment_order.packed` | Đóng gói xong | notification |
 | `fulfillment_order.shipped` | Bàn giao vận chuyển | order, notification, analytics |
-| `fulfillment_order.delivered` | Giao thành công | order, financial, return (bắt đầu đếm hạn) |
+| `fulfillment_order.delivered` | Giao thành công | order, payment, return (bắt đầu đếm hạn) |
 | `fulfillment_order.delivery_failed` | Giao thất bại | notification, order |
-| `fulfillment_order.completed` | Hết hạn đổi trả | financial (chuyển số dư seller) |
+| `fulfillment_order.completed` | Hết hạn đổi trả | payment (chuyển số dư seller) |
 
 ### 4.3 Inventory
 
@@ -120,10 +196,10 @@ Nhưng cũng không nhồi toàn bộ aggregate — chỉ những gì bên nhậ
 | Event | Khi nào | Ai nghe |
 |---|---|---|
 | `seller.applied` | Nộp đơn đăng ký | notification, admin |
-| `seller.approved` | Được duyệt | identity (cấp quyền), notification, financial (tạo tài khoản) |
+| `seller.approved` | Được duyệt | identity (cấp quyền), notification, payment (tạo tài khoản) |
 | `seller.rejected` | Bị từ chối | notification |
-| `seller.suspended` | Đình chỉ | marketplace (ẩn offer), financial (giữ payout), notification |
-| `seller.reactivated` | Khôi phục | marketplace, financial |
+| `seller.suspended` | Đình chỉ | marketplace (ẩn offer), payment (giữ payout), notification |
+| `seller.reactivated` | Khôi phục | marketplace, payment |
 | `seller.performance_updated` | Cập nhật chỉ số | marketplace (buy box), notification |
 
 ### 4.5 Financial
@@ -131,28 +207,28 @@ Nhưng cũng không nhồi toàn bộ aggregate — chỉ những gì bên nhậ
 | Event | Khi nào | Ai nghe |
 |---|---|---|
 | `payment.intent_created` | Tạo ý định thanh toán | order |
-| `payment.captured` | Thu tiền thành công | order, financial (ghi sổ) |
+| `payment.captured` | Thu tiền thành công | order, payment (ghi sổ) |
 | `payment.failed` | Thất bại | order, inventory (giải phóng), notification |
 | `ledger.entry_recorded` | Ghi bút toán | analytics |
 | `settlement.created` | Tạo đối soát | seller, creator, notification |
-| `settlement.confirmed` | Xác nhận | financial (chuẩn bị payout) |
+| `settlement.confirmed` | Xác nhận | payment (chuẩn bị payout) |
 | `payout.executed` | Chuyển tiền | seller, creator, notification |
 | `payout.failed` | Chuyển tiền lỗi | notification, admin |
-| `refund.issued` | Hoàn tiền | order, financial, notification |
+| `refund.issued` | Hoàn tiền | order, payment, notification |
 
 ### 4.6 Growth
 
 | Event | Khi nào | Ai nghe |
 |---|---|---|
-| `creator.approved` | Duyệt creator | identity, financial, notification |
+| `creator.approved` | Duyệt creator | identity, payment, notification |
 | `content.published` | Nội dung xuất bản | search, recommendation, notification |
 | `content.taken_down` | Gỡ nội dung | search, affiliate |
 | `affiliate.link_created` | Tạo link | analytics |
 | `affiliate.click_recorded` | Ghi nhận click | analytics, supply-chain (tín hiệu) |
-| `affiliate.conversion_attributed` | Quy kết đơn | financial (hoa hồng), creator, analytics |
-| `affiliate.attribution_reversed` | Đảo ngược (do hoàn hàng) | financial, creator |
+| `affiliate.conversion_attributed` | Quy kết đơn | payment (hoa hồng), creator, analytics |
+| `affiliate.attribution_reversed` | Đảo ngược (do hoàn hàng) | payment, creator |
 | `campaign.started` | Chiến dịch bắt đầu | content, notification |
-| `campaign.ended` | Kết thúc | financial (quyết toán) |
+| `campaign.ended` | Kết thúc | payment (quyết toán) |
 | `loyalty.points_earned` | Tích điểm | notification |
 | `loyalty.tier_changed` | Đổi hạng | notification, promotion |
 
@@ -162,12 +238,12 @@ Nhưng cũng không nhồi toàn bộ aggregate — chỉ những gì bên nhậ
 |---|---|---|
 | `demand_signal.recorded` | Ghi tín hiệu nhu cầu | supply-chain (tổng hợp) |
 | `product_development.approved` | Duyệt mẫu | **catalog (tạo CatalogProduct qua ACL)** |
-| `production_order.created` | Tạo đơn sản xuất | financial (đặt cọc), supplier |
+| `production_order.created` | Tạo đơn sản xuất | payment (đặt cọc), supplier |
 | `production_order.confirmed` | Nhà cung cấp xác nhận | supply-chain |
 | `production_batch.completed` | Hoàn tất lô | quality |
 | `quality.approved` | QC đạt | warehouse, supply-chain |
-| `quality.rejected` | QC không đạt | supply-chain, supplier, financial |
-| `warehouse.goods_received` | Nhập kho | inventory, catalog, financial (ghi COGS) |
+| `quality.rejected` | QC không đạt | supply-chain, supplier, payment |
+| `warehouse.goods_received` | Nhập kho | inventory, catalog, payment (ghi COGS) |
 | `replenishment.suggested` | Đề xuất bổ sung | notification (cho người phụ trách) |
 
 ### 4.8 Return
@@ -177,8 +253,8 @@ Nhưng cũng không nhồi toàn bộ aggregate — chỉ những gì bên nhậ
 | `return.requested` | Khách yêu cầu trả | seller, notification, fulfillment |
 | `return.approved` | Chấp nhận | notification, warehouse |
 | `return.received` | Nhận hàng về | quality |
-| `return.inspected` | Kiểm định xong | inventory, financial |
-| `return.refunded` | Đã hoàn tiền | order, financial, affiliate (đảo hoa hồng) |
+| `return.inspected` | Kiểm định xong | inventory, payment |
+| `return.refunded` | Đã hoàn tiền | order, payment, affiliate (đảo hoa hồng) |
 | `return.rejected` | Từ chối | notification |
 
 ---
@@ -231,7 +307,7 @@ order.placed
     │
     ├──→ inventory        : chuyển Reserved → Committed
     ├──→ fulfillment      : tạo FulfillmentOrder theo từng seller
-    ├──→ financial        : ghi bút toán doanh thu, hoa hồng
+    ├──→ payment          : ghi bút toán doanh thu, hoa hồng
     ├──→ affiliate        : xác nhận quy kết, tạo bản ghi hoa hồng creator
     ├──→ notification     : gửi xác nhận cho khách, thông báo cho seller
     ├──→ loyalty          : tích điểm (nếu là member)

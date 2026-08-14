@@ -109,12 +109,37 @@ Nếu đóng băng:
 ```text
 Reservation có TTL 15 phút. Khi hết hạn:
 
-    1. Tiến trình nền phát hiện checkout quá hạn
-    2. Phát event checkout.expired
-    3. inventory giải phóng hàng
-    4. Checkout chuyển sang EXPIRED
-    5. Khách quay lại → phải bắt đầu checkout mới
+    1. Tiến trình nền phát hiện phiên quá hạn
+    2. NHẢ HÀNG — gọi inventory.ReleaseReservation() ĐỒNG BỘ
+    3. Đánh dấu phiên EXPIRED
+    4. Phát event checkout.expired (thông báo cho analytics/notification)
+    5. Khách quay lại → phải bắt đầu phiên mới
 ```
+
+**Vì sao nhả hàng ĐỒNG BỘ chứ không qua event (bước 2 trước bước 4):**
+
+```text
+Nếu nhả qua event:
+    - Có khoảng thời gian phiên đã chết mà hàng vẫn khóa
+    - Event thất bại → hàng khóa VĨNH VIỄN, không ai đi tìm
+      (phiên đã EXPIRED nên không tiến trình nào quét nó nữa)
+
+Nhả đồng bộ trước khi ghi trạng thái:
+    - Ghi thất bại → phiên vẫn EXPIRED ở lượt quét sau, nhả lại vô hại
+    - Nhả thất bại → chưa ghi EXPIRED, lượt sau thử lại
+```
+
+Thứ tự này là chủ ý: **nhả hàng trước, ghi trạng thái sau**. Sai thứ tự thì
+hàng bị khóa cho một phiên mà không tiến trình nào còn đi tìm.
+
+**Lớp bảo vệ thứ hai:** reservation ở `inventory` có TTL riêng và có tiến
+trình dọn riêng (30 giây/lượt). Kể cả khi job dọn phiên chết hẳn, hàng vẫn
+được nhả đúng hạn — chỉ có trạng thái phiên là hiển thị sai.
+
+**Kiểm tra theo ĐỒNG HỒ, không chỉ theo trạng thái:** tiến trình nền chạy
+theo chu kỳ nên luôn có khoảng trống giữa "hết hạn thật" và "được đánh dấu
+EXPIRED". Mọi thao tác trên phiên phải kiểm tra `expires_at` so với thời
+điểm hiện tại, không chỉ nhìn cột trạng thái.
 
 **Trường hợp cần gia hạn:** khách đang chuyển khoản ngân hàng, cần thêm thời gian.
 
@@ -235,7 +260,7 @@ type PublicAPI interface {
 
 | Event | Khi nào |
 |---|---|
-| `checkout.started` | Bắt đầu, đã giữ hàng |
+| `checkout.started` | Bắt đầu, **đã giữ hàng xong** — event chỉ thông báo, không kích hoạt việc giữ |
 | `checkout.expired` | Hết hạn |
 | `checkout.cancelled` | Khách hủy |
 | `checkout.completed` | Tạo đơn thành công |

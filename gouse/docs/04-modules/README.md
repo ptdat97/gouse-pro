@@ -1,5 +1,12 @@
 # Đặc tả Module
 
+> **Về các đoạn SQL trong tài liệu module:** chúng là **minh họa cấu trúc**,
+> không phải DDL thật. Nhiều đoạn viết `id UUID PRIMARY KEY` cho ngắn gọn;
+> code thật dùng `TEXT` + ULID có tiền tố loại kèm ràng buộc `CHECK`. Xem
+> [../05-data/data-model.md](../05-data/data-model.md) mục 1.1 — đó là nguồn
+> sự thật về định danh. `migrations/*.sql` trong repo là DDL thật.
+
+
 ## Cách đọc
 
 Mỗi module được mô tả theo cùng một khung:
@@ -105,7 +112,7 @@ Chi tiết: [../03-architecture/dependency-rules.md](../03-architecture/dependen
 
 ## Module theo giai đoạn
 
-### MVP (14 module)
+### MVP (16 module)
 
 ```text
 identity · notification · analytics (cơ bản)

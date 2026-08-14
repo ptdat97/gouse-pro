@@ -253,7 +253,17 @@ KHÔNG ĐƯỢC:
   ✗ Khóa ngoại cứng giữa bảng của hai module
 ```
 
-### Vì sao cấm JOIN qua ranh giới module
+### Vì sao cấm JOIN qua ranh giới module — và cấm ở đâu
+
+Lệnh cấm áp dụng cho **đường ghi**, không phải mọi truy vấn. Phân biệt này
+quan trọng: xem [../05-data/data-model.md](../05-data/data-model.md) mục 1.2.
+
+```text
+ĐƯỜNG GHI (quyết định nghiệp vụ)     → CẤM JOIN vượt module
+ĐƯỜNG ĐỌC (báo cáo, phân tích)       → ĐƯỢC, nếu chỉ đọc và đăng ký tường minh
+```
+
+Với đường ghi:
 
 ```text
 Nếu cho phép JOIN:
@@ -267,6 +277,14 @@ Nếu cấm JOIN:
     - Đổi schema nội bộ an toàn
     - Tách service chỉ là thay cài đặt interface
 ```
+
+Với đường đọc, lập luận trên **không áp dụng**: một truy vấn báo cáo không
+cưỡng chế bất biến nào, nên nó không thể làm hỏng bất biến của module khác.
+Rủi ro duy nhất là gãy khi tách service — xử lý bằng cách đăng ký tường minh
+danh sách truy vấn đọc vượt module.
+
+Cấm tuyệt đối không làm biến mất nhu cầu báo cáo; nó chỉ đẩy việc gộp dữ
+liệu lên tầng ứng dụng, nơi làm chậm hơn và không ai nhìn thấy sự phụ thuộc.
 
 ### Đánh đổi cần chấp nhận
 
@@ -282,7 +300,9 @@ Cấm JOIN có chi phí thật: một số truy vấn cần nhiều lần gọi 
    → dùng batch API (lấy nhiều id một lần), không gọi trong vòng lặp
 
 3. Báo cáo/analytics cần join phức tạp:
-   → dùng mô hình đọc riêng, đồng bộ qua event
+   → ĐƯỢC dùng JOIN / view / read model, với bốn điều kiện ở
+     05-data/data-model.md mục 1.2 (chỉ đọc · nằm ở module báo cáo ·
+     không quay lại làm đầu vào đường ghi · đăng ký tường minh)
    → đây là chỗ CQRS có lý do chính đáng
 ```
 

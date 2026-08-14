@@ -22,7 +22,7 @@ Rejected               Đã xét và loại
 
 | Thư viện | Mục đích | Sao | Cập nhật | License | Trạng thái |
 |---|---|---|---|---|---|
-| `sqlc-dev/sqlc` | Sinh code Go từ SQL | 18.158 | 2026-08-11 | MIT | **Kế hoạch** |
+| `sqlc-dev/sqlc` | Sinh code Go từ SQL | 18.158 | 2026-08-11 | MIT | **KHÔNG dùng** — xem [ADR-0010](../adr/0010-database-layer.md) mục sửa đổi |
 | `jackc/pgx` | Driver PostgreSQL | 14.129 | 2026-08-01 | MIT | **Kế hoạch** |
 | `golang-migrate/migrate` | Migration có phiên bản | 18.810 | 2026-07-05 | MIT | **Kế hoạch** |
 
@@ -33,7 +33,7 @@ Cả ba đều: cập nhật trong 2 tháng gần đây, license cho phép thư�
 **Rủi ro tập trung:** ba thư viện này là nền của toàn bộ tầng dữ liệu. Nếu một trong ba ngừng phát triển:
 
 ```text
-sqlc     → code đã sinh vẫn chạy; chỉ mất khả năng sinh mới
+pgx      → driver thuần, SQL không phụ thuộc gì; thay driver là việc cục bộ
            → rủi ro THẤP, có thể duy trì code sinh ra thủ công
 pgx      → cần đổi driver, ảnh hưởng rộng
            → rủi ro TRUNG BÌNH, nhưng pgx là driver chuẩn de facto
@@ -41,7 +41,7 @@ migrate  → dễ thay nhất, file SQL vẫn dùng được với công cụ kh
            → rủi ro THẤP
 ```
 
-Đây là lý do chọn **sqlc thay vì ORM**: sqlc sinh code Go thuần, nếu dự án chết thì code vẫn chạy. Một ORM ngừng bảo trì kéo theo toàn bộ tầng dữ liệu.
+Đây là lý do chọn **SQL viết tay thay vì ORM**: thứ duy nhất phụ thuộc là driver, còn SQL thì không phụ thuộc gì. Một ORM ngừng bảo trì kéo theo toàn bộ tầng dữ liệu.
 
 ---
 

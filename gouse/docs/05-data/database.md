@@ -54,6 +54,10 @@ Xem nguyên tắc P15 tại [../00-overview/principles.md](../00-overview/princi
 
 ## 3. Tách schema theo module
 
+> **Trạng thái triển khai (14/08/2026): CHƯA áp dụng.** Toàn bộ 20 migration
+> hiện dùng schema `public` mặc định. Mục này mô tả phương án đã thiết kế,
+> chưa phải hiện trạng — xem [ghi chú cuối mục](#vì-sao-chưa-tách-schema).
+
 ```sql
 CREATE SCHEMA commerce;      -- catalog, product, pricing, cart, checkout, order
 CREATE SCHEMA marketplace;   -- offer, seller
@@ -83,6 +87,36 @@ REVOKE ALL ON SCHEMA financial FROM app_inventory;
 ```
 
 **Lưu ý:** cách này mạnh nhưng phức tạp khi vận hành monolith với một kết nối. Có thể bắt đầu bằng schema (rõ ràng về mặt tổ chức) và thêm phân quyền sau nếu cần.
+
+### Vì sao chưa tách schema
+
+Sau khi triển khai 10 module, việc tách schema **chưa được làm**, và đây là
+quyết định có ý thức chứ không phải bỏ sót:
+
+```text
+Lợi ích mà tách schema đem lại:
+    1. Ranh giới hiển thị trong database
+    2. Cấp quyền theo schema
+    3. Dễ tách service
+    4. Dễ phát hiện JOIN vượt ranh giới
+
+Thực tế hiện tại:
+    (1) → đã có qua quy ước đặt tên bảng + tài liệu sở hữu dữ liệu
+    (2) → monolith một kết nối, một role; phân quyền chưa có tác dụng gì
+    (3) → chưa tách service nào; ADR-0009 nói khi nào mới tách
+    (4) → archcheck chặn ở tầng import Go, trước khi tới SQL
+```
+
+Nói cách khác: ba trong bốn lợi ích **chưa đến kỳ thu hoạch**, còn lợi ích
+thứ nhất đã có bằng cách khác rẻ hơn.
+
+**Chi phí nếu làm sớm:** mọi truy vấn phải mang tiền tố schema, `search_path`
+trở thành cấu hình phải quản lý, và migration khó đọc hơn — đổi lấy lợi ích
+chỉ xuất hiện khi bắt đầu tách service.
+
+**Khi nào làm:** cùng lúc với việc tách service đầu tiên (ADR-0009), vì lúc
+đó "chuyển cả schema" mới thật sự là thao tác rẻ hơn "chuyển từng bảng".
+Đây là việc **đã ghi nhận**, không phải việc bị quên.
 
 ---
 

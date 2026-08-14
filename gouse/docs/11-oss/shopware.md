@@ -116,7 +116,7 @@ Với chúng ta, truy vấn thương mại phức tạp là chuyện thường n
 
 ### Reject
 
-Không dùng tầng trừu tượng truy vấn riêng. Chúng ta chọn **sqlc** — viết SQL thật, sinh code Go có kiểu.
+Không dùng tầng trừu tượng truy vấn riêng. Chúng ta viết **SQL thật** trực tiếp trong `infrastructure/postgres/`.
 
 Xem [ADR-0010](../adr/0010-database-layer.md).
 
@@ -164,7 +164,7 @@ Nhưng ghi nhận **mô hình App** cho tương lai: nếu cần tích hợp bê
 | Điều kiện là dữ liệu có kiểu | **ADOPT** |
 | Bắt buộc giải thích lý do không khớp | **ADOPT** — tránh điểm yếu của rule engine |
 | Rule engine tổng quát, lồng nhau | **REJECT** — trừu tượng hóa sớm |
-| DAL (tầng truy vấn riêng) | **REJECT** — dùng sqlc + SQL thật |
+| DAL (tầng truy vấn riêng) | **REJECT** — dùng SQL thật, viết tay |
 | Sales Channel làm marketplace | **REJECT** |
 | Sales Channel cho đa thị trường | **ADAPT** — Phase 4 |
 | Plugin trong tiến trình | **REJECT** |

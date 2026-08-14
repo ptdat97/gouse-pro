@@ -1,7 +1,7 @@
-# ADR-0010: PostgreSQL + sqlc cho tầng dữ liệu
+# ADR-0010: PostgreSQL + SQL viết tay cho tầng dữ liệu
 
-**Trạng thái:** Accepted
-**Ngày:** 12/08/2026
+**Trạng thái:** Accepted — **đã sửa đổi sau triển khai** (xem mục cuối)
+**Ngày:** 12/08/2026 · **Sửa đổi:** 14/08/2026
 
 ---
 
@@ -47,14 +47,30 @@ Truy vấn kiểu này cần SQL thật: cửa sổ, tổng hợp có điều ki
 
 ## Decision
 
-**PostgreSQL + sqlc.** SQL viết tay, sinh code Go có kiểu từ SQL.
+**PostgreSQL + SQL viết tay, KHÔNG dùng ORM.**
 
 ```text
-migrations/*.sql   → schema (golang-migrate)
-queries/*.sql      → truy vấn viết tay
-    ↓ sqlc generate
-infrastructure/db/ → code Go có kiểu, sinh tự động
+migrations/*.sql              → schema (golang-migrate)
+infrastructure/postgres/*.go  → SQL viết tay + ánh xạ tường minh sang domain
 ```
+
+Quyết định ban đầu chọn `sqlc` để sinh code Go từ SQL. Sau khi triển khai
+mười module, cách làm thực tế là **pgx với SQL viết trực tiếp trong
+`infrastructure/postgres/`**. Lý do và đánh giá lại nằm ở mục
+"[Sửa đổi sau triển khai](#sửa-đổi-sau-triển-khai)" cuối tài liệu này.
+
+**Phần KHÔNG đổi** — và đây mới là phần quan trọng của ADR này:
+
+```text
+✓ PostgreSQL, không phải database khác
+✓ SQL thật, viết tay — không ORM, không query builder che khuất SQL
+✓ Không khóa ngoại vượt ranh giới module
+✓ Struct của tầng lưu trữ KHÔNG BAO GIỜ rời khỏi infrastructure/
+✓ Ánh xạ tường minh sang thực thể domain
+✓ Ràng buộc CHECK, chỉ mục UNIQUE có điều kiện, trigger dùng đầy đủ
+```
+
+Toàn bộ lập luận bác bỏ ORM ở phần dưới vẫn nguyên giá trị.
 
 ---
 
@@ -133,7 +149,7 @@ Nhược:
 
 Đây chính là vấn đề mà sqlc giải: giữ SQL thật, thêm kiểm tra kiểu.
 
-### D. sqlc — **được chọn**
+### D. sqlc — **được chọn ban đầu, sau đó thay bằng SQL viết tay**
 
 ```text
 Ưu:
@@ -150,9 +166,32 @@ Nhược:
     − Truy vấn động (bộ lọc tùy chọn) khó hơn query builder
 ```
 
+### E. pgx + SQL viết trực tiếp — **đang dùng**
+
+Giữ mọi ưu điểm của D trừ kiểm tra kiểu lúc biên dịch, bỏ được bước sinh code.
+
+```text
+Ưu:
+    + Mọi ưu điểm của D về SQL thật và ranh giới module
+    + Không có bước sinh code trong quy trình
+    + Truy vấn động viết tự nhiên (xây WHERE theo bộ lọc)
+    + Ánh xạ sang domain ở đúng một chỗ, không qua struct trung gian
+
+Nhược:
+    − Sai tên cột / sai thứ tự Scan chỉ lộ ra lúc chạy
+    → bù bằng test tích hợp trên database THẬT ở mọi module
+```
+
+Xem "[Sửa đổi sau triển khai](#sửa-đổi-sau-triển-khai)" để biết vì sao
+chuyển từ D sang E.
+
 ---
 
-## Xử lý nhược điểm của sqlc
+## Xử lý nhược điểm của SQL viết tay
+
+> Mục này viết cho phương án sqlc. Sau khi triển khai, cách làm là SQL viết
+> trực tiếp — nhưng ba nhược điểm bên dưới **vẫn đúng** vì chúng thuộc về
+> việc "viết SQL tay", không thuộc về công cụ sinh code.
 
 ### Nhược điểm 1: nhiều SQL cho CRUD đơn giản
 
@@ -180,19 +219,18 @@ WHERE (@category_id::uuid IS NULL OR category_id = @category_id)
 
 Cách 1 đủ cho đa số. Cách 2 dùng khi số tổ hợp bộ lọc quá lớn.
 
-### Nhược điểm 3: bước sinh code
+### Nhược điểm 3: không có kiểm tra kiểu lúc biên dịch
 
-Thêm vào Makefile và CI:
+Đây là nhược điểm **thật** của cách làm hiện tại, và là thứ sqlc lẽ ra giải
+được. Sai tên cột hoặc sai thứ tự `Scan` chỉ lộ ra lúc chạy.
 
-```makefile
-sqlc-gen:   ## Sinh code từ SQL
-	sqlc generate
+**Cách bù đắp:** mọi module có kho lưu trữ PostgreSQL đều có test tích hợp
+chạy trên **database thật**, không phải bản giả. Một cột sai làm test đỏ ở
+lần chạy đầu tiên.
 
-sqlc-check: ## Kiểm tra code sinh ra đã cập nhật (CI)
-	sqlc diff
-```
-
-CI thất bại nếu code sinh ra không khớp SQL — giống cách chúng ta kiểm tra đặc tả OpenAPI.
+Đây là đánh đổi có ý thức: chấp nhận phát hiện muộn hơn vài giây, đổi lấy
+việc không có bước sinh code trong quy trình. Xem
+"[Sửa đổi sau triển khai](#sửa-đổi-sau-triển-khai)".
 
 ---
 
@@ -201,22 +239,23 @@ CI thất bại nếu code sinh ra không khớp SQL — giống cách chúng ta
 ### Tích cực
 
 ```text
-✓ Domain layer sạch — model sinh ra là struct thuần, ánh xạ tường minh
+✓ Domain layer sạch — ánh xạ tường minh sang thực thể domain
 ✓ Không có khóa ngoại ORM vượt ranh giới module
-✓ Sai schema lộ ra lúc BIÊN DỊCH, không phải lúc chạy
+✓ Sai schema lộ ra ở test tích hợp chạy trên database thật
 ✓ Truy vấn phân tích phức tạp viết tự nhiên
 ✓ Ràng buộc CHECK và RULE ở database dùng được đầy đủ
-✓ Nếu sqlc ngừng phát triển, code đã sinh vẫn chạy
+✓ Không phụ thuộc công cụ nào ngoài driver database
 ```
 
-Điểm cuối quan trọng: đây là khác biệt then chốt so với ORM. Một ORM ngừng bảo trì kéo theo toàn bộ tầng dữ liệu; sqlc chỉ là công cụ sinh code, sản phẩm của nó là Go thuần.
+Điểm cuối quan trọng: đây là khác biệt then chốt so với ORM. Một ORM ngừng
+bảo trì kéo theo toàn bộ tầng dữ liệu. Ở đây, thứ duy nhất phụ thuộc là
+driver `pgx` — và SQL thì không phụ thuộc gì cả.
 
 ### Tiêu cực
 
 ```text
 − Viết nhiều SQL hơn
-− Thêm bước sinh code
-− Truy vấn động cần xử lý riêng
+− Không có kiểm tra kiểu lúc biên dịch (bù bằng test tích hợp thật)
 − Đội cần biết SQL tốt (không phải nhược điểm với hệ thống thương mại)
 ```
 
@@ -224,24 +263,32 @@ CI thất bại nếu code sinh ra không khớp SQL — giống cách chúng ta
 
 ## Ánh xạ sang domain — quy tắc bắt buộc
 
-sqlc sinh struct từ bảng. Những struct này **không phải** thực thể domain.
+Dữ liệu đọc từ database **không phải** thực thể domain. Phải ánh xạ tường minh.
 
 ```text
-infrastructure/db/models.go     ← sqlc sinh: struct khớp bảng
+infrastructure/postgres/store.go   ← rows.Scan vào biến cục bộ
         ↓ ánh xạ tường minh
-domain/order.go                 ← thực thể domain với hành vi và bất biến
+domain.RestoreOrder(params)        ← thực thể domain với hành vi và bất biến
 ```
 
 Quy tắc:
 
 ```text
-✓ Struct sqlc CHỈ dùng trong infrastructure/
-✗ KHÔNG trả struct sqlc ra khỏi repository
-✗ KHÔNG dùng struct sqlc làm tham số của use case
+✓ Kiểu của tầng lưu trữ CHỈ dùng trong infrastructure/
+✗ KHÔNG trả struct khớp-bảng ra khỏi repository
+✗ KHÔNG dùng kiểu của pgx làm tham số của use case
 ✓ Repository nhận và trả thực thể domain
 ```
 
-`cmd/archcheck` R2 cưỡng chế điều này: `domain/` không import được `infrastructure/`.
+**Cách cài đặt hiện tại:** `rows.Scan` đổ thẳng vào biến cục bộ, rồi gọi
+`domain.Restore<Entity>(Restore<Entity>Params{...})`. Không có struct trung
+gian khớp bảng nào tồn tại — nên cũng không có gì để vô tình rò rỉ ra ngoài.
+
+Hàm `Restore*` nhận kiểu của **domain** (`money.Money`, `types.BasisPoints`),
+không phải kiểu SQL. Đó là chỗ chuyển đổi thật, và nó luôn phải viết tay dù
+dùng công cụ sinh code nào.
+
+`cmd/archcheck` R2 cưỡng chế ranh giới: `domain/` không import được `infrastructure/`.
 
 ---
 
@@ -250,7 +297,7 @@ Quy tắc:
 | Chấp nhận | Để đổi lấy |
 |---|---|
 | Viết SQL cho mọi truy vấn | Kiểm soát hoàn toàn, kiểm tra kiểu lúc biên dịch |
-| Thêm bước sinh code | Sai schema lộ ra khi build |
+| Không kiểm tra kiểu lúc biên dịch | Không có bước sinh code trong quy trình |
 | Truy vấn động phức tạp hơn | Không có tầng trừu tượng che khuất SQL |
 | Ánh xạ thủ công sang domain | Domain layer sạch, tách được service sau này |
 
@@ -261,7 +308,7 @@ Quy tắc:
 ```text
 Database:   PostgreSQL 16+
 Driver:     jackc/pgx (MIT, 14k sao, cập nhật 2026-08)
-Sinh code:  sqlc-dev/sqlc (MIT, 18k sao, cập nhật 2026-08)
+Sinh code:  KHÔNG dùng — SQL viết trực tiếp trong infrastructure/postgres/
 Migration:  golang-migrate/migrate (MIT, 18k sao)
             → file SQL đánh số, KHÔNG auto-migrate
 Schema:     mỗi bounded context một schema PostgreSQL
@@ -274,14 +321,15 @@ Lý do chọn PostgreSQL đã ghi trong [05-data/database.md](../05-data/databas
 ## Điều kiện xem lại quyết định
 
 ```text
-Xem lại nếu:
-  - Truy vấn động chiếm > 30% tổng số truy vấn
-  - sqlc ngừng phát triển > 18 tháng
+Xem lại (đưa sqlc hoặc công cụ sinh code vào) nếu:
+  - Lỗi sai cột / sai kiểu lọt qua review đủ nhiều để ĐO ĐƯỢC
+  - Người mới vào đội mắc lỗi ánh xạ lặp lại
   - Xuất hiện nhu cầu đa database (khó xảy ra)
 
 KHÔNG xem lại vì:
   - "Viết SQL mệt quá"
   - "ORM nhanh hơn khi prototype"
+  - "Tài liệu ban đầu nói dùng sqlc"   ← nguyên tắc P17
 ```
 
 ---
@@ -293,3 +341,71 @@ KHÔNG xem lại vì:
 - [../05-data/database.md](../05-data/database.md)
 - [../11-oss/goshop.md](../11-oss/goshop.md) — phân tích vấn đề GORM
 - [../11-oss/dependency-registry.md](../11-oss/dependency-registry.md)
+
+
+---
+
+## Sửa đổi sau triển khai
+
+**Ngày:** 14/08/2026 · **Bối cảnh:** sau khi triển khai 10 module (giai đoạn 1–4)
+
+### Điều gì đã đổi
+
+Quyết định ban đầu: `sqlc` sinh code Go từ file `queries/*.sql`.
+Thực tế triển khai: **`pgx` với SQL viết trực tiếp** trong
+`internal/modules/<tên>/infrastructure/postgres/store.go`.
+
+Không có `sqlc.yaml`, không có thư mục `queries/`, không có code sinh tự
+động. Mười module — catalog, product, pricing, inventory, seller,
+marketplace, payment, order, cart, checkout — đều theo cách này.
+
+### Vì sao giả định ban đầu sai
+
+Ba lý do, phát hiện trong lúc viết code chứ không phải lúc thiết kế:
+
+**1. Giá trị lớn nhất của sqlc — kiểm tra kiểu lúc biên dịch — trùng lặp
+với thứ đã có.** Ràng buộc thật của hệ thống này nằm ở `CHECK`, chỉ mục
+`UNIQUE` có điều kiện, và trigger, chứ không ở kiểu cột. Một `sai tên cột`
+bị bắt ngay ở test tích hợp đầu tiên vì mọi module đều có test chạy trên
+PostgreSQL thật. sqlc bắt sớm hơn vài giây, không sớm hơn vài ngày.
+
+**2. Bước sinh code tạo ra một tầng gián tiếp không trả đủ giá.** Truy vấn
+của hệ thống này gắn chặt với ánh xạ sang domain: `RestoreOrderParams`
+nhận 19 trường, trong đó có `Money` và `BasisPoints` là kiểu của kernel,
+không phải kiểu SQL. Dù dùng sqlc thì vẫn phải viết tay toàn bộ hàm ánh xạ
+đó — sqlc chỉ tiết kiệm phần `rows.Scan`, phần rẻ nhất.
+
+**3. Truy vấn động nhiều hơn dự kiến.** `ListBySeller` trong module order
+xây mệnh đề `WHERE` theo bộ lọc trạng thái; `findOne` dùng chung một câu
+`SELECT` với nhiều mệnh đề `WHERE` khác nhau. ADR gốc đã lường trước điểm
+này ("nhược điểm 2") và đề xuất viết tay ở `infrastructure/` — thực tế thì
+gần như mọi kho lưu trữ đều rơi vào trường hợp đó.
+
+### Vì sao KHÔNG viết lại theo sqlc
+
+Áp dụng nguyên tắc P17: code đang chạy, có test tích hợp trên database
+thật, và giữ đúng mọi ràng buộc mà ADR này quan tâm. Viết lại 15 file kho
+lưu trữ để khớp một câu trong tài liệu là chi phí thật đổi lấy sự nhất
+quán hình thức.
+
+### Điều gì được giữ nguyên và được cưỡng chế
+
+Điều quan trọng của ADR này chưa bao giờ là công cụ, mà là **ranh giới**:
+
+| Ràng buộc | Cách cưỡng chế hiện tại |
+|---|---|
+| Domain layer không import hạ tầng | `cmd/archcheck` R2 — chạy trong CI |
+| Struct lưu trữ không rời `infrastructure/` | Không có struct trung gian: `rows.Scan` đổ thẳng vào biến cục bộ rồi gọi `domain.Restore*` |
+| Không khóa ngoại vượt module | Rà tay khi review migration; mọi `REFERENCES` đều trong cùng module |
+| SQL thật, không ORM | Không có phụ thuộc ORM nào trong `go.mod` |
+
+### Khi nào xét lại
+
+Đưa sqlc vào nếu **một trong hai** điều sau xảy ra:
+
+```text
+1. Số lỗi "sai tên cột / sai kiểu" lọt qua review đủ nhiều để đo được
+2. Có người mới vào đội và mắc lỗi ánh xạ lặp lại
+```
+
+Cả hai đều là tín hiệu đo được, không phải cảm tính. Chưa xảy ra thì không đổi.

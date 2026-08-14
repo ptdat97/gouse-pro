@@ -87,7 +87,7 @@ brand   ←→ seller         (brand_authorization)
 
 ### Adapt
 
-Medusa sinh link table tự động qua khai báo. Chúng ta viết SQL tường minh (dùng sqlc) — không cần cơ chế sinh tự động.
+Medusa sinh link table tự động qua khai báo. Chúng ta viết SQL tường minh — không cần cơ chế sinh tự động.
 
 Bổ sung điều Medusa không có: **job đối chiếu định kỳ** phát hiện link trỏ tới bản ghi không tồn tại. Đã có trong [05-data/consistency.md](../05-data/consistency.md) mục 10.
 
