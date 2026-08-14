@@ -464,8 +464,25 @@ func (o *Order) Complete(now time.Time) error {
 // Trả về true nếu trạng thái ĐÃ ĐỔI. Bên gọi dùng nó để bỏ qua lần ghi
 // database không cần thiết: mỗi bước của một seller kích hoạt hàm này, mà
 // phần lớn các bước không làm đổi trạng thái tổng hợp.
-func (o *Order) RecalculateStatus(fos []*FulfillmentOrder, now time.Time) bool {
-	if len(fos) == 0 {
+// FulfillmentProgress là tiến độ của MỘT nguồn hàng.
+//
+// Dữ liệu THUẦN chứ không phải *fulfillment.FulfillmentOrder: module order
+// KHÔNG được phụ thuộc module fulfillment — đó là phụ thuộc ngược, và nó
+// tạo vòng vì fulfillment đã trỏ tới order qua order_id.
+//
+// Module order LẮNG NGHE event từ fulfillment và tự tính, không hỏi ngược
+// (ADR-0007). Tầng application dịch từ event sang cấu trúc này.
+type FulfillmentProgress struct {
+	// Cancelled và Delivered là hai trạng thái CUỐI có ý nghĩa với khách.
+	Cancelled bool
+	Delivered bool
+
+	// Shipped đúng khi hàng đã rời kho — bao gồm cả trường hợp đã giao.
+	Shipped bool
+}
+
+func (o *Order) RecalculateStatus(progress []FulfillmentProgress, now time.Time) bool {
+	if len(progress) == 0 {
 		return false
 	}
 	// Đơn đã chốt thì không tính lại: COMPLETED là trạng thái cuối.
@@ -474,17 +491,17 @@ func (o *Order) RecalculateStatus(fos []*FulfillmentOrder, now time.Time) bool {
 	}
 
 	var total, cancelled, delivered, shipped int
-	for _, fo := range fos {
+	for _, p := range progress {
 		total++
 		switch {
-		case fo.Status() == FOCancelled:
+		case p.Cancelled:
 			cancelled++
-		case fo.Status() == FODelivered:
+		case p.Delivered:
 			delivered++
 			// Đã giao thì cũng đã xuất — tính vào cả hai để quy tắc
 			// "tất cả đã xuất" không bị sai khi một phần đã giao xong.
 			shipped++
-		case fo.Status() == FOShipped:
+		case p.Shipped:
 			shipped++
 		}
 	}

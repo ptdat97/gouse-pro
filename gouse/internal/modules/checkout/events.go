@@ -50,19 +50,27 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 	type reservationPayload struct {
 		ReservationID   string `json:"reservation_id"`
 		InventoryItemID string `json:"inventory_item_id"`
+		LineID          string `json:"line_id"`
 		SKUID           string `json:"sku_id"`
 		SellerID        string `json:"seller_id"`
 		Quantity        int    `json:"quantity"`
+
+		// Tiền ĐÃ ĐÓNG BĂNG, để fulfillment tính phần của từng seller.
+		LineTotal        int64 `json:"line_total"`
+		CommissionAmount int64 `json:"commission_amount"`
 	}
 
 	reservations := make([]reservationPayload, 0, len(in.Reservations))
 	for _, r := range in.Reservations {
 		reservations = append(reservations, reservationPayload{
-			ReservationID:   r.ReservationID.String(),
-			InventoryItemID: r.InventoryItemID.String(),
-			SKUID:           r.SKUID.String(),
-			SellerID:        r.SellerID.String(),
-			Quantity:        r.Quantity,
+			ReservationID:    r.ReservationID.String(),
+			InventoryItemID:  r.InventoryItemID.String(),
+			LineID:           r.LineID.String(),
+			SKUID:            r.SKUID.String(),
+			SellerID:         r.SellerID.String(),
+			Quantity:         r.Quantity,
+			LineTotal:        r.LineTotal.Amount(),
+			CommissionAmount: r.CommissionAmount.Amount(),
 		})
 	}
 
@@ -77,14 +85,18 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 		struct {
 			CheckoutID   string               `json:"checkout_id"`
 			OrderID      string               `json:"order_id"`
+			OrderNumber  string               `json:"order_number"`
 			CartID       string               `json:"cart_id"`
 			CustomerID   string               `json:"customer_id"`
+			Currency     string               `json:"currency"`
 			Reservations []reservationPayload `json:"reservations"`
 		}{
 			CheckoutID:   in.CheckoutID.String(),
 			OrderID:      in.OrderID.String(),
+			OrderNumber:  in.OrderNumber,
 			CartID:       in.CartID.String(),
 			CustomerID:   in.CustomerID.String(),
+			Currency:     string(in.Currency),
 			Reservations: reservations,
 		})
 	if err != nil {

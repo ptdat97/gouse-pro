@@ -34,14 +34,12 @@ var ErrForbidden = errors.New("order: đơn thực hiện không thuộc về nh
 // Service là tầng application của module order.
 type Service struct {
 	orders  domain.Repository
-	fos     domain.FulfillmentRepository
 	numbers domain.NumberGenerator
 	clock   Clock
 }
 
 type Deps struct {
 	Orders  domain.Repository
-	FOs     domain.FulfillmentRepository
 	Numbers domain.NumberGenerator
 	Clock   Clock
 }
@@ -51,7 +49,7 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{orders: d.Orders, fos: d.FOs, numbers: d.Numbers, clock: clock}
+	return &Service{orders: d.Orders, numbers: d.Numbers, clock: clock}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -108,8 +106,7 @@ type PlaceOrderInput struct {
 
 // PlaceOrderResult là kết quả đặt hàng.
 type PlaceOrderResult struct {
-	Order             *domain.Order
-	FulfillmentOrders []*domain.FulfillmentOrder
+	Order *domain.Order
 
 	// Replayed cho biết đây là kết quả của một lần gọi TRƯỚC ĐÓ.
 	//
@@ -197,15 +194,12 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 		return nil, err
 	}
 
-	// Tách NGAY lúc đặt, không đợi tới khi thanh toán xong: seller cần
-	// thấy việc của mình ngay, và mã FO phải ổn định từ đầu để mọi thông
-	// báo về sau trỏ cùng một chỗ.
-	fos, err := domain.SplitIntoFulfillmentOrders(o, now)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.orders.Save(ctx, o, fos); err != nil {
+	// KHÔNG tách đơn ở đây: đơn thực hiện thuộc module fulfillment, được
+	// tạo khi module đó nghe event `checkout.completed`.
+	//
+	// Đặt việc tách ở đây sẽ buộc order phụ thuộc fulfillment, và tạo
+	// phụ thuộc vòng vì fulfillment đã trỏ tới order qua order_id.
+	if err := s.orders.Save(ctx, o); err != nil {
 		// Hai request song song cùng qua được cửa kiểm tra ở trên; ràng
 		// buộc UNIQUE chặn cái thứ hai. Đây KHÔNG phải lỗi để báo cho
 		// khách — khách đã đặt hàng thành công.
@@ -219,16 +213,12 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 		return nil, err
 	}
 
-	return &PlaceOrderResult{Order: o, FulfillmentOrders: fos}, nil
+	return &PlaceOrderResult{Order: o}, nil
 }
 
 // replay trả kết quả của lần đặt hàng trước đó.
-func (s *Service) replay(ctx context.Context, o *domain.Order) (*PlaceOrderResult, error) {
-	fos, err := s.fos.ListByOrder(ctx, o.ID())
-	if err != nil {
-		return nil, err
-	}
-	return &PlaceOrderResult{Order: o, FulfillmentOrders: fos, Replayed: true}, nil
+func (s *Service) replay(_ context.Context, o *domain.Order) (*PlaceOrderResult, error) {
+	return &PlaceOrderResult{Order: o, Replayed: true}, nil
 }
 
 // ---------------------------------------------------------------- Đọc
@@ -245,167 +235,6 @@ func (s *Service) ListCustomerOrders(
 	ctx context.Context, customerID ids.ID, limit, offset int,
 ) ([]*domain.Order, error) {
 	return s.orders.ListByCustomer(ctx, customerID, limit, offset)
-}
-
-// ListOrderFulfillments trả mọi đơn thực hiện của một đơn hàng.
-//
-// CHỈ dành cho khách và quản trị viên — khách theo dõi được cả ba gói của
-// mình. KHÔNG được lộ ra API của seller.
-func (s *Service) ListOrderFulfillments(
-	ctx context.Context, orderID ids.ID,
-) ([]*domain.FulfillmentOrder, error) {
-	return s.fos.ListByOrder(ctx, orderID)
-}
-
-// ---------------------------------------------------------------- Seller
-
-// ListSellerWork trả danh sách việc cần xử lý của một seller.
-//
-// sellerID là tham số ĐẦU TIÊN và BẮT BUỘC ở mọi hàm trong phần này: đó là
-// cách ranh giới bảo mật của ADR-0007 hiện ra trong chữ ký hàm. Không có
-// hàm nào ở đây gọi được mà không nói mình là seller nào.
-func (s *Service) ListSellerWork(
-	ctx context.Context, sellerID ids.ID, statuses []domain.FOStatus, limit, offset int,
-) ([]*domain.FulfillmentOrder, error) {
-	return s.fos.ListBySeller(ctx, sellerID, statuses, limit, offset)
-}
-
-func (s *Service) GetSellerFulfillment(
-	ctx context.Context, sellerID, foID ids.ID,
-) (*domain.FulfillmentOrder, error) {
-	return s.loadOwned(ctx, sellerID, foID)
-}
-
-// ConfirmFulfillment: seller xác nhận sẽ giao phần này.
-func (s *Service) ConfirmFulfillment(ctx context.Context, sellerID, foID ids.ID) error {
-	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
-		return fo.Confirm(now)
-	})
-}
-
-// PackFulfillment: seller đã đóng gói xong.
-func (s *Service) PackFulfillment(ctx context.Context, sellerID, foID ids.ID) error {
-	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
-		return fo.Pack(now)
-	})
-}
-
-// ShipFulfillment: seller đã bàn giao vận chuyển.
-func (s *Service) ShipFulfillment(ctx context.Context, sellerID, foID ids.ID) error {
-	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
-		return fo.Ship(now)
-	})
-}
-
-// DeliverFulfillment: đã giao đến khách.
-func (s *Service) DeliverFulfillment(ctx context.Context, sellerID, foID ids.ID) error {
-	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
-		return fo.Deliver(now)
-	})
-}
-
-// CancelFulfillment: seller hủy phần của mình, ví dụ vì hết hàng.
-//
-// Hai việc phải đi cùng nhau: hủy đơn thực hiện VÀ hủy các dòng hàng tương
-// ứng trong hợp đồng. Chỉ hủy một bên thì khách vẫn bị tính tiền món không
-// bao giờ được giao.
-//
-// Từ PACKED trở đi KHÔNG hủy được bằng hàm này (quy tắc 8): đã tốn công
-// đóng gói và có thể đã bàn giao vận chuyển, nên cần quy trình riêng có
-// tính chi phí.
-func (s *Service) CancelFulfillment(
-	ctx context.Context, sellerID, foID ids.ID, reason string,
-) error {
-	fo, err := s.loadOwned(ctx, sellerID, foID)
-	if err != nil {
-		return err
-	}
-
-	now := s.clock.Now()
-	if err := fo.Cancel(reason, now); err != nil {
-		return err
-	}
-	if err := s.fos.Update(ctx, fo); err != nil {
-		return err
-	}
-
-	o, err := s.orders.FindByID(ctx, fo.OrderID())
-	if err != nil {
-		return err
-	}
-	for _, lineID := range fo.LineIDs() {
-		// Bỏ qua lỗi "không hủy được": dòng đã bị hủy từ trước là kết quả
-		// mong muốn, không phải sự cố.
-		_ = o.CancelLine(lineID, now)
-	}
-
-	fos, err := s.fos.ListByOrder(ctx, o.ID())
-	if err != nil {
-		return err
-	}
-	// Bỏ qua giá trị trả về: dòng hàng đã bị hủy ở trên nên đơn phải được
-	// ghi lại dù trạng thái tổng hợp không đổi.
-	o.RecalculateStatus(fos, now)
-
-	return s.orders.Update(ctx, o)
-}
-
-// advance chạy một bước chuyển trạng thái rồi đồng bộ trạng thái đơn hàng.
-func (s *Service) advance(
-	ctx context.Context, sellerID, foID ids.ID,
-	step func(*domain.FulfillmentOrder, time.Time) error,
-) error {
-	fo, err := s.loadOwned(ctx, sellerID, foID)
-	if err != nil {
-		return err
-	}
-
-	now := s.clock.Now()
-	if err := step(fo, now); err != nil {
-		return err
-	}
-	if err := s.fos.Update(ctx, fo); err != nil {
-		return err
-	}
-
-	return s.syncOrderStatus(ctx, fo.OrderID(), now)
-}
-
-// syncOrderStatus tính lại trạng thái tổng hợp của đơn.
-//
-// Quy tắc 7: trạng thái đơn được SUY RA từ các đơn thực hiện, không tự đặt.
-// Đặt tay ở hai chỗ sẽ dẫn tới đơn báo "đã giao" khi một gói còn ở kho.
-func (s *Service) syncOrderStatus(ctx context.Context, orderID ids.ID, now time.Time) error {
-	o, err := s.orders.FindByID(ctx, orderID)
-	if err != nil {
-		return err
-	}
-	fos, err := s.fos.ListByOrder(ctx, orderID)
-	if err != nil {
-		return err
-	}
-	if !o.RecalculateStatus(fos, now) {
-		return nil
-	}
-	return s.orders.Update(ctx, o)
-}
-
-// loadOwned đọc đơn thực hiện và kiểm tra chủ sở hữu HAI LẦN.
-//
-// Truy vấn đã lọc theo seller_id trong SQL; BelongsTo là hàng rào thứ hai ở
-// tầng domain. Thừa một lớp là có chủ ý: chi phí là một phép so sánh, còn
-// hậu quả của việc lọt là seller đọc được dữ liệu đối thủ.
-func (s *Service) loadOwned(
-	ctx context.Context, sellerID, foID ids.ID,
-) (*domain.FulfillmentOrder, error) {
-	fo, err := s.fos.FindByID(ctx, foID, sellerID)
-	if err != nil {
-		return nil, err
-	}
-	if !fo.BelongsTo(sellerID) {
-		return nil, ErrForbidden
-	}
-	return fo, nil
 }
 
 // ---------------------------------------------------------------- Khách hàng
@@ -427,45 +256,37 @@ func (s *Service) MarkPaid(ctx context.Context, orderID ids.ID) error {
 //
 // Chặn nếu ĐÃ CÓ đơn thực hiện đóng gói xong (mục 6.1): từ đó trở đi việc
 // hủy có chi phí thật và cần quy trình riêng.
+// CancelOrder hủy toàn bộ đơn theo yêu cầu của khách.
+//
+// KHÔNG kiểm tra trạng thái đơn thực hiện ở đây: module này không đọc dữ
+// liệu của fulfillment. Điều kiện "chưa gói nào đóng xong" (mục 6.1) do
+// tầng điều phối kiểm tra trước khi gọi — nó là bên duy nhất thấy cả hai.
 func (s *Service) CancelOrder(ctx context.Context, orderID ids.ID, reason string) error {
 	o, err := s.orders.FindByID(ctx, orderID)
 	if err != nil {
 		return err
 	}
+	if err := o.Cancel(s.clock.Now()); err != nil {
+		return err
+	}
+	return s.orders.Update(ctx, o)
+}
 
-	fos, err := s.fos.ListByOrder(ctx, orderID)
+// ApplyFulfillmentProgress tính lại trạng thái tổng hợp từ tiến độ các
+// nguồn hàng.
+//
+// QUY TẮC 7: trạng thái đơn được SUY RA từ đơn thực hiện, không tự đặt.
+// Gọi bởi bên nhận event từ module fulfillment — module này KHÔNG hỏi
+// ngược, vì hỏi ngược tạo phụ thuộc vòng (ADR-0007).
+func (s *Service) ApplyFulfillmentProgress(
+	ctx context.Context, orderID ids.ID, progress []domain.FulfillmentProgress,
+) error {
+	o, err := s.orders.FindByID(ctx, orderID)
 	if err != nil {
 		return err
 	}
-	for _, fo := range fos {
-		if fo.Status() == domain.FOCancelled {
-			continue
-		}
-		if !fo.Status().IsCancellableWithoutCost() {
-			return fmt.Errorf("%w: đơn thực hiện %s đã ở trạng thái %s",
-				domain.ErrNotCancellable, fo.FONumber(), fo.Status())
-		}
+	if !o.RecalculateStatus(progress, s.clock.Now()) {
+		return nil
 	}
-
-	now := s.clock.Now()
-	if err := o.Cancel(now); err != nil {
-		return err
-	}
-
-	if reason == "" {
-		reason = "khách hàng yêu cầu hủy đơn"
-	}
-	for _, fo := range fos {
-		if fo.Status() == domain.FOCancelled {
-			continue
-		}
-		if err := fo.Cancel(reason, now); err != nil {
-			return err
-		}
-		if err := s.fos.Update(ctx, fo); err != nil {
-			return err
-		}
-	}
-
 	return s.orders.Update(ctx, o)
 }

@@ -51,7 +51,6 @@ func New(cfg Config) (*Module, error) {
 	pool := cfg.DB.Pool()
 	return &Module{svc: application.NewService(application.Deps{
 		Orders:  orderpg.NewOrderStore(pool),
-		FOs:     orderpg.NewFulfillmentStore(pool),
 		Numbers: orderpg.NewNumberStore(pool),
 		Clock:   cfg.Clock,
 	})}, nil
@@ -113,9 +112,8 @@ func (m *Module) PlaceOrder(
 	}
 
 	return &PlaceOrderResult{
-		Order:        toOrderView(res.Order),
-		Fulfillments: toFulfillmentViews(res.FulfillmentOrders),
-		Replayed:     res.Replayed,
+		Order:    toOrderView(res.Order),
+		Replayed: res.Replayed,
 	}, nil
 }
 
@@ -230,20 +228,6 @@ func (m *Module) ListCustomerOrders(
 	return out, nil
 }
 
-func (m *Module) GetOrderFulfillments(
-	ctx context.Context, orderID string,
-) ([]FulfillmentView, error) {
-	id, err := ids.Parse(orderID, ids.PrefixOrder)
-	if err != nil {
-		return nil, ErrInvalidID
-	}
-	fos, err := m.svc.ListOrderFulfillments(ctx, id)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-	return toFulfillmentViews(fos), nil
-}
-
 func (m *Module) MarkOrderPaid(ctx context.Context, orderID string) error {
 	id, err := ids.Parse(orderID, ids.PrefixOrder)
 	if err != nil {
@@ -252,98 +236,36 @@ func (m *Module) MarkOrderPaid(ctx context.Context, orderID string) error {
 	return translateErr(m.svc.MarkPaid(ctx, id))
 }
 
+// ApplyFulfillmentProgress tính lại trạng thái tổng hợp của đơn.
+//
+// Gọi bởi bên nhận event từ module fulfillment. Module này KHÔNG hỏi ngược
+// fulfillment — hỏi ngược tạo phụ thuộc vòng (ADR-0007).
+func (m *Module) ApplyFulfillmentProgress(
+	ctx context.Context, orderID string, progress []FulfillmentProgressInput,
+) error {
+	id, err := ids.Parse(orderID, ids.PrefixOrder)
+	if err != nil {
+		return ErrInvalidID
+	}
+
+	out := make([]domain.FulfillmentProgress, 0, len(progress))
+	for _, p := range progress {
+		out = append(out, domain.FulfillmentProgress{
+			Cancelled: p.Cancelled,
+			Delivered: p.Delivered,
+			Shipped:   p.Shipped,
+		})
+	}
+
+	return translateErr(m.svc.ApplyFulfillmentProgress(ctx, id, out))
+}
+
 func (m *Module) CancelOrder(ctx context.Context, orderID, reason string) error {
 	id, err := ids.Parse(orderID, ids.PrefixOrder)
 	if err != nil {
 		return ErrInvalidID
 	}
 	return translateErr(m.svc.CancelOrder(ctx, id, strings.TrimSpace(reason)))
-}
-
-// ---------------------------------------------------------------- Nhà bán
-
-func (m *Module) ListSellerFulfillments(
-	ctx context.Context, sellerID string, statuses []string, limit, offset int,
-) ([]FulfillmentView, error) {
-	id, err := ids.Parse(sellerID, ids.PrefixSeller)
-	if err != nil {
-		return nil, ErrInvalidID
-	}
-
-	filter := make([]domain.FOStatus, 0, len(statuses))
-	for _, st := range statuses {
-		filter = append(filter, domain.FOStatus(st))
-	}
-
-	fos, err := m.svc.ListSellerWork(ctx, id, filter, limit, offset)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-	return toFulfillmentViews(fos), nil
-}
-
-func (m *Module) GetSellerFulfillment(
-	ctx context.Context, sellerID, fulfillmentID string,
-) (*FulfillmentView, error) {
-	sid, fid, err := parseSellerAndFO(sellerID, fulfillmentID)
-	if err != nil {
-		return nil, err
-	}
-	fo, err := m.svc.GetSellerFulfillment(ctx, sid, fid)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-	v := toFulfillmentView(fo)
-	return &v, nil
-}
-
-func (m *Module) ConfirmFulfillment(ctx context.Context, sellerID, fulfillmentID string) error {
-	return m.sellerStep(ctx, sellerID, fulfillmentID, m.svc.ConfirmFulfillment)
-}
-
-func (m *Module) PackFulfillment(ctx context.Context, sellerID, fulfillmentID string) error {
-	return m.sellerStep(ctx, sellerID, fulfillmentID, m.svc.PackFulfillment)
-}
-
-func (m *Module) ShipFulfillment(ctx context.Context, sellerID, fulfillmentID string) error {
-	return m.sellerStep(ctx, sellerID, fulfillmentID, m.svc.ShipFulfillment)
-}
-
-func (m *Module) DeliverFulfillment(ctx context.Context, sellerID, fulfillmentID string) error {
-	return m.sellerStep(ctx, sellerID, fulfillmentID, m.svc.DeliverFulfillment)
-}
-
-func (m *Module) CancelFulfillment(
-	ctx context.Context, sellerID, fulfillmentID, reason string,
-) error {
-	sid, fid, err := parseSellerAndFO(sellerID, fulfillmentID)
-	if err != nil {
-		return err
-	}
-	return translateErr(m.svc.CancelFulfillment(ctx, sid, fid, strings.TrimSpace(reason)))
-}
-
-func (m *Module) sellerStep(
-	ctx context.Context, sellerID, fulfillmentID string,
-	step func(context.Context, ids.ID, ids.ID) error,
-) error {
-	sid, fid, err := parseSellerAndFO(sellerID, fulfillmentID)
-	if err != nil {
-		return err
-	}
-	return translateErr(step(ctx, sid, fid))
-}
-
-func parseSellerAndFO(sellerID, fulfillmentID string) (ids.ID, ids.ID, error) {
-	sid, err := ids.Parse(sellerID, ids.PrefixSeller)
-	if err != nil {
-		return "", "", ErrInvalidID
-	}
-	fid, err := ids.Parse(fulfillmentID, ids.PrefixFulfillmentOrder)
-	if err != nil {
-		return "", "", ErrInvalidID
-	}
-	return sid, fid, nil
 }
 
 // ---------------------------------------------------------------- Chuyển đổi
@@ -452,41 +374,6 @@ func toLineView(l *domain.Line) OrderLineView {
 	}
 }
 
-func toFulfillmentViews(fos []*domain.FulfillmentOrder) []FulfillmentView {
-	out := make([]FulfillmentView, 0, len(fos))
-	for _, fo := range fos {
-		out = append(out, toFulfillmentView(fo))
-	}
-	return out
-}
-
-func toFulfillmentView(fo *domain.FulfillmentOrder) FulfillmentView {
-	lineIDs := fo.LineIDs()
-	strIDs := make([]string, 0, len(lineIDs))
-	for _, id := range lineIDs {
-		strIDs = append(strIDs, id.String())
-	}
-
-	return FulfillmentView{
-		ID:               fo.ID().String(),
-		OrderID:          fo.OrderID().String(),
-		FONumber:         fo.FONumber(),
-		SellerID:         fo.SellerID().String(),
-		Status:           string(fo.Status()),
-		LineIDs:          strIDs,
-		Subtotal:         toAmount(fo.Subtotal()),
-		CommissionAmount: toAmount(fo.CommissionAmount()),
-		SellerPayable:    toAmount(fo.SellerPayable()),
-		CancelReason:     fo.CancelReason(),
-		ConfirmedAt:      formatTime(fo.ConfirmedAt()),
-		PackedAt:         formatTime(fo.PackedAt()),
-		ShippedAt:        formatTime(fo.ShippedAt()),
-		DeliveredAt:      formatTime(fo.DeliveredAt()),
-		CancelledAt:      formatTime(fo.CancelledAt()),
-		CreatedAt:        formatTime(fo.CreatedAt()),
-	}
-}
-
 // formatTime trả chuỗi rỗng cho mốc thời gian chưa xảy ra.
 //
 // Trả về "0001-01-01T00:00:00Z" sẽ khiến giao diện hiện một ngày vô nghĩa —
@@ -504,8 +391,6 @@ func translateErr(err error) error {
 		return nil
 	case errors.Is(err, domain.ErrNotFound):
 		return ErrNotFound
-	case errors.Is(err, application.ErrForbidden):
-		return ErrForbidden
 	case errors.Is(err, domain.ErrInvalidStatus):
 		return ErrInvalidStatus
 	case errors.Is(err, domain.ErrNotCancellable):

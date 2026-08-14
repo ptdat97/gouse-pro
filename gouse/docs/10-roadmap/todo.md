@@ -615,10 +615,78 @@ với tiền và đơn hàng, khác biệt đó quá lớn để chấp nhận.
 
 ---
 
-## 6. Giai đoạn 5 — Thực hiện đơn `[ ]`
+## 6. Giai đoạn 5 — Thực hiện đơn `[~]`
 
-- [ ] `fulfillment` — tách đơn theo nguồn hàng
+- [x] `fulfillment` — tách đơn theo nguồn hàng, vòng đời giao hàng đầy đủ
 - [ ] `notification`
+
+### Một ranh giới đặt sai đã được sửa
+
+Giai đoạn 4 cài `fulfillment_order` **trong module `order`**, vì lúc đó
+module `fulfillment` chưa tồn tại. Nhưng
+[module-boundaries.md](../03-architecture/module-boundaries.md) mục 3 và
+[ADR-0007](../adr/0007-marketplace-order-model.md) đều ghi rõ nó thuộc
+`fulfillment`.
+
+```text
+order        = HỢP ĐỒNG với khách   — "khách mua gì, giá bao nhiêu"
+fulfillment  = ĐƠN VỊ CÔNG VIỆC     — "ai giao, đến đâu rồi"
+```
+
+**Đã chuyển sang đúng chỗ.** Hệ quả nếu để nguyên: khi tách service, module
+`order` sẽ mang theo dữ liệu vận hành của seller — đúng thứ ADR-0007 tách
+ra để tránh.
+
+Việc chuyển kéo theo hai thay đổi cắt phụ thuộc ngược:
+
+| Trước | Sau |
+|---|---|
+| `SplitIntoFulfillmentOrders(*Order)` | `SplitIntoFulfillmentOrders(SplitInput)` — dữ liệu thuần |
+| `order.RecalculateStatus([]*FulfillmentOrder)` | `RecalculateStatus([]FulfillmentProgress)` — dữ liệu thuần |
+
+Nhờ vậy `order` không import `fulfillment` và ngược lại. Chiều thông tin từ
+fulfillment về order đi bằng **event**, một chiều.
+
+### Vòng đời giao hàng đầy đủ
+
+```text
+PENDING → ALLOCATED → CONFIRMED → PICKING → PACKED
+        → HANDED_OVER → IN_TRANSIT → DELIVERED → COMPLETED
+
+IN_TRANSIT → DELIVERY_FAILED → IN_TRANSIT  (giao lại)
+                             → CANCELLED   (trả về người gửi)
+```
+
+**`COMPLETED` có ý nghĩa TÀI CHÍNH, không phải bước vận hành:**
+
+```text
+DELIVERED  → số dư seller vẫn Pending
+COMPLETED  → số dư chuyển Available, seller được chi trả
+```
+
+Đây là cơ chế bảo vệ nền tảng khỏi rủi ro hoàn hàng sau khi đã trả tiền.
+Worker có job chuyển trạng thái này sau 7 ngày.
+
+Kiểm chứng ngược, ba phép phá:
+
+| Phá gì | Test bắt được |
+|---|---|
+| Bỏ lọc `seller_id` + bỏ `BelongsTo` | Seller A đọc và thao tác được đơn của seller B |
+| Không phát event tiến độ | Hàng đã giao mà đơn vẫn báo `PENDING_PAYMENT` |
+| Bỏ kiểm tra idempotency khi tách đơn | **Không bắt được** — chỉ mục `UNIQUE (order_id, seller_id)` vẫn chặn. Đã bổ sung test riêng cho lớp thứ hai này |
+
+Phép thứ ba là kết quả đáng ghi: hai lớp bảo vệ hoạt động độc lập, và test
+ban đầu không phân biệt được lớp nào đang làm việc.
+
+### Một lỗi mất dữ liệu âm thầm
+
+`withLineIDs` dựng lại thực thể qua `RestoreFOParams`. Khi thêm bảy trường
+mới cho giai đoạn 5, tôi quên liệt kê chúng ở đó — nên mã vận đơn và mốc
+hoàn tất bị **xóa trắng khi đọc lại**, dù đã ghi đúng xuống database.
+
+Lỗi này không lộ ra lúc ghi, chỉ lộ ở test đọc-lại-sau-khi-ghi. Đây là rủi
+ro cố hữu của mẫu "dựng lại từ đầu": trường nào quên là trường đó biến mất
+im lặng.
 
 ---
 

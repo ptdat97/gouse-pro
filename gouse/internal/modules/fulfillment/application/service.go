@@ -1,0 +1,332 @@
+// Package application chứa các use case của module fulfillment.
+//
+// Module này là GÓC NHÌN VẬN HÀNH của đơn hàng. Nó trả lời câu hỏi "ai
+// giao, đến đâu rồi", trong khi module order trả lời "khách mua gì, giá
+// bao nhiêu".
+package application
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
+)
+
+// Clock cho phép test kiểm soát thời gian.
+type Clock interface {
+	Now() time.Time
+}
+
+type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now().UTC() }
+
+var SystemClock Clock = systemClock{}
+
+// ErrForbidden khi seller thao tác trên đơn thực hiện không phải của mình.
+var ErrForbidden = errors.New("fulfillment: đơn thực hiện không thuộc về nhà bán này")
+
+// ReturnWindow là thời hạn đổi trả.
+//
+// Sau khi hết hạn, đơn thực hiện chuyển COMPLETED và số dư seller chuyển
+// từ Pending sang Available. Đây là ranh giới TÀI CHÍNH: trả tiền sớm hơn
+// nghĩa là trả trước khi biết khách có hoàn hàng không.
+const ReturnWindow = 7 * 24 * time.Hour
+
+// EventPublisher phát domain event.
+//
+// Là PORT do tầng application định nghĩa nên nó không biết outbox hay
+// database. Ngữ cảnh truyền vào phải mang giao dịch của kho lưu trữ.
+type EventPublisher interface {
+	PublishProgress(ctx context.Context, e ProgressChanged) error
+}
+
+// ProgressChanged là sự thật "tiến độ một nguồn hàng đã đổi".
+//
+// Module order nghe event này để tính lại trạng thái tổng hợp. Payload
+// chứa tiến độ của MỌI nguồn hàng trong đơn, không chỉ nguồn vừa đổi —
+// nhờ vậy order tính được ngay mà không phải hỏi ngược.
+type ProgressChanged struct {
+	OrderID ids.ID
+
+	// FulfillmentID là nguồn hàng vừa đổi trạng thái.
+	FulfillmentID ids.ID
+	NewStatus     string
+
+	// Progress là tiến độ của TẤT CẢ nguồn hàng trong đơn.
+	Progress []LineProgress
+}
+
+// LineProgress là tiến độ của một nguồn hàng.
+type LineProgress struct {
+	Cancelled bool
+	Delivered bool
+	Shipped   bool
+}
+
+// Service là tầng application của module fulfillment.
+type Service struct {
+	repo   domain.Repository
+	clock  Clock
+	events EventPublisher
+}
+
+type Deps struct {
+	Repo  domain.Repository
+	Clock Clock
+
+	// Events có thể nil: khi đó module vẫn hoạt động nhưng KHÔNG phát
+	// event, và trạng thái tổng hợp của đơn hàng sẽ không được cập nhật.
+	Events EventPublisher
+}
+
+func NewService(d Deps) *Service {
+	clock := d.Clock
+	if clock == nil {
+		clock = SystemClock
+	}
+	return &Service{repo: d.Repo, clock: clock, events: d.Events}
+}
+
+func (s *Service) Now() time.Time { return s.clock.Now() }
+
+// ---------------------------------------------------------------- Tách đơn
+
+// SplitOrder tách một đơn hàng thành các đơn thực hiện theo nguồn hàng.
+//
+//	Giỏ hàng:
+//	├── Áo own brand   (kho nền tảng, Hà Nội)
+//	├── Giày Seller A  (kho seller A, TP.HCM)
+//	└── Túi Seller B   (kho seller B, Đà Nẵng)
+//
+//	Ba món KHÔNG THỂ đóng chung một gói.
+//
+// IDEMPOTENT: gọi lại cho cùng một đơn KHÔNG tạo thêm bộ đơn thực hiện.
+// Event `checkout.completed` có thể được phát lại, và tách hai lần nghĩa
+// là seller thấy việc trùng — có thể giao hàng hai lần.
+func (s *Service) SplitOrder(
+	ctx context.Context, in domain.SplitInput,
+) ([]*domain.FulfillmentOrder, error) {
+	exists, err := s.repo.ExistsForOrder(ctx, in.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		// Đã tách rồi — trả về bộ hiện có thay vì tạo thêm.
+		return s.repo.ListByOrder(ctx, in.OrderID)
+	}
+
+	fos, err := domain.SplitIntoFulfillmentOrders(in, s.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.SaveBatch(ctx, fos); err != nil {
+		return nil, err
+	}
+	return fos, nil
+}
+
+// ---------------------------------------------------------------- Đọc
+
+func (s *Service) ListByOrder(
+	ctx context.Context, orderID ids.ID,
+) ([]*domain.FulfillmentOrder, error) {
+	return s.repo.ListByOrder(ctx, orderID)
+}
+
+// ListSellerWork trả danh sách việc cần xử lý của một seller.
+//
+// sellerID là tham số ĐẦU TIÊN và BẮT BUỘC ở mọi hàm của seller: đó là
+// cách ranh giới bảo mật của ADR-0007 hiện ra trong chữ ký hàm.
+func (s *Service) ListSellerWork(
+	ctx context.Context, sellerID ids.ID, statuses []domain.FOStatus, limit, offset int,
+) ([]*domain.FulfillmentOrder, error) {
+	return s.repo.ListBySeller(ctx, sellerID, statuses, limit, offset)
+}
+
+func (s *Service) GetSellerFulfillment(
+	ctx context.Context, sellerID, foID ids.ID,
+) (*domain.FulfillmentOrder, error) {
+	return s.loadOwned(ctx, sellerID, foID)
+}
+
+// ---------------------------------------------------------------- Vận hành
+
+// Allocate phân bổ nguồn hàng: chọn kho xuất.
+func (s *Service) Allocate(ctx context.Context, sellerID, foID, locationID ids.ID) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.Allocate(locationID, now)
+	})
+}
+
+func (s *Service) Confirm(ctx context.Context, sellerID, foID ids.ID) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.Confirm(now)
+	})
+}
+
+func (s *Service) Pick(ctx context.Context, sellerID, foID ids.ID) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.Pick(now)
+	})
+}
+
+func (s *Service) Pack(ctx context.Context, sellerID, foID ids.ID) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.Pack(now)
+	})
+}
+
+// HandOver bàn giao cho đơn vị vận chuyển.
+//
+// Mã vận đơn BẮT BUỘC: từ đây hàng ra khỏi tầm kiểm soát của seller, và
+// không có mã thì không ai trả lời được "hàng của tôi đang ở đâu".
+func (s *Service) HandOver(
+	ctx context.Context, sellerID, foID ids.ID, provider, trackingNumber string,
+) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.HandOver(provider, trackingNumber, now)
+	})
+}
+
+func (s *Service) MarkInTransit(ctx context.Context, sellerID, foID ids.ID) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.MarkInTransit(now)
+	})
+}
+
+func (s *Service) MarkDeliveryFailed(
+	ctx context.Context, sellerID, foID ids.ID, reason string,
+) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.MarkDeliveryFailed(reason, now)
+	})
+}
+
+func (s *Service) Deliver(ctx context.Context, sellerID, foID ids.ID) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.Deliver(now)
+	})
+}
+
+// Cancel hủy phần của một seller, ví dụ vì hết hàng.
+//
+// Lý do BẮT BUỘC: khách cần lời giải thích khi nhận thông báo.
+func (s *Service) Cancel(ctx context.Context, sellerID, foID ids.ID, reason string) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		return fo.Cancel(reason, now)
+	})
+}
+
+// advance chạy một bước chuyển trạng thái rồi phát event.
+func (s *Service) advance(
+	ctx context.Context, sellerID, foID ids.ID,
+	step func(*domain.FulfillmentOrder, time.Time) error,
+) error {
+	fo, err := s.loadOwned(ctx, sellerID, foID)
+	if err != nil {
+		return err
+	}
+
+	now := s.clock.Now()
+	if err := step(fo, now); err != nil {
+		return err
+	}
+	if err := s.repo.Update(ctx, fo); err != nil {
+		return err
+	}
+
+	return s.publishProgress(ctx, fo)
+}
+
+// publishProgress phát tiến độ của TOÀN BỘ đơn hàng.
+//
+// Gửi tiến độ mọi nguồn hàng chứ không chỉ nguồn vừa đổi: module order cần
+// biết tổng thể để tính trạng thái tổng hợp, và nếu chỉ gửi một nguồn thì
+// nó phải hỏi ngược — đúng thứ ADR-0007 cấm.
+func (s *Service) publishProgress(ctx context.Context, changed *domain.FulfillmentOrder) error {
+	if s.events == nil {
+		return nil
+	}
+
+	all, err := s.repo.ListByOrder(ctx, changed.OrderID())
+	if err != nil {
+		return err
+	}
+
+	progress := make([]LineProgress, 0, len(all))
+	for _, fo := range all {
+		progress = append(progress, LineProgress{
+			Cancelled: fo.Status() == domain.FOCancelled,
+			Delivered: fo.Status() == domain.FODelivered || fo.Status() == domain.FOCompleted,
+			Shipped:   fo.Status().IsShipped(),
+		})
+	}
+
+	return s.events.PublishProgress(ctx, ProgressChanged{
+		OrderID:       changed.OrderID(),
+		FulfillmentID: changed.ID(),
+		NewStatus:     string(changed.Status()),
+		Progress:      progress,
+	})
+}
+
+// loadOwned đọc đơn thực hiện và kiểm tra chủ sở hữu HAI LẦN.
+//
+// Truy vấn đã lọc theo seller_id trong SQL; BelongsTo là hàng rào thứ hai
+// ở tầng domain. Thừa một lớp là có chủ ý: chi phí là một phép so sánh,
+// còn hậu quả của việc lọt là seller đọc được dữ liệu đối thủ.
+func (s *Service) loadOwned(
+	ctx context.Context, sellerID, foID ids.ID,
+) (*domain.FulfillmentOrder, error) {
+	fo, err := s.repo.FindByID(ctx, foID, sellerID)
+	if err != nil {
+		return nil, err
+	}
+	if !fo.BelongsTo(sellerID) {
+		return nil, ErrForbidden
+	}
+	return fo, nil
+}
+
+// ---------------------------------------------------------------- Hoàn tất
+
+// CompleteDelivered chuyển các đơn đã giao quá hạn đổi trả sang COMPLETED.
+//
+// ĐÂY LÀ RANH GIỚI TÀI CHÍNH, không phải bước vận hành:
+//
+//	DELIVERED  → số dư seller vẫn Pending
+//	COMPLETED  → số dư chuyển Available, seller được chi trả
+//
+// Chạy sớm nghĩa là trả tiền cho seller trước khi biết khách có hoàn hàng
+// không — và tiền đã chi thì đòi lại rất khó.
+//
+// Trả về số đơn đã chuyển.
+func (s *Service) CompleteDelivered(ctx context.Context, limit int) (int, error) {
+	now := s.clock.Now()
+	cutoff := now.Add(-ReturnWindow)
+
+	due, err := s.repo.ListDeliveredBefore(ctx, cutoff, limit)
+	if err != nil {
+		return 0, err
+	}
+
+	var done int
+	for _, fo := range due {
+		if err := fo.Complete(now); err != nil {
+			continue
+		}
+		if err := s.repo.Update(ctx, fo); err != nil {
+			return done, fmt.Errorf("fulfillment: hoàn tất đơn %s: %w", fo.FONumber(), err)
+		}
+		if err := s.publishProgress(ctx, fo); err != nil {
+			return done, err
+		}
+		done++
+	}
+	return done, nil
+}

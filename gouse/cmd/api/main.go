@@ -22,6 +22,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
+	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
@@ -128,6 +129,7 @@ func run() error {
 		orderModule       *order.Module
 		cartModule        *cart.Module
 		checkoutModule    *checkout.Module
+		fulfillmentModule *fulfillment.Module
 	)
 	if cfg.Modules.Storage == "postgres" {
 		inventoryModule, err = inventory.New(inventory.Config{
@@ -272,6 +274,17 @@ func run() error {
 				"gợi_ý", "xem cột last_error trong bảng event_outbox")
 		}
 
+		// fulfillment là góc nhìn vận hành: seller làm việc với module này,
+		// KHÔNG với order — Order chứa dòng hàng của mọi seller trong đơn.
+		fulfillmentModule, err = fulfillment.New(fulfillment.Config{
+			Storage: "postgres",
+			DB:      db,
+			Events:  eventbus.NewOutbox(db.Pool()),
+		})
+		if err != nil {
+			return err
+		}
+
 		log.Info("module checkout đã sẵn sàng (giữ hàng + đóng băng giá)",
 			"phien_qua_han_chua_don", stalePending,
 			"event_cho_phat", outboxStats.Pending,
@@ -280,7 +293,7 @@ func run() error {
 		log.Warn("bỏ qua inventory, seller, marketplace, payment, order, " +
 			"cart, checkout: cần MODULES_STORAGE=postgres")
 	}
-	_, _, _ = paymentModule, cartModule, checkoutModule
+	_, _, _, _ = paymentModule, cartModule, checkoutModule, fulfillmentModule
 
 	// Nạp dữ liệu mẫu ở môi trường phát triển.
 	//

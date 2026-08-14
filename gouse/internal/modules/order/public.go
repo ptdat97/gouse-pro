@@ -1,20 +1,22 @@
-// Package order quản lý HỢP ĐỒNG với khách và ĐƠN VỊ CÔNG VIỆC vận hành.
+// Package order quản lý HỢP ĐỒNG VỚI KHÁCH HÀNG.
 //
 // ĐÂY LÀ ĐIỂM VÀO DUY NHẤT của module — quy tắc R1 của cmd/archcheck.
 //
-// HAI KHÁI NIỆM, KHÔNG PHẢI MỘT (ADR-0007):
+// HAI KHÁI NIỆM, HAI MODULE (ADR-0007):
 //
-//	Order            = hợp đồng với khách hàng, gần như bất biến sau khi đặt
-//	FulfillmentOrder = đơn vị công việc của MỘT nguồn hàng
+//	order        = HỢP ĐỒNG với khách, gần như bất biến sau khi đặt
+//	fulfillment  = GÓC NHÌN VẬN HÀNH, thay đổi liên tục theo tiến trình
 //
-// Điểm quan trọng nhất khi dùng API này: HAI NHÓM HÀM RIÊNG BIỆT cho hai
-// đối tượng khác nhau. Nhóm khách hàng trả về Order kèm mọi dòng hàng.
-// Nhóm seller trả về FulfillmentOrder và LUÔN nhận sellerID làm tham số —
-// không có hàm nào cho seller đọc được Order.
+// Module này KHÔNG có API nào cho seller. Order chứa dòng hàng của MỌI
+// seller trong đơn, nên nếu seller đọc được Order thì phải lọc ở tầng hiển
+// thị — và quên một lần là rò rỉ dữ liệu đối thủ.
 //
-// Đó không phải bất tiện mà là RANH GIỚI BẢO MẬT: Order chứa hàng của mọi
-// seller trong đơn. Nếu seller đọc được Order thì phải lọc ở tầng hiển thị,
-// và quên một lần là rò rỉ dữ liệu đối thủ.
+// Seller làm việc với `fulfillment`, nơi ranh giới bảo mật nằm sẵn trong
+// cấu trúc dữ liệu: mọi truy vấn lọc theo seller_id ngay trong SQL.
+//
+// Trạng thái tổng hợp của đơn được SUY RA từ tiến độ các nguồn hàng
+// (quy tắc 7). Module này LẮNG NGHE event từ fulfillment và tự tính —
+// không hỏi ngược, vì hỏi ngược tạo phụ thuộc vòng.
 package order
 
 import (
@@ -40,11 +42,15 @@ type API interface {
 
 	ListCustomerOrders(ctx context.Context, customerID string, limit, offset int) ([]OrderView, error)
 
-	// GetOrderFulfillments trả mọi gói hàng của một đơn.
+	// ApplyFulfillmentProgress tính lại trạng thái tổng hợp của đơn.
 	//
-	// Dành cho KHÁCH và quản trị viên: khách theo dõi được cả ba gói của
-	// mình. KHÔNG được gọi từ API của seller.
-	GetOrderFulfillments(ctx context.Context, orderID string) ([]FulfillmentView, error)
+	// QUY TẮC 7: trạng thái đơn được SUY RA từ tiến độ các nguồn hàng,
+	// không tự đặt.
+	//
+	// Nhận dữ liệu THUẦN chứ không phải kiểu của module fulfillment: module
+	// này KHÔNG phụ thuộc module đó, và không hỏi ngược — hỏi ngược tạo
+	// phụ thuộc vòng (ADR-0007).
+	ApplyFulfillmentProgress(ctx context.Context, orderID string, progress []FulfillmentProgressInput) error
 
 	// MarkOrderPaid ghi nhận đơn đã thanh toán.
 	MarkOrderPaid(ctx context.Context, orderID string) error
@@ -54,31 +60,6 @@ type API interface {
 	// Bị chặn nếu đã có gói nào đóng gói xong: từ đó việc hủy có chi phí
 	// thật và cần quy trình riêng.
 	CancelOrder(ctx context.Context, orderID, reason string) error
-
-	// ---- Nhà bán ----
-	//
-	// MỌI hàm dưới đây nhận sellerID. Đó là chủ ý: không có cách nào gọi
-	// chúng mà không nói mình là seller nào, nên không có cách nào vô tình
-	// đọc dữ liệu của seller khác.
-
-	ListSellerFulfillments(
-		ctx context.Context, sellerID string, statuses []string, limit, offset int,
-	) ([]FulfillmentView, error)
-
-	GetSellerFulfillment(ctx context.Context, sellerID, fulfillmentID string) (*FulfillmentView, error)
-
-	ConfirmFulfillment(ctx context.Context, sellerID, fulfillmentID string) error
-	PackFulfillment(ctx context.Context, sellerID, fulfillmentID string) error
-	ShipFulfillment(ctx context.Context, sellerID, fulfillmentID string) error
-	DeliverFulfillment(ctx context.Context, sellerID, fulfillmentID string) error
-
-	// CancelFulfillment hủy phần của một seller, ví dụ vì hết hàng.
-	//
-	// Lý do là BẮT BUỘC: khách cần lời giải thích khi nhận thông báo.
-	//
-	// Hủy cả các dòng hàng tương ứng trong hợp đồng — chỉ hủy một bên thì
-	// khách vẫn bị tính tiền món không bao giờ được giao.
-	CancelFulfillment(ctx context.Context, sellerID, fulfillmentID, reason string) error
 }
 
 // ---------------------------------------------------------------- DTO
@@ -171,8 +152,7 @@ type PlaceOrderRequest struct {
 
 // PlaceOrderResult là kết quả đặt hàng.
 type PlaceOrderResult struct {
-	Order        OrderView
-	Fulfillments []FulfillmentView
+	Order OrderView
 
 	// Replayed = true nghĩa là đơn ĐÃ tồn tại từ một lần gọi trước.
 	//
@@ -243,32 +223,17 @@ type AdjustmentView struct {
 	CostBearer string
 }
 
-// FulfillmentView là đơn vị công việc của MỘT nguồn hàng.
+// FulfillmentProgressInput là tiến độ của MỘT nguồn hàng.
 //
-// Đây là thứ seller được xem. KHÔNG có trường nào tiết lộ seller khác
-// trong cùng đơn, kể cả gián tiếp: FONumber có hậu tố -A/-B/-C nhưng seller
-// không suy ra được có bao nhiêu seller khác từ chữ cái của riêng mình.
-type FulfillmentView struct {
-	ID       string
-	OrderID  string
-	FONumber string
-	SellerID string
+// Dữ liệu thuần, không mang kiểu của module fulfillment — nhờ vậy module
+// order không phụ thuộc module đó.
+type FulfillmentProgressInput struct {
+	// Cancelled và Delivered là hai trạng thái CUỐI có ý nghĩa với khách.
+	Cancelled bool
+	Delivered bool
 
-	Status  string
-	LineIDs []string
-
-	Subtotal         Amount
-	CommissionAmount Amount
-	SellerPayable    Amount
-
-	CancelReason string
-
-	ConfirmedAt string
-	PackedAt    string
-	ShippedAt   string
-	DeliveredAt string
-	CancelledAt string
-	CreatedAt   string
+	// Shipped đúng khi hàng đã rời kho, bao gồm cả trường hợp đã giao.
+	Shipped bool
 }
 
 // ---------------------------------------------------------------- Lỗi
@@ -279,9 +244,6 @@ var (
 	ErrInvalidInput   = errInvalidInput{}
 	ErrInvalidStatus  = errInvalidStatus{}
 	ErrNotCancellable = errNotCancellable{}
-
-	// ErrForbidden khi seller thao tác trên đơn không phải của mình.
-	ErrForbidden = errForbidden{}
 )
 
 type errNotFound struct{}
@@ -304,18 +266,11 @@ type errNotCancellable struct{}
 
 func (errNotCancellable) Error() string { return "order: không còn hủy được" }
 
-type errForbidden struct{}
-
-func (errForbidden) Error() string {
-	return "order: đơn thực hiện không thuộc về nhà bán này"
-}
-
 // ---------------------------------------------------------------- Tiền tố
 
 const (
-	OrderIDPrefix       = string(ids.PrefixOrder)
-	OrderLineIDPrefix   = string(ids.PrefixOrderLine)
-	FulfillmentIDPrefix = string(ids.PrefixFulfillmentOrder)
+	OrderIDPrefix     = string(ids.PrefixOrder)
+	OrderLineIDPrefix = string(ids.PrefixOrderLine)
 )
 
 // Trạng thái đơn hàng, để module khác không phải đoán chuỗi.
@@ -330,14 +285,4 @@ const (
 	StatusPartiallyCancelled = "PARTIALLY_CANCELLED"
 	StatusCancelled          = "CANCELLED"
 	StatusCompleted          = "COMPLETED"
-)
-
-// Trạng thái đơn vị công việc vận hành.
-const (
-	FulfillmentPending   = "PENDING"
-	FulfillmentConfirmed = "CONFIRMED"
-	FulfillmentPacked    = "PACKED"
-	FulfillmentShipped   = "SHIPPED"
-	FulfillmentDelivered = "DELIVERED"
-	FulfillmentCancelled = "CANCELLED"
 )

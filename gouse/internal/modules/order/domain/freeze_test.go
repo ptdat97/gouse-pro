@@ -3,10 +3,60 @@ package domain_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/order/domain"
 )
+
+var testNow = time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+
+func vnd(n int64) money.Money { return money.MustNew(n, money.VND) }
+
+func bp(t *testing.T, v int32) types.BasisPoints {
+	t.Helper()
+	b, err := types.NewBasisPoints(v)
+	if err != nil {
+		t.Fatalf("NewBasisPoints: %v", err)
+	}
+	return b
+}
+
+func newLine(t *testing.T, sellerID ids.ID, price int64, qty int, rate int32) *domain.Line {
+	t.Helper()
+	l, err := domain.NewLine(domain.NewLineParams{
+		OfferID:            ids.MustNew(ids.PrefixOffer),
+		SKUID:              ids.MustNew(ids.PrefixSKU),
+		SellerID:           sellerID,
+		ProductName:        "Áo sơ mi linen",
+		VariantDescription: "Trắng / M",
+		UnitPrice:          vnd(price),
+		Quantity:           qty,
+		CommissionRate:     bp(t, rate),
+		Now:                testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewLine: %v", err)
+	}
+	return l
+}
+
+func newOrder(t *testing.T, lines ...*domain.Line) *domain.Order {
+	t.Helper()
+	o, err := domain.NewOrder(domain.NewOrderParams{
+		OrderNumber:    "FC-2026-08-001234",
+		CustomerID:     ids.MustNew(ids.PrefixCustomer),
+		Lines:          lines,
+		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
+		Now:            testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewOrder: %v", err)
+	}
+	return o
+}
 
 // KIỂM CHỨNG NGUYÊN TẮC ĐÓNG BĂNG bằng đúng tình huống ở mục 4 của đặc tả.
 //

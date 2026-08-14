@@ -127,20 +127,45 @@ type EventPublisher interface {
 type CheckoutCompleted struct {
 	CheckoutID ids.ID
 	OrderID    ids.ID
+
+	// OrderNumber là mã hiển thị, dùng để đánh số đơn thực hiện: -A, -B, -C.
+	OrderNumber string
+
 	CartID     ids.ID
 	CustomerID ids.ID
+	Currency   money.Currency
 
-	// Reservations là các mã giữ hàng cần chuyển Reserved → Committed.
+	// Reservations là các dòng hàng đã giữ chỗ, kèm đủ dữ liệu cho mọi
+	// bên nhận.
 	Reservations []ReservedLine
 }
 
 // ReservedLine là một dòng hàng đã giữ chỗ.
+//
+// Chứa ĐỦ dữ liệu cho mọi bên nhận: inventory cần reservationID để commit,
+// fulfillment cần lineID và tiền để tách đơn, supply-chain cần skuID và
+// số lượng để ghi tín hiệu.
+//
+// Nhồi đủ ngay từ đầu là chủ ý: nếu thiếu, mỗi bên nhận sẽ phải gọi ngược
+// lại checkout — đúng thứ kiến trúc event sinh ra để tránh.
 type ReservedLine struct {
 	ReservationID   ids.ID
 	InventoryItemID ids.ID
-	SKUID           ids.ID
-	SellerID        ids.ID
-	Quantity        int
+
+	// LineID là dòng hàng trong ĐƠN HÀNG, không phải trong phiên.
+	//
+	// fulfillment gom các dòng theo seller và lưu lại danh sách này để
+	// biết gói nào chứa món nào.
+	LineID ids.ID
+
+	SKUID    ids.ID
+	SellerID ids.ID
+	Quantity int
+
+	// Tiền ĐÃ ĐÓNG BĂNG, để seller đối soát phần của mình mà không cần
+	// thấy toàn bộ đơn hàng.
+	LineTotal        money.Money
+	CommissionAmount money.Money
 }
 
 // OrderPort là những gì checkout cần từ module order.
@@ -674,7 +699,8 @@ func (s *Service) CompleteCheckout(
 		if s.events == nil {
 			return nil
 		}
-		return s.events.PublishCheckoutCompleted(txCtx, s.completedEvent(c, placed.OrderID))
+		return s.events.PublishCheckoutCompleted(txCtx,
+			s.completedEvent(c, placed.OrderID, placed.OrderNumber))
 	}); err != nil {
 		return nil, err
 	}
@@ -695,27 +721,39 @@ func (s *Service) CompleteCheckout(
 }
 
 // completedEvent dựng dữ liệu event từ phiên đã hoàn tất.
-func (s *Service) completedEvent(c *domain.Checkout, orderID ids.ID) CheckoutCompleted {
+func (s *Service) completedEvent(
+	c *domain.Checkout, orderID ids.ID, orderNumber string,
+) CheckoutCompleted {
 	lines := c.Lines()
 	reservations := make([]ReservedLine, 0, len(lines))
 	for _, l := range lines {
 		if !l.HasStock() {
 			continue
 		}
+		// Hoa hồng tính từ con số ĐÃ ĐÓNG BĂNG trong phiên — cùng cách
+		// module order tính, nên hai bên ra cùng kết quả.
+		lineTotal := l.LineTotal()
+		commission := lineTotal.ApplyRate(l.CommissionRate(), money.RoundHalfUp)
+
 		reservations = append(reservations, ReservedLine{
-			ReservationID:   l.ReservationID(),
-			InventoryItemID: l.InventoryItemID(),
-			SKUID:           l.SKUID(),
-			SellerID:        l.SellerID(),
-			Quantity:        l.Quantity(),
+			ReservationID:    l.ReservationID(),
+			InventoryItemID:  l.InventoryItemID(),
+			LineID:           l.ID(),
+			SKUID:            l.SKUID(),
+			SellerID:         l.SellerID(),
+			Quantity:         l.Quantity(),
+			LineTotal:        lineTotal,
+			CommissionAmount: commission,
 		})
 	}
 
 	return CheckoutCompleted{
 		CheckoutID:   c.ID(),
 		OrderID:      orderID,
+		OrderNumber:  orderNumber,
 		CartID:       c.CartID(),
 		CustomerID:   c.CustomerID(),
+		Currency:     c.Currency(),
 		Reservations: reservations,
 	}
 }

@@ -181,6 +181,8 @@ const (
 	TypeCheckoutExpired   = "checkout.expired"
 	TypeCheckoutCompleted = "checkout.completed"
 
+	TypeFulfillmentProgress = "fulfillment.progress_changed"
+
 	TypeInventoryReserved  = "inventory.reserved"
 	TypeInventoryCommitted = "inventory.committed"
 	TypeInventoryReleased  = "inventory.reservation_released"
@@ -188,8 +190,9 @@ const (
 
 // Các loại aggregate.
 const (
-	AggregateOrder    = "Order"
-	AggregateCart     = "Cart"
-	AggregateCheckout = "Checkout"
-	AggregateItem     = "InventoryItem"
+	AggregateOrder       = "Order"
+	AggregateCart        = "Cart"
+	AggregateCheckout    = "Checkout"
+	AggregateItem        = "InventoryItem"
+	AggregateFulfillment = "FulfillmentOrder"
 )

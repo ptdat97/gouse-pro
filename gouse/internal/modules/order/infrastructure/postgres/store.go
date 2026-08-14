@@ -34,15 +34,14 @@ func NewOrderStore(pool *pgxpool.Pool) *OrderStore {
 
 var _ domain.Repository = (*OrderStore)(nil)
 
-// Save ghi đơn hàng, dòng hàng, khoản điều chỉnh và các đơn thực hiện
-// trong MỘT giao dịch.
+// Save ghi đơn hàng, dòng hàng và khoản điều chỉnh trong MỘT giao dịch.
 //
-// Không phải tối ưu kỹ thuật mà là yêu cầu nghiệp vụ: đơn có dòng hàng mà
-// thiếu đơn thực hiện là đơn không ai xử lý — khách đã trả tiền và không
-// ai đóng gói.
-func (s *OrderStore) Save(
-	ctx context.Context, o *domain.Order, fos []*domain.FulfillmentOrder,
-) error {
+// Không phải tối ưu kỹ thuật mà là yêu cầu nghiệp vụ: đơn có dòng hàng ghi
+// dở là đơn tính sai tiền.
+//
+// KHÔNG ghi đơn thực hiện — chúng thuộc module fulfillment, được tạo khi
+// module đó nghe event `checkout.completed` (ADR-0007).
+func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("order: mở giao dịch: %w", err)
@@ -95,12 +94,6 @@ func (s *OrderStore) Save(
 		}
 	}
 
-	for i, fo := range fos {
-		if err := insertFO(ctx, tx, fo); err != nil {
-			return fmt.Errorf("order: ghi đơn thực hiện %d: %w", i+1, err)
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("order: xác nhận giao dịch: %w", err)
 	}
@@ -148,43 +141,6 @@ func insertLine(ctx context.Context, tx pgx.Tx, orderID ids.ID, l *domain.Line) 
 			string(a.CostBearer), a.CreatedAt)
 		if err != nil {
 			return fmt.Errorf("khoản điều chỉnh %q: %w", a.Label, err)
-		}
-	}
-	return nil
-}
-
-func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO fulfillment_order (
-			id, order_id, fo_number, seller_id, status,
-			subtotal, commission_amount, currency, cancel_reason,
-			confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
-			created_at, updated_at
-		) VALUES (
-			$1,$2,$3,$4,$5,
-			$6,$7,$8,$9,
-			$10,$11,$12,$13,$14,
-			$15,$16
-		)`,
-		fo.ID().String(), fo.OrderID().String(), fo.FONumber(),
-		fo.SellerID().String(), string(fo.Status()),
-		fo.Subtotal().Amount(), fo.CommissionAmount().Amount(),
-		string(fo.Subtotal().Currency()), fo.CancelReason(),
-		nullTime(fo.ConfirmedAt()), nullTime(fo.PackedAt()),
-		nullTime(fo.ShippedAt()), nullTime(fo.DeliveredAt()),
-		nullTime(fo.CancelledAt()),
-		fo.CreatedAt(), fo.UpdatedAt())
-	if err != nil {
-		return err
-	}
-
-	for _, lineID := range fo.LineIDs() {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO fulfillment_order_line (fulfillment_order_id, order_line_id)
-			VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-			fo.ID().String(), lineID.String())
-		if err != nil {
-			return fmt.Errorf("gán dòng hàng %s: %w", lineID, err)
 		}
 	}
 	return nil
@@ -519,214 +475,6 @@ func withLines(o *domain.Order, lines []*domain.Line) *domain.Order {
 		CreatedAt:       o.CreatedAt(),
 		UpdatedAt:       o.UpdatedAt(),
 	})
-}
-
-// ---------------------------------------------------------------- Đơn thực hiện
-
-// FulfillmentStore lưu và đọc đơn vị công việc vận hành.
-//
-// MỌI phương thức đọc đều lọc theo seller_id trong câu SQL. Không có
-// phương thức nào trả về dữ liệu chưa lọc — xem ghi chú ở đầu package.
-type FulfillmentStore struct {
-	pool *pgxpool.Pool
-}
-
-func NewFulfillmentStore(pool *pgxpool.Pool) *FulfillmentStore {
-	return &FulfillmentStore{pool: pool}
-}
-
-var _ domain.FulfillmentRepository = (*FulfillmentStore)(nil)
-
-func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrder) error {
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE fulfillment_order
-		   SET status = $2, cancel_reason = $3,
-		       confirmed_at = $4, packed_at = $5, shipped_at = $6,
-		       delivered_at = $7, cancelled_at = $8, updated_at = $9
-		 WHERE id = $1 AND seller_id = $10`,
-		fo.ID().String(), string(fo.Status()), fo.CancelReason(),
-		nullTime(fo.ConfirmedAt()), nullTime(fo.PackedAt()),
-		nullTime(fo.ShippedAt()), nullTime(fo.DeliveredAt()),
-		nullTime(fo.CancelledAt()), fo.UpdatedAt(),
-		// seller_id nằm trong WHERE dù đã biết id: nếu một lỗi ở tầng trên
-		// đưa nhầm đơn của seller khác xuống đây, câu lệnh không ghi được.
-		fo.SellerID().String())
-	if err != nil {
-		return fmt.Errorf("order: cập nhật đơn thực hiện: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
-}
-
-const foCols = `
-	id, order_id, fo_number, seller_id, status,
-	subtotal, commission_amount, currency, cancel_reason,
-	confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
-	created_at, updated_at`
-
-func (s *FulfillmentStore) FindByID(
-	ctx context.Context, id, sellerID ids.ID,
-) (*domain.FulfillmentOrder, error) {
-	row := s.pool.QueryRow(ctx, `SELECT`+foCols+`
-		  FROM fulfillment_order
-		 WHERE id = $1 AND seller_id = $2`,
-		id.String(), sellerID.String())
-
-	fo, err := scanFO(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// KHÔNG phân biệt "không tồn tại" với "của seller khác": phân biệt
-		// hai trường hợp cho phép dò tìm định danh đơn của đối thủ.
-		return nil, domain.ErrNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("order: đọc đơn thực hiện: %w", err)
-	}
-	return s.withLineIDs(ctx, fo)
-}
-
-func (s *FulfillmentStore) ListBySeller(
-	ctx context.Context, sellerID ids.ID, statuses []domain.FOStatus, limit, offset int,
-) ([]*domain.FulfillmentOrder, error) {
-	q := `SELECT` + foCols + ` FROM fulfillment_order WHERE seller_id = $1`
-	args := []any{sellerID.String()}
-
-	if len(statuses) > 0 {
-		list := make([]string, 0, len(statuses))
-		for _, st := range statuses {
-			list = append(list, string(st))
-		}
-		args = append(args, list)
-		q += fmt.Sprintf(` AND status = ANY($%d)`, len(args))
-	}
-
-	args = append(args, limitOr(limit, 50), max0(offset))
-	q += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
-		len(args)-1, len(args))
-
-	return s.queryFOs(ctx, q, args...)
-}
-
-func (s *FulfillmentStore) ListByOrder(
-	ctx context.Context, orderID ids.ID,
-) ([]*domain.FulfillmentOrder, error) {
-	return s.queryFOs(ctx, `SELECT`+foCols+`
-		  FROM fulfillment_order
-		 WHERE order_id = $1
-		 ORDER BY fo_number`, orderID.String())
-}
-
-func (s *FulfillmentStore) queryFOs(
-	ctx context.Context, q string, args ...any,
-) ([]*domain.FulfillmentOrder, error) {
-	rows, err := s.pool.Query(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("order: đọc đơn thực hiện: %w", err)
-	}
-	defer rows.Close()
-
-	var out []*domain.FulfillmentOrder
-	for rows.Next() {
-		fo, err := scanFO(rows)
-		if err != nil {
-			return nil, fmt.Errorf("order: đọc đơn thực hiện: %w", err)
-		}
-		out = append(out, fo)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("order: đọc đơn thực hiện: %w", err)
-	}
-
-	for i, fo := range out {
-		filled, err := s.withLineIDs(ctx, fo)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = filled
-	}
-	return out, nil
-}
-
-func (s *FulfillmentStore) withLineIDs(
-	ctx context.Context, fo *domain.FulfillmentOrder,
-) (*domain.FulfillmentOrder, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT order_line_id FROM fulfillment_order_line
-		 WHERE fulfillment_order_id = $1
-		 ORDER BY order_line_id`, fo.ID().String())
-	if err != nil {
-		return nil, fmt.Errorf("order: đọc dòng hàng của đơn thực hiện: %w", err)
-	}
-	defer rows.Close()
-
-	var lineIDs []ids.ID
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("order: đọc dòng hàng của đơn thực hiện: %w", err)
-		}
-		lineIDs = append(lineIDs, ids.ID(id))
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("order: đọc dòng hàng của đơn thực hiện: %w", err)
-	}
-
-	return domain.RestoreFulfillmentOrder(domain.RestoreFOParams{
-		ID:               fo.ID(),
-		OrderID:          fo.OrderID(),
-		FONumber:         fo.FONumber(),
-		SellerID:         fo.SellerID(),
-		LineIDs:          lineIDs,
-		Status:           fo.Status(),
-		Subtotal:         fo.Subtotal(),
-		CommissionAmount: fo.CommissionAmount(),
-		CancelReason:     fo.CancelReason(),
-		ConfirmedAt:      fo.ConfirmedAt(),
-		PackedAt:         fo.PackedAt(),
-		ShippedAt:        fo.ShippedAt(),
-		DeliveredAt:      fo.DeliveredAt(),
-		CancelledAt:      fo.CancelledAt(),
-		CreatedAt:        fo.CreatedAt(),
-		UpdatedAt:        fo.UpdatedAt(),
-	}), nil
-}
-
-func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
-	var (
-		p                          domain.RestoreFOParams
-		id, orderID, foNumber      string
-		sellerID, status, currency string
-		subtotal, commission       int64
-		cancelReason               string
-		confirmed, packed, shipped *time.Time
-		delivered, cancelled       *time.Time
-	)
-	if err := row.Scan(
-		&id, &orderID, &foNumber, &sellerID, &status,
-		&subtotal, &commission, &currency, &cancelReason,
-		&confirmed, &packed, &shipped, &delivered, &cancelled,
-		&p.CreatedAt, &p.UpdatedAt,
-	); err != nil {
-		return nil, err
-	}
-
-	cur := money.Currency(currency)
-	p.ID = ids.ID(id)
-	p.OrderID = ids.ID(orderID)
-	p.FONumber = foNumber
-	p.SellerID = ids.ID(sellerID)
-	p.Status = domain.FOStatus(status)
-	p.Subtotal = mustMoney(subtotal, cur)
-	p.CommissionAmount = mustMoney(commission, cur)
-	p.CancelReason = cancelReason
-	p.ConfirmedAt = deref(confirmed)
-	p.PackedAt = deref(packed)
-	p.ShippedAt = deref(shipped)
-	p.DeliveredAt = deref(delivered)
-	p.CancelledAt = deref(cancelled)
-
-	return domain.RestoreFulfillmentOrder(p), nil
 }
 
 // ---------------------------------------------------------------- Mã đơn

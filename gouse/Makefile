@@ -38,12 +38,21 @@ tidy: ## Dọn go.mod
 # ---------------------------------------------------------------- Kiểm tra
 
 .PHONY: test
+# -p 1 là BẮT BUỘC, không phải tùy chọn.
+#
+# Các gói test tích hợp dùng CHUNG một database và TRUNCATE bảng ở bước
+# dọn dẹp. Chạy song song thì gói này xóa dữ liệu của gói kia đang chạy,
+# và test đỏ ngẫu nhiên theo thứ tự lịch trình — loại lỗi tốn nhiều giờ
+# nhất để tìm ra.
+#
+# Cách bỏ được -p 1: mỗi gói test dùng schema hoặc database riêng. Chưa
+# làm vì chi phí lớn hơn lợi ích ở quy mô hiện tại.
 test: ## Chạy toàn bộ test
-	go test ./...
+	go test -p 1 ./...
 
 .PHONY: test-v
 test-v: ## Chạy test có chi tiết
-	go test -v ./...
+	go test -p 1 -v ./...
 
 .PHONY: test-race
 test-race: ## Chạy test với race detector

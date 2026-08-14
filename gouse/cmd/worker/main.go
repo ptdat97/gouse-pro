@@ -25,6 +25,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
+	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
@@ -73,6 +74,14 @@ const (
 	expireCheckoutsInterval = 60 * time.Second
 
 	expireCheckoutsBatch = 200
+
+	// completeDeliveredInterval là nhịp chuyển đơn đã giao sang COMPLETED.
+	//
+	// THƯA (10 phút) vì nó chỉ chạy trên đơn đã giao QUÁ 7 NGÀY — không có
+	// gì gấp. Chạy dày chỉ tạo truy vấn vô ích.
+	completeDeliveredInterval = 10 * time.Minute
+
+	completeDeliveredBatch = 200
 
 	// dispatchEventsInterval là nhịp phát domain event từ outbox.
 	//
@@ -183,6 +192,17 @@ func run() error {
 		return err
 	}
 
+	// fulfillment là GÓC NHÌN VẬN HÀNH của đơn hàng: nó tách đơn theo nguồn
+	// hàng và theo dõi tiến trình giao.
+	fulfillmentModule, err := fulfillment.New(fulfillment.Config{
+		Storage: "postgres",
+		DB:      db,
+		Events:  eventbus.NewOutbox(db.Pool()),
+	})
+	if err != nil {
+		return err
+	}
+
 	// supply-chain ở MVP CHỈ ghi tín hiệu nhu cầu — chưa dự báo, chưa lập
 	// kế hoạch. Nhưng phải có từ MVP vì dữ liệu lịch sử không tạo ngược được.
 	supplyModule, err := supplychain.New(supplychain.Config{
@@ -213,6 +233,8 @@ func run() error {
 	bus := eventbus.NewDispatcher(db.Pool(), log)
 	bus.Subscribe(inventory.NewCommitHandler(inventoryModule, log))
 	bus.Subscribe(supplychain.NewSignalHandler(supplyModule))
+	bus.Subscribe(fulfillment.NewSplitHandler(fulfillmentModule, log))
+	bus.Subscribe(order.NewProgressHandler(orderModule, log))
 
 	jobs := []job{
 		{
@@ -229,6 +251,11 @@ func run() error {
 			name:     "dọn phiên thanh toán quá hạn",
 			interval: expireCheckoutsInterval,
 			run:      expireCheckouts(checkoutModule, log),
+		},
+		{
+			name:     "hoàn tất đơn đã giao quá hạn đổi trả",
+			interval: completeDeliveredInterval,
+			run:      completeDelivered(fulfillmentModule, log),
 		},
 	}
 
@@ -269,6 +296,29 @@ func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Con
 				"ngưỡng", outboxLagAlert.String(),
 				"còn_chờ", stats.Pending,
 				"hệ_quả", "hàng đã bán có thể vẫn ở trạng thái đang giữ")
+		}
+		return nil
+	}
+}
+
+// completeDelivered chuyển đơn đã giao quá hạn đổi trả sang COMPLETED.
+//
+// ĐÂY LÀ RANH GIỚI TÀI CHÍNH, không phải bước vận hành:
+//
+//	DELIVERED  → số dư seller vẫn Pending
+//	COMPLETED  → số dư chuyển Available, seller được chi trả
+//
+// Job này KHÔNG chạy nghĩa là tiền của seller bị giữ lại vô thời hạn —
+// hàng đã giao, khách đã hài lòng, nhưng seller không được trả.
+func completeDelivered(m *fulfillment.Module, log *slog.Logger) func(context.Context) error {
+	return func(ctx context.Context) error {
+		daHoanTat, err := m.CompleteDelivered(ctx, completeDeliveredBatch)
+		if err != nil {
+			return fmt.Errorf("hoàn tất đơn đã giao: %w", err)
+		}
+		if daHoanTat > 0 {
+			log.Info("đã hoàn tất đơn quá hạn đổi trả — số dư seller chuyển Available",
+				"số_lượng", daHoanTat)
 		}
 		return nil
 	}
