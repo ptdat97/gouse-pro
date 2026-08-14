@@ -4,7 +4,10 @@ Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển k
 [deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
 
 **Cập nhật:** 14/08/2026 · **Trạng thái:** Giai đoạn 5 **HOÀN THÀNH**
-(fulfillment · notification)
+(fulfillment · notification · analytics nối vào bus event)
+
+**17/17 module MVP đã có logic nghiệp vụ.** Việc còn lại lớn nhất là
+**tầng HTTP**: 5/62 endpoint đã cài đặt.
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -768,12 +771,33 @@ im lặng.
 
 ---
 
-## 8. Giai đoạn 7 — Hoàn thiện MVP `[ ]`
+## 8. Giai đoạn 7 — Hoàn thiện MVP `[~]`
 
-- [ ] `promotion`
-- [ ] `analytics` cơ bản
-- [ ] **`demand_signal`** — ghi từ MVP dù chưa dùng
-- [ ] `customer` — wishlist, preference
+- [x] `promotion` — **xong**, làm sớm trước giai đoạn 6 (xem mục 6)
+- [x] `analytics` cơ bản — **xong**, đã nối vào bus event
+- [x] **`demand_signal`** — **xong** ở giai đoạn 5
+- [x] `customer` — **xong**: hồ sơ, địa chỉ, wishlist, đồng ý
+      (preference/dữ liệu size là Phase 2 theo customer.md mục 11)
+- [ ] `identity` — **xong** phần module, CHƯA có tầng HTTP
+
+**Bốn module MVP đã làm sớm**, trước giai đoạn 6, vì mọi tính năng của
+giai đoạn 6 đều bắt đầu bằng "ai đang gọi, và họ xem được dữ liệu của gian
+hàng nào".
+
+**Việc còn lại của giai đoạn 7 là TẦNG HTTP**, không phải logic nghiệp vụ:
+
+```text
+Đặc tả API      62 operation
+Đã cài đặt       5 endpoint nghiệp vụ  (brand, collection, categories,
+                                        product detail, product list)
+                 + 3 endpoint vận hành (health/live, health/ready, version)
+
+Có tầng interfaces: catalog, product
+Chưa có:            15 module còn lại
+```
+
+Toàn bộ logic nghiệp vụ đã chạy được và có test với PostgreSQL thật —
+nhưng hiện chỉ gọi được từ Go, chưa gọi được qua HTTP.
 
 ---
 
