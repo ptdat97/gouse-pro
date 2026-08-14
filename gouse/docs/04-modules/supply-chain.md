@@ -298,15 +298,26 @@ type PublicAPI interface {
 
 **Lắng nghe:**
 
-| Event | Từ | Ghi tín hiệu loại |
-|---|---|---|
-| `inventory.depleted` | inventory | `STOCKOUT` |
-| `cart.item_added` | cart | `ADD_TO_CART` |
-| `order.placed` | order | `ORDER` |
-| `wishlist.item_added` | customer | `WISHLIST` |
-| `content.viewed` | content | `VIEW` |
-| `return.inspected` | return | `RETURN` (kèm lý do) |
-| `affiliate.click_recorded` | affiliate | `CLICK` |
+| Event | Từ | Ghi tín hiệu loại | Trạng thái |
+|---|---|---|---|
+| `cart.item_added` | cart | `ADD_TO_CART` | **Đã cài** |
+| `checkout.completed` | checkout | `ORDER` | **Đã cài** |
+| `inventory.depleted` | inventory | `STOCKOUT` | Chưa — event chưa được phát |
+| `wishlist.item_added` | customer | `WISHLIST` | Chưa có module customer |
+| `content.viewed` | content | `VIEW` | Phase 2 |
+| `return.inspected` | return | `RETURN` (kèm lý do) | Phase 2 |
+| `affiliate.click_recorded` | affiliate | `CLICK` | Phase 2 |
+
+**Vì sao nghe `checkout.completed` chứ không phải `order.placed`:** cùng lý
+do với `inventory` — payload của `checkout.completed` chứa danh sách SKU và
+số lượng, nên bên nhận xử lý được mà không phải gọi ngược lại. Xem
+[../adr/0006-internal-events.md](../adr/0006-internal-events.md).
+
+**Ba loại tín hiệu giá trị nhất chưa có nguồn phát:** `SEARCH_NO_RESULT`
+cần module search (chưa có), `STOCKOUT` cần `inventory.depleted` (chưa
+phát), `NOTIFY_REQUEST` cần luồng đăng ký báo hàng (chưa có). Mô hình và
+bảng đã sẵn sàng — thêm nguồn phát là việc của module tương ứng, không phải
+của module này.
 
 Bảng này là **cơ chế hoàn thành bánh đà** — dữ liệu hành vi chảy ngược vào lập kế hoạch sản xuất.
 

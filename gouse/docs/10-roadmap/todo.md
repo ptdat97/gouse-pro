@@ -15,12 +15,13 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      165 file · 47.400 dòng · 453 hàm test    → Hết giai đoạn 4/7
-Migration    22 file SQL · 10 module + outbox · đảo được
+Code Go      173 file · 48.063 dòng · 462 hàm test    → Hết giai đoạn 4/7
+Migration    24 file SQL · 11 module + outbox · đảo được
 
-Module MVP đã có code: 10/14  (catalog · product · pricing ·
+Module MVP đã có code: 11/16  (catalog · product · pricing ·
                                inventory · seller · marketplace ·
-                               payment · order · cart · checkout)
+                               payment · order · cart · checkout ·
+                               supply-chain — chỉ ghi demand_signal)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
 Endpoint đã cài đặt:    5/62  (brand, collection, categories,
                                product detail, product list)
@@ -31,12 +32,12 @@ Kiểm chứng lần cuối (13/08/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 165 file, không vi phạm ranh giới
+✓ archcheck    OK — 173 file, không vi phạm ranh giới
 ✓ go test      toàn bộ package pass, CÓ database thật
 ✓ chạy thật    api chạy đủ 10 module trên PostgreSQL; worker chạy 3 job
                (phát event 5s, dọn giữ hàng 30s, dọn phiên 60s)
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    11/11 áp dụng được, đảo được
+✓ migration    12/12 áp dụng được, đảo được
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
 ✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id
@@ -50,6 +51,8 @@ Kiểm chứng lần cuối (13/08/2026):
 ✓ outbox       giao dịch rollback → event KHÔNG phát; phát lại → bên
                nhận xử lý ĐÚNG 1 lần; event hỏng → dead letter sau 5 lần
 ✓ commit kho   đặt hàng xong → 7/3/0 thành 7/0/3 qua event thật
+✓ tín hiệu     thêm giỏ và đặt hàng sinh demand_signal qua event;
+               phát lại KHÔNG ghi hai lần
 ```
 
 **Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
@@ -488,6 +491,7 @@ sẽ có hai nơi cùng tính một con số.
 
 - [x] `cart` — **không giữ tồn kho**, giá cập nhật động
 - [x] `checkout` — **giữ hàng**, **đóng băng giá**
+- [x] `demand_signal` — ghi tín hiệu nhu cầu từ MVP (thứ 4 trong nhóm "sửa sau là viết lại")
 - [x] `order` — đóng băng dữ liệu, **tách Order/FulfillmentOrder**
 - [x] `payment` — **sổ cái bất biến**, trigger chặn UPDATE/DELETE ở database
 - [x] Bất biến Σ DEBIT = Σ CREDIT kiểm tra trong constructor
@@ -644,12 +648,15 @@ với tiền và đơn hàng, khác biệt đó quá lớn để chấp nhận.
 | 1 | Mô hình `Offer` | `[x]` | **Xong** — giai đoạn 3, kèm chống hàng giả và buy box |
 | 2 | Tách `Order`/`FulfillmentOrder` | `[x]` | **Xong** — giai đoạn 4, kiểm chứng ngược cách ly seller |
 | 3 | Sổ cái bất biến | `[x]` | **Xong** — giai đoạn 4, trigger chặn UPDATE/DELETE |
-| 4 | Ghi `demand_signal` | `[ ]` | Giai đoạn 7 — **dữ liệu lịch sử không tạo ngược được** |
+| 4 | Ghi `demand_signal` | `[x]` | **Xong** — `ADD_TO_CART` và `ORDER` qua event; ba loại "nhu cầu chưa đáp ứng" có mô hình, chờ nguồn phát |
 
-**3/4 đã xong.** Còn lại `demand_signal` ở giai đoạn 7 — và giờ nó là rủi ro
-**duy nhất** trong nhóm này, nên cũng là rủi ro đáng lo nhất: dữ liệu lịch
-sử không tạo ngược được, bỏ qua thì Phase 3 chậm gần một năm. Ba cái kia sai
-thì viết lại code; cái này sai thì không có gì để viết lại.
+**4/4 đã xong.** Bốn quyết định "sửa sau là viết lại" đều đã cài và kiểm
+chứng ngược.
+
+Riêng `demand_signal` đáng ghi lại: nó là thứ **duy nhất** trong nhóm mà
+làm muộn thì không có gì để viết lại — ba cái kia sai thì sửa code, cái này
+thiếu thì dữ liệu mất vĩnh viễn. Bắt đầu ghi từ MVP nghĩa là tới Phase 3 đã
+có lịch sử thật để dự báo.
 
 ---
 
@@ -706,13 +713,56 @@ và cho notification gửi thông báo.
 
 | # | Nợ | Trạng thái |
 |---|---|---|
-| 1 | `Reserved → Committed` chưa tự động | **XONG** — `inventory` nghe `checkout.completed`, đã kiểm chứng ngược |
+| 1 | `Reserved → Committed` chưa tự động | **XONG** — `inventory` nghe `checkout.completed` |
 | 2 | `platform/eventbus` rỗng, chưa có outbox | **XONG** — Transactional Outbox + dispatcher, worker phát mỗi 5 giây |
-| 3 | `demand_signal` chưa được ghi | **CÒN LẠI** — dữ liệu lịch sử không tạo ngược được, 1 trong 4 thứ "sửa sau là viết lại" ở mục 9 |
+| 3 | `demand_signal` chưa được ghi | **XONG** — `supplychain` nghe `cart.item_added` và `checkout.completed` |
 
-Hạ tầng cho (3) giờ đã có: chỉ cần một bên nhận nghe `cart.item_added` và
-`order.placed`. Xem [ADR-0006](../adr/0006-internal-events.md) mục "Trạng
-thái triển khai".
+**Cả ba nợ chặn giai đoạn 5 đã trả.** Xem
+[ADR-0006](../adr/0006-internal-events.md) mục "Trạng thái triển khai".
+
+### `demand_signal` — vì sao ghi từ MVP dù chưa ai dùng
+
+Đây là 1 trong 4 thứ "sửa sau là viết lại" ở mục 9, và là thứ cuối cùng
+được hoàn thành.
+
+```text
+DỮ LIỆU LỊCH SỬ KHÔNG TẠO NGƯỢC ĐƯỢC.
+```
+
+Tới Phase 3 mà thiếu dữ liệu hành vi của 12 tháng trước thì không dự báo
+được gì. Không có cách nào dựng lại "tháng 3 có bao nhiêu người tìm áo
+khoác dạ mà không thấy".
+
+**Sai lầm mà module này sinh ra để tránh:**
+
+```text
+Chỉ nhìn doanh số:  "Áo khoác bán 200 chiếc" → nhu cầu là 200
+
+Thực tế:            bán 200, HẾT HÀNG từ tuần 3
+                    1.500 lượt tìm sau khi hết
+                    400 lượt đăng ký báo có hàng
+                    → nhu cầu thật gần 800
+```
+
+Lập kế hoạch chỉ dựa vào doanh số sẽ **liên tục sản xuất thiếu** đúng những
+mặt hàng bán chạy nhất — vì chúng hết hàng sớm nên số đơn thấp hơn nhu cầu.
+
+**Ba loại tín hiệu giá trị nhất** — `SEARCH_NO_RESULT`, `STOCKOUT`,
+`NOTIFY_REQUEST` — đo nhu cầu KHÔNG được đáp ứng, thứ không bao giờ xuất
+hiện trong dữ liệu bán hàng.
+
+**Đã cài ở MVP:** `ADD_TO_CART` và `ORDER` qua event. Ba loại "nhu cầu chưa
+đáp ứng" có mô hình và bảng, nhưng chưa có nguồn phát — cần module search
+(chưa có) và event `inventory.depleted` (chưa phát).
+
+Kiểm chứng ngược, bốn phép phá:
+
+| Phá gì | Test bắt được |
+|---|---|
+| Handler bỏ qua `cart.item_added` | 0 tín hiệu thay vì 1 |
+| Bỏ nguồn giới thiệu khỏi metadata | Mất khả năng đo "nội dung nào tạo nhu cầu thật" |
+| Bỏ ràng buộc "tín hiệu phải có đối tượng" ở domain | **Ràng buộc `CHECK` ở database vẫn chặn** — hai lớp hoạt động độc lập |
+| Dùng thời điểm ghi thay thời điểm nghiệp vụ | Tín hiệu 3 ngày trước bị đẩy sang hôm nay; lọc theo kỳ ra 0 |
 
 **Nợ kỹ thuật khác đã ghi nhận:**
 

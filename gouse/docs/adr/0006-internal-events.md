@@ -351,7 +351,22 @@ vì gọi handler trực tiếp lúc phát.
 
 | Việc | Nghe event nào | Trạng thái |
 |---|---|---|
-| Ghi `demand_signal` | `cart.item_added`, `order.placed` | **Chưa — rủi ro đã biết** |
+| Ghi `demand_signal` | `cart.item_added`, `checkout.completed` | **XONG** |
 | Gửi email xác nhận | `order.placed` | Chưa có module notification |
 | Ghi nhận chuyển đổi | `order.placed` | Chưa có module analytics |
 | Quy kết creator | `order.placed` | Phase 2 |
+
+### Bên nhận hiện có
+
+```text
+checkout.completed
+    ├──→ inventory     : Reserved → Committed
+    └──→ supply-chain  : ghi tín hiệu ORDER cho từng dòng hàng
+
+cart.item_added
+    └──→ supply-chain  : ghi tín hiệu ADD_TO_CART
+```
+
+Hai bên nhận này chứng minh giá trị của kiến trúc: `cart` và `checkout`
+**không biết** `supply-chain` tồn tại. Thêm bên nghe thứ ba chỉ sửa file
+đăng ký ở `cmd/worker`.

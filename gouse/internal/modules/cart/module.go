@@ -16,6 +16,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // Module là cài đặt của API công khai.
@@ -46,6 +47,12 @@ type Config struct {
 	Inventory   inventory.API
 
 	Clock application.Clock
+
+	// Events phát domain event. Nil nghĩa là KHÔNG phát tín hiệu nhu cầu.
+	//
+	// Ở production đây là mất mát KHÔNG BÙ ĐƯỢC: dữ liệu lịch sử không tạo
+	// ngược được.
+	Events *eventbus.Outbox
 }
 
 // New khởi tạo module cart.
@@ -65,7 +72,7 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	pool := cfg.DB.Pool()
-	return &Module{svc: application.NewService(application.Deps{
+	deps := application.Deps{
 		Carts: cartpg.NewCartStore(pool),
 		Offers: &offerLookup{
 			marketplace: cfg.Marketplace,
@@ -74,7 +81,12 @@ func New(cfg Config) (*Module, error) {
 			inventory:   cfg.Inventory,
 		},
 		Clock: cfg.Clock,
-	})}, nil
+	}
+	if cfg.Events != nil {
+		deps.Events = NewEventPublisher(cfg.Events)
+	}
+
+	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.

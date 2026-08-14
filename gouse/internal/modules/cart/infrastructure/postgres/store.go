@@ -37,6 +37,17 @@ var _ domain.Repository = (*CartStore)(nil)
 // được gì. Cùng một kỹ thuật, đúng ở đây và sai ở kia — khác nhau ở việc
 // dữ liệu có bất biến hay không.
 func (s *CartStore) Save(ctx context.Context, c *domain.Cart) error {
+	return s.SaveWithEvents(ctx, c, nil)
+}
+
+// SaveWithEvents ghi giỏ VÀ chạy fn trong CÙNG một giao dịch.
+//
+// fn là nơi phát domain event. Cùng giao dịch nghĩa là giỏ và event cùng
+// thành công hoặc cùng thất bại — không có trường hợp món đã vào giỏ mà
+// tín hiệu nhu cầu bị mất.
+func (s *CartStore) SaveWithEvents(
+	ctx context.Context, c *domain.Cart, fn domain.TxFunc,
+) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("cart: mở giao dịch: %w", err)
@@ -104,10 +115,29 @@ func (s *CartStore) Save(ctx context.Context, c *domain.Cart) error {
 		}
 	}
 
+	if fn != nil {
+		if err := fn(withTx(ctx, tx)); err != nil {
+			return err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("cart: xác nhận giao dịch: %w", err)
 	}
 	return nil
+}
+
+// txKey gắn giao dịch vào ngữ cảnh cho TxFunc.
+type txKey struct{}
+
+func withTx(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, txKey{}, tx)
+}
+
+// TxFrom lấy giao dịch mà SaveWithEvents đang mở.
+func TxFrom(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return tx, ok
 }
 
 const cartCols = `

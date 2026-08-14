@@ -6,12 +6,25 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
+// TxFunc chạy bên trong giao dịch mà kho lưu trữ đã mở.
+//
+// Ngữ cảnh truyền vào MANG giao dịch đó, nên tầng application phát được
+// domain event mà không cần biết database.
+type TxFunc func(ctx context.Context) error
+
 // Repository là PORT cho kho lưu trữ giỏ hàng.
 //
 // Save ghi cả giỏ và các món trong MỘT giao dịch: giỏ có món mà món không
 // ghi được là giỏ rỗng trong mắt khách, và họ sẽ thêm lại rồi thấy trùng.
 type Repository interface {
 	Save(ctx context.Context, c *Cart) error
+
+	// SaveWithEvents ghi giỏ VÀ chạy fn trong CÙNG một giao dịch.
+	//
+	// fn là nơi tầng application phát domain event. Ghi giỏ thành công mà
+	// event thất bại nghĩa là tín hiệu nhu cầu bị mất — và dữ liệu lịch sử
+	// không tạo ngược được.
+	SaveWithEvents(ctx context.Context, c *Cart, fn TxFunc) error
 
 	FindByID(ctx context.Context, id ids.ID) (*Cart, error)
 

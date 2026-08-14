@@ -26,11 +26,39 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 var SystemClock Clock = systemClock{}
 
+// EventPublisher phát domain event.
+//
+// Là PORT do tầng application định nghĩa nên nó không biết outbox hay
+// database. Ngữ cảnh truyền vào PHẢI mang giao dịch của kho lưu trữ.
+type EventPublisher interface {
+	PublishItemAdded(ctx context.Context, e ItemAdded) error
+}
+
+// ItemAdded là sự thật "khách đã thêm một món vào giỏ".
+//
+// Đây là TÍN HIỆU NHU CẦU MẠNH: khách đã quyết định muốn món này, chỉ chưa
+// trả tiền. Mạnh hơn lượt xem rất nhiều.
+type ItemAdded struct {
+	CartID   ids.ID
+	OfferID  ids.ID
+	SKUID    ids.ID
+	SellerID ids.ID
+	Quantity int
+
+	// Nguồn giới thiệu: nội dung nào dẫn tới việc thêm giỏ.
+	//
+	// Cho phép trả lời "nội dung nào tạo NHU CẦU THẬT, không chỉ tạo lượt
+	// xem" — câu hỏi mà dữ liệu lượt xem một mình không trả lời được.
+	SourceContentID ids.ID
+	SourceCreatorID ids.ID
+}
+
 // Service là tầng application của module cart.
 type Service struct {
 	carts  domain.Repository
 	offers domain.OfferLookup
 	clock  Clock
+	events EventPublisher
 }
 
 type Deps struct {
@@ -41,6 +69,13 @@ type Deps struct {
 	// chấp nhận được ở production — xem Module.New.
 	Offers domain.OfferLookup
 	Clock  Clock
+
+	// Events có thể nil: khi đó giỏ vẫn hoạt động nhưng KHÔNG phát tín
+	// hiệu nhu cầu.
+	//
+	// Ở production đây là mất mát KHÔNG BÙ ĐƯỢC: dữ liệu lịch sử không tạo
+	// ngược được, nên mỗi ngày không ghi là một ngày mất vĩnh viễn.
+	Events EventPublisher
 }
 
 func NewService(d Deps) *Service {
@@ -48,7 +83,7 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{carts: d.Carts, offers: d.Offers, clock: clock}
+	return &Service{carts: d.Carts, offers: d.Offers, clock: clock, events: d.Events}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -223,7 +258,24 @@ func (s *Service) AddItem(ctx context.Context, in AddItemInput) (*domain.Cart, e
 	// Gia hạn giỏ: khách còn tương tác thì giỏ còn sống.
 	c.Touch(s.clock.Now(), domain.DefaultTTL)
 
-	if err := s.carts.Save(ctx, c); err != nil {
+	// Ghi giỏ VÀ phát tín hiệu nhu cầu trong CÙNG một giao dịch.
+	//
+	// Món vào giỏ mà tín hiệu không được ghi nghĩa là mất một quan sát về
+	// nhu cầu — và dữ liệu lịch sử không tạo ngược được.
+	if err := s.carts.SaveWithEvents(ctx, c, func(txCtx context.Context) error {
+		if s.events == nil {
+			return nil
+		}
+		return s.events.PublishItemAdded(txCtx, ItemAdded{
+			CartID:          c.ID(),
+			OfferID:         in.OfferID,
+			SKUID:           d.SKUID,
+			SellerID:        d.SellerID,
+			Quantity:        in.Quantity,
+			SourceContentID: in.SourceContentID,
+			SourceCreatorID: in.SourceCreatorID,
+		})
+	}); err != nil {
 		return nil, err
 	}
 	return c, s.Sync(ctx, c)

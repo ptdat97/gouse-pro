@@ -30,6 +30,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
+	"github.com/fashion-commerce/platform/internal/modules/supplychain"
 	"github.com/fashion-commerce/platform/internal/platform/config"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
@@ -176,6 +177,17 @@ func run() error {
 		Product:     productModule,
 		Seller:      sellerModule,
 		Inventory:   inventoryModule,
+		Events:      eventbus.NewOutbox(db.Pool()),
+	})
+	if err != nil {
+		return err
+	}
+
+	// supply-chain ở MVP CHỈ ghi tín hiệu nhu cầu — chưa dự báo, chưa lập
+	// kế hoạch. Nhưng phải có từ MVP vì dữ liệu lịch sử không tạo ngược được.
+	supplyModule, err := supplychain.New(supplychain.Config{
+		Storage: "postgres",
+		DB:      db,
 	})
 	if err != nil {
 		return err
@@ -200,6 +212,7 @@ func run() error {
 	// nghe mới chỉ sửa file này.
 	bus := eventbus.NewDispatcher(db.Pool(), log)
 	bus.Subscribe(inventory.NewCommitHandler(inventoryModule, log))
+	bus.Subscribe(supplychain.NewSignalHandler(supplyModule))
 
 	jobs := []job{
 		{
