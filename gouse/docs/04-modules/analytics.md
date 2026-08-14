@@ -188,6 +188,10 @@ dữ liệu nhạy cảm · chống ghi trùng sự kiện nghiệp vụ · năm
 (GMV, số đơn, AOV, tỷ lệ chuyển đổi, số phiên) · cắt lát theo seller ·
 chuỗi thời gian · ẩn danh hóa.
 
+**Đã nối vào luồng chạy thật:** `RecordEventsFromBus` nghe
+`checkout.completed`, `cart.item_added`, `fulfillment.progress_changed`;
+đăng ký ở `cmd/worker`. Job `tính chỉ số phân tích` chạy mỗi 5 phút.
+
 **Chưa có (Phase 2 trở đi):** phễu chuyển đổi từng bước · chỉ số creator ·
 dashboard seller · cohort · kho dữ liệu.
 
@@ -224,6 +228,33 @@ là một lượt đi-về database cho mỗi lần khách di chuột.
 `AnonymizeCustomer` là nghĩa vụ pháp lý (mục 8), không có trong bản thiết
 kế nhưng bắt buộc phải có.
 
+### Bên nhận event: một sự kiện cho MỖI gian hàng
+
+`checkout.completed` mang nhiều dòng hàng từ nhiều gian hàng. Handler tách
+thành **một sự kiện `order.placed` cho mỗi gian hàng**, và gom các dòng
+cùng gian hàng lại:
+
+```text
+Đơn: 3 dòng, seller A (2 dòng) + seller B (1 dòng)
+  → 2 sự kiện, KHÔNG phải 1 và cũng KHÔNG phải 3
+
+  1 sự kiện  → dashboard của A hiện cả doanh số của B
+  3 sự kiện  → số đơn thổi lên gấp rưỡi, AOV thấp đi tương ứng
+```
+
+**Khóa chống trùng phải ghép id gian hàng:** chỉ mục là
+`(event_id, event_name)`. Dùng chung `event_id` cho cả hai gian hàng thì
+sự kiện thứ hai bị coi là bản trùng và **GMV của gian hàng thứ hai biến
+mất**. Đã kiểm chứng ngược đúng kịch bản đó.
+
+**Chỉ ghi mốc `DELIVERED`** trong chín trạng thái giao hàng. Các bước còn
+lại là việc nội bộ của seller; ghi hết là nhồi nhật ký bằng dữ liệu không
+ai hỏi tới, và khối lượng đó phải trả giá ở mọi truy vấn chỉ số sau này.
+
+**Một cái bẫy về tên trường:** bên phát dùng `new_status`, không phải
+`status`. Đọc sai tên thì JSON KHÔNG báo lỗi — nó trả chuỗi rỗng và mọi
+mốc giao hàng lặng lẽ bị bỏ qua. Đã có test riêng chốt đúng chỗ này.
+
 ### Hai phát hiện từ kiểm chứng ngược
 
 **Tỷ lệ chuyển đổi phải đếm theo PHIÊN, không theo sự kiện.** Test dựng
@@ -244,7 +275,8 @@ cảnh báo thật. Đã thêm test cô lập lớp đó bằng cách đếm b�
 |---|---|
 | `ComputeMetrics` tính TỪNG seller một | Sàn có 10.000 seller nghĩa là 10.000 lần gọi. Cần gom nhóm bằng `GROUP BY` khi số seller đủ lớn — nhưng tối ưu trước khi đo là điều mục 6 cấm. |
 | Chưa kiểm tra `customer_consent` loại PERSONALIZATION | Mục 8 yêu cầu tôn trọng tùy chọn theo dõi. Module `customer` đã có `HasConsent`, nhưng gọi nó ở đây vi phạm quy tắc 1 (không gọi module nghiệp vụ). Đúng cách là tầng interfaces kiểm tra trước khi gọi `TrackEvent`. |
-| Chưa có worker chạy định kỳ | `ComputeMetrics` phải được gọi từ ngoài. Chỉ số chưa tính trả về 0 chứ không lỗi, nên dashboard vẫn dùng được. |
+| Job tính chỉ số chỉ tính TOÀN SÀN | Sàn 10.000 gian hàng nghĩa là 20.000 lượt tính mỗi 5 phút. Chỉ số theo gian hàng tính theo yêu cầu, hoặc bằng job thưa hơn khi có dashboard seller (Phase 2). |
+| Mốc `DELIVERED` chưa cắt lát theo seller | Payload `fulfillment.progress_changed` chưa mang `seller_id`. GMV và số đơn KHÔNG bị ảnh hưởng — chúng đến từ `checkout.completed`, nơi `seller_id` đầy đủ. Cách sửa đúng là bổ sung trường vào payload, không phải gọi ngược module `fulfillment`. |
 | Ghi sự kiện là ĐỒNG BỘ | Mục 10 nói "bất đồng bộ". Hiện tại ghi thẳng vào database nhưng KHÔNG BAO GIỜ trả lỗi hạ tầng ra ngoài — đã đạt mục tiêu thật (không chặn luồng chính) mà chưa cần hàng đợi. |
 
 ---

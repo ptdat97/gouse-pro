@@ -16,7 +16,7 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
 Đặc tả API   11 file YAML · 62 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
-Code Go      229 file · 65.727 dòng · 577 hàm test    → Hết giai đoạn 5/7
+Code Go      231 file · 66.610 dòng · 586 hàm test    → Hết giai đoạn 5/7
 Migration    38 file SQL · 17 module + outbox · đảo được
 
 Module MVP đã có code: 17/17  (catalog · product · pricing ·
@@ -842,11 +842,15 @@ cart → checkout → inventory.Reserve → order.PlaceOrder
 
 seller giao hàng → fulfillment.progress_changed (event)
                      ├──→ order         : tính trạng thái tổng hợp
-                     └──→ notification  : email "đã gửi" / "đã giao"
+                     ├──→ notification  : email "đã gửi" / "đã giao"
+                     └──→ analytics     : mốc DELIVERED
 ```
 
-Năm bên nhận, và **không module nào biết bên nào nghe mình** — đó là giá
+Sáu bên nhận, và **không module nào biết bên nào nghe mình** — đó là giá
 trị thật của kiến trúc event, giờ đã kiểm chứng được bằng luồng chạy thật.
+
+Thêm `analytics` vào không sửa một dòng nào của `checkout` hay
+`fulfillment`: chỉ thêm một `bus.Subscribe` ở `cmd/worker`.
 
 Tiếp theo là **giai đoạn 6 — Marketplace hoàn chỉnh**. Bốn module MVP còn
 thiếu (`identity`, `customer`, `promotion`, `analytics`) ĐÃ XONG cả bốn.

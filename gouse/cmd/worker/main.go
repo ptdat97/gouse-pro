@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/modules/analytics"
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
@@ -102,6 +103,15 @@ const (
 	// nghiêm trọng nhất là hàng đã bán vẫn nằm ở Reserved, nơi tiến trình
 	// dọn có thể nhả nó và bán cho khách khác.
 	outboxLagAlert = 60 * time.Second
+
+	// computeMetricsInterval là nhịp tính lại chỉ số phân tích.
+	//
+	// THƯA NHẤT (5 phút) có chủ ý. Chỉ số là BẢN SAO ĐỌC, không phải nguồn
+	// sự thật: "GMV hôm nay" trễ vài phút không ảnh hưởng tới ai, còn tính
+	// lại mỗi giây là quét bảng sự kiện liên tục cho một con số hiển thị.
+	//
+	// Xem docs/04-modules/analytics.md mục 4.
+	computeMetricsInterval = 5 * time.Minute
 )
 
 func main() {
@@ -227,6 +237,20 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	// analytics ghi số liệu và tính chỉ số.
+	//
+	// KHÔNG PHẢI NGUỒN SỰ THẬT: "seller A được trả bao nhiêu" vẫn do
+	// `payment` trả lời. Module này chỉ trả lời "GMV tháng này bao nhiêu",
+	// và chấp nhận trễ vài phút.
+	analyticsModule, err := analytics.New(analytics.Config{
+		Storage: "postgres",
+		DB:      db,
+		Log:     log,
+	})
+	if err != nil {
+		return err
+	}
 	checkoutModule, err := checkout.New(checkout.Config{
 		Storage:     "postgres",
 		DB:          db,
@@ -251,6 +275,7 @@ func run() error {
 	bus.Subscribe(fulfillment.NewSplitHandler(fulfillmentModule, log))
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
 	bus.Subscribe(notification.NewOrderNotifier(notificationModule, log))
+	bus.Subscribe(analytics.NewEventRecorder(analyticsModule))
 
 	jobs := []job{
 		{
@@ -272,6 +297,11 @@ func run() error {
 			name:     "hoàn tất đơn đã giao quá hạn đổi trả",
 			interval: completeDeliveredInterval,
 			run:      completeDelivered(fulfillmentModule, log),
+		},
+		{
+			name:     "tính chỉ số phân tích",
+			interval: computeMetricsInterval,
+			run:      computeMetrics(analyticsModule, log),
 		},
 	}
 
@@ -326,6 +356,57 @@ func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Con
 //
 // Job này KHÔNG chạy nghĩa là tiền của seller bị giữ lại vô thời hạn —
 // hàng đã giao, khách đã hài lòng, nhưng seller không được trả.
+// computeMetrics tính lại chỉ số phân tích cho hôm nay và hôm qua.
+//
+// # Vì sao tính CẢ hôm qua
+//
+// Event đến muộn là chuyện bình thường: outbox phát mỗi 5 giây, và một
+// đơn đặt lúc 23:59:58 có thể được ghi vào nhật ký sau nửa đêm. Nếu chỉ
+// tính hôm nay, con số của hôm qua đóng băng ở thời điểm lần chạy cuối
+// cùng trước nửa đêm — thiếu đúng những đơn cuối ngày.
+//
+// Tính lại là AN TOÀN vì Upsert GHI ĐÈ: hai lần tính cùng một ngày cho
+// cùng một kết quả, không cộng dồn.
+//
+// # Vì sao KHÔNG tính cho từng seller ở đây
+//
+// Sàn có 10.000 gian hàng nghĩa là 20.000 lượt tính mỗi 5 phút. Chỉ số
+// toàn sàn là thứ dashboard vận hành cần ngay; chỉ số theo gian hàng sẽ
+// tính theo yêu cầu hoặc bằng một job thưa hơn khi có dashboard seller
+// (Phase 2). Xem docs/04-modules/analytics.md mục 14.
+func computeMetrics(m *analytics.Module, log *slog.Logger) func(context.Context) error {
+	return func(ctx context.Context) error {
+		now := time.Now().UTC()
+
+		for _, ngay := range []time.Time{now, now.AddDate(0, 0, -1)} {
+			if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
+				PeriodStart: ngay,
+				Granularity: analytics.GranularityDay,
+			}); err != nil {
+				return fmt.Errorf("tính chỉ số ngày %s: %w",
+					ngay.Format("2006-01-02"), err)
+			}
+		}
+
+		// Ghi lại GMV hôm nay để nhật ký vận hành có một con số theo dõi
+		// được mà không cần mở dashboard.
+		gmv, err := m.GetMetric(ctx, analytics.MetricRequest{
+			Name:        analytics.MetricGMV,
+			PeriodStart: now,
+			Granularity: analytics.GranularityDay,
+		})
+		if err != nil {
+			return fmt.Errorf("đọc chỉ số GMV: %w", err)
+		}
+		log.Info("đã tính chỉ số phân tích",
+			"gmv_hôm_nay", gmv.Value,
+			"số_đơn", gmv.SampleSize,
+			"lưu_ý", "số liệu phân tích KHÔNG dùng cho quyết định tài chính")
+
+		return nil
+	}
+}
+
 func completeDelivered(m *fulfillment.Module, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
 		daHoanTat, err := m.CompleteDelivered(ctx, completeDeliveredBatch)
