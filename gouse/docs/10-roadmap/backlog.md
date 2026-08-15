@@ -20,11 +20,12 @@
 
 ```text
 Module MVP có logic nghiệp vụ    17/17
-Module có tầng HTTP               6/17   (catalog · product · identity ·
-                                        seller · payment · order)
+Module có tầng HTTP               9/17   (catalog · product · identity ·
+                                        seller · payment · order ·
+                                        marketplace · cart · checkout)
 Operation trong OpenAPI          71
-Operation đã cài đặt             18      (25%)
-Operation MVP còn lại            37
+Operation đã cài đặt             34      (48%)
+Operation MVP còn lại            21      (+1 mới: P1.8 lô giao cho khách)
 Operation hoãn (Phase 2/3)       16
 ```
 
@@ -67,7 +68,7 @@ API  →  Next.js UI  →  E2E flow
 ```
 
 **Viết xong domain + application KHÔNG phải là xong.** Đó là lý do 17/17
-module "có logic" nhưng chỉ 14% API dùng được.
+module "có logic" nhưng chỉ 48% API dùng được.
 
 ---
 
@@ -151,27 +152,44 @@ vướng thật. Ghi ở đây để quyết định có ý thức, không phả
 
 ---
 
-## 3. P1 — Core MVP (42 operation còn lại)
+## 3. P1 — Core MVP (21 operation còn lại + 1 mới)
 
 Thứ tự bám theo luồng thương mại, không theo module. Mỗi nhóm chỉ bắt đầu
 khi nhóm trước chạy được end-to-end.
 
-### P1.1 — Storefront đọc (2 operation)
+### P1.1 — Storefront đọc ✅ (2/2 xong)
 
 | Operation | Module | Ghi chú |
 |---|---|---|
-| `listProductOffers` | marketplace | Buy box — offer nào hiển thị |
-| `search` | product/catalog | Tìm kiếm; **ghi demand signal khi không có kết quả** |
+| `listProductOffers` | marketplace | Buy box tính RIÊNG cho từng SKU |
+| `search` | product | Ghi `search_no_result` qua event |
 
-`search` ghi `search_no_result` ngay từ MVP — đây là dữ liệu Phase 3 cần mà
-không tạo ngược được (xem [../04-modules/supply-chain.md](../04-modules/supply-chain.md)).
+**Quy tắc hiển thị offer** (`domain.Status.IsVisibleToCustomer`): hết hàng
+**vẫn hiện**, chỉ `is_sellable: false` — khách cần biết sản phẩm CÓ tổ hợp
+màu/size đó để đăng ký nhận thông báo. Ẩn đi thì họ tưởng nền tảng không
+bán, và nhu cầu đó không bao giờ được ghi nhận. DRAFT/SUSPENDED/ARCHIVED
+thì ẩn.
+
+**Tín hiệu nhu cầu đã chạy end-to-end:**
+
+```text
+search không ra kết quả  →  event search.no_result  →  outbox
+                         →  worker  →  demand_signal (SEARCH_NO_RESULT)
+```
+
+Kiểm chứng trên hệ thống thật: tìm "ao-len-cashmere-co-lo-mua-dong-2027" →
+`demand_signal` có đúng từ khóa đó. Đây là **P2-1 phần thứ nhất**.
+
+Dùng event chứ không gọi đồng bộ: "khách tìm không ra kết quả" là sự việc
+ĐÃ XẢY RA, và kết quả tìm kiếm không phụ thuộc việc ghi tín hiệu có thành
+công hay không (ADR-0006 phần 3). Ghi hỏng KHÔNG làm hỏng tìm kiếm.
 
 ### P1.2 — Tài khoản khách (6 operation)
 
 `getMyProfile` · `updateMyProfile` · `listMyAddresses` · `addMyAddress` ·
 `getMyWishlist` · `addWishlistItem` — module `customer`.
 
-### P1.3 — Giỏ hàng và thanh toán (10 operation)
+### P1.3 — Giỏ hàng và thanh toán (10 operation) — ✅ XONG
 
 `getCart` · `addCartItem` · `updateCartItem` · `removeCartItem` ·
 `startCheckout` · `getCheckout` · `setCheckoutShippingAddress` ·
@@ -180,11 +198,56 @@ không tạo ngược được (xem [../04-modules/supply-chain.md](../04-module
 **Ràng buộc bắt buộc:** giữ tồn kho là **đồng bộ** (`inventory.Reserve()`),
 không phải event — phải biết còn hàng mới cho đặt.
 
-### P1.4 — Đơn hàng (4 operation)
+**Danh tính người mua** dùng `httpserver.Shopper` chứ không phải
+`AuthContext`: khách VÃNG LAI phải mua được. Chuỗi middleware là
+`OptionalAuth → ResolveShopper`, nối ở `cmd/api/shopper.go`.
+
+**Ba khoảng trống đã biết, ghi ở đây thay vì giấu:**
+
+1. **Phí vận chuyển là bảng cứng** (`application.shippingRates`):
+   STANDARD 30.000đ, EXPRESS 60.000đ, không theo khoảng cách hay số nguồn
+   hàng. docs/04-modules/checkout.md §7 quy định phí đến từ
+   `fulfillment.EstimateShipping()` — hàm đó chưa tồn tại. Xem P3-8.
+2. **`payment_method` được kiểm tra rồi BỎ QUA.** Module order không có
+   trường phương thức thanh toán; đơn luôn ở `PENDING_PAYMENT`. Client gửi
+   `CARD` sẽ không thấy lỗi nhưng cũng không có gì bị trừ tiền. Xem P3-9.
+3. **`offerLookup` (cart/lookup.go) chưa có test.** Nó gọi bốn module thật
+   nên cần cả bốn để kiểm chứng. Đây là tình trạng có từ trước, không phải
+   mới. Xem P3-10.
+
+### P1.4 — Đơn hàng (4 operation) — ✅ XONG
 
 `listMyOrders` · `placeOrder` · `getOrder` · `cancelOrder`
 
 `placeOrder` bắt buộc `Idempotency-Key` — đã có ràng buộc UNIQUE ở database.
+
+**`placeOrder` do module `checkout` phục vụ, không phải `order`.** Request
+nhận `checkout_id` nên phải đọc phiên thanh toán, và `order` không được gọi
+`checkout` (checkout đã phụ thuộc order — ADR-0007). Đường dẫn thuộc khái
+niệm "đơn hàng", nhưng NĂNG LỰC thuộc checkout; route đi theo năng lực.
+
+**Quyền xem đơn** có hai đường, không hơn:
+
+```text
+Đã đăng nhập  → customer_id phải TRÙNG
+Vãng lai      → X-Guest-Phone phải TRÙNG số trên đơn
+```
+
+"Không phải đơn của bạn" trả **404 chứ không phải 403**: mã hiển thị của đơn
+tăng dần (`FC-2026-08-001234`), nên hai mã khác nhau cho "có thật" và "không
+có" sẽ đếm được chính xác số đơn nền tảng bán mỗi tháng.
+
+**Ba khoảng trống đã biết:**
+
+1. **`shipments` KHÔNG có trong response chi tiết đơn.** Dữ liệu lô giao
+   thuộc `fulfillment`, mà `order` không được gọi (R5). Đã sửa đặc tả: bỏ
+   `shipments` khỏi danh sách bắt buộc và thêm `lines`. Endpoint lô giao cho
+   khách CHƯA TỒN TẠI — xem P1.8.
+2. **`refund` KHÔNG có trong response hủy đơn.** Số tiền hoàn thuộc
+   `payment`. Đoán một con số tệ hơn không trả gì: khách đọc "hoàn trong 3
+   ngày" rồi chờ, trong khi không gì cam kết con số đó.
+3. **Lọc `status` và phân trang làm ở tầng HTTP**, không trong truy vấn —
+   xem P3-11 và P3-12.
 
 ### P1.5 — Seller Center (11 operation)
 
@@ -232,6 +295,16 @@ mẫu đã có ở `seller`.
 `receivePaymentWebhook` · `receiveShippingWebhook` — bắt buộc xác minh chữ
 ký HMAC. Không có bước này thì bất kỳ ai cũng gửi được "thanh toán thành
 công" giả.
+
+### P1.8 — Lô giao cho khách (1 operation) — MỚI
+
+`listOrderShipments` — `GET /api/v1/orders/{order_id}/shipments`, module
+`fulfillment` (đã có `GetOrderFulfillments`, chỉ thiếu tầng HTTP).
+
+**Vì sao đây là việc mới chứ không phải phát sinh:** docs mô tả khách thấy
+nhiều lô giao với thời gian giao riêng, và `fulfillment.API` đã có sẵn hàm
+ghi rõ "dành cho KHÁCH và quản trị viên". Đặc tả chỉ quên khai báo endpoint.
+Trang chi tiết đơn của storefront (P2-5) cần nó.
 
 ---
 
@@ -369,14 +442,60 @@ Nghiêng về **A**. Chọn B hoặc C là quyết định kiến trúc → cầ
 
 | # | Việc | Phụ thuộc |
 |---|---|---|
-| P2-1 | Demand signal từ event (`add_to_cart`, `order_placed`, `search_no_result`) | P1.3, P1.4 |
+| P2-1 | Demand signal từ event (`add_to_cart`, `order_placed`, `search_no_result`) | Đường đã thông (P1.3, P1.4 xong) — xem ghi chú dưới |
 | P2-2 | Analytics đọc event, **không phải nguồn sự thật về tiền** | P2-1 |
-| P2-3 | Monorepo Next.js + `packages/types` sinh từ OpenAPI | P1 |
-| P2-4 | Admin UI — 3 nhóm trang (sellers · audit log · orders) | P1.6 |
+| P2-3 | Monorepo Next.js + `packages/types` sinh từ OpenAPI | ✅ xong |
+| P2-4 | Admin UI — 3 nhóm trang (sellers · audit log · orders) | ✅ xong |
+| P2-7 | **CORS** — giao diện ở origin khác gọi được API | ✅ xong |
+
+**P2-1 — trạng thái CHÍNH XÁC.** Ba mảnh đã có và đã nối:
+
+```text
+search_no_result  ✅ kiểm chứng end-to-end trên hệ thống thật
+add_to_cart       ⬜ handler đã đăng ký, cart đã phát event,
+                     CHƯA quan sát được tín hiệu vào bảng
+order_placed      ⬜ như trên
+```
+
+Hai dòng cuối chưa đánh dấu xong vì **chưa chạy thử được**: database phát
+triển không còn offer/SKU hợp lệ nào (test đã TRUNCATE — chính là P3-2), nên
+không thêm được món vào giỏ để sinh tín hiệu. Sửa P3-2 trước, rồi kiểm chứng
+lại. Đánh dấu xong dựa trên "code trông đúng" là đúng thứ mục 1 cấm.
 | P2-5 | Storefront | P1.1–P1.4 |
 | P2-6 | Seller Center | P1.5 |
 
 Chi tiết P2-3, P2-4: xem [admin-ui-plan.md](admin-ui-plan.md).
+
+### Frontend nằm ở REPO RIÊNG
+
+```text
+gouse-pro/
+├── gouse/       — Go backend, đặc tả OpenAPI, tài liệu
+└── gouse-web/   — monorepo Next.js
+```
+
+Tách repo giữ ranh giới "Next.js không chạm database" thành ranh giới VẬT
+LÝ chứ không chỉ là quy ước. Cái giá: `gouse-web` phụ thuộc đường dẫn
+`../gouse/api/openapi.yaml` khi sinh kiểu — chấp nhận được vì đặc tả là
+nguồn sự thật duy nhất, sao chép sang sẽ tạo bản thứ hai lệch nhau.
+
+Dùng **npm workspaces**, không phải pnpm + Turborepo như kế hoạch ban đầu:
+pnpm chưa cài trên máy, và npm 10 đã có workspaces sẵn. Với 1 app + 4
+package, Turborepo chưa giải quyết vấn đề nào có thật.
+
+### P2-7 — CORS, phát hiện khi nối hai đầu
+
+Backend **chưa có CORS**, nên trình duyệt chặn mọi lời gọi từ `:3000` sang
+`:8080`. Build xanh, typecheck xanh, nhưng chạy thật là chết — thứ chỉ lộ
+ra khi thực sự nối hai tiến trình.
+
+`docs/09-operations/security.md` đã quy định "CORS chặt — chỉ domain của
+mình", nên đây là việc đã thiết kế, chưa cài.
+
+Bất biến quan trọng nhất: **không bao giờ `*` kèm credentials**. Response
+mang cookie phiên, nên cho phép mọi origin nghĩa là bất kỳ trang web nào
+cũng gọi được API dưới danh nghĩa người đang đăng nhập. Danh sách rỗng =
+chặn tất cả, và ở production không có giá trị mặc định.
 
 ---
 
@@ -391,6 +510,11 @@ Chi tiết P2-3, P2-4: xem [admin-ui-plan.md](admin-ui-plan.md).
 | P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | Tăng cường SAU phát hành — chủ dự án đã gỡ khỏi điều kiện chặn (15/08) |
 | P3-6 | Observability: metrics, tracing | |
 | P3-7 | Chính sách lưu trữ `audit_log` | Bảng chỉ tăng; chờ có số liệu thật |
+| P3-8 | **Phí vận chuyển thật** thay bảng cứng trong checkout | Cần `fulfillment.EstimateShipping()` (checkout.md §7) |
+| P3-9 | **Nối `payment_method` vào đơn hàng** | Hiện được kiểm tra rồi bỏ qua; đơn luôn `PENDING_PAYMENT` |
+| P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | Cần cả bốn module thật; có từ trước P1.3 |
+| P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | Hiện lọc sau khi đọc: một trang có thể trả ít hơn `limit` |
+| P3-12 | Phân trang theo KHÓA thay vì offset | `next_cursor` hiện là offset mã hóa; đơn mới xen vào có thể làm lặp bản ghi |
 
 P3-1 và P3-2 là **nợ kỹ thuật đã biết**, không phải việc phát sinh — ghi ở
 đây để không bị quên.

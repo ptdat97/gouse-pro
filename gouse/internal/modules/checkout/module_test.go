@@ -46,6 +46,12 @@ func (f *fakeCart) LoadPurchasable(
 	return snap, nil
 }
 
+func (f *fakeCart) ActiveCartID(_ context.Context, _, _ string) (ids.ID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.snap.CartID, nil
+}
+
 func (f *fakeCart) MarkConverted(_ context.Context, cartID ids.ID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

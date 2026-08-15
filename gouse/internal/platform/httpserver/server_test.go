@@ -47,7 +47,7 @@ func TestServerStartsAndServes(t *testing.T) {
 		_, _ = w.Write([]byte("pong"))
 	})
 
-	srv := httpserver.New(testHTTPConfig(port), logger.NewWithWriter(io.Discard, "error", "json"), mux)
+	srv := httpserver.New(testHTTPConfig(port), logger.NewWithWriter(io.Discard, "error", "json"), mux, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -94,7 +94,7 @@ func TestGracefulShutdownWaitsForInflightRequest(t *testing.T) {
 		close(finished)
 	})
 
-	srv := httpserver.New(testHTTPConfig(port), logger.NewWithWriter(io.Discard, "error", "json"), mux)
+	srv := httpserver.New(testHTTPConfig(port), logger.NewWithWriter(io.Discard, "error", "json"), mux, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = srv.Run(ctx) }()
 

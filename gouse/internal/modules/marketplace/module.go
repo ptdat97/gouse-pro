@@ -3,6 +3,8 @@ package marketplace
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/types"
@@ -11,6 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/marketplace/application"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace/domain"
 	marketpg "github.com/fashion-commerce/platform/internal/modules/marketplace/infrastructure/postgres"
+	markethttp "github.com/fashion-commerce/platform/internal/modules/marketplace/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/database"
@@ -89,6 +92,11 @@ func New(cfg Config) (*Module, error) {
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
 func (m *Module) Service() *application.Service { return m.svc }
 
+// RegisterRoutes gắn các endpoint công khai của module vào mux.
+func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
+	markethttp.NewHandler(m.svc, log).Register(mux)
+}
+
 // ---------------------------------------------------------------- Adapter
 //
 // Bốn adapter dưới đây là chỗ DUY NHẤT trong module biết tới module khác.
@@ -133,6 +141,27 @@ func (a *productAdapter) IsSKUSellable(ctx context.Context, skuID ids.ID) (bool,
 		return false, err
 	}
 	return sellable, nil
+}
+
+func (a *productAdapter) SKUsOfProduct(
+	ctx context.Context, productID ids.ID,
+) ([]ids.ID, error) {
+	skus, err := a.api.GetSKUsByProduct(ctx, productID.String())
+	if err != nil {
+		if errors.Is(err, product.ErrNotFound) {
+			// Sản phẩm không tồn tại trả DANH SÁCH RỖNG, không phải lỗi:
+			// tầng gọi phân biệt "không có offer" với "không có sản phẩm"
+			// bằng cách khác, và trả 500 ở đây là sai loại lỗi.
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	out := make([]ids.ID, 0, len(skus))
+	for _, s := range skus {
+		out = append(out, ids.ID(s.ID))
+	}
+	return out, nil
 }
 
 type sellerAdapter struct{ api seller.API }

@@ -46,6 +46,12 @@ type ProductPort interface {
 
 	// IsSKUSellable cho biết mặt hàng còn được kinh doanh không.
 	IsSKUSellable(ctx context.Context, skuID ids.ID) (bool, error)
+
+	// SKUsOfProduct trả mọi SKU của một sản phẩm.
+	//
+	// Cần cho trang sản phẩm: khách xem một PRODUCT, nhưng offer gắn với
+	// SKU (một tổ hợp màu/size cụ thể).
+	SKUsOfProduct(ctx context.Context, productID ids.ID) ([]ids.ID, error)
 }
 
 // SellerPort là những gì marketplace CẦN từ seller.
@@ -459,6 +465,70 @@ func (s *Service) GetOffer(ctx context.Context, id ids.ID) (*domain.Offer, error
 
 func (s *Service) GetOffersBySKU(ctx context.Context, skuID ids.ID) ([]*domain.Offer, error) {
 	return s.offers.FindBySKU(ctx, skuID)
+}
+
+// ProductOffer là một offer kèm cờ thắng buy box.
+type ProductOffer struct {
+	Offer    *domain.Offer
+	IsBuyBox bool
+}
+
+// ListProductOffers trả các offer của một sản phẩm, đánh dấu offer thắng
+// buy box.
+//
+// Khách xem một PRODUCT, nhưng offer gắn với SKU — nên hàm này gom SKU của
+// sản phẩm rồi lấy offer của từng SKU.
+//
+// `skuID` khác rỗng thì chỉ lấy offer của đúng SKU đó (khách đã chọn một
+// tổ hợp màu/size).
+func (s *Service) ListProductOffers(
+	ctx context.Context, productID, skuID ids.ID,
+) ([]ProductOffer, error) {
+	skuIDs := []ids.ID{skuID}
+	if skuID.IsZero() {
+		var err error
+		skuIDs, err = s.product.SKUsOfProduct(ctx, productID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(skuIDs) == 0 {
+		return nil, nil
+	}
+
+	bySKU, err := s.offers.FindBySKUs(ctx, skuIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []ProductOffer
+	for _, sku := range skuIDs {
+		offers := bySKU[sku]
+		if len(offers) == 0 {
+			continue
+		}
+
+		// Buy box tính RIÊNG cho từng SKU: mỗi tổ hợp màu/size có người
+		// thắng của nó, vì giá và tồn kho khác nhau.
+		box, err := s.GetBuyBox(ctx, sku)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, o := range offers {
+			// KHÔNG lộ offer đã lưu trữ hay bị đình chỉ: khách thấy một
+			// mức giá không đặt được là trải nghiệm tệ hơn không thấy gì.
+			if !o.IsVisibleToCustomer() {
+				continue
+			}
+			out = append(out, ProductOffer{
+				Offer:    o,
+				IsBuyBox: box.Winner != nil && box.Winner.ID() == o.ID(),
+			})
+		}
+	}
+
+	return out, nil
 }
 
 func (s *Service) GetOffersBySKUs(

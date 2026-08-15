@@ -3,6 +3,8 @@ package checkout
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -12,9 +14,11 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/checkout/application"
 	"github.com/fashion-commerce/platform/internal/modules/checkout/domain"
 	checkoutpg "github.com/fashion-commerce/platform/internal/modules/checkout/infrastructure/postgres"
+	checkouthttp "github.com/fashion-commerce/platform/internal/modules/checkout/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
@@ -44,6 +48,10 @@ type Config struct {
 	Inventory   inventory.API
 	Marketplace marketplace.API
 	Order       order.API
+
+	// Promotion cho phép áp mã giảm giá. Có thể nil: phiên vẫn chạy,
+	// chỉ là khách không dùng được mã.
+	Promotion promotion.API
 
 	Clock application.Clock
 
@@ -91,12 +99,23 @@ func New(cfg Config) (*Module, error) {
 	if cfg.Events != nil {
 		deps.Events = &eventPublisher{outbox: cfg.Events}
 	}
+	if cfg.Promotion != nil {
+		deps.Promotions = &promotionAdapter{api: cfg.Promotion}
+	}
 
 	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
 func (m *Module) Service() *application.Service { return m.svc }
+
+// RegisterRoutes gắn các endpoint phiên thanh toán vào mux.
+//
+// Bên gọi PHẢI bọc httpserver.ResolveShopper quanh mux này, và
+// httpserver.RequireIdempotencyKey cho các đường POST/PATCH.
+func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
+	checkouthttp.NewHandler(m.svc, log).Register(mux)
+}
 
 // ---------------------------------------------------------------- API
 
@@ -379,4 +398,32 @@ func translateErr(err error) error {
 		return ErrInvalidInput
 	}
 	return err
+}
+
+// promotionAdapter nối cổng ra của checkout với module promotion.
+//
+// Đây là chỗ DUY NHẤT trong module biết `promotion` tồn tại — tầng
+// application chỉ thấy PromotionPort của chính nó.
+type promotionAdapter struct{ api promotion.API }
+
+var _ application.PromotionPort = (*promotionAdapter)(nil)
+
+func (a *promotionAdapter) ValidateCoupon(
+	ctx context.Context, code, customerID string, orderTotal money.Money,
+) (money.Money, bool, error) {
+	res, err := a.api.ValidateCoupon(ctx, promotion.ValidateRequest{
+		Code:       code,
+		CustomerID: customerID,
+		OrderTotal: orderTotal.Amount(),
+		Currency:   string(orderTotal.Currency()),
+	})
+	if err != nil {
+		return money.Money{}, false, err
+	}
+
+	discount, err := money.New(res.Discount, money.Currency(res.Currency))
+	if err != nil {
+		return money.Money{}, false, err
+	}
+	return discount, res.FreeShipping, nil
 }

@@ -40,6 +40,7 @@ type Item struct {
 	productName        string
 	variantDescription string
 	imageURL           string
+	sellerName         string
 	unitPrice          money.Money
 
 	quantity int
@@ -77,6 +78,7 @@ type NewItemParams struct {
 	ProductName        string
 	VariantDescription string
 	ImageURL           string
+	SellerName         string
 	UnitPrice          money.Money
 	Quantity           int
 
@@ -119,6 +121,7 @@ func NewItem(p NewItemParams) (*Item, error) {
 		productName:        strings.TrimSpace(p.ProductName),
 		variantDescription: strings.TrimSpace(p.VariantDescription),
 		imageURL:           strings.TrimSpace(p.ImageURL),
+		sellerName:         strings.TrimSpace(p.SellerName),
 		unitPrice:          p.UnitPrice,
 		quantity:           p.Quantity,
 		minOrderQuantity:   p.MinOrderQuantity,
@@ -141,6 +144,7 @@ type RestoreItemParams struct {
 	ProductName        string
 	VariantDescription string
 	ImageURL           string
+	SellerName         string
 	UnitPrice          money.Money
 	Quantity           int
 	MinOrderQuantity   int
@@ -164,6 +168,7 @@ func RestoreItem(p RestoreItemParams) *Item {
 		productName:        p.ProductName,
 		variantDescription: p.VariantDescription,
 		imageURL:           p.ImageURL,
+		sellerName:         p.SellerName,
 		unitPrice:          p.UnitPrice,
 		quantity:           p.Quantity,
 		minOrderQuantity:   p.MinOrderQuantity,
@@ -177,14 +182,20 @@ func RestoreItem(p RestoreItemParams) *Item {
 	}
 }
 
-func (i *Item) ID() ids.ID                     { return i.id }
-func (i *Item) CartID() ids.ID                 { return i.cartID }
-func (i *Item) OfferID() ids.ID                { return i.offerID }
-func (i *Item) SKUID() ids.ID                  { return i.skuID }
-func (i *Item) SellerID() ids.ID               { return i.sellerID }
-func (i *Item) ProductName() string            { return i.productName }
-func (i *Item) VariantDescription() string     { return i.variantDescription }
-func (i *Item) ImageURL() string               { return i.imageURL }
+func (i *Item) ID() ids.ID                 { return i.id }
+func (i *Item) CartID() ids.ID             { return i.cartID }
+func (i *Item) OfferID() ids.ID            { return i.offerID }
+func (i *Item) SKUID() ids.ID              { return i.skuID }
+func (i *Item) SellerID() ids.ID           { return i.sellerID }
+func (i *Item) ProductName() string        { return i.productName }
+func (i *Item) VariantDescription() string { return i.variantDescription }
+func (i *Item) ImageURL() string           { return i.imageURL }
+
+// SellerName là tên seller để HIỂN THỊ, chụp tại lần đồng bộ gần nhất.
+//
+// Rỗng khi giỏ chưa từng đồng bộ kể từ khi cột này ra đời — bên gọi phải
+// chịu được chuỗi rỗng, không được coi nó là "seller không tồn tại".
+func (i *Item) SellerName() string             { return i.sellerName }
 func (i *Item) UnitPrice() money.Money         { return i.unitPrice }
 func (i *Item) Quantity() int                  { return i.quantity }
 func (i *Item) MinOrderQuantity() int          { return i.minOrderQuantity }
@@ -223,6 +234,9 @@ func (i *Item) Sync(s SyncData, now time.Time) {
 	}
 	if s.ImageURL != "" {
 		i.imageURL = s.ImageURL
+	}
+	if s.SellerName != "" {
+		i.sellerName = s.SellerName
 	}
 	if s.UnitPrice.IsPositive() {
 		i.unitPrice = s.UnitPrice
@@ -268,6 +282,10 @@ type SyncData struct {
 	VariantDescription string
 	ImageURL           string
 	UnitPrice          money.Money
+
+	// SellerName để hiển thị giỏ NHÓM THEO SELLER mà không phải gọi thêm
+	// module seller ở tầng HTTP.
+	SellerName string
 
 	MinOrderQuantity int
 	MaxOrderQuantity int

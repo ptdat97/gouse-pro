@@ -464,3 +464,117 @@ func taoSanPhamDuDieuKien(
 	}
 	return got
 }
+
+// ---------------------------------------------------------------- Tìm kiếm
+
+// fakeSearchSignals ghi lại các từ khóa không ra kết quả.
+type fakeSearchSignals struct {
+	queries []string
+	err     error
+}
+
+func (f *fakeSearchSignals) PublishSearchNoResult(_ context.Context, q string) error {
+	f.queries = append(f.queries, q)
+	return f.err
+}
+
+func newServiceWithSignals(
+	t *testing.T, cat application.CatalogPort, sig application.SearchSignalPublisher,
+) *application.Service {
+	t.Helper()
+	return application.NewService(application.Deps{
+		Products:      inmemory.NewProductStore(),
+		Catalog:       cat,
+		Clock:         &fixedClock{t: testNow},
+		SearchSignals: sig,
+	})
+}
+
+// Tìm không ra kết quả GHI TÍN HIỆU nhu cầu.
+//
+// Đây là dữ liệu mà bán hàng một mình không bao giờ cho biết: khách MUỐN
+// gì mà nền tảng KHÔNG CÓ. Không ghi hôm nay thì không tạo ngược được.
+func TestTimKhongRaKetQuaGhiTinHieu(t *testing.T) {
+	sig := &fakeSearchSignals{}
+	svc := newServiceWithSignals(t, newCatalogOK(), sig)
+	ctx := context.Background()
+
+	found, err := svc.Search(ctx, "áo khoác dạ oversize", 20, 0)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(found) != 0 {
+		t.Fatalf("kho rỗng phải trả 0 kết quả, nhận %d", len(found))
+	}
+
+	if len(sig.queries) != 1 {
+		t.Fatalf("phải ghi ĐÚNG 1 tín hiệu, nhận %d", len(sig.queries))
+	}
+	if sig.queries[0] != "áo khoác dạ oversize" {
+		t.Errorf("từ khóa bị đổi: %q", sig.queries[0])
+	}
+}
+
+// Tín hiệu ghi hỏng KHÔNG được làm hỏng tìm kiếm.
+//
+// Khách đang đợi kết quả, không đợi hệ thống ghi số liệu.
+func TestGhiTinHieuHongKhongLamHongTimKiem(t *testing.T) {
+	sig := &fakeSearchSignals{err: errors.New("outbox hỏng")}
+	svc := newServiceWithSignals(t, newCatalogOK(), sig)
+
+	if _, err := svc.Search(context.Background(), "không có gì", 20, 0); err != nil {
+		t.Errorf("ghi tín hiệu hỏng KHÔNG được trả lỗi cho khách: %v", err)
+	}
+}
+
+// CÓ kết quả thì KHÔNG ghi tín hiệu.
+//
+// Ghi cả khi tìm thấy sẽ làm loãng tín hiệu: "nhu cầu không được đáp ứng"
+// trộn lẫn với "nhu cầu đã đáp ứng" thì không dùng để lập kế hoạch được.
+func TestCoKetQuaThiKhongGhiTinHieu(t *testing.T) {
+	sig := &fakeSearchSignals{}
+	svc := newServiceWithSignals(t, newCatalogOK(), sig)
+	ctx := context.Background()
+
+	p := taoSanPhamDuDieuKien(t, svc)
+	if _, err := svc.SubmitForReview(ctx, p.ID()); err != nil {
+		t.Fatalf("SubmitForReview: %v", err)
+	}
+	if _, err := svc.Approve(ctx, p.ID()); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+
+	found, err := svc.Search(ctx, "linen", 20, 0)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(found) == 0 {
+		t.Fatal("phải tìm thấy sản phẩm theo từ khóa trong tên")
+	}
+	if len(sig.queries) != 0 {
+		t.Errorf("có kết quả thì KHÔNG ghi tín hiệu, nhận %v", sig.queries)
+	}
+}
+
+// Tìm kiếm KHÔNG lộ sản phẩm chưa duyệt.
+func TestTimKiemKhongLoHangChuaDuyet(t *testing.T) {
+	sig := &fakeSearchSignals{}
+	svc := newServiceWithSignals(t, newCatalogOK(), sig)
+	ctx := context.Background()
+
+	// Tạo nhưng KHÔNG duyệt.
+	taoSanPhamDuDieuKien(t, svc)
+
+	found, err := svc.Search(ctx, "linen", 20, 0)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(found) != 0 {
+		t.Errorf("sản phẩm chưa duyệt KHÔNG được lộ qua tìm kiếm, nhận %d", len(found))
+	}
+
+	// Và vì khách không thấy gì, đây VẪN là nhu cầu không được đáp ứng.
+	if len(sig.queries) != 1 {
+		t.Errorf("phải ghi tín hiệu khi khách không thấy gì, nhận %d", len(sig.queries))
+	}
+}

@@ -446,9 +446,18 @@ OrderDetail:
   description: |
     Đơn hàng — **hợp đồng với khách hàng**.
 
-    Khách thấy **một đơn** nhưng có thể có **nhiều lô giao** (`shipments`),
-    vì hàng đến từ nhiều nguồn không thể đóng chung gói.
-  required: [id, order_number, status, shipments, total, placed_at]
+    Khách thấy **một đơn** nhưng có thể có **nhiều lô giao**, vì hàng đến từ
+    nhiều nguồn không thể đóng chung gói.
+
+    **`shipments` KHÔNG do endpoint này trả về.** Dữ liệu lô giao thuộc
+    module `fulfillment`, và module `order` không được gọi nó — fulfillment
+    đã phụ thuộc order, gọi ngược tạo phụ thuộc vòng (ADR-0007).
+
+    Việc ghép hai nguồn là của **trang**, không phải của **endpoint**. Trang
+    chi tiết đơn gọi endpoint này để lấy dòng hàng và tiền, rồi gọi endpoint
+    lô giao để lấy tiến độ giao. Endpoint lô giao cho khách **chưa tồn tại**
+    — xem backlog P1.8.
+  required: [id, order_number, status, total, placed_at]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
@@ -464,9 +473,18 @@ OrderDetail:
       allOf:
         - $ref: './common.yaml#/schemas/Address'
       description: Đã **sao chép** vào đơn — khách sửa sổ địa chỉ không làm đổi đơn cũ.
+    lines:
+      type: array
+      description: |
+        Dòng hàng của đơn với con số **đã đóng băng** tại thời điểm đặt.
+      items:
+        $ref: '#/OrderDetailLine'
     shipments:
       type: array
-      description: Mỗi lô tương ứng một `FulfillmentOrder` (một nguồn hàng).
+      description: |
+        Lô giao. **Chưa có endpoint nào trả trường này** — giữ lại trong
+        lược đồ để trang ghép được dữ liệu từ hai nguồn khi endpoint lô giao
+        cho khách ra đời (backlog P1.8).
       items:
         $ref: '#/Shipment'
     subtotal:
@@ -479,8 +497,37 @@ OrderDetail:
       $ref: './common.yaml#/schemas/Money'
     can_cancel:
       type: boolean
+      description: |
+        Theo **trạng thái tổng hợp** của đơn. Điều kiện đầy đủ còn cần
+        "chưa có lô nào `PACKED`", thứ chỉ module fulfillment biết — nên
+        `true` ở đây vẫn có thể bị từ chối `409` khi gọi hủy.
+    cancellation_reason:
+      type: string
+      description: Chỉ có ở đơn **khách tự hủy**. Đơn do quản trị viên hủy có lý do ở nhật ký thao tác.
     can_return:
       type: boolean
+
+OrderDetailLine:
+  type: object
+  required: [order_line_id, product_name, quantity, unit_price, line_total, status]
+  properties:
+    order_line_id:
+      $ref: './common.yaml#/schemas/Id'
+    product_name:
+      type: string
+    variant_description:
+      type: string
+    quantity:
+      $ref: './common.yaml#/schemas/Quantity'
+    unit_price:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: '**Đã đóng băng** tại thời điểm đặt hàng.'
+    line_total:
+      $ref: './common.yaml#/schemas/Money'
+    status:
+      type: string
+      enum: [ACTIVE, CANCELLED, RETURNED]
 
 OrderStatus:
   type: string

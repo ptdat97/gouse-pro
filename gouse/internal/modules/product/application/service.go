@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -59,16 +60,37 @@ type CatalogPort interface {
 
 // Service là tầng application của module product.
 type Service struct {
-	products domain.ProductRepository
-	catalog  CatalogPort
-	clock    Clock
+	products      domain.ProductRepository
+	searchSignals SearchSignalPublisher
+	catalog       CatalogPort
+	clock         Clock
 }
 
 // Deps gom các phụ thuộc — dễ đọc hơn hàm nhiều tham số cùng kiểu interface.
+// SearchSignalPublisher báo rằng khách tìm mà KHÔNG ra kết quả.
+//
+// Là PORT do tầng application định nghĩa: nó không biết event bus hay
+// supply-chain tồn tại. Chiều phụ thuộc vẫn là `product` → không ai, vì
+// bên nhận chỉ nghe event.
+//
+// # Vì sao event chứ không phải gọi đồng bộ
+//
+// "Khách tìm không ra kết quả" là một SỰ VIỆC ĐÃ XẢY RA, không phải câu
+// hỏi cần trả lời để quyết định. Kết quả tìm kiếm trả về không phụ thuộc
+// việc ghi tín hiệu có thành công hay không — xem ADR-0006 phần 3.
+type SearchSignalPublisher interface {
+	PublishSearchNoResult(ctx context.Context, query string) error
+}
+
 type Deps struct {
 	Products domain.ProductRepository
 	Catalog  CatalogPort
 	Clock    Clock
+
+	// SearchSignals có thể nil: tìm kiếm vẫn chạy, chỉ là không ghi tín
+	// hiệu. Không chặn tìm kiếm vì mất một tín hiệu nhẹ hơn nhiều so với
+	// mất khả năng tìm sản phẩm.
+	SearchSignals SearchSignalPublisher
 }
 
 func NewService(d Deps) *Service {
@@ -76,7 +98,12 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{products: d.Products, catalog: d.Catalog, clock: clock}
+	return &Service{
+		products:      d.Products,
+		catalog:       d.Catalog,
+		searchSignals: d.SearchSignals,
+		clock:         clock,
+	}
 }
 
 // Now trả về thời điểm hiện tại theo đồng hồ của service.
@@ -368,6 +395,44 @@ func (s *Service) GetProductBySKUCode(ctx context.Context, code string) (*domain
 
 func (s *Service) ListProducts(ctx context.Context, f domain.Filter) ([]*domain.Product, error) {
 	return s.products.List(ctx, f)
+}
+
+// Search tìm sản phẩm theo từ khóa, và GHI TÍN HIỆU khi không ra kết quả.
+//
+// # Không ra kết quả là dữ liệu quý nhất ở đây
+//
+// Dữ liệu bán hàng chỉ cho biết khách mua gì. Tìm kiếm không ra kết quả cho
+// biết khách MUỐN gì mà nền tảng KHÔNG CÓ — thứ không suy ra được từ đơn
+// hàng, và không tạo ngược được nếu hôm nay không ghi.
+//
+// Chỉ trả sản phẩm ACTIVE: hàng chưa duyệt không được lộ qua tìm kiếm.
+func (s *Service) Search(
+	ctx context.Context, query string, limit, offset int,
+) ([]*domain.Product, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
+
+	found, err := s.products.List(ctx, domain.Filter{
+		Query:       query,
+		OnlyVisible: true,
+		Limit:       limit,
+		Offset:      offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Ghi tín hiệu SAU khi có kết quả, và KHÔNG chặn nếu ghi hỏng: khách
+	// đang đợi kết quả tìm kiếm, không đợi hệ thống ghi số liệu.
+	if len(found) == 0 && s.searchSignals != nil && offset == 0 {
+		if err := s.searchSignals.PublishSearchNoResult(ctx, query); err != nil {
+			return found, nil
+		}
+	}
+
+	return found, nil
 }
 
 // ListVisibleByCollection lấy sản phẩm HIỂN THỊ ĐƯỢC của một bộ sưu tập.

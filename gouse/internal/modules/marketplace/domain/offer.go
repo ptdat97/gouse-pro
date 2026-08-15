@@ -85,6 +85,20 @@ func (s Status) canTransitionTo(next Status) bool {
 // nhận thông báo) nhưng không đặt hàng được.
 func (s Status) IsSellable() bool { return s == StatusActive }
 
+// IsVisibleToCustomer cho biết offer có hiện trên trang sản phẩm không.
+//
+// KHÁC IsSellable: hết hàng vẫn HIỂN THỊ, chỉ không đặt được.
+//
+// Lý do (design-system.md mục 4.1): khách cần biết sản phẩm CÓ tổ hợp
+// màu/size đó để đăng ký nhận thông báo. Ẩn đi thì họ tưởng nền tảng không
+// bán, và nhu cầu đó không bao giờ được ghi nhận.
+//
+// DRAFT, SUSPENDED, ARCHIVED thì ẩn: hiện một mức giá không đặt được là
+// trải nghiệm tệ hơn không hiện gì.
+func (s Status) IsVisibleToCustomer() bool {
+	return s == StatusActive || s == StatusOutOfStock
+}
+
 // Offer là lời chào bán của MỘT seller cho MỘT SKU.
 //
 // VÌ SAO OFFER KHÔNG CHỨA SỐ LƯỢNG TỒN KHO (mục 3 của đặc tả):
@@ -258,6 +272,9 @@ func (o *Offer) UpdatedAt() time.Time   { return o.updatedAt }
 
 // IsSellable cho biết khách đặt hàng được không.
 func (o *Offer) IsSellable() bool { return o.status.IsSellable() }
+
+// IsVisibleToCustomer cho biết offer có hiện trên trang sản phẩm không.
+func (o *Offer) IsVisibleToCustomer() bool { return o.status.IsVisibleToCustomer() }
 
 // HasDiscount cho biết có hiển thị mức giảm không.
 func (o *Offer) HasDiscount() bool {

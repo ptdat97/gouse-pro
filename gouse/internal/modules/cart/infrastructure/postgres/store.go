@@ -87,7 +87,7 @@ func (s *CartStore) SaveWithEvents(
 		_, err := tx.Exec(ctx, `
 			INSERT INTO cart_item (
 				id, cart_id, offer_id, sku_id, seller_id,
-				product_name, variant_description, image_url,
+				product_name, variant_description, image_url, seller_name,
 				unit_price, currency, quantity,
 				min_order_quantity, max_order_quantity,
 				availability, available_quantity,
@@ -95,16 +95,16 @@ func (s *CartStore) SaveWithEvents(
 				added_at, updated_at
 			) VALUES (
 				$1,$2,$3,$4,$5,
-				$6,$7,$8,
-				$9,$10,$11,
-				$12,$13,
-				$14,$15,
-				$16,$17,
-				$18,$19
+				$6,$7,$8,$9,
+				$10,$11,$12,
+				$13,$14,
+				$15,$16,
+				$17,$18,
+				$19,$20
 			)`,
 			it.ID().String(), c.ID().String(), it.OfferID().String(),
 			it.SKUID().String(), it.SellerID().String(),
-			it.ProductName(), it.VariantDescription(), it.ImageURL(),
+			it.ProductName(), it.VariantDescription(), it.ImageURL(), it.SellerName(),
 			it.UnitPrice().Amount(), string(it.UnitPrice().Currency()), it.Quantity(),
 			it.MinOrderQuantity(), it.MaxOrderQuantity(),
 			string(it.Availability()), it.AvailableQuantity(),
@@ -203,7 +203,7 @@ func (s *CartStore) findOne(
 func (s *CartStore) loadItems(ctx context.Context, cartID ids.ID) ([]*domain.Item, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, offer_id, sku_id, seller_id,
-		       product_name, variant_description, image_url,
+		       product_name, variant_description, image_url, seller_name,
 		       unit_price, currency, quantity,
 		       min_order_quantity, max_order_quantity,
 		       availability, available_quantity,
@@ -222,6 +222,7 @@ func (s *CartStore) loadItems(ctx context.Context, cartID ids.ID) ([]*domain.Ite
 		var (
 			id, offerID, skuID, sellerID string
 			name, variant, imageURL      string
+			sellerName                   string
 			unitPrice                    int64
 			currency                     string
 			quantity, minQty, maxQty     int
@@ -232,7 +233,7 @@ func (s *CartStore) loadItems(ctx context.Context, cartID ids.ID) ([]*domain.Ite
 		)
 		if err := rows.Scan(
 			&id, &offerID, &skuID, &sellerID,
-			&name, &variant, &imageURL,
+			&name, &variant, &imageURL, &sellerName,
 			&unitPrice, &currency, &quantity,
 			&minQty, &maxQty,
 			&availability, &availableQty,
@@ -251,6 +252,7 @@ func (s *CartStore) loadItems(ctx context.Context, cartID ids.ID) ([]*domain.Ite
 			ProductName:        name,
 			VariantDescription: variant,
 			ImageURL:           imageURL,
+			SellerName:         sellerName,
 			UnitPrice:          mustMoney(unitPrice, money.Currency(currency)),
 			Quantity:           quantity,
 			MinOrderQuantity:   minQty,

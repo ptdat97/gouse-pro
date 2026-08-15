@@ -52,6 +52,7 @@ func (h *RecordSignalsFromEvents) EventTypes() []string {
 	return []string{
 		eventbus.TypeCartItemAdded,
 		eventbus.TypeCheckoutCompleted,
+		eventbus.TypeSearchNoResult,
 	}
 }
 
@@ -87,9 +88,46 @@ func (h *RecordSignalsFromEvents) Handle(ctx context.Context, e eventbus.Event) 
 		return h.handleCartItemAdded(ctx, e)
 	case eventbus.TypeCheckoutCompleted:
 		return h.handleOrderPlaced(ctx, e)
+	case eventbus.TypeSearchNoResult:
+		return h.handleSearchNoResult(ctx, e)
 	}
 	// Loại event không quan tâm: không phải lỗi.
 	return nil
+}
+
+// searchNoResultPayload là dữ liệu từ event tìm kiếm không ra kết quả.
+type searchNoResultPayload struct {
+	Query string `json:"query"`
+}
+
+// handleSearchNoResult ghi tín hiệu SEARCH_NO_RESULT.
+//
+// # Tín hiệu KHÔNG có SKU, và đó chính là ý nghĩa của nó
+//
+// Mọi tín hiệu khác đều trỏ tới một mặt hàng có thật. Cái này thì không —
+// khách tìm một thứ mà nền tảng KHÔNG CÓ. Đó là lý do nó quý: dữ liệu bán
+// hàng chỉ nói được về những gì đã bày bán.
+//
+// Từ khóa lưu ở `SearchTerm` — trường được thiết kế sẵn cho việc này — để
+// Phase 3 gom nhóm và xếp hạng nhu cầu chưa đáp ứng. "Áo khoác dạ oversize"
+// xuất hiện 240 lần trong 30 ngày là một đề xuất sản phẩm, không phải một
+// dòng log.
+func (h *RecordSignalsFromEvents) handleSearchNoResult(
+	ctx context.Context, e eventbus.Event,
+) error {
+	var p searchNoResultPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event tìm kiếm: %w", err)
+	}
+	if p.Query == "" {
+		return nil
+	}
+
+	return h.module.RecordSignal(ctx, SignalRequest{
+		Type:       SignalSearchNoResult,
+		SearchTerm: p.Query,
+		Quantity:   1,
+	})
 }
 
 // handleCartItemAdded ghi tín hiệu ADD_TO_CART.

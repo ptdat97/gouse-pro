@@ -52,6 +52,13 @@ type CartPort interface {
 
 	// MarkConverted đánh dấu giỏ đã thành đơn.
 	MarkConverted(ctx context.Context, cartID ids.ID) error
+
+	// ActiveCartID trả giỏ đang dùng của một người mua.
+	//
+	// Có mặt ở đây để tầng HTTP KHÔNG nhận cart_id từ client: giỏ nào là
+	// của ai do máy chủ quyết định từ danh tính người gọi. Cho client chỉ
+	// định nghĩa là ai cũng mở được phiên thanh toán trên giỏ người khác.
+	ActiveCartID(ctx context.Context, customerID, sessionID string) (ids.ID, error)
 }
 
 // CartSnapshot là ảnh chụp giỏ tại thời điểm bắt đầu checkout.
@@ -250,8 +257,25 @@ type Service struct {
 	inventory   InventoryPort
 	commissions CommissionPort
 	orders      OrderPort
+	promotions  PromotionPort
 	clock       Clock
 	events      EventPublisher
+}
+
+// PromotionPort là những gì checkout CẦN từ promotion.
+//
+// Kiểm tra mã và TÍNH số tiền giảm nằm ở module promotion — checkout chỉ
+// ghi lại kết quả. Tính ở đây nghĩa là quy tắc khuyến mãi tồn tại ở hai
+// nơi, và sớm muộn hai nơi ra hai con số khác nhau.
+type PromotionPort interface {
+	// ValidateCoupon kiểm tra mã và trả số tiền giảm.
+	//
+	// Đây là đường ĐỌC: KHÔNG ghi nhận lượt dùng. Khách gõ mã rồi bỏ giỏ
+	// hàng là chuyện thường, và ghi nhận ngay sẽ làm mã hết lượt vì những
+	// người chưa mua gì.
+	ValidateCoupon(
+		ctx context.Context, code, customerID string, orderTotal money.Money,
+	) (discount money.Money, freeShipping bool, err error)
 }
 
 type Deps struct {
@@ -261,6 +285,10 @@ type Deps struct {
 	Commissions CommissionPort
 	Orders      OrderPort
 	Clock       Clock
+
+	// Promotions có thể nil: phiên thanh toán vẫn chạy, chỉ là không áp
+	// được mã giảm giá. Không chặn cả luồng mua hàng vì một tính năng phụ.
+	Promotions PromotionPort
 
 	// Events có thể nil: khi đó phiên vẫn hoạt động nhưng KHÔNG phát event.
 	//
@@ -280,6 +308,7 @@ func NewService(d Deps) *Service {
 		inventory:   d.Inventory,
 		commissions: d.Commissions,
 		orders:      d.Orders,
+		promotions:  d.Promotions,
 		clock:       clock,
 		events:      d.Events,
 	}
@@ -496,6 +525,15 @@ func (s *Service) commissionRate(
 
 // ---------------------------------------------------------------- Sửa phiên
 
+// ActiveCartID trả giỏ đang dùng của người mua.
+//
+// Tầng HTTP gọi hàm này thay vì nhận `cart_id` từ client.
+func (s *Service) ActiveCartID(
+	ctx context.Context, customerID, sessionID string,
+) (ids.ID, error) {
+	return s.carts.ActiveCartID(ctx, customerID, sessionID)
+}
+
 func (s *Service) GetCheckout(ctx context.Context, id ids.ID) (*domain.Checkout, error) {
 	return s.checkouts.FindByID(ctx, id)
 }
@@ -518,6 +556,58 @@ func (s *Service) SetShipping(
 	})
 }
 
+// ShippingMethod là phương thức vận chuyển khách chọn được.
+type ShippingMethod string
+
+const (
+	ShippingStandard ShippingMethod = "STANDARD"
+	ShippingExpress  ShippingMethod = "EXPRESS"
+)
+
+// ErrUnknownShippingMethod khi phương thức không nằm trong danh sách.
+var ErrUnknownShippingMethod = errors.New("checkout: phương thức vận chuyển không hợp lệ")
+
+// shippingRates là BIỂU PHÍ TẠM THỜI.
+//
+// # Vì sao phí nằm ở đây chứ không đến từ client
+//
+// Phí vận chuyển là con số khách PHẢI TRẢ. Nhận nó từ request nghĩa là
+// khách tự đặt phí ship 0đ cho mình — cùng loại lỗ hổng với việc nhận giá
+// sản phẩm từ client (xem cart.AddItemRequest).
+//
+// # Vì sao là bảng cứng chứ không phải tính thật
+//
+// docs/04-modules/checkout.md §7 quy định phí đến từ
+// `fulfillment.EstimateShipping()` theo từng nguồn hàng. Hàm đó CHƯA TỒN
+// TẠI (fulfillment/public.go không có nó), và dựng cả module ước tính phí
+// nằm ngoài phạm vi MVP.
+//
+// Bảng này là chỗ đứng tạm cho tới khi có hàm đó: sai về mặt kinh doanh
+// (không theo khoảng cách, không theo số nguồn hàng) nhưng ĐÚNG về mặt an
+// toàn (khách không đặt được phí của mình). Backlog P3 theo dõi việc thay.
+var shippingRates = map[ShippingMethod]int64{
+	ShippingStandard: 30_000,
+	ShippingExpress:  60_000,
+}
+
+// SetShippingMethod chọn phương thức vận chuyển và ÁP phí tương ứng.
+func (s *Service) SetShippingMethod(
+	ctx context.Context, id ids.ID, method ShippingMethod,
+) (*domain.Checkout, error) {
+	rate, ok := shippingRates[method]
+	if !ok {
+		return nil, ErrUnknownShippingMethod
+	}
+
+	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
+		fee, err := money.New(rate, c.Currency())
+		if err != nil {
+			return err
+		}
+		return c.SetShipping(string(method), fee, now)
+	})
+}
+
 // ApplyDiscount áp một khoản giảm giá.
 func (s *Service) ApplyDiscount(
 	ctx context.Context, id ids.ID, code string, amount money.Money,
@@ -526,6 +616,57 @@ func (s *Service) ApplyDiscount(
 		return c.ApplyDiscount(code, amount, now)
 	})
 }
+
+// ApplyCouponCode kiểm tra mã rồi áp số tiền giảm vào phiên.
+//
+// Số tiền giảm do module promotion TÍNH, không do bên gọi truyền vào —
+// khác với ApplyDiscount ở dưới, vốn là đường nội bộ cho những nơi đã có
+// sẵn con số đã tính.
+//
+// Trả ErrPromotionUnavailable khi chưa nối module promotion: thà báo rõ
+// còn hơn im lặng áp giảm giá 0đ và để khách tưởng mã không hợp lệ.
+func (s *Service) ApplyCouponCode(
+	ctx context.Context, id ids.ID, code, customerID string,
+) (*domain.Checkout, error) {
+	if s.promotions == nil {
+		return nil, ErrPromotionUnavailable
+	}
+
+	c, err := s.checkouts.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Tính trên tổng tiền HÀNG HÓA, không gồm phí ship: mã giảm giá hàng
+	// và mã miễn phí ship là hai thứ khác nhau (xem DiscountResult).
+	discount, freeShipping, err := s.promotions.ValidateCoupon(
+		ctx, code, customerID, c.Subtotal())
+	if err != nil {
+		return nil, err
+	}
+
+	updated, err := s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
+		return c.ApplyDiscount(code, discount, now)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Miễn phí ship là đặt phí về 0, không phải cộng thêm vào số tiền giảm
+	// — gộp hai thứ làm hóa đơn không giải thích được.
+	if freeShipping && updated.ShippingFee().IsPositive() {
+		zero, err := money.New(0, updated.ShippingFee().Currency())
+		if err != nil {
+			return nil, err
+		}
+		return s.SetShipping(ctx, id, updated.ShippingMethod(), zero)
+	}
+
+	return updated, nil
+}
+
+// ErrPromotionUnavailable khi chưa nối module promotion.
+var ErrPromotionUnavailable = errors.New("checkout: chưa nối module khuyến mãi")
 
 // RemoveDiscount gỡ mã giảm giá.
 func (s *Service) RemoveDiscount(ctx context.Context, id ids.ID) (*domain.Checkout, error) {

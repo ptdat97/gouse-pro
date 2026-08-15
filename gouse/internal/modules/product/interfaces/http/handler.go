@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/product/application"
@@ -35,6 +37,58 @@ func NewHandler(svc *application.Service, log *slog.Logger) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/products/{product_id}", http.HandlerFunc(h.getProduct))
 	mux.Handle("GET /api/v1/products", http.HandlerFunc(h.listProducts))
+	mux.Handle("GET /api/v1/search", http.HandlerFunc(h.search))
+}
+
+// searchResponse khớp đặc tả storefront.yaml#/search.
+//
+// CHỈ có `products`: `brands`, `creators`, `content` trong đặc tả thuộc các
+// module chưa tồn tại (creator và content là Phase 2). Trả mảng rỗng cho
+// chúng sẽ là nói dối rằng đã tìm và không thấy gì.
+type searchResponse struct {
+	Products []productSummary `json:"products"`
+}
+
+// search phục vụ GET /api/v1/search (operationId: search).
+//
+// # Không ra kết quả được GHI LẠI
+//
+// Đây là tín hiệu NHU CẦU KHÔNG ĐƯỢC ĐÁP ỨNG — thứ dữ liệu bán hàng một
+// mình không bao giờ cho biết, và không tạo ngược được nếu hôm nay không
+// ghi. Việc ghi chạy bất đồng bộ nên không làm chậm phản hồi cho khách.
+func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	query := strings.TrimSpace(q.Get("q"))
+	if query == "" {
+		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+			"q là tham số bắt buộc"))
+		return
+	}
+
+	limit := 20
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100 {
+			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+				"limit phải là số nguyên từ 1 đến 100"))
+			return
+		}
+		limit = n
+	}
+
+	found, err := h.svc.Search(r.Context(), query, limit, 0)
+	if err != nil {
+		h.fail(w, r, apierror.From(err))
+		return
+	}
+
+	out := make([]productSummary, 0, len(found))
+	for _, p := range found {
+		out = append(out, toProductSummary(p))
+	}
+
+	h.ok(w, r, searchResponse{Products: out})
 }
 
 // getProduct phục vụ GET /api/v1/products/{product_id} (operationId: getProduct).

@@ -28,13 +28,21 @@ type Server struct {
 //  2. Recover    — bắt panic từ mọi tầng bên trong
 //  3. Logging    — ghi log kể cả request bị panic (đã được Recover xử lý)
 //  4. Security   — header bảo mật
-//  5. MaxBytes   — giới hạn body
-func New(cfg config.HTTPConfig, log *slog.Logger, handler http.Handler) *Server {
+//  5. CORS       — cho phép giao diện ở origin khác gọi API
+//  6. MaxBytes   — giới hạn body
+func New(
+	cfg config.HTTPConfig, log *slog.Logger, handler http.Handler,
+	allowedOrigins []string,
+) *Server {
 	h := Chain(handler,
 		RequestID(),
 		Recover(log),
 		Logging(log),
 		SecurityHeaders(),
+		// CORS SAU SecurityHeaders và TRƯỚC MaxBytes: preflight không có
+		// body nên không cần qua MaxBytes, và nó phải trả lời sớm thay vì
+		// đi tiếp tới handler.
+		CORS(allowedOrigins),
 		MaxBytes(cfg.MaxRequestBytes),
 	)
 

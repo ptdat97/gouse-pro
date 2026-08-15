@@ -579,3 +579,42 @@ func TestThemCungOfferHaiLanQuaDatabase(t *testing.T) {
 		t.Errorf("tổng số lượng = %d, mong 3", got.TotalQuantity())
 	}
 }
+
+// TÊN SELLER được LƯU và ĐỌC LẠI qua database.
+//
+// Cột `seller_name` là bản chụp hiển thị, cùng loại với `product_name`.
+// Nó tồn tại để tầng HTTP nhóm giỏ theo nhà bán mà không phải gọi thêm
+// module seller ở mọi thao tác giỏ hàng.
+//
+// Test TRUY VẤN THẲNG bảng cart_item, không đi qua GetCart. Lý do giống
+// hệt storedPrice ở trên: GetCart tự đồng bộ trước khi trả, nên tên seller
+// luôn xuất hiện trong kết quả kể cả khi nó chưa từng được ghi xuống.
+//
+// Khác biệt đó có hậu quả thật: job nhắc giỏ bỏ quên và các báo cáo đọc
+// thẳng bảng này, không đi qua đồng bộ.
+func TestTenSellerLuuVaDocLaiQuaDatabase(t *testing.T) {
+	svc, lookup, pool := newService(t)
+	ctx := context.Background()
+
+	c := newCart(t, svc)
+	offerID := ids.MustNew(ids.PrefixOffer)
+	d := lookup.set(offerID, 299000, 100)
+	d.SellerName = "Cửa hàng ABC"
+	lookup.data[offerID] = d
+
+	if _, err := svc.AddItem(ctx, application.AddItemInput{
+		CartID: c.ID(), OfferID: offerID, Quantity: 1,
+	}); err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+
+	var stored string
+	if err := pool.QueryRow(ctx,
+		`SELECT seller_name FROM cart_item WHERE cart_id = $1 LIMIT 1`,
+		c.ID().String()).Scan(&stored); err != nil {
+		t.Fatalf("đọc tên seller đã lưu: %v", err)
+	}
+	if stored != "Cửa hàng ABC" {
+		t.Errorf("tên seller trong database = %q, mong %q", stored, "Cửa hàng ABC")
+	}
+}

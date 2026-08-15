@@ -134,6 +134,51 @@ func Auth(v TokenVerifier) Middleware {
 	}
 }
 
+// OptionalAuth nhận diện người gọi NẾU có token, và cho đi tiếp nếu không.
+//
+// # Vì sao cần một biến thể không chặn
+//
+// Đường mua hàng phải chạy được cho khách VÃNG LAI (mvp.md mục 4): không
+// tài khoản, không token. Nhưng khách ĐÃ đăng nhập cũng đi đúng đường đó,
+// và giỏ của họ phải gắn với hồ sơ khách hàng chứ không phải cookie phiên.
+//
+// Auth() không dùng được vì nó trả 401 khi thiếu token. Bỏ hẳn xác thực
+// cũng không được vì khi đó khách đăng nhập bị coi là vãng lai, và giỏ của
+// họ biến mất mỗi lần đổi thiết bị.
+//
+// # Token HỎNG bị bỏ qua, không bị từ chối
+//
+// Token hết hạn giữa lúc khách đang mua hàng là chuyện thường. Trả 401 ở
+// đây làm hỏng giỏ hàng đang có; coi như khách vãng lai thì họ mua tiếp
+// được, và client tự làm mới token cho lần gọi sau.
+//
+// HỆ QUẢ PHẢI BIẾT: middleware này KHÔNG bảo vệ được gì. Mọi endpoint đứng
+// sau nó phải tự an toàn với người gọi ẩn danh.
+func OptionalAuth(v TokenVerifier) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token, ok := bearerToken(r)
+			if !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			ac, err := v.VerifyAccessToken(r.Context(), token)
+			if err != nil {
+				logger.FromContext(r.Context()).Warn(
+					"token không hợp lệ ở đường không bắt buộc xác thực",
+					"error", err,
+					"path", r.URL.Path,
+				)
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			next.ServeHTTP(w, r.WithContext(WithAuthContext(r.Context(), ac)))
+		})
+	}
+}
+
 // RequireRole chặn request không có ít nhất một trong các vai trò.
 //
 // PHẢI đặt SAU Auth trong chuỗi middleware. Nếu đặt trước, context chưa có

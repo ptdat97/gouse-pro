@@ -86,6 +86,13 @@ type Filter struct {
 	// OnlyVisible chỉ lấy sản phẩm khách xem được (ACTIVE).
 	OnlyVisible bool
 
+	// Query là từ khóa tìm kiếm, khớp theo tên sản phẩm.
+	//
+	// Tìm kiếm MVP là SQL cơ bản (mvp.md mục 4): so khớp chuỗi con, không
+	// dấu, không xếp hạng liên quan. Chỉ mục tìm kiếm riêng là hạ tầng
+	// thêm KHI ĐO ĐƯỢC nhu cầu — xem future-phases.md.
+	Query string
+
 	Limit  int
 	Offset int
 }

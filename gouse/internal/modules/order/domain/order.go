@@ -108,6 +108,13 @@ type Order struct {
 	// không được tạo hai đơn.
 	idempotencyKey string
 
+	// cancellationReason là lý do khách chọn khi tự hủy đơn.
+	//
+	// Rỗng với đơn chưa hủy, và cũng rỗng với đơn bị quản trị viên hủy —
+	// lý do của quản trị viên nằm ở audit_log vì đó là thao tác của nhân
+	// viên, không phải dữ liệu nghiệp vụ của đơn.
+	cancellationReason string
+
 	placedAt    time.Time
 	completedAt time.Time
 	createdAt   time.Time
@@ -233,33 +240,38 @@ type RestoreOrderParams struct {
 	Status          Status
 	Lines           []*Line
 	IdempotencyKey  string
-	PlacedAt        time.Time
-	CompletedAt     time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+
+	// CancellationReason rỗng với đơn chưa hủy.
+	CancellationReason string
+
+	PlacedAt    time.Time
+	CompletedAt time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // RestoreOrder dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
 func RestoreOrder(p RestoreOrderParams) *Order {
 	return &Order{
-		id:              p.ID,
-		orderNumber:     p.OrderNumber,
-		customerID:      p.CustomerID,
-		guestEmail:      p.GuestEmail,
-		guestPhone:      p.GuestPhone,
-		shippingAddress: p.ShippingAddress,
-		billingAddress:  p.BillingAddress,
-		currency:        p.Currency,
-		shippingFee:     p.ShippingFee,
-		discountAmount:  p.DiscountAmount,
-		taxAmount:       p.TaxAmount,
-		status:          p.Status,
-		lines:           p.Lines,
-		idempotencyKey:  p.IdempotencyKey,
-		placedAt:        p.PlacedAt,
-		completedAt:     p.CompletedAt,
-		createdAt:       p.CreatedAt,
-		updatedAt:       p.UpdatedAt,
+		id:                 p.ID,
+		orderNumber:        p.OrderNumber,
+		customerID:         p.CustomerID,
+		guestEmail:         p.GuestEmail,
+		guestPhone:         p.GuestPhone,
+		shippingAddress:    p.ShippingAddress,
+		billingAddress:     p.BillingAddress,
+		currency:           p.Currency,
+		shippingFee:        p.ShippingFee,
+		discountAmount:     p.DiscountAmount,
+		taxAmount:          p.TaxAmount,
+		status:             p.Status,
+		lines:              p.Lines,
+		idempotencyKey:     p.IdempotencyKey,
+		cancellationReason: p.CancellationReason,
+		placedAt:           p.PlacedAt,
+		completedAt:        p.CompletedAt,
+		createdAt:          p.CreatedAt,
+		updatedAt:          p.UpdatedAt,
 	}
 }
 
@@ -276,10 +288,14 @@ func (o *Order) DiscountAmount() money.Money { return o.discountAmount }
 func (o *Order) TaxAmount() money.Money      { return o.taxAmount }
 func (o *Order) Status() Status              { return o.status }
 func (o *Order) IdempotencyKey() string      { return o.idempotencyKey }
-func (o *Order) PlacedAt() time.Time         { return o.placedAt }
-func (o *Order) CompletedAt() time.Time      { return o.completedAt }
-func (o *Order) CreatedAt() time.Time        { return o.createdAt }
-func (o *Order) UpdatedAt() time.Time        { return o.updatedAt }
+
+// CancellationReason là lý do khách chọn khi tự hủy. Rỗng nếu đơn chưa
+// hủy, hoặc nếu quản trị viên hủy (lý do đó nằm ở nhật ký thao tác).
+func (o *Order) CancellationReason() string { return o.cancellationReason }
+func (o *Order) PlacedAt() time.Time        { return o.placedAt }
+func (o *Order) CompletedAt() time.Time     { return o.completedAt }
+func (o *Order) CreatedAt() time.Time       { return o.createdAt }
+func (o *Order) UpdatedAt() time.Time       { return o.updatedAt }
 
 // IsGuestOrder cho biết đây có phải đơn của khách vãng lai không.
 func (o *Order) IsGuestOrder() bool { return o.customerID.IsZero() }
@@ -381,9 +397,22 @@ func (o *Order) MarkProcessing(now time.Time) error {
 // Điều kiện: chưa có FulfillmentOrder nào đóng gói xong (mục 6.1). Kiểm
 // tra chi tiết do tầng application làm; ở đây chỉ chặn theo trạng thái.
 func (o *Order) Cancel(now time.Time) error {
+	return o.CancelWithReason("", now)
+}
+
+// CancelWithReason hủy toàn bộ đơn và GHI LẠI lý do.
+//
+// Lý do được lưu vì năm lý do trong đặc tả dẫn tới năm hành động khác nhau
+// của nền tảng: "giao quá chậm" là vấn đề vận hành, "tìm được giá tốt hơn"
+// là vấn đề giá. Không lưu thì cả hai trông giống nhau: "đơn bị hủy".
+//
+// Chuỗi rỗng là hợp lệ — đó là đường của quản trị viên, nơi lý do đã nằm ở
+// nhật ký thao tác.
+func (o *Order) CancelWithReason(reason string, now time.Time) error {
 	if !o.status.CanCancelWholeOrder() {
 		return ErrNotCancellable
 	}
+	o.cancellationReason = strings.TrimSpace(reason)
 	for _, l := range o.lines {
 		if l.Status() == LineActive {
 			l.cancel(now)

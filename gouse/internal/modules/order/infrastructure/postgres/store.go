@@ -185,10 +185,11 @@ func (s *OrderStore) update(
 
 	tag, err := tx.Exec(ctx, `
 		UPDATE "order"
-		   SET status = $2, completed_at = $3, updated_at = $4
+		   SET status = $2, completed_at = $3, cancellation_reason = $4,
+		       updated_at = $5
 		 WHERE id = $1`,
 		o.ID().String(), string(o.Status()),
-		nullTime(o.CompletedAt()), o.UpdatedAt())
+		nullTime(o.CompletedAt()), o.CancellationReason(), o.UpdatedAt())
 	if err != nil {
 		return fmt.Errorf("order: cập nhật đơn hàng: %w", err)
 	}
@@ -319,7 +320,8 @@ const orderCols = `
 	bill_recipient_name, bill_phone, bill_street, bill_ward,
 	bill_district, bill_province, bill_country_code,
 	currency, shipping_fee, discount_amount, tax_amount,
-	status, idempotency_key, placed_at, completed_at, created_at, updated_at`
+	status, idempotency_key, cancellation_reason,
+	placed_at, completed_at, created_at, updated_at`
 
 func (s *OrderStore) FindByID(ctx context.Context, id ids.ID) (*domain.Order, error) {
 	return s.findOne(ctx, `WHERE id = $1`, id.String())
@@ -519,6 +521,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		customerID, email, phone   string
 		ship, bill                 domain.Address
 		currency, status, idemKey  string
+		cancelReason               string
 		shippingFee, discount, tax int64
 		completedAt                *time.Time
 	)
@@ -529,7 +532,8 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		&bill.RecipientName, &bill.Phone, &bill.StreetAddress, &bill.Ward,
 		&bill.District, &bill.Province, &bill.CountryCode,
 		&currency, &shippingFee, &discount, &tax,
-		&status, &idemKey, &p.PlacedAt, &completedAt, &p.CreatedAt, &p.UpdatedAt,
+		&status, &idemKey, &cancelReason,
+		&p.PlacedAt, &completedAt, &p.CreatedAt, &p.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -548,6 +552,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 	p.TaxAmount = mustMoney(tax, cur)
 	p.Status = domain.Status(status)
 	p.IdempotencyKey = idemKey
+	p.CancellationReason = cancelReason
 	p.CompletedAt = deref(completedAt)
 
 	return domain.RestoreOrder(p), nil
@@ -573,11 +578,15 @@ func withLines(o *domain.Order, lines []*domain.Line) *domain.Order {
 		TaxAmount:       o.TaxAmount(),
 		Status:          o.Status(),
 		Lines:           lines,
-		IdempotencyKey:  o.IdempotencyKey(),
-		PlacedAt:        o.PlacedAt(),
-		CompletedAt:     o.CompletedAt(),
-		CreatedAt:       o.CreatedAt(),
-		UpdatedAt:       o.UpdatedAt(),
+
+		// withLines dựng lại TỪ ĐẦU nên phải chép đủ mọi trường: bỏ sót
+		// một trường ở đây làm nó biến mất im lặng sau mỗi lần đọc.
+		CancellationReason: o.CancellationReason(),
+		IdempotencyKey:     o.IdempotencyKey(),
+		PlacedAt:           o.PlacedAt(),
+		CompletedAt:        o.CompletedAt(),
+		CreatedAt:          o.CreatedAt(),
+		UpdatedAt:          o.UpdatedAt(),
 	})
 }
 

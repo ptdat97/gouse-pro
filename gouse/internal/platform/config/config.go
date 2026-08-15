@@ -69,6 +69,16 @@ type AuthConfig struct {
 	// Bật ở mọi môi trường trừ development: trình duyệt không gửi cookie
 	// Secure qua HTTP, nên bật nó ở localhost sẽ làm đăng nhập không chạy.
 	SecureCookie bool
+
+	// AllowedOrigins là các origin trình duyệt được phép gọi API.
+	//
+	// DANH SÁCH TRẮNG, không có `*`: response mang cookie phiên, nên cho
+	// phép mọi origin nghĩa là bất kỳ trang web nào cũng gọi được API dưới
+	// danh nghĩa người dùng đang đăng nhập.
+	//
+	// Rỗng = không trình duyệt nào gọi được (chỉ còn client không phải
+	// trình duyệt). Đó là mặc định AN TOÀN, không phải mặc định tiện.
+	AllowedOrigins []string
 }
 
 // ModulesConfig là cấu hình chung cho các module nghiệp vụ.
@@ -182,6 +192,21 @@ func Load() (*Config, error) {
 		collect(fmt.Errorf("MODULES_STORAGE không hợp lệ: %q (phải là memory|postgres)", storage))
 	}
 
+	// Origin của giao diện. Mặc định khi phát triển là Next.js ở cổng 3000.
+	var allowedOrigins []string
+	if raw := os.Getenv("AUTH_ALLOWED_ORIGINS"); raw != "" {
+		for _, o := range strings.Split(raw, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				allowedOrigins = append(allowedOrigins, o)
+			}
+		}
+	} else if !env.IsProduction() {
+		allowedOrigins = []string{"http://localhost:3000"}
+	}
+	// Ở production KHÔNG có mặc định: quên cấu hình thì giao diện không gọi
+	// được API và người ta sửa ngay. Mặc định sai còn nguy hiểm hơn, vì nó
+	// chạy được và không ai để ý.
+
 	jwtSecret := os.Getenv("AUTH_JWT_SECRET")
 	if jwtSecret == "" {
 		// Ở production, thiếu khóa là lỗi khởi động. Sinh khóa ngẫu nhiên
@@ -223,7 +248,8 @@ func Load() (*Config, error) {
 			JWTSecret: jwtSecret,
 			// Bật ở mọi nơi TRỪ development — localhost chạy HTTP, mà trình
 			// duyệt không gửi cookie Secure qua HTTP.
-			SecureCookie: !env.IsDevelopment(),
+			SecureCookie:   !env.IsDevelopment(),
+			AllowedOrigins: allowedOrigins,
 		},
 		Database: DatabaseConfig{
 			DSN:             dsn,

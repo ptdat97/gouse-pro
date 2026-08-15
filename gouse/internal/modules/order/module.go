@@ -152,6 +152,14 @@ func (m *Module) CancelOrderAsAdmin(
 //
 // Mux truyền vào PHẢI đã bọc Auth và RequireRole. Gắn nhầm vào mux công khai
 // nghĩa là bất kỳ ai cũng đọc được địa chỉ và số điện thoại của mọi khách.
+// RegisterCustomerRoutes gắn các endpoint đơn hàng của KHÁCH vào mux.
+//
+// Bên gọi PHẢI bọc httpserver.ResolveShopper: handler lấy định danh khách
+// hàng từ context để giới hạn phạm vi dữ liệu.
+func (m *Module) RegisterCustomerRoutes(mux *http.ServeMux, log *slog.Logger) {
+	orderhttp.NewCustomerHandler(m.svc, log).Register(mux)
+}
+
 func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 	orderhttp.NewHandler(m.svc, log).Register(mux)
 }

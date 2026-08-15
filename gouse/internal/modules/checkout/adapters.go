@@ -82,6 +82,26 @@ func (a *cartAdapter) MarkConverted(ctx context.Context, cartID ids.ID) error {
 	return a.api.MarkConverted(ctx, cartID.String())
 }
 
+// ActiveCartID tra giỏ đang dùng của người mua.
+//
+// Dùng GetOrCreateCart chứ không phải một hàm "tìm" riêng: khách bấm thanh
+// toán khi chưa từng có giỏ sẽ nhận giỏ rỗng, và StartCheckout trả về
+// ErrEmptyCart — thông điệp đúng với thứ khách gặp phải. Trả "không tìm
+// thấy giỏ" ở đây chỉ khiến giao diện phải đoán xem lỗi nghĩa là gì.
+func (a *cartAdapter) ActiveCartID(
+	ctx context.Context, customerID, sessionID string,
+) (ids.ID, error) {
+	view, err := a.api.GetOrCreateCart(ctx, cart.GetOrCreateRequest{
+		CustomerID: customerID,
+		SessionID:  sessionID,
+		Currency:   string(money.VND),
+	})
+	if err != nil {
+		return "", err
+	}
+	return ids.ID(view.ID), nil
+}
+
 // inventoryAdapter nối tới module inventory.
 type inventoryAdapter struct{ api inventory.API }
 

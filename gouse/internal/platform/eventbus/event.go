@@ -183,6 +183,13 @@ const (
 
 	TypeFulfillmentProgress = "fulfillment.progress_changed"
 
+	// TypeSearchNoResult là khách tìm mà KHÔNG ra kết quả.
+	//
+	// Đây là tín hiệu NHU CẦU KHÔNG ĐƯỢC ĐÁP ỨNG — thứ dữ liệu bán hàng
+	// một mình không bao giờ cho biết. Ghi từ MVP vì nó không tạo ngược
+	// được: không ghi hôm nay thì Phase 3 khởi động với lịch sử trống.
+	TypeSearchNoResult = "search.no_result"
+
 	TypeInventoryReserved  = "inventory.reserved"
 	TypeInventoryCommitted = "inventory.committed"
 	TypeInventoryReleased  = "inventory.reservation_released"
@@ -195,4 +202,9 @@ const (
 	AggregateCheckout    = "Checkout"
 	AggregateItem        = "InventoryItem"
 	AggregateFulfillment = "FulfillmentOrder"
+
+	// AggregateSearch không phải một aggregate thật — tìm kiếm không có
+	// thực thể nào. Dùng để event có đủ trường bắt buộc; định danh là bản
+	// băm của từ khóa.
+	AggregateSearch = "Search"
 )

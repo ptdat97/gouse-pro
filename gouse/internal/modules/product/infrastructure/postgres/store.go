@@ -470,12 +470,17 @@ func (s *ProductStore) List(ctx context.Context, f domain.Filter) ([]*domain.Pro
 	        AND ($6 = '' OR gender_target = $6)
 	        AND ($7 = '' OR status = $7)
 	        AND (NOT $8::bool OR status = 'ACTIVE')
+	        AND ($9 = '' OR name ILIKE '%' || $9 || '%')
 	      ORDER BY id`
 
 	args := []any{
 		f.BrandID.String(), f.CategoryID.String(), f.CollectionID.String(),
 		f.SellerID.String(), string(f.ProductType), string(f.Gender),
 		string(f.Status), f.OnlyVisible,
+		// ILIKE: tìm kiếm MVP là so khớp chuỗi con, không phân biệt hoa
+		// thường. Không xếp hạng liên quan, không xử lý dấu — chỉ mục tìm
+		// kiếm riêng là hạ tầng thêm KHI ĐO ĐƯỢC nhu cầu, không phải bây giờ.
+		f.Query,
 	}
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT $%d", len(args)+1)

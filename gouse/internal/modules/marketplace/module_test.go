@@ -39,6 +39,9 @@ type fakeProduct struct {
 	brandID  ids.ID
 	found    bool
 	sellable bool
+
+	// skus là SKU của sản phẩm, cho ListProductOffers.
+	skus []ids.ID
 }
 
 func (f *fakeProduct) BrandOfSKU(context.Context, ids.ID) (ids.ID, bool, error) {
@@ -46,6 +49,9 @@ func (f *fakeProduct) BrandOfSKU(context.Context, ids.ID) (ids.ID, bool, error) 
 }
 func (f *fakeProduct) IsSKUSellable(context.Context, ids.ID) (bool, error) {
 	return f.sellable, nil
+}
+func (f *fakeProduct) SKUsOfProduct(context.Context, ids.ID) ([]ids.ID, error) {
+	return f.skus, nil
 }
 
 type fakeSeller struct {

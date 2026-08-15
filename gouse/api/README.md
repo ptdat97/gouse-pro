@@ -158,15 +158,18 @@ Cập nhật: 15/08/2026.
 ### Tổng hợp
 
 ```text
-TESTED          5      catalog · product
-IMPLEMENTED    13      auth · audit-log · admin sellers · ledger · orders
-INTEGRATED      0      chưa có frontend
-DESIGNED       53      (37 MVP còn lại + 16 hoãn Phase 2/3)
+TESTED         15      catalog · product · cart · checkout · orders (khách)
+IMPLEMENTED    19      auth · audit-log · admin sellers · ledger · orders ·
+                       offers · search · checkout (3 đường cần phiên thật) ·
+                       placeOrder
+INTEGRATED      3      Admin UI đang gọi: listSellers · listAdminOrders ·
+                       listAuditLog (+ các thao tác kèm theo)
+DESIGNED       37      (21 MVP còn lại + 16 hoãn Phase 2/3)
                 ──
                 71
 ```
 
-### Đã cài đặt (18)
+### Đã cài đặt (34)
 
 | Operation | Đường dẫn | Mức |
 |---|---|---|
@@ -188,8 +191,40 @@ DESIGNED       53      (37 MVP còn lại + 16 hoãn Phase 2/3)
 | `listAdminOrders` | `GET /api/v1/admin/orders` | IMPLEMENTED |
 | `getAdminOrderDetail` | `GET /api/v1/admin/orders/{id}` | IMPLEMENTED |
 | `cancelAdminOrder` | `POST /api/v1/admin/orders/{id}/cancel` | IMPLEMENTED |
+| `listProductOffers` | `GET /api/v1/products/{id}/offers` | IMPLEMENTED |
+| `search` | `GET /api/v1/search` | IMPLEMENTED |
+| `getCart` | `GET /api/v1/cart` | TESTED |
+| `addCartItem` | `POST /api/v1/cart/items` | TESTED |
+| `updateCartItem` | `PATCH /api/v1/cart/items/{cart_item_id}` | TESTED |
+| `removeCartItem` | `DELETE /api/v1/cart/items/{cart_item_id}` | TESTED |
+| `startCheckout` | `POST /api/v1/checkout` | TESTED |
+| `getCheckout` | `GET /api/v1/checkout/{checkout_id}` | IMPLEMENTED |
+| `setCheckoutShippingAddress` | `PATCH /api/v1/checkout/{id}/shipping-address` | IMPLEMENTED |
+| `setCheckoutShippingMethod` | `PATCH /api/v1/checkout/{id}/shipping-method` | TESTED |
+| `applyCheckoutCoupon` | `POST /api/v1/checkout/{id}/coupon` | IMPLEMENTED |
+| `completeCheckout` | `POST /api/v1/checkout/{id}/complete` | TESTED |
 
-Mười ba operation `IMPLEMENTED` đã được kiểm chứng bằng **chạy server thật**,
+**Về mức của ba operation checkout còn ở `IMPLEMENTED`:** chúng cần một
+phiên thanh toán CÓ THẬT, nghĩa là cần inventory giữ được hàng — thuộc test
+E2E (P3-3).
+
+| `listMyOrders` | `GET /api/v1/orders` | TESTED |
+| `getOrder` | `GET /api/v1/orders/{order_id}` | TESTED |
+| `cancelOrder` | `POST /api/v1/orders/{order_id}/cancel` | TESTED |
+| `placeOrder` | `POST /api/v1/orders` | IMPLEMENTED |
+
+**`placeOrder` do module `checkout` phục vụ**, không phải `order`: nó phải
+đọc phiên thanh toán, mà order không được gọi checkout (ADR-0007). Nó ở mức
+`IMPLEMENTED` vì đường thành công cần một phiên có thật — cùng lý do với ba
+operation checkout ở trên.
+
+**Về mức của nhóm checkout:** `TESTED` ở đây nghĩa là có test HTTP cho những
+gì handler CHẶN — quyền sở hữu giỏ, phương thức thanh toán, phương thức vận
+chuyển, `Idempotency-Key`. Đường đi THÀNH CÔNG của `completeCheckout` cần cả
+inventory, marketplace và order chạy thật; nó thuộc test E2E (P3-3), chưa
+làm.
+
+Mười lăm operation `IMPLEMENTED` đã được kiểm chứng bằng **chạy server thật**,
 nhưng chưa có test tự động ở **tầng HTTP** — nợ kỹ thuật P3-1 trong
 [backlog](../docs/10-roadmap/backlog.md). Riêng `suspendSeller` có nghiệp vụ
 được phủ bởi test module chạy trên PostgreSQL thật (ranh giới giao dịch,
@@ -211,11 +246,10 @@ getAdminOrderDetail.customer{}            → thay bằng customer_id
 Việc ghép dữ liệu là của **TRANG**, không phải của **ENDPOINT**: Admin UI
 gọi nhiều endpoint rồi ghép lại.
 
-### MVP còn lại (37) — `DESIGNED`
+### MVP còn lại (35) — `DESIGNED`
 
 | Nhóm | Số | Operation |
 |---|---|---|
-| Storefront | 2 | `listProductOffers` · `search` |
 | Account | 6 | `getMyProfile` · `updateMyProfile` · `listMyAddresses` · `addMyAddress` · `getMyWishlist` · `addWishlistItem` |
 | Cart & Checkout | 10 | `getCart` · `addCartItem` · `updateCartItem` · `removeCartItem` · `startCheckout` · `getCheckout` · `setCheckoutShippingAddress` · `setCheckoutShippingMethod` · `applyCheckoutCoupon` · `completeCheckout` |
 | Orders | 4 | `listMyOrders` · `placeOrder` · `getOrder` · `cancelOrder` |

@@ -14,6 +14,7 @@ import (
 	productpg "github.com/fashion-commerce/platform/internal/modules/product/infrastructure/postgres"
 	producthttp "github.com/fashion-commerce/platform/internal/modules/product/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // Module là cài đặt của API công khai.
@@ -42,6 +43,12 @@ type Config struct {
 
 	// Clock cho phép test kiểm soát thời gian. Nil = đồng hồ hệ thống.
 	Clock application.Clock
+
+	// Events là nơi phát tín hiệu tìm kiếm không ra kết quả.
+	//
+	// Có thể nil: tìm kiếm vẫn chạy, chỉ là không ghi tín hiệu. Không chặn
+	// tìm kiếm vì mất một tín hiệu nhẹ hơn mất khả năng tìm sản phẩm.
+	Events *eventbus.Outbox
 }
 
 // New khởi tạo module product.
@@ -66,11 +73,15 @@ func New(cfg Config) (*Module, error) {
 		if cfg.DB == nil {
 			return nil, errors.New("product: kho lưu trữ postgres cần kết nối database")
 		}
-		return &Module{svc: application.NewService(application.Deps{
+		deps := application.Deps{
 			Products: productpg.NewProductStore(cfg.DB.Pool()),
 			Catalog:  &catalogAdapter{api: cfg.Catalog},
 			Clock:    cfg.Clock,
-		})}, nil
+		}
+		if cfg.Events != nil {
+			deps.SearchSignals = NewSearchSignalPublisher(cfg.Events)
+		}
+		return &Module{svc: application.NewService(deps)}, nil
 
 	default:
 		return nil, errors.New("product: kho lưu trữ không hợp lệ: " + cfg.Storage)

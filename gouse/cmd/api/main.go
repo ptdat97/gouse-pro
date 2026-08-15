@@ -22,6 +22,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
+	"github.com/fashion-commerce/platform/internal/modules/customer"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
@@ -101,10 +102,21 @@ func run() error {
 	//
 	// product nhận catalogModule qua interface công khai catalog.API — nó
 	// KHÔNG cầm được *application.Service của catalog.
+	// Outbox cấp cho product để phát tín hiệu "tìm không ra kết quả".
+	//
+	// Chỉ có với PostgreSQL: outbox là một bảng. Với kho in-memory, tìm
+	// kiếm vẫn chạy nhưng không ghi tín hiệu — chấp nhận được vì kho
+	// in-memory chỉ dùng khi phát triển.
+	var searchOutbox *eventbus.Outbox
+	if db != nil {
+		searchOutbox = eventbus.NewOutbox(db.Pool())
+	}
+
 	productModule, err := product.New(product.Config{
 		Storage: cfg.Modules.Storage,
 		Catalog: catalogModule,
 		DB:      db,
+		Events:  searchOutbox,
 	})
 	if err != nil {
 		return err
@@ -130,6 +142,7 @@ func run() error {
 		marketplaceModule *marketplace.Module
 		paymentModule     *payment.Module
 		orderModule       *order.Module
+		customerModule    *customer.Module
 		cartModule        *cart.Module
 		checkoutModule    *checkout.Module
 		fulfillmentModule *fulfillment.Module
@@ -266,6 +279,17 @@ func run() error {
 		log.Info("module payment và order đã sẵn sàng",
 			"but_toan_da_ra_soat", integrity.CheckedEntries,
 			"so_sach_can_bang", integrity.IsHealthy)
+
+		// customer giữ HỒ SƠ KHÁCH HÀNG — khác với tài khoản đăng nhập của
+		// identity. Ở đây nó có một việc: đổi user_id lấy customer_id để
+		// giỏ hàng của người đã đăng nhập gắn đúng hồ sơ.
+		customerModule, err = customer.New(customer.Config{
+			Storage: "postgres",
+			DB:      db,
+		})
+		if err != nil {
+			return err
+		}
 
 		// cart cần bốn module để đồng bộ giá và tình trạng hàng.
 		//
@@ -405,11 +429,45 @@ func run() error {
 	}
 
 	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, log, db, catalogModule, productModule,
-		identityModule, sellerModule, paymentModule, orderModule, auditRecorder)
+	registerRoutes(mux, cfg, log, db, modules{
+		catalog:     catalogModule,
+		product:     productModule,
+		identity:    identityModule,
+		marketplace: marketplaceModule,
+		seller:      sellerModule,
+		payment:     paymentModule,
+		order:       orderModule,
+		customer:    customerModule,
+		cart:        cartModule,
+		checkout:    checkoutModule,
+		audit:       auditRecorder,
+	})
 
-	srv := httpserver.New(cfg.HTTP, log, mux)
+	srv := httpserver.New(cfg.HTTP, log, mux, cfg.Auth.AllowedOrigins)
 	return srv.Run(ctx)
+}
+
+// modules gom các module cho registerRoutes.
+//
+// Là struct chứ không phải danh sách tham số vì gần như mọi trường đều là
+// con trỏ có thể nil: một danh sách mười một tham số cùng kiểu nil thì
+// hoán đổi nhầm hai vị trí vẫn biên dịch được, và lỗi chỉ lộ ra khi một
+// endpoint im lặng biến mất khỏi mux.
+type modules struct {
+	catalog     *catalog.Module
+	product     *product.Module
+	identity    *identity.Module
+	marketplace *marketplace.Module
+	seller      *seller.Module
+	payment     *payment.Module
+	order       *order.Module
+	customer    *customer.Module
+	cart        *cart.Module
+	checkout    *checkout.Module
+
+	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
+	// cũng cần nối route nên đi cùng chỗ này.
+	audit *audit.Recorder
 }
 
 // registerRoutes gắn các route vào mux.
@@ -421,18 +479,28 @@ func registerRoutes(
 	cfg *config.Config,
 	log *slog.Logger,
 	db *database.DB,
-	catalogModule *catalog.Module,
-	productModule *product.Module,
-	identityModule *identity.Module,
-	sellerModule *seller.Module,
-	paymentModule *payment.Module,
-	orderModule *order.Module,
-	auditRecorder *audit.Recorder,
+	m modules,
 ) {
+	catalogModule := m.catalog
+	productModule := m.product
+	identityModule := m.identity
+	marketplaceModule := m.marketplace
+	sellerModule := m.seller
+	paymentModule := m.payment
+	orderModule := m.order
+	auditRecorder := m.audit
+
 	// Mỗi module tự đăng ký route của mình. main không biết đường dẫn hay
 	// hình dạng response của module nào — nó chỉ trao mux.
 	catalogModule.RegisterRoutes(mux, log)
 	productModule.RegisterRoutes(mux, log)
+
+	// Offer của sản phẩm — công khai, khách vãng lai xem được.
+	if marketplaceModule != nil {
+		marketplaceModule.RegisterRoutes(mux, log)
+	}
+
+	registerShoppingRoutes(mux, log, m)
 
 	if identityModule != nil {
 		// Endpoint công khai: login, refresh, logout.

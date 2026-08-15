@@ -281,6 +281,13 @@ func (s *ProductStore) List(_ context.Context, f domain.Filter) ([]*domain.Produ
 // LƯU Ý BẢO MẬT: lọc theo SellerID nằm ở ĐÂY, trong "truy vấn", không ở
 // tầng hiển thị. Dữ liệu của seller khác không bao giờ rời khỏi kho.
 func matches(p domain.RestoreProductParams, f domain.Filter) bool {
+	// Từ khóa khớp theo tên, không phân biệt hoa thường — phải GIỐNG ILIKE
+	// của bản PostgreSQL, nếu không test in-memory sẽ xanh cho hành vi mà
+	// production không có.
+	if f.Query != "" &&
+		!strings.Contains(strings.ToLower(p.Name), strings.ToLower(f.Query)) {
+		return false
+	}
 	if !f.BrandID.IsZero() && p.BrandID != f.BrandID {
 		return false
 	}

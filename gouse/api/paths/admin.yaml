@@ -14,8 +14,9 @@ sellers:
     description: |
       Lọc theo trạng thái để dựng hàng đợi duyệt hồ sơ.
 
-      `status=PENDING` là màn hình làm việc chính của `OPS_MERCHANDISING` —
-      nhân viên vào để xử lý việc, nên hồ sơ chờ duyệt phải lên đầu.
+      `status=PENDING_REVIEW` là màn hình làm việc chính của
+      `OPS_MERCHANDISING` — nhân viên vào để xử lý việc, nên hồ sơ chờ duyệt
+      phải là bộ lọc mặc định.
     operationId: listSellers
     security:
       - bearerAuth: []
@@ -26,7 +27,15 @@ sellers:
         in: query
         schema:
           type: string
-          enum: [PENDING, APPROVED, SUSPENDED, REJECTED]
+          enum:
+            - APPLIED
+            - PENDING_REVIEW
+            - APPROVED
+            - ACTIVE
+            - REJECTED
+            - SUSPENDED
+            - ON_VACATION
+            - TERMINATED
       - name: seller_type
         in: query
         schema:
@@ -1123,7 +1132,19 @@ AdminSellerSummary:
       enum: [INTERNAL, INDIVIDUAL, BUSINESS, LOCAL_BRAND, STRATEGIC_PARTNER]
     status:
       type: string
-      enum: [PENDING, APPROVED, SUSPENDED, REJECTED]
+      description: |
+        Tám trạng thái của máy trạng thái nhà bán. Khớp ràng buộc CHECK ở
+        migration 000005 — đặc tả từng khai báo bốn giá trị, trong đó
+        `PENDING` không tồn tại ở đâu cả.
+      enum:
+        - APPLIED
+        - PENDING_REVIEW
+        - APPROVED
+        - ACTIVE
+        - REJECTED
+        - SUSPENDED
+        - ON_VACATION
+        - TERMINATED
     commission_rate_bp:
       $ref: '../components/common.yaml#/schemas/BasisPoints'
     is_active:

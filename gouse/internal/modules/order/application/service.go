@@ -422,14 +422,36 @@ func (s *Service) CancelOrderAsAdmin(
 }
 
 func (s *Service) CancelOrder(ctx context.Context, orderID ids.ID, reason string) error {
+	_, err := s.CancelOwnOrder(ctx, orderID, reason)
+	return err
+}
+
+// CancelOwnOrder hủy đơn theo yêu cầu của CHÍNH KHÁCH HÀNG.
+//
+// Khác CancelOrderAsAdmin ở hai điểm:
+//
+//   - KHÔNG ghi audit log. Nhật ký thao tác dành cho hành động của nhân
+//     viên (ADR-0011); khách hủy đơn của mình không phải thứ cần giám sát.
+//   - Lý do được LƯU VÀO ĐƠN thay vì vào nhật ký, vì đây là dữ liệu nghiệp
+//     vụ: "giao quá chậm" và "tìm được giá tốt hơn" dẫn tới hai hành động
+//     khác nhau của nền tảng.
+//
+// Bên gọi PHẢI kiểm tra quyền sở hữu TRƯỚC. Hàm này không biết ai đang gọi
+// — truyền vào một mã đơn bất kỳ là hủy được đơn đó.
+func (s *Service) CancelOwnOrder(
+	ctx context.Context, orderID ids.ID, reason string,
+) (*domain.Order, error) {
 	o, err := s.orders.FindByID(ctx, orderID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := o.Cancel(s.clock.Now()); err != nil {
-		return err
+	if err := o.CancelWithReason(reason, s.clock.Now()); err != nil {
+		return nil, err
 	}
-	return s.orders.Update(ctx, o)
+	if err := s.orders.Update(ctx, o); err != nil {
+		return nil, err
+	}
+	return o, nil
 }
 
 // ApplyFulfillmentProgress tính lại trạng thái tổng hợp từ tiến độ các

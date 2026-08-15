@@ -535,3 +535,61 @@ func TestDanhSachDonQuanTriLocDuoc(t *testing.T) {
 		t.Errorf("trạng thái không tồn tại phải trả rỗng, nhận %d", len(none))
 	}
 }
+
+// LÝ DO HỦY của khách được LƯU XUỐNG DATABASE.
+//
+// Đặc tả bắt khách chọn một trong năm lý do. Kiểm tra rồi vứt đi thì việc
+// bắt họ chọn là vô nghĩa — và ba vấn đề khác nhau ("giao quá chậm",
+// "tìm được giá tốt hơn", "đặt nhầm") trông giống hệt nhau: "đơn bị hủy".
+//
+// Test TRUY VẤN THẲNG bảng `order`. Đọc qua module thì không phân biệt được
+// "đã ghi xuống" với "còn trong bộ nhớ từ lúc hủy" — và các báo cáo về lý
+// do hủy đọc thẳng bảng này.
+func TestLyDoHuyCuaKhachLuuXuongDatabase(t *testing.T) {
+	m, db := newModuleWithDB(t)
+	ctx := context.Background()
+	v := placeForAdmin(t, m, "khach-tu-huy")
+
+	if err := m.CancelOrder(ctx, v.ID, "DELIVERY_TOO_SLOW"); err != nil {
+		t.Fatalf("CancelOrder: %v", err)
+	}
+
+	var stored string
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT cancellation_reason FROM "order" WHERE id = $1`, v.ID,
+	).Scan(&stored); err != nil {
+		t.Fatalf("đọc lý do hủy: %v", err)
+	}
+	if stored != "DELIVERY_TOO_SLOW" {
+		t.Errorf("lý do hủy trong database = %q, mong DELIVERY_TOO_SLOW", stored)
+	}
+}
+
+// HỦY BỞI QUẢN TRỊ VIÊN không ghi lý do vào đơn.
+//
+// Lý do của nhân viên là VĂN BẢN TỰ DO đã được kiểm tra chất lượng và ghi
+// vào nhật ký thao tác (ADR-0011). Chép nó vào cột dữ liệu nghiệp vụ sẽ
+// làm hỏng mọi báo cáo tổng hợp theo năm lý do đóng của khách.
+func TestHuyBoiQuanTriKhongGhiLyDoVaoDon(t *testing.T) {
+	m, db := newModuleWithDB(t)
+	ctx := context.Background()
+	v := placeForAdmin(t, m, "quan-tri-huy")
+
+	if _, err := m.CancelOrderAsAdmin(ctx, order.CancelOrderRequest{
+		OrderID: v.ID, ActorID: adminActor,
+		Reason: "Khách yêu cầu hủy vì đặt nhầm size, hàng chưa xuất kho",
+	}); err != nil {
+		t.Fatalf("CancelOrderAsAdmin: %v", err)
+	}
+
+	var stored string
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT cancellation_reason FROM "order" WHERE id = $1`, v.ID,
+	).Scan(&stored); err != nil {
+		t.Fatalf("đọc lý do hủy: %v", err)
+	}
+	if stored != "" {
+		t.Errorf("lý do hủy trong đơn = %q, mong rỗng — lý do của nhân viên "+
+			"thuộc về nhật ký thao tác", stored)
+	}
+}

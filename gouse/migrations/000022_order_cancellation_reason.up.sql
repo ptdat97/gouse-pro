@@ -1,0 +1,23 @@
+-- Lý do hủy đơn.
+--
+-- # Vì sao phải LƯU chứ không chỉ kiểm tra
+--
+-- Đặc tả (api/paths/orders.yaml, operationId cancelOrder) bắt khách chọn
+-- một trong năm lý do. Kiểm tra rồi vứt đi thì việc bắt khách chọn là vô
+-- nghĩa — và năm lý do đó dẫn tới năm hành động khác nhau của nền tảng:
+--
+--   DELIVERY_TOO_SLOW   → vấn đề vận hành, xem lại nguồn hàng nào chậm
+--   FOUND_BETTER_PRICE  → vấn đề giá, xem lại buy box
+--   ORDERED_BY_MISTAKE  → vấn đề giao diện, xem lại bước xác nhận
+--
+-- Không có cột này thì ba vấn đề trên trông giống hệt nhau: "đơn bị hủy".
+--
+-- # Vì sao KHÔNG dùng audit_log
+--
+-- audit_log ghi thao tác của NHÂN VIÊN (ADR-0011). Khách tự hủy đơn của
+-- mình không phải thao tác cần giám sát — nó là dữ liệu nghiệp vụ của đơn.
+--
+-- Rỗng là hợp lệ: đơn hủy bởi quản trị viên có lý do nằm ở audit_log, và
+-- đơn hủy trước khi có cột này thì không có gì để điền.
+ALTER TABLE "order"
+    ADD COLUMN cancellation_reason TEXT NOT NULL DEFAULT '';

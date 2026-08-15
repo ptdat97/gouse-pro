@@ -110,7 +110,12 @@ func (l *offerLookup) LookupOffers(
 		// Seller không tra được thì coi như KHÔNG hoạt động: thà đánh dấu
 		// UNAVAILABLE nhầm còn hơn để khách đặt hàng của seller đã bị đình
 		// chỉ rồi phải hủy đơn.
-		d.SellerActive = sellers[o.SellerID]
+		//
+		// Tên thì ngược lại: tra không ra thì để rỗng và đi tiếp. Thiếu một
+		// nhãn hiển thị không phải lý do làm hỏng giỏ hàng.
+		sel := sellers[o.SellerID]
+		d.SellerActive = sel.IsActive
+		d.SellerName = sel.Name
 
 		if sku, ok := skus[o.SKUID]; ok {
 			d.ProductName = sku.ProductName
@@ -194,10 +199,16 @@ func variantLabel(v product.VariantView) string {
 	}
 }
 
+// sellerInfo là thông tin seller mà giỏ cần.
+type sellerInfo struct {
+	Name     string
+	IsActive bool
+}
+
 func (l *offerLookup) lookupSellers(
 	ctx context.Context, sellerIDs []string,
-) (map[string]bool, error) {
-	out := map[string]bool{}
+) (map[string]sellerInfo, error) {
+	out := map[string]sellerInfo{}
 	if l.seller == nil || len(sellerIDs) == 0 {
 		return out, nil
 	}
@@ -207,7 +218,7 @@ func (l *offerLookup) lookupSellers(
 		return nil, err
 	}
 	for id, v := range views {
-		out[id] = v.IsActive
+		out[id] = sellerInfo{Name: v.Name, IsActive: v.IsActive}
 	}
 	return out, nil
 }

@@ -3,6 +3,8 @@ package cart
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/cart/application"
 	"github.com/fashion-commerce/platform/internal/modules/cart/domain"
 	cartpg "github.com/fashion-commerce/platform/internal/modules/cart/infrastructure/postgres"
+	carthttp "github.com/fashion-commerce/platform/internal/modules/cart/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/product"
@@ -91,6 +94,14 @@ func New(cfg Config) (*Module, error) {
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
 func (m *Module) Service() *application.Service { return m.svc }
+
+// RegisterRoutes gắn các endpoint giỏ hàng vào mux.
+//
+// Bên gọi PHẢI bọc httpserver.ResolveShopper quanh mux này: handler lấy
+// danh tính người mua từ context và từ chối phục vụ khi không có.
+func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
+	carthttp.NewHandler(m.svc, log).Register(mux)
+}
 
 // ---------------------------------------------------------------- API
 
