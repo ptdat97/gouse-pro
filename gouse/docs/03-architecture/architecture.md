@@ -1,5 +1,17 @@
 # Kiến trúc tổng thể
 
+```text
+ARCHITECTURE FROZEN — 15/08/2026
+```
+
+> Kiến trúc mô tả ở đây **đủ để triển khai**. Không thêm microservices,
+> plugin system, GraphQL, gRPC, workflow/rule engine tổng quát, message
+> broker, service extraction, trừu tượng hóa tổng quát, hay module mới —
+> trừ khi triển khai thực tế chứng minh là cần **và** có ADR.
+>
+> Xem [../README.md](../README.md) mục Architecture Freeze. Việc đang làm:
+> [../10-roadmap/backlog.md](../10-roadmap/backlog.md).
+
 ## 1. Sơ đồ tổng thể
 
 ```text

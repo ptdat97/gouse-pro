@@ -1,13 +1,16 @@
-# Tiến độ triển khai
+# Tiến độ triển khai — việc ĐÃ LÀM
 
-Theo dõi việc đã làm và việc còn lại, bám theo thứ tự triển khai ở
-[deliverables.md](deliverables.md) mục 14 và phạm vi MVP ở [mvp.md](mvp.md) mục 3.
+> **Đây KHÔNG phải backlog.** Việc còn phải làm nằm ở
+> **[backlog.md](backlog.md)** — backlog duy nhất của dự án.
+>
+> File này là **hồ sơ hồi cứu**: đã làm những gì, và kiểm chứng bằng cách
+> nào. Giá trị của nó nằm ở phần bằng chứng — mỗi bất biến đều được xác
+> nhận bằng cách phá code sản xuất rồi chạy lại test.
 
-**Cập nhật:** 14/08/2026 · **Trạng thái:** Giai đoạn 5 **HOÀN THÀNH**
-(fulfillment · notification · analytics nối vào bus event)
+**Cập nhật:** 15/08/2026 · **Giai đoạn:** Implementation Completion
 
 **17/17 module MVP đã có logic nghiệp vụ.** Việc còn lại lớn nhất là
-**tầng HTTP**: 10/71 endpoint đã cài đặt.
+**tầng HTTP**: 10/71 endpoint đã cài đặt, 3/17 module có tầng HTTP.
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -16,7 +19,7 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 ## 1. Tình hình hiện tại
 
 ```text
-Tài liệu     125 file · 32.367 dòng · 13 thư mục      ✓ hoàn thành
+Tài liệu     128 file · 35.945 dòng · 13 thư mục      ✓ ĐÓNG BĂNG
 Đặc tả API   12 file YAML · 71 operation · 0 lỗi lint ✓ hoàn thành
              (còn 4 cảnh báo redocly, không chặn)
 Code Go      231 file · 66.610 dòng · 586 hàm test    → Hết giai đoạn 5/7

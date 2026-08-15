@@ -54,3 +54,53 @@ Deprecated — không còn áp dụng
 ```
 
 **Khi nào cần ADR:** quyết định khó đảo ngược, ảnh hưởng nhiều module, hoặc có phương án thay thế hợp lý bị loại. Không cần ADR cho quyết định nhỏ, dễ đổi.
+
+---
+
+## Sau Architecture Freeze — ADR là cửa duy nhất
+
+Kiến trúc đã đóng băng (xem [../README.md](../README.md)). Từ thời điểm này,
+**mọi thay đổi kiến trúc phải đi qua ADR**, và ADR phải xuất phát từ một vấn
+đề triển khai THẬT:
+
+```text
+Implementation  →  Vấn đề THẬT  →  ADR  →  Architecture change
+```
+
+Không phải:
+
+```text
+Khả năng tương lai  →  Trừu tượng hóa mới
+```
+
+### Khi triển khai cần phá một quy tắc của archcheck
+
+```text
+DỪNG LẠI
+   ↓
+Hiểu VÌ SAO quy tắc tồn tại
+   ↓
+Viết ADR
+   ↓
+Đổi quy tắc một cách có ý thức
+```
+
+**Không bypass archcheck để làm tính năng cho nhanh.** Một quy tắc bị vô
+hiệu hóa trong lúc vội sẽ không bao giờ được bật lại — và ranh giới module
+mất đi âm thầm, không ai nhận ra cho tới khi việc tách service trở nên bất
+khả thi.
+
+Tiền lệ: khi cần `HashIP` ở tầng interfaces, archcheck chặn vì R8 cấm
+interfaces import infrastructure. Cách xử lý đúng là **đổi import sang
+`platform/privacy`**, không phải thêm ngoại lệ cho archcheck.
+
+### Ba câu hỏi trước khi viết ADR mới
+
+```text
+1. Vấn đề cụ thể nào trong code hiện tại buộc phải thay đổi này?
+2. Đã thử làm bằng kiến trúc hiện có chưa? Vướng ở đâu?
+3. Sửa tối thiểu có đủ không, hay thật sự cần đổi kiến trúc?
+```
+
+Trả lời được cả ba thì viết. Nếu câu trả lời là *"sẽ cần sau này"* — không
+viết.

@@ -136,6 +136,87 @@ Sinh kiểu TypeScript: thành công
 
 ---
 
+## Trạng thái cài đặt từng operation
+
+**Đặc tả không phải tài liệu — nó là hợp đồng phải có code phía sau.** Bảng
+này theo dõi khoảng cách giữa hai thứ đó.
+
+Cập nhật: 15/08/2026.
+
+### Bốn mức
+
+| Mức | Nghĩa |
+|---|---|
+| `DESIGNED` | Có trong đặc tả, **chưa có handler** |
+| `IMPLEMENTED` | Handler chạy được, chưa có test tự động ở tầng HTTP |
+| `TESTED` | Có integration test ở tầng HTTP |
+| `INTEGRATED` | Frontend thật đang gọi |
+
+### Tổng hợp
+
+```text
+TESTED          5      catalog · product
+IMPLEMENTED     5      auth · audit-log
+INTEGRATED      0      chưa có frontend
+DESIGNED       61      (46 MVP còn lại + 15 hoãn Phase 2/3)
+                ──
+                71
+```
+
+### Đã cài đặt (10)
+
+| Operation | Đường dẫn | Mức |
+|---|---|---|
+| `getBrand` | `GET /api/v1/brands/{brand_id}` | TESTED |
+| `getCollection` | `GET /api/v1/collections/{collection_id}` | TESTED |
+| `getCategoryTree` | `GET /api/v1/categories` | TESTED |
+| `getProduct` | `GET /api/v1/products/{product_id}` | TESTED |
+| `listProducts` | `GET /api/v1/products` | TESTED |
+| `login` | `POST /api/v1/auth/login` | IMPLEMENTED |
+| `refreshSession` | `POST /api/v1/auth/refresh` | IMPLEMENTED |
+| `logout` | `POST /api/v1/auth/logout` | IMPLEMENTED |
+| `getAdminMe` | `GET /api/v1/admin/me` | IMPLEMENTED |
+| `listAuditLog` | `GET /api/v1/admin/audit-log` | IMPLEMENTED |
+
+Năm operation `IMPLEMENTED` đã được kiểm chứng bằng **chạy server thật**,
+nhưng chưa có test HTTP tự động — nợ kỹ thuật P3-1 trong
+[backlog](../docs/10-roadmap/backlog.md).
+
+### MVP còn lại (46) — `DESIGNED`
+
+| Nhóm | Số | Operation |
+|---|---|---|
+| Storefront | 2 | `listProductOffers` · `search` |
+| Account | 6 | `getMyProfile` · `updateMyProfile` · `listMyAddresses` · `addMyAddress` · `getMyWishlist` · `addWishlistItem` |
+| Cart & Checkout | 10 | `getCart` · `addCartItem` · `updateCartItem` · `removeCartItem` · `startCheckout` · `getCheckout` · `setCheckoutShippingAddress` · `setCheckoutShippingMethod` · `applyCheckoutCoupon` · `completeCheckout` |
+| Orders | 4 | `listMyOrders` · `placeOrder` · `getOrder` · `cancelOrder` |
+| Seller | 11 | `applyAsSeller` · `listMyOffers` · `createOffer` · `updateOffer` · `updateInventory` · `listMyFulfillmentOrders` · `getMyFulfillmentOrder` · `shipFulfillmentOrder` · `getMyBalance` · `getMySettlement` · `getMyPerformance` |
+| Admin | 11 | `listSellers` · `getSellerDetail` · `approveSeller` · `suspendSeller` · `createLedgerAdjustment` · `executePayouts` · `adjustInventory` · `getCustomerAsAdmin` · `listAdminOrders` · `getAdminOrderDetail` · `cancelAdminOrder` |
+| Webhooks | 2 | `receivePaymentWebhook` · `receiveShippingWebhook` |
+
+### Hoãn (15) — `FUTURE`
+
+Đặc tả **giữ nguyên**; chỉ hoãn phần cài đặt.
+
+| Giai đoạn | Số | Operation |
+|---|---|---|
+| Phase 2 | 12 | `applyAsCreator` · `getMyEarnings` · `getMyAnalytics` · `listMyContent` · `createContent` · `publishContent` · `getContent` · `getOutfit` · `listMyAffiliateLinks` · `createAffiliateLink` · `getFeed` · `requestReturn` |
+| Phase 2+ | 1 | `listProductReviews` — **không có module sở hữu** trong 17 module MVP |
+| Phase 3 | 2 | `createProductionOrder` · `listReplenishmentSuggestions` |
+
+### Quy tắc thêm operation mới
+
+Chỉ thêm khi phục vụ một trong bốn thứ sau:
+
+```text
+✓ MVP          ✓ seller/admin workflow
+✓ frontend thật ✓ integration test
+```
+
+Không thêm vì *"sau này có thể cần"*.
+
+---
+
 ## Tài liệu liên quan
 
 - Chuẩn API chi tiết: [../docs/06-api/api-guidelines.md](../docs/06-api/api-guidelines.md)

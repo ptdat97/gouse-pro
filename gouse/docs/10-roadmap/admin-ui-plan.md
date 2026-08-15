@@ -1,4 +1,10 @@
-# Kế hoạch triển khai Admin UI (Next.js)
+# Admin UI — ghi chép quyết định thiết kế
+
+> **Đây KHÔNG phải backlog.** Việc còn phải làm nằm ở
+> **[backlog.md](backlog.md)** (mục P2-3, P2-4, P3-5).
+>
+> File này giữ **lý do đằng sau các quyết định** của lát cắt admin/frontend
+> và bằng chứng kiểm chứng — thứ không thuộc về một danh sách việc.
 
 **Ngày lập:** 14/08/2026 · **Trạng thái:** đang thực hiện
 

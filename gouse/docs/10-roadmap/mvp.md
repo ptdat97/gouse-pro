@@ -291,6 +291,7 @@ Hai rủi ro cuối là rủi ro **tổ chức**, không phải kỹ thuật —
 
 ## 10. Tài liệu liên quan
 
-- [phase-2.md](phase-2.md), [phase-3.md](phase-3.md), [scale.md](scale.md)
+- [future-phases.md](future-phases.md) — Phase 2, 3, 4 (FUTURE), [scale.md](scale.md)
+- [backlog.md](backlog.md) — việc đang làm
 - [deliverables.md](deliverables.md) — tổng hợp bàn giao
 - [../02-domain/domain-map.md](../02-domain/domain-map.md) — phân loại core/supporting/generic
