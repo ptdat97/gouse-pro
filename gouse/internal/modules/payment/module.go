@@ -3,6 +3,8 @@ package payment
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -10,6 +12,8 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment/application"
 	"github.com/fashion-commerce/platform/internal/modules/payment/domain"
 	paymentpg "github.com/fashion-commerce/platform/internal/modules/payment/infrastructure/postgres"
+	paymenthttp "github.com/fashion-commerce/platform/internal/modules/payment/interfaces/http"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
@@ -31,6 +35,12 @@ type Config struct {
 
 	DB    *database.DB
 	Clock application.Clock
+
+	// Audit là nơi ghi nhật ký thao tác nhạy cảm.
+	//
+	// Thiếu nó thì module vẫn khởi tạo được (ghi sổ tự động không cần),
+	// nhưng CreateLedgerAdjustment sẽ trả lỗi thay vì âm thầm bỏ qua.
+	Audit *audit.Recorder
 }
 
 // New khởi tạo module payment.
@@ -45,15 +55,29 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	pool := cfg.DB.Pool()
-	return &Module{svc: application.NewService(application.Deps{
+	deps := application.Deps{
 		Ledger:   paymentpg.NewLedgerStore(pool),
 		Balances: paymentpg.NewBalanceStore(pool),
 		Clock:    cfg.Clock,
-	})}, nil
+	}
+	if cfg.Audit != nil {
+		deps.Audit = NewAuditRecorder(cfg.Audit)
+	}
+
+	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
 func (m *Module) Service() *application.Service { return m.svc }
+
+// RegisterAdminRoutes gắn các endpoint tài chính của quản trị vào mux.
+//
+// Mux truyền vào PHẢI đã bọc Auth, RequireRole("ADMIN", "OPS_FINANCE") và
+// RequireIdempotencyKey. Gắn nhầm vào mux công khai nghĩa là bất kỳ ai cũng
+// ghi được bút toán vào sổ cái.
+func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
+	paymenthttp.NewHandler(m.svc, log).Register(mux)
+}
 
 // ---------------------------------------------------------------- API
 
@@ -178,6 +202,50 @@ func (m *Module) RecordPayout(ctx context.Context, req PayoutRequest) (*EntryVie
 	if err != nil {
 		return nil, translateErr(err)
 	}
+	v := toEntryView(entry)
+	return &v, nil
+}
+
+func (m *Module) CreateLedgerAdjustment(
+	ctx context.Context, req AdjustmentRequest,
+) (*EntryView, error) {
+	if !ids.IsValid(req.ReferenceID) {
+		return nil, ErrInvalidID
+	}
+
+	lines := make([]domain.Line, 0, len(req.Lines))
+	for _, l := range req.Lines {
+		amount, err := money.New(l.Amount, money.Currency(l.Currency))
+		if err != nil {
+			return nil, errors.New("payment: số tiền không hợp lệ: " + l.Currency)
+		}
+		if l.OwnerID != "" && !ids.IsValid(l.OwnerID) {
+			return nil, ErrInvalidID
+		}
+		lines = append(lines, domain.Line{
+			Account: domain.Account{
+				Type:    domain.AccountType(l.AccountType),
+				OwnerID: ids.ID(l.OwnerID),
+			},
+			Direction:   domain.Direction(l.Direction),
+			Amount:      amount,
+			Description: l.Description,
+		})
+	}
+
+	entry, err := m.svc.RecordAdjustmentWithAudit(ctx, application.AdjustmentInput{
+		ReferenceType:  req.ReferenceType,
+		ReferenceID:    ids.ID(req.ReferenceID),
+		Lines:          lines,
+		ActorID:        req.ActorID,
+		Reason:         req.Reason,
+		IdempotencyKey: req.IdempotencyKey,
+		RequestID:      req.RequestID,
+	})
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
 	v := toEntryView(entry)
 	return &v, nil
 }

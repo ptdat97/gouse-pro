@@ -134,6 +134,7 @@ func run() error {
 		checkoutModule    *checkout.Module
 		fulfillmentModule *fulfillment.Module
 		identityModule    *identity.Module
+		sellerModule      *seller.Module
 		auditRecorder     *audit.Recorder
 	)
 	if cfg.Modules.Storage == "postgres" {
@@ -189,7 +190,13 @@ func run() error {
 
 		// seller và marketplace cũng cần PostgreSQL. Thứ tự khởi tạo phản
 		// ánh đồ thị phụ thuộc: marketplace gọi cả bốn module kia.
-		sellerModule, err := seller.New(seller.Config{Storage: "postgres", DB: db})
+		// Audit truyền vào để thao tác nhạy cảm (đình chỉ nhà bán) ghi vết
+		// trong CÙNG giao dịch với việc đổi trạng thái.
+		sellerModule, err = seller.New(seller.Config{
+			Storage: "postgres",
+			DB:      db,
+			Audit:   auditRecorder,
+		})
 		if err != nil {
 			return err
 		}
@@ -220,7 +227,13 @@ func run() error {
 		// nhưng ở hai chỗ khác nhau: sổ cái cần trigger chặn UPDATE/DELETE,
 		// còn đơn hàng cần ràng buộc UNIQUE trên khóa idempotency. Cả hai
 		// đều là thứ chỉ database cưỡng chế được dưới tải song song.
-		paymentModule, err = payment.New(payment.Config{Storage: "postgres", DB: db})
+		// Audit truyền vào để điều chỉnh sổ cái ghi vết trong CÙNG giao
+		// dịch với bút toán — thao tác nhạy cảm nhất hệ thống.
+		paymentModule, err = payment.New(payment.Config{
+			Storage: "postgres",
+			DB:      db,
+			Audit:   auditRecorder,
+		})
 		if err != nil {
 			return err
 		}
@@ -240,7 +253,13 @@ func run() error {
 				"but_toan_lech", integrity.UnbalancedEntryIDs)
 		}
 
-		orderModule, err = order.New(order.Config{Storage: "postgres", DB: db})
+		// Audit truyền vào để endpoint quản trị ghi vết: xem chi tiết đơn
+		// (dữ liệu cá nhân khách) và hủy đơn.
+		orderModule, err = order.New(order.Config{
+			Storage: "postgres",
+			DB:      db,
+			Audit:   auditRecorder,
+		})
 		if err != nil {
 			return err
 		}
@@ -387,7 +406,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	registerRoutes(mux, cfg, log, db, catalogModule, productModule,
-		identityModule, auditRecorder)
+		identityModule, sellerModule, paymentModule, orderModule, auditRecorder)
 
 	srv := httpserver.New(cfg.HTTP, log, mux)
 	return srv.Run(ctx)
@@ -405,6 +424,9 @@ func registerRoutes(
 	catalogModule *catalog.Module,
 	productModule *product.Module,
 	identityModule *identity.Module,
+	sellerModule *seller.Module,
+	paymentModule *payment.Module,
+	orderModule *order.Module,
 	auditRecorder *audit.Recorder,
 ) {
 	// Mỗi module tự đăng ký route của mình. main không biết đường dẫn hay
@@ -427,6 +449,62 @@ func registerRoutes(
 
 		authed := httpserver.Chain(protected, httpserver.Auth(identityModule))
 		mux.Handle("GET /api/v1/admin/me", authed)
+
+		// Quản trị nhà bán: ADMIN và OPS_MERCHANDISING (admin.md mục 2).
+		//
+		// Đình chỉ nhà bán cần Idempotency-Key: bấm nút hai lần không được
+		// tạo hai vết kiểm toán cho cùng một quyết định.
+		if sellerModule != nil {
+			sellerMux := http.NewServeMux()
+			sellerModule.RegisterAdminRoutes(sellerMux, log)
+
+			authed := httpserver.Chain(
+				sellerMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN", "OPS_MERCHANDISING"),
+				httpserver.RequireIdempotencyKey(),
+			)
+			mux.Handle("GET /api/v1/admin/sellers", authed)
+			mux.Handle("GET /api/v1/admin/sellers/{seller_id}", authed)
+			mux.Handle("POST /api/v1/admin/sellers/{seller_id}/approve", authed)
+			mux.Handle("POST /api/v1/admin/sellers/{seller_id}/suspend", authed)
+		}
+
+		// Tài chính: ADMIN và OPS_FINANCE (admin-api.md mục 1).
+		//
+		// admin-api.md mục 1 còn yêu cầu XÁC THỰC HAI LỚP cho hai vai trò
+		// này. Luồng 2FA chưa triển khai (P3-5) — đây là lý do Admin UI
+		// chưa được phát hành, không phải lý do để nới lỏng ở đây.
+		if paymentModule != nil {
+			payMux := http.NewServeMux()
+			paymentModule.RegisterAdminRoutes(payMux, log)
+
+			mux.Handle("POST /api/v1/admin/ledger/adjustments", httpserver.Chain(
+				payMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN", "OPS_FINANCE"),
+				httpserver.RequireIdempotencyKey(),
+			))
+		}
+
+		// Đơn hàng: ADMIN và OPS_SUPPORT (admin.md mục 2 — hỗ trợ khách).
+		//
+		// Hủy đơn cần Idempotency-Key; xem chi tiết thì không (GET không
+		// đổi trạng thái, và middleware chỉ áp cho POST/PATCH).
+		if orderModule != nil {
+			orderMux := http.NewServeMux()
+			orderModule.RegisterAdminRoutes(orderMux, log)
+
+			authed := httpserver.Chain(
+				orderMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN", "OPS_SUPPORT"),
+				httpserver.RequireIdempotencyKey(),
+			)
+			mux.Handle("GET /api/v1/admin/orders", authed)
+			mux.Handle("GET /api/v1/admin/orders/{order_id}", authed)
+			mux.Handle("POST /api/v1/admin/orders/{order_id}/cancel", authed)
+		}
 
 		// Nhật ký thao tác: CHỈ vai trò ADMIN (admin-api.md mục 7).
 		//

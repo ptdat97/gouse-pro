@@ -419,24 +419,49 @@ Xem [../adr/0011-audit-log.md](../adr/0011-audit-log.md).
 sung vào `admin.yaml`: `sellers`, `seller_detail`, `orders`, `order_detail`,
 `order_cancel`, schema `AdminSellerSummary`.
 
-### 9.3 2FA — chặn phát hành, không chặn phát triển
+### 9.3 2FA — ĐÃ GỠ khỏi điều kiện phát hành (15/08/2026)
 
-Xây A→F không có 2FA, nhưng **2FA nằm trong định nghĩa "xong"** của Admin UI.
+**Quyết định của chủ dự án:** Admin UI được phát hành **không cần 2FA**.
 
-Lý do: `admin-api.md` mục 1 ghi đây là yêu cầu bắt buộc với `ADMIN` và
-`OPS_FINANCE`, và một admin console có quyền điều chỉnh sổ cái mà chỉ cần
-mật khẩu là rủi ro thật. Chấp nhận tạm khi đang phát triển thì được; phát
-hành cho nhân viên dùng thật thì không.
+Đề xuất ban đầu của tôi là coi 2FA là điều kiện chặn phát hành, vì
+`admin-api.md` mục 1 ghi đây là yêu cầu bắt buộc với `ADMIN` và
+`OPS_FINANCE` — hai vai trò duy nhất dùng được endpoint điều chỉnh sổ cái.
+Chủ dự án đã cân nhắc và quyết định khác. Ghi lại ở đây để tài liệu không
+mâu thuẫn với thực tế triển khai.
 
-Vì thế `GET /api/v1/admin/me` trả sẵn `requires_two_factor` — giao diện biết
-tài khoản nào sẽ cần, và trường này là chỗ nối khi luồng 2FA được cài.
+**Rủi ro còn lại, cần biết rõ khi vận hành:**
+
+```text
+Một tài khoản OPS_FINANCE bị lộ mật khẩu = quyền ghi bút toán
+điều chỉnh vào sổ cái, chỉ cần mật khẩu đó.
+```
+
+Các lớp bảo vệ KHÁC vẫn nguyên vẹn và không được nới lỏng thêm:
+
+```text
+✓ Vai trò kiểm tra ở server, không phải ở giao diện
+✓ Lý do bắt buộc ≥ 20 ký tự, chặn giá trị rác
+✓ Vết kiểm toán cùng giao dịch — truy được ai làm, lúc nào
+✓ Sổ cái bất biến — sai chỉ sửa được bằng bút toán mới
+✓ Access token 15 phút
+```
+
+Vết kiểm toán là thứ giảm nhẹ rủi ro này nhiều nhất: không ngăn được thao
+tác sai, nhưng bảo đảm không có thao tác nào không truy được người làm.
+
+`GET /api/v1/admin/me` **giữ nguyên** trường `requires_two_factor` — nó là
+chỗ nối sẵn nếu sau này bật 2FA, và giao diện có thể dùng để hiển thị cảnh
+báo cho tài khoản có quyền tài chính.
+
+2FA chuyển thành **P3-5, việc tăng cường sau phát hành**, không còn là điều
+kiện chặn.
 
 **Tiêu chí phát hành Admin UI:**
 
 ```text
-[ ] Luồng 2FA hoạt động cho ADMIN và OPS_FINANCE
 [ ] Ba nhóm trang chạy trên API thật, không phải mock
 [ ] Mọi thao tác nhạy cảm ghi audit log, đã kiểm chứng bằng cách phá code
+[ ] Phân quyền kiểm chứng trên server thật: 401 / 403 / 200 đúng vai trò
 ```
 
 ---

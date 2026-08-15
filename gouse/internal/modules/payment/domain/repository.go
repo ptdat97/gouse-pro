@@ -7,6 +7,12 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
+// TxFunc chạy bên trong giao dịch mà kho lưu trữ đã mở.
+//
+// Ngữ cảnh truyền vào MANG giao dịch đó, nên tầng application ghi được vết
+// kiểm toán mà không cần biết database.
+type TxFunc func(ctx context.Context) error
+
 // LedgerRepository là PORT cho sổ cái.
 //
 // CHỈ CÓ GHI THÊM VÀ ĐỌC — không có Update, không có Delete.
@@ -22,6 +28,17 @@ type LedgerRepository interface {
 	// đó là THÀNH CÔNG và đọc lại bút toán cũ — ghi hai lần cùng một sự
 	// kiện tài chính sẽ nhân đôi số tiền.
 	Append(ctx context.Context, e *LedgerEntry) error
+
+	// AppendWithAudit ghi bút toán VÀ chạy fn trong CÙNG một giao dịch.
+	//
+	// fn là nơi tầng application ghi vết kiểm toán. Với sổ cái, đây là bất
+	// biến quan trọng hơn mọi chỗ khác: điều chỉnh sổ cái là thao tác duy
+	// nhất trong hệ thống có thể tạo ra tiền từ hư không nếu làm sai.
+	//
+	// Bút toán có mà vết kiểm toán không có nghĩa là không ai biết ai đã
+	// chuyển tiền và vì sao. Chiều ngược lại — vết có mà bút toán không —
+	// tạo ra bằng chứng cho một giao dịch chưa từng xảy ra.
+	AppendWithAudit(ctx context.Context, e *LedgerEntry, fn TxFunc) error
 
 	FindByID(ctx context.Context, id ids.ID) (*LedgerEntry, error)
 

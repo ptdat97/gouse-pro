@@ -34,13 +34,88 @@ type API interface {
 	// ApplyAsSeller nộp hồ sơ đăng ký.
 	ApplyAsSeller(ctx context.Context, req ApplicationRequest) (*SellerView, error)
 
-	ApproveSeller(ctx context.Context, sellerID string, approvedBy string) error
+	// ApproveSeller duyệt hồ sơ VÀ ghi vết kiểm toán trong cùng giao dịch.
+	//
+	// Duyệt chuyển seller sang APPROVED, **chưa phải** ACTIVE — seller chỉ
+	// bán được khi tài khoản ngân hàng đã xác minh.
+	ApproveSeller(ctx context.Context, req ApproveRequest) (*ApproveResult, error)
 
-	// SuspendSeller đình chỉ nhà bán.
+	// SuspendSeller đình chỉ nhà bán VÀ ghi vết kiểm toán trong cùng giao
+	// dịch.
 	//
 	// Việc này làm ẩn offer nhưng KHÔNG hủy đơn đang xử lý — đơn khách đã
 	// trả tiền phải được hoàn tất hoặc hủy có kiểm soát kèm hoàn tiền.
-	SuspendSeller(ctx context.Context, sellerID string, reason string) error
+	SuspendSeller(ctx context.Context, req SuspendRequest) (*SuspendResult, error)
+
+	// ListSellers liệt kê nhà bán theo bộ lọc.
+	//
+	// Dùng cho hàng đợi duyệt hồ sơ ở giao diện quản trị: lọc theo trạng
+	// thái PENDING để thấy hồ sơ đang chờ.
+	ListSellers(ctx context.Context, f ListFilter) ([]SellerView, error)
+}
+
+// ListFilter là điều kiện lọc danh sách nhà bán.
+type ListFilter struct {
+	// Status lọc theo trạng thái. Rỗng = mọi trạng thái.
+	Status string
+
+	// SellerType lọc theo loại. Rỗng = mọi loại.
+	SellerType string
+
+	Limit  int
+	Offset int
+}
+
+// ApproveRequest là yêu cầu duyệt hồ sơ nhà bán.
+type ApproveRequest struct {
+	SellerID string
+
+	// ActorID là nhân viên duyệt. BẮT BUỘC.
+	ActorID string
+
+	// CommissionRateBP theo phần vạn (1000 = 10%). Bỏ qua với INTERNAL.
+	CommissionRateBP int32
+
+	Notes     string
+	RequestID string
+}
+
+// ApproveResult là kết quả duyệt hồ sơ.
+type ApproveResult struct {
+	Seller SellerView
+
+	// SideEffects liệt kê tác động để người vận hành hiểu điều gì đã xảy ra.
+	//
+	// Chỉ liệt kê việc ĐÃ xảy ra trong giao dịch này. Việc chạy bất đồng bộ
+	// qua event không được kể ở đây như thể đã xong.
+	SideEffects []string
+}
+
+// SuspendRequest là yêu cầu đình chỉ nhà bán.
+type SuspendRequest struct {
+	SellerID string
+
+	// ActorID là nhân viên thực hiện. BẮT BUỘC — đình chỉ một gian hàng là
+	// cắt nguồn thu của người khác, phải biết ai đã quyết định.
+	ActorID string
+
+	// Reason BẮT BUỘC, tối thiểu 20 ký tự, không nhận giá trị rác.
+	Reason     string
+	ReasonCode string
+
+	RequestID string
+}
+
+// SuspendResult là kết quả đình chỉ.
+type SuspendResult struct {
+	Seller SellerView
+
+	// Note giải thích tác động cho người vận hành.
+	//
+	// KHÔNG có `offers_hidden`: việc ẩn offer do marketplace làm khi nghe
+	// event, tức là BẤT ĐỒNG BỘ. Trả về một con số tại thời điểm này là
+	// bịa ra dữ liệu chưa tồn tại.
+	Note string
 }
 
 // ---------------------------------------------------------------- DTO
@@ -98,7 +173,16 @@ var (
 
 	// ErrNotAllowed khi thao tác không hợp lệ với trạng thái hiện tại.
 	ErrNotAllowed = errNotAllowed{}
+
+	// ErrInvalidCommissionRate khi tỷ lệ hoa hồng ngoài khoảng [0, 10000].
+	ErrInvalidCommissionRate = errInvalidCommissionRate{}
 )
+
+type errInvalidCommissionRate struct{}
+
+func (errInvalidCommissionRate) Error() string {
+	return "seller: tỷ lệ hoa hồng phải trong khoảng 0–10000 phần vạn"
+}
 
 type errNotFound struct{}
 

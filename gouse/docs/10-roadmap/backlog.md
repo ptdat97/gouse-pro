@@ -20,11 +20,12 @@
 
 ```text
 Module MVP có logic nghiệp vụ    17/17
-Module có tầng HTTP               3/17   (catalog · product · identity)
+Module có tầng HTTP               6/17   (catalog · product · identity ·
+                                        seller · payment · order)
 Operation trong OpenAPI          71
-Operation đã cài đặt             10      (14%)
-Operation MVP còn lại            46
-Operation hoãn (Phase 2/3)       15
+Operation đã cài đặt             18      (25%)
+Operation MVP còn lại            37
+Operation hoãn (Phase 2/3)       16
 ```
 
 **Khoảng trống lớn nhất là tầng HTTP.** Domain, application, infrastructure,
@@ -81,23 +82,46 @@ Việc mà không có nó thì mọi việc khác không làm được.
 | P0-3 | Phát hành access token (`platform/token`) | ✅ xong |
 | P0-4 | Endpoint đăng nhập/làm mới/đăng xuất + `/admin/me` | ✅ xong |
 | P0-5 | Audit log (`platform/audit`) + endpoint đọc | ✅ xong |
-| P0-6 | **Ranh giới giao dịch cho handler ghi dữ liệu** | ⬜ **chưa làm** |
+| P0-6 | **Ranh giới giao dịch cho thao tác ghi + audit** | ✅ xong |
 | P0-7 | Tách wiring khỏi `cmd/api/main.go` | ⬜ chưa làm — xem điều kiện dưới |
 
-### P0-6 là việc P0 duy nhất còn lại
+### P0-6 — đã xong, và mô tả ban đầu đã SAI
 
-Chưa có handler nào MỞ giao dịch. Catalog và product chỉ đọc; auth tự quản
-lý giao dịch bên trong module. Nhưng mọi endpoint ghi ở P1 đều cần:
+Mô tả cũ giả định handler sẽ mở giao dịch. **Sai.** Khi triển khai mới thấy
+codebase đã có mẫu riêng, dùng ở `cart` và `checkout`:
 
 ```text
-Mở tx  →  gọi use case  →  ghi audit CÙNG tx  →  commit
+domain           TxFunc func(ctx) error
+                 SaveWithAudit(ctx, entity, fn TxFunc) error
+                        ↓
+infrastructure   mở tx → ghi entity → fn(ctx mang tx) → commit
+                 defer Rollback bắt mọi đường thoát
+                        ↓
+application       định nghĩa PORT (AuditRecorder), không biết database
+                        ↓
+module root       adapter: TxFrom(ctx) → audit.WriteSensitive(ctx, tx, ...)
 ```
 
-Không có mẫu chuẩn cho việc này thì mỗi handler sẽ tự nghĩ một kiểu, và
-việc "audit ghi cùng giao dịch nghiệp vụ" — thứ `platform/audit` được thiết
-kế để bảo đảm — sẽ bị bỏ qua ở chỗ nào đó mà không ai nhận ra.
+**Repository sở hữu giao dịch, không phải handler.** Handler chỉ gọi use
+case. Đây là mẫu tốt hơn: tầng interfaces không cần biết database tồn tại.
 
-**Phải làm trước endpoint ghi đầu tiên**, không phải sau.
+Đã áp mẫu này cho `seller` và chứng minh bằng endpoint thật
+(`POST /api/v1/admin/sellers/{id}/suspend`) thay vì dựng một trừu tượng hóa
+chưa ai dùng.
+
+**Kiểm chứng bằng cách phá code** — test fail đúng chỗ:
+
+| Bất biến bị phá | Test bắt được |
+|---|---|
+| `SaveWithAudit` bỏ qua lỗi của `fn` | `TestDinhChiThatBaiKhongDeLaiTrangThaiNuaVoi` |
+| Adapter cho phép ghi vết ngoài giao dịch | `TestGhiVetNgoaiGiaoDichBiTuChoi` |
+
+**Kiểm chứng trên server thật:** lý do rác → 400, và seller **vẫn ACTIVE**,
+audit **vẫn rỗng**. Không có trạng thái nửa vời.
+
+### Việc còn lại của P0
+
+Chỉ còn P0-7, và nó có điều kiện.
 
 ### P0-7 — tách wiring, nếu và chỉ nếu cần
 
@@ -127,7 +151,7 @@ vướng thật. Ghi ở đây để quyết định có ý thức, không phả
 
 ---
 
-## 3. P1 — Core MVP (46 operation)
+## 3. P1 — Core MVP (42 operation còn lại)
 
 Thứ tự bám theo luồng thương mại, không theo module. Mỗi nhóm chỉ bắt đầu
 khi nhóm trước chạy được end-to-end.
@@ -172,21 +196,35 @@ không phải event — phải biết còn hàng mới cho đặt.
 **Ràng buộc bắt buộc:** mọi truy vấn giới hạn theo `AuthContext.SellerIDs`.
 Seller không được thấy dữ liệu seller khác dù biết định danh.
 
-### P1.6 — Admin (11 operation)
+### P1.6 — Admin (8/10 xong)
 
-`listSellers` · `getSellerDetail` · `approveSeller` · `suspendSeller` ·
-`createLedgerAdjustment` · `executePayouts` · `adjustInventory` ·
-`getCustomerAsAdmin` · `listAdminOrders` · `getAdminOrderDetail` ·
-`cancelAdminOrder`
+✅ **Trang duyệt hồ sơ seller**: `listSellers` · `getSellerDetail` ·
+`approveSeller` · `suspendSeller`
 
-Bảy thao tác nhạy cảm bắt buộc `reason` — dùng `audit.WriteSensitive`.
+✅ **Tài chính**: `createLedgerAdjustment` — endpoint nhạy cảm nhất hệ
+thống, ba lớp bảo vệ nguyên tử với nhau (cân bằng · lý do · vết kiểm toán).
 
-**Ba năng lực còn thiếu ở `seller.API`, phải bổ sung:**
+✅ **Đơn hàng (hỗ trợ khách)**: `listAdminOrders` · `getAdminOrderDetail` ·
+`cancelAdminOrder` — xem chi tiết đơn **ghi vết việc ĐỌC**, vì response chứa
+tên người nhận, số điện thoại và địa chỉ.
+
+⬜ Còn lại (2): `adjustInventory` · `getCustomerAsAdmin`
+
+`executePayouts` đã chuyển sang **FUTURE** — xem mục 6.
+
+**Ba trang của Admin UI giờ đã có đủ API thật:** sellers · audit log ·
+orders. Đây là điều kiện để bắt đầu P2-3/P2-4.
+
+Bảy thao tác nhạy cảm bắt buộc `reason` — dùng `audit.WriteSensitive` theo
+mẫu đã có ở `seller`.
+
+**Còn thiếu ở `seller.API`:**
 
 ```text
-ListSellers(ctx, filter)              — chưa có, trang duyệt hồ sơ cần
-ApproveSeller  + chính sách hoa hồng  — hiện chỉ nhận (sellerID, approvedBy)
-SuspendSeller  + trả effects          — chưa trả offers_hidden
+✅ ListSellers(ctx, filter)               — đã thêm
+✅ SuspendSeller + audit trong giao dịch  — đã thêm
+✅ ApproveSeller + hoa hồng + audit       — đã thêm
+✅ GetSellerDetail                        — handler dùng thẳng application
 ```
 
 ### P1.7 — Webhook (2 operation)
@@ -264,6 +302,69 @@ lại từ đầu.
 
 ---
 
+## 3d. Đặc tả hứa dữ liệu liên module — BA chỗ, cùng một nguyên nhân
+
+Phát hiện khi triển khai. Không phải ba lỗi riêng lẻ mà là **một kiểu lỗi
+lặp lại ba lần** khi viết đặc tả: mô tả những gì MÀN HÌNH cần, rồi khai báo
+nguyên xi thành response của MỘT endpoint.
+
+```text
+suspendSeller.effects.offers_hidden       seller  →  marketplace   ✗ vòng
+listAdminOrders.fulfillment_count         order   →  fulfillment   ✗ vòng
+getAdminOrderDetail.fulfillment_orders[]  order   →  fulfillment   ✗ vòng
+getAdminOrderDetail.customer{}            order   →  customer      ✗ chưa nối
+```
+
+Ba quan hệ đầu tạo **phụ thuộc vòng** — archcheck R5 chặn, và ADR-0007 đã
+quyết định chiều phụ thuộc là `fulfillment → order`, không ngược lại.
+
+**Nguyên tắc rút ra:**
+
+> Việc ghép dữ liệu là của **TRANG**, không phải của **ENDPOINT**.
+> Admin UI gọi nhiều endpoint rồi ghép lại.
+
+Đó cũng là cách đúng về mặt dữ liệu: trạng thái lô giao và số offer bị ẩn
+đều được cập nhật **bất đồng bộ qua event**, nên một con số trả về đồng bộ
+tại thời điểm gọi sẽ sai ngay khi trả.
+
+Đặc tả đã sửa cho khớp. Chi tiết trường hợp đầu:
+
+Đặc tả `api/paths/admin.yaml#/seller_suspend` khai báo:
+
+```yaml
+effects:
+  offers_hidden: 142
+  pending_fulfillment_orders: 8
+```
+
+**Hai con số này không tồn tại tại thời điểm trả lời.**
+
+```text
+Đình chỉ seller  →  phát event  →  marketplace nghe  →  ẩn offer
+                                        ▲
+                              BẤT ĐỒNG BỘ, xảy ra SAU khi response đã trả
+```
+
+Và seller **không được phép** gọi marketplace để đếm: marketplace đã phụ
+thuộc seller, chiều ngược lại tạo phụ thuộc vòng — archcheck R5 chặn.
+
+Cài đặt hiện tại trả `effects.note` (quy tắc "đơn đang xử lý KHÔNG bị hủy"),
+bỏ hai con số. **Không bịa dữ liệu chưa tồn tại.**
+
+Ba phương án, chọn khi có nhu cầu thật từ giao diện:
+
+```text
+A. Bỏ hai trường khỏi đặc tả       — trung thực nhất, sửa 1 file
+B. Đổi thành số ƯỚC TÍNH trước khi ẩn (đếm offer đang hiển thị)
+   → vẫn cần điểm gộp gọi cả hai module
+C. Giao diện gọi riêng marketplace sau khi đình chỉ
+   → đúng bản chất bất đồng bộ, nhưng thêm một vòng gọi
+```
+
+Nghiêng về **A**. Chọn B hoặc C là quyết định kiến trúc → cần ADR.
+
+---
+
 ## 4. P2 — Integration
 
 | # | Việc | Phụ thuộc |
@@ -287,7 +388,7 @@ Chi tiết P2-3, P2-4: xem [admin-ui-plan.md](admin-ui-plan.md).
 | P3-2 | **Sửa test suite chập chờn** | `order` và `fulfillment` cùng `TRUNCATE "order"`, chạy song song |
 | P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | Sau P1 |
 | P3-4 | Rate limit (`429` + `X-RateLimit-*`) | Đặc tả đã khai báo, chưa cài |
-| P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | **Chặn phát hành Admin UI** |
+| P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | Tăng cường SAU phát hành — chủ dự án đã gỡ khỏi điều kiện chặn (15/08) |
 | P3-6 | Observability: metrics, tracing | |
 | P3-7 | Chính sách lưu trữ `audit_log` | Bảng chỉ tăng; chờ có số liệu thật |
 
@@ -314,6 +415,24 @@ FUTURE — Phase 2
 | `listMyAffiliateLinks` · `createAffiliateLink` | `affiliate` |
 | `getFeed` | `content` / `recommendation` |
 | `requestReturn` | `return` |
+
+### Phase 2 — Chi trả tự động (1 operation)
+
+```text
+FUTURE — Phase 2
+```
+
+`executePayouts` — đặc tả nhận `settlement_ids`, nhưng **`settlement` chưa
+có bảng nào trong 40 migration**. `docs/04-modules/payment.md` phân định:
+
+```text
+MVP      → Thanh toán một cổng, ledger đầy đủ, ĐỐI SOÁT THỦ CÔNG
+Phase 2  → Đối soát tự động, PAYOUT TỰ ĐỘNG, hoàn tiền
+```
+
+Phát hiện khi triển khai nhóm finance. Sổ cái đã ghi được payout
+(`RecordPayout`), thứ thiếu là khái niệm *kỳ đối soát* gom nhiều đơn lại —
+đó mới là việc của Phase 2.
 
 ### Phase 2+ (1 operation)
 

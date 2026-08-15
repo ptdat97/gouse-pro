@@ -60,6 +60,65 @@ type API interface {
 	// Bị chặn nếu đã có gói nào đóng gói xong: từ đó việc hủy có chi phí
 	// thật và cần quy trình riêng.
 	CancelOrder(ctx context.Context, orderID, reason string) error
+
+	// ---------------------------------------------------------- Quản trị
+
+	// ListOrders trả đơn theo bộ lọc, cho giao diện quản trị.
+	//
+	// KHÔNG giới hạn theo khách — việc chặn ai được gọi nằm ở tầng route.
+	ListOrders(ctx context.Context, f ListFilter) ([]OrderSummary, error)
+
+	// ViewOrderAsAdmin đọc chi tiết đơn VÀ ghi vết việc đọc.
+	//
+	// Response chứa dữ liệu cá nhân (tên người nhận, số điện thoại, địa
+	// chỉ), nên `Reason` là BẮT BUỘC — xem admin-api.md mục 6.
+	ViewOrderAsAdmin(ctx context.Context, req ViewOrderRequest) (*OrderView, error)
+
+	// CancelOrderAsAdmin hủy đơn VÀ ghi vết kiểm toán trong cùng giao dịch.
+	CancelOrderAsAdmin(ctx context.Context, req CancelOrderRequest) (*OrderView, error)
+}
+
+// ListFilter là điều kiện lọc danh sách đơn ở giao diện quản trị.
+type ListFilter struct {
+	// OrderNumber tra chính xác một đơn — đường tra cứu chính của nhân
+	// viên hỗ trợ, vì khách đọc mã này qua điện thoại.
+	OrderNumber string
+
+	Status     string
+	CustomerID string
+
+	Limit  int
+	Offset int
+}
+
+// OrderSummary là đơn ở dạng tóm tắt, KHÔNG chứa dữ liệu cá nhân.
+type OrderSummary struct {
+	ID          string
+	OrderNumber string
+	Status      string
+	Total       Amount
+	LineCount   int
+	PlacedAt    string
+}
+
+// ViewOrderRequest là yêu cầu xem chi tiết đơn từ giao diện quản trị.
+type ViewOrderRequest struct {
+	OrderID string
+	ActorID string
+
+	// Reason BẮT BUỘC, tối thiểu 20 ký tự.
+	Reason    string
+	RequestID string
+}
+
+// CancelOrderRequest là yêu cầu hủy đơn từ giao diện quản trị.
+type CancelOrderRequest struct {
+	OrderID string
+	ActorID string
+
+	// Reason BẮT BUỘC, tối thiểu 20 ký tự.
+	Reason    string
+	RequestID string
 }
 
 // ---------------------------------------------------------------- DTO

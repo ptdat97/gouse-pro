@@ -9,6 +9,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
@@ -41,11 +42,32 @@ func newModule(t *testing.T) *order.Module {
 		}
 	}
 
-	m, err := order.New(order.Config{Storage: "postgres", DB: db})
+	if _, err := db.Pool().Exec(ctx, "TRUNCATE audit_log"); err != nil {
+		t.Fatalf("dọn nhật ký: %v", err)
+	}
+
+	m, err := order.New(order.Config{
+		Storage: "postgres",
+		DB:      db,
+		Audit:   audit.NewRecorder(db.Pool()),
+	})
 	if err != nil {
 		t.Fatalf("order.New: %v", err)
 	}
 	return m
+}
+
+// newModuleWithDB như newModule nhưng trả thêm kết nối để đọc nhật ký.
+func newModuleWithDB(t *testing.T) (*order.Module, *database.DB) {
+	t.Helper()
+	m := newModule(t)
+	db, err := database.Open(context.Background(),
+		database.Config{DSN: os.Getenv("DATABASE_URL")})
+	if err != nil {
+		t.Fatalf("mở database: %v", err)
+	}
+	t.Cleanup(db.Close)
+	return m, db
 }
 
 // line dựng một dòng hàng cho test.
@@ -311,5 +333,205 @@ func TestDongBangSongSotQuaVongGhiDoc(t *testing.T) {
 		if tc.got != tc.want {
 			t.Errorf("%s = %v, mong %v", tc.field, tc.got, tc.want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------- Quản trị
+
+// placeForAdmin dựng một đơn để test các endpoint quản trị.
+func placeForAdmin(t *testing.T, m *order.Module, key string) order.OrderView {
+	t.Helper()
+	res, err := m.PlaceOrder(context.Background(), order.PlaceOrderRequest{
+		CustomerID: ids.MustNew(ids.PrefixCustomer).String(),
+		Currency:   "VND",
+		Lines: []order.PlaceOrderLineInput{
+			line(ids.MustNew(ids.PrefixSeller).String(), 299000, 1, 1000, "Áo sơ mi"),
+		},
+		ShippingAddress: order.AddressInput{
+			RecipientName: "Nguyễn Văn A",
+			Phone:         "0901234567",
+			StreetAddress: "12 Nguyễn Huệ",
+			Province:      "TP.HCM",
+		},
+		IdempotencyKey: key,
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	return res.Order
+}
+
+const adminActor = "usr_01J9XABC123DEF456GHJKMNPQR"
+
+// XEM chi tiết đơn phải ghi vết — đây là dữ liệu cá nhân khách hàng.
+//
+// admin-api.md mục 6: đọc trộm dữ liệu khách không để lại dấu vết nào khác,
+// nên chính việc ĐỌC phải sinh bản ghi.
+func TestXemChiTietDonGhiVetTruyCap(t *testing.T) {
+	m, db := newModuleWithDB(t)
+	ctx := context.Background()
+	v := placeForAdmin(t, m, "xem-chi-tiet")
+
+	const reason = "Xử lý khiếu nại giao hàng chậm, khách gọi hotline sáng nay"
+	got, err := m.ViewOrderAsAdmin(ctx, order.ViewOrderRequest{
+		OrderID: v.ID, ActorID: adminActor, Reason: reason,
+	})
+	if err != nil {
+		t.Fatalf("ViewOrderAsAdmin: %v", err)
+	}
+	if got.OrderNumber != v.OrderNumber {
+		t.Errorf("trả nhầm đơn: %q", got.OrderNumber)
+	}
+
+	rec := audit.NewRecorder(db.Pool())
+	entries, _, err := rec.Query(ctx, audit.Filter{Action: "order.view"})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("mỗi lần XEM phải sinh đúng 1 vết, nhận %d", len(entries))
+	}
+	if entries[0].ActorID != adminActor {
+		t.Error("vết phải ghi ai đã xem")
+	}
+	if entries[0].Reason != reason {
+		t.Errorf("lý do bị đổi: %q", entries[0].Reason)
+	}
+}
+
+// Không có lý do thì KHÔNG được đọc dữ liệu khách.
+//
+// Lý do trống biến nhật ký truy cập thành danh sách vô nghĩa — không phân
+// biệt được tra cứu chính đáng với tò mò.
+func TestXemChiTietDonThieuLyDoBiTuChoi(t *testing.T) {
+	m, db := newModuleWithDB(t)
+	ctx := context.Background()
+	v := placeForAdmin(t, m, "thieu-ly-do")
+
+	for _, reason := range []string{"", "xem thử", "testtesttesttesttest"} {
+		if _, err := m.ViewOrderAsAdmin(ctx, order.ViewOrderRequest{
+			OrderID: v.ID, ActorID: adminActor, Reason: reason,
+		}); err == nil {
+			t.Errorf("lý do %q phải bị từ chối", reason)
+		}
+	}
+
+	// Và không có vết nào được ghi cho các lần bị từ chối.
+	rec := audit.NewRecorder(db.Pool())
+	entries, _, err := rec.Query(ctx, audit.Filter{Action: "order.view"})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("truy cập bị từ chối thì KHÔNG được có vết, nhận %d", len(entries))
+	}
+}
+
+// Hủy đơn ghi vết trong CÙNG giao dịch với việc đổi trạng thái.
+func TestHuyDonQuanTriGhiVet(t *testing.T) {
+	m, db := newModuleWithDB(t)
+	ctx := context.Background()
+	v := placeForAdmin(t, m, "huy-don")
+
+	const reason = "Khách yêu cầu hủy vì đặt nhầm size, hàng chưa xuất kho"
+	got, err := m.CancelOrderAsAdmin(ctx, order.CancelOrderRequest{
+		OrderID: v.ID, ActorID: adminActor, Reason: reason,
+	})
+	if err != nil {
+		t.Fatalf("CancelOrderAsAdmin: %v", err)
+	}
+	if got.Status != "CANCELLED" {
+		t.Errorf("trạng thái = %q, mong CANCELLED", got.Status)
+	}
+
+	rec := audit.NewRecorder(db.Pool())
+	entries, _, err := rec.Query(ctx, audit.Filter{Action: "order.cancel"})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("mong 1 vết hủy đơn, nhận %d", len(entries))
+	}
+	if entries[0].Metadata["order_number"] != v.OrderNumber {
+		t.Errorf("vết phải ghi mã đơn — khách đọc mã này khi khiếu nại: %v",
+			entries[0].Metadata)
+	}
+}
+
+// Hủy đơn thất bại KHÔNG để lại trạng thái nửa vời.
+func TestHuyDonLyDoRacKhongDoiTrangThai(t *testing.T) {
+	m, db := newModuleWithDB(t)
+	ctx := context.Background()
+	v := placeForAdmin(t, m, "huy-ly-do-rac")
+
+	if _, err := m.CancelOrderAsAdmin(ctx, order.CancelOrderRequest{
+		OrderID: v.ID, ActorID: adminActor, Reason: "fixfixfixfixfixfixfixfix",
+	}); err == nil {
+		t.Fatal("lý do rác phải bị từ chối")
+	}
+
+	got, err := m.GetOrder(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetOrder: %v", err)
+	}
+	if got.Status == "CANCELLED" {
+		t.Error("ghi vết thất bại thì việc hủy PHẢI bị hủy theo")
+	}
+
+	rec := audit.NewRecorder(db.Pool())
+	entries, _, err := rec.Query(ctx, audit.Filter{Action: "order.cancel"})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("giao dịch hủy thì KHÔNG được có vết, nhận %d", len(entries))
+	}
+}
+
+// Danh sách quản trị lọc được theo mã đơn và trạng thái.
+func TestDanhSachDonQuanTriLocDuoc(t *testing.T) {
+	m := newModule(t)
+	ctx := context.Background()
+
+	a := placeForAdmin(t, m, "loc-a")
+	placeForAdmin(t, m, "loc-b")
+
+	all, err := m.ListOrders(ctx, order.ListFilter{})
+	if err != nil {
+		t.Fatalf("ListOrders: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("không lọc phải trả 2 đơn, nhận %d", len(all))
+	}
+
+	// Tổng tiền được TÍNH TỪ dòng hàng — quên nạp dòng thì danh sách hiển
+	// thị toàn 0đ và nhân viên hỗ trợ không dùng được. Lỗi này đã xảy ra
+	// thật, phát hiện lúc chạy server.
+	for _, o := range all {
+		if o.LineCount == 0 {
+			t.Errorf("đơn %s: chưa nạp dòng hàng", o.OrderNumber)
+		}
+		if o.Total.Value == 0 {
+			t.Errorf("đơn %s: tổng tiền = 0, dòng hàng chưa được nạp",
+				o.OrderNumber)
+		}
+	}
+
+	// Tra theo mã đơn — đường tra cứu chính của nhân viên hỗ trợ, vì khách
+	// đọc mã này qua điện thoại.
+	one, err := m.ListOrders(ctx, order.ListFilter{OrderNumber: a.OrderNumber})
+	if err != nil {
+		t.Fatalf("ListOrders theo mã: %v", err)
+	}
+	if len(one) != 1 || one[0].ID != a.ID {
+		t.Errorf("lọc theo mã đơn sai: %+v", one)
+	}
+
+	none, err := m.ListOrders(ctx, order.ListFilter{Status: "KHONG_TON_TAI"})
+	if err != nil {
+		t.Fatalf("ListOrders theo trạng thái: %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("trạng thái không tồn tại phải trả rỗng, nhận %d", len(none))
 	}
 }

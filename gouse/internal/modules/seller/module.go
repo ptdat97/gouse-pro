@@ -3,12 +3,16 @@ package seller
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/seller/application"
 	"github.com/fashion-commerce/platform/internal/modules/seller/domain"
 	sellerpg "github.com/fashion-commerce/platform/internal/modules/seller/infrastructure/postgres"
+	sellerhttp "github.com/fashion-commerce/platform/internal/modules/seller/interfaces/http"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
@@ -28,6 +32,12 @@ type Config struct {
 	DB *database.DB
 
 	Clock application.Clock
+
+	// Audit là nơi ghi nhật ký thao tác nhạy cảm.
+	//
+	// Thiếu nó thì module vẫn khởi tạo được (các use case khác không cần),
+	// nhưng SuspendSeller sẽ trả lỗi thay vì âm thầm bỏ qua việc ghi vết.
+	Audit *audit.Recorder
 }
 
 // New khởi tạo module seller.
@@ -39,10 +49,15 @@ func New(cfg Config) (*Module, error) {
 		return nil, errors.New("seller: bắt buộc phải có kết nối database")
 	}
 
-	return &Module{svc: application.NewService(application.Deps{
+	deps := application.Deps{
 		Sellers: sellerpg.NewStore(cfg.DB.Pool()),
 		Clock:   cfg.Clock,
-	})}, nil
+	}
+	if cfg.Audit != nil {
+		deps.Audit = NewAuditRecorder(cfg.Audit)
+	}
+
+	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
@@ -121,22 +136,92 @@ func (m *Module) ApplyAsSeller(ctx context.Context, req ApplicationRequest) (*Se
 	return &v, nil
 }
 
-func (m *Module) ApproveSeller(ctx context.Context, sellerID string, approvedBy string) error {
-	id, err := ids.Parse(sellerID, ids.PrefixSeller)
+func (m *Module) ApproveSeller(
+	ctx context.Context, req ApproveRequest,
+) (*ApproveResult, error) {
+	id, err := ids.Parse(req.SellerID, ids.PrefixSeller)
 	if err != nil {
-		return ErrInvalidID
+		return nil, ErrInvalidID
 	}
-	_, err = m.svc.Approve(ctx, id, approvedBy)
-	return translateErr(err)
+
+	// Kiểm tra khoảng [0, 10000] ngay tại biên module: hoa hồng 150% lọt
+	// vào là mọi đơn của seller đó tính sai cho tới khi có người để ý.
+	rate, err := types.NewBasisPoints(req.CommissionRateBP)
+	if err != nil {
+		return nil, ErrInvalidCommissionRate
+	}
+
+	sel, err := m.svc.ApproveWithAudit(ctx, application.ApproveInput{
+		SellerID:         id,
+		ActorID:          req.ActorID,
+		CommissionRateBP: rate,
+		Notes:            req.Notes,
+		RequestID:        req.RequestID,
+	})
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	return &ApproveResult{
+		Seller:      toView(sel),
+		SideEffects: application.ApprovalSideEffects(sel),
+	}, nil
 }
 
-func (m *Module) SuspendSeller(ctx context.Context, sellerID string, reason string) error {
-	id, err := ids.Parse(sellerID, ids.PrefixSeller)
+// RegisterAdminRoutes gắn các endpoint quản trị vào mux.
+//
+// Tên có tiền tố "Admin" vì mux truyền vào PHẢI đã bọc Auth và
+// RequireRole("ADMIN", "OPS_MERCHANDISING"). Gắn nhầm vào mux công khai
+// nghĩa là bất kỳ ai cũng đình chỉ được nhà bán.
+func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
+	sellerhttp.NewHandler(m.svc, log).Register(mux)
+}
+
+// suspensionNote là ghi chú tác động trả cho người vận hành.
+//
+// Quy tắc quan trọng nhất của thao tác này, nên nó đi kèm mọi response chứ
+// không nằm trong tài liệu để người ta tự tìm.
+const suspensionNote = "Đơn đang xử lý KHÔNG bị hủy — seller phải hoàn tất " +
+	"hoặc chuyển admin xử lý"
+
+func (m *Module) SuspendSeller(
+	ctx context.Context, req SuspendRequest,
+) (*SuspendResult, error) {
+	id, err := ids.Parse(req.SellerID, ids.PrefixSeller)
 	if err != nil {
-		return ErrInvalidID
+		return nil, ErrInvalidID
 	}
-	_, err = m.svc.Suspend(ctx, id, reason)
-	return translateErr(err)
+
+	sel, err := m.svc.SuspendWithAudit(ctx, application.SuspendInput{
+		SellerID:   id,
+		ActorID:    req.ActorID,
+		Reason:     req.Reason,
+		ReasonCode: req.ReasonCode,
+		RequestID:  req.RequestID,
+	})
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	return &SuspendResult{Seller: toView(sel), Note: suspensionNote}, nil
+}
+
+func (m *Module) ListSellers(ctx context.Context, f ListFilter) ([]SellerView, error) {
+	list, err := m.svc.ListSellers(ctx, domain.Filter{
+		Status: domain.Status(f.Status),
+		Type:   domain.SellerType(f.SellerType),
+		Limit:  f.Limit,
+		Offset: f.Offset,
+	})
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	out := make([]SellerView, 0, len(list))
+	for _, sel := range list {
+		out = append(out, toView(sel))
+	}
+	return out, nil
 }
 
 // ---------------------------------------------------------------- Chuyển đổi

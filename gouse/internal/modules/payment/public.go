@@ -35,6 +35,15 @@ type API interface {
 	// KIỂM TRA SỐ DƯ trước khi chi: không chi quá số tiền đang nợ.
 	RecordPayout(ctx context.Context, req PayoutRequest) (*EntryView, error)
 
+	// CreateLedgerAdjustment ghi bút toán ĐIỀU CHỈNH khi phát hiện ghi sai.
+	//
+	// Đây là cách DUY NHẤT sửa sai trong sổ cái bất biến — không có phương
+	// thức nào sửa hay xóa bút toán cũ (ADR-0008).
+	//
+	// Ba lớp bảo vệ, phải cùng thành công hoặc cùng thất bại:
+	// bút toán cân bằng · lý do có ý nghĩa · vết kiểm toán.
+	CreateLedgerAdjustment(ctx context.Context, req AdjustmentRequest) (*EntryView, error)
+
 	// GetSellerBalance trả số dư của một nhà bán.
 	//
 	// Module seller gọi hàm này thay vì tự lưu số dư (quy tắc 4 của seller).
@@ -117,6 +126,45 @@ type PayoutRequest struct {
 }
 
 // EntryView là một bút toán — CHỈ ĐỌC, BẤT BIẾN.
+// AdjustmentRequest là yêu cầu ghi bút toán điều chỉnh.
+type AdjustmentRequest struct {
+	// ReferenceType, ReferenceID chỉ ra thứ đang được điều chỉnh:
+	// ORDER + ord_..., SELLER + sel_..., v.v.
+	ReferenceType string
+	ReferenceID   string
+
+	// Lines phải có ít nhất hai dòng và Σ DEBIT = Σ CREDIT.
+	Lines []AdjustmentLine
+
+	// ActorID là nhân viên thực hiện. BẮT BUỘC.
+	ActorID string
+
+	// Reason BẮT BUỘC, tối thiểu 20 ký tự, không nhận giá trị rác.
+	//
+	// Đây là thao tác duy nhất ghi vào sổ cái mà không có giao dịch thật
+	// phía sau — lý do là thứ duy nhất phân biệt sửa sai với biển thủ.
+	Reason string
+
+	// IdempotencyKey BẮT BUỘC. Gọi lại cùng khóa trả bút toán cũ.
+	IdempotencyKey string
+
+	RequestID string
+}
+
+// AdjustmentLine là một dòng của bút toán điều chỉnh.
+type AdjustmentLine struct {
+	AccountType string
+
+	// OwnerID rỗng với tài khoản của nền tảng (PLATFORM_REVENUE, COGS...).
+	OwnerID string
+
+	// Direction: DEBIT hoặc CREDIT. Amount LUÔN DƯƠNG.
+	Direction   string
+	Amount      int64
+	Currency    string
+	Description string
+}
+
 type EntryView struct {
 	ID   string
 	Type string

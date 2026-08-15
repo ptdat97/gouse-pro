@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -31,10 +32,50 @@ var SystemClock Clock = systemClock{}
 // ErrForbidden khi seller thao tác trên đơn thực hiện không phải của mình.
 var ErrForbidden = errors.New("order: đơn thực hiện không thuộc về nhà bán này")
 
+// AuditRecorder ghi vết kiểm toán cho thao tác nhạy cảm và cho việc ĐỌC dữ
+// liệu cá nhân khách hàng.
+//
+// Là PORT do tầng application định nghĩa nên nó không biết database.
+type AuditRecorder interface {
+	// RecordOrderView ghi việc nhân viên XEM chi tiết đơn.
+	//
+	// docs/06-api/admin-api.md mục 6: mọi truy cập dữ liệu cá nhân khách
+	// hàng đều ghi audit. Chi tiết đơn chứa tên người nhận, số điện thoại
+	// và địa chỉ — đủ để một nhân viên tò mò tra cứu người quen.
+	//
+	// Ghi vết việc ĐỌC là bất thường so với phần còn lại của hệ thống, và
+	// đó là chủ ý: đọc trộm dữ liệu khách không để lại dấu vết nào khác.
+	RecordOrderView(ctx context.Context, in OrderViewRecord) error
+
+	// RecordOrderCancellation ghi việc hủy đơn.
+	RecordOrderCancellation(ctx context.Context, in OrderCancelRecord) error
+}
+
+// OrderViewRecord là dữ liệu ghi khi nhân viên xem chi tiết đơn.
+type OrderViewRecord struct {
+	OrderID ids.ID
+	ActorID string
+
+	// Reason là lý do truy cập. BẮT BUỘC — "đang xử lý khiếu nại đơn X"
+	// phân biệt việc tra cứu chính đáng với việc tò mò.
+	Reason    string
+	RequestID string
+}
+
+// OrderCancelRecord là dữ liệu ghi khi hủy đơn.
+type OrderCancelRecord struct {
+	OrderID     ids.ID
+	OrderNumber string
+	ActorID     string
+	Reason      string
+	RequestID   string
+}
+
 // Service là tầng application của module order.
 type Service struct {
 	orders  domain.Repository
 	numbers domain.NumberGenerator
+	audit   AuditRecorder
 	clock   Clock
 }
 
@@ -42,6 +83,10 @@ type Deps struct {
 	Orders  domain.Repository
 	Numbers domain.NumberGenerator
 	Clock   Clock
+
+	// Audit có thể nil: luồng đặt hàng của khách không cần. Chỉ các use
+	// case quản trị bắt buộc có nó.
+	Audit AuditRecorder
 }
 
 func NewService(d Deps) *Service {
@@ -49,7 +94,12 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{orders: d.Orders, numbers: d.Numbers, clock: clock}
+	return &Service{
+		orders:  d.Orders,
+		numbers: d.Numbers,
+		audit:   d.Audit,
+		clock:   clock,
+	}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -261,6 +311,116 @@ func (s *Service) MarkPaid(ctx context.Context, orderID ids.ID) error {
 // KHÔNG kiểm tra trạng thái đơn thực hiện ở đây: module này không đọc dữ
 // liệu của fulfillment. Điều kiện "chưa gói nào đóng xong" (mục 6.1) do
 // tầng điều phối kiểm tra trước khi gọi — nó là bên duy nhất thấy cả hai.
+// ---------------------------------------------------------------- Quản trị
+
+// ListOrders trả đơn theo bộ lọc, cho giao diện quản trị.
+//
+// KHÔNG giới hạn theo khách: nhân viên hỗ trợ tra đơn của bất kỳ ai. Việc
+// chặn ai được gọi nằm ở tầng route, không có giới hạn tự nhiên ở đây.
+func (s *Service) ListOrders(
+	ctx context.Context, f domain.Filter,
+) ([]*domain.Order, error) {
+	return s.orders.List(ctx, f)
+}
+
+// ViewOrderInput là yêu cầu xem chi tiết đơn từ giao diện quản trị.
+type ViewOrderInput struct {
+	OrderID   ids.ID
+	ActorID   string
+	Reason    string
+	RequestID string
+}
+
+// ViewOrderAsAdmin đọc chi tiết đơn VÀ ghi vết việc đọc.
+//
+// Đây là use case hiếm hoi ghi vết cho một thao tác CHỈ ĐỌC. Lý do ở
+// admin-api.md mục 6: đọc trộm dữ liệu khách không để lại dấu vết nào khác,
+// và cảnh báo "nhân viên xem nhiều hồ sơ trong thời gian ngắn" chỉ dựng
+// được nếu mỗi lần đọc đều có bản ghi.
+//
+// Ghi vết TRƯỚC khi trả dữ liệu: nếu ghi sau và tiến trình chết giữa chừng,
+// nhân viên đã thấy dữ liệu mà không có vết.
+func (s *Service) ViewOrderAsAdmin(
+	ctx context.Context, in ViewOrderInput,
+) (*domain.Order, error) {
+	if s.audit == nil {
+		return nil, errors.New(
+			"order: thiếu AuditRecorder — không được đọc dữ liệu khách khi " +
+				"chưa có đường ghi vết")
+	}
+	if strings.TrimSpace(in.ActorID) == "" {
+		return nil, errors.New("order: thiếu định danh người truy cập")
+	}
+
+	o, err := s.orders.FindByID(ctx, in.OrderID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ghi vết KHÔNG nằm trong giao dịch nào: đây là thao tác đọc, không có
+	// thay đổi nghiệp vụ để gắn vào. Nếu ghi vết hỏng thì KHÔNG trả dữ
+	// liệu — thà nhân viên phải thử lại còn hơn có một lần đọc không dấu.
+	if err := s.audit.RecordOrderView(ctx, OrderViewRecord{
+		OrderID:   in.OrderID,
+		ActorID:   in.ActorID,
+		Reason:    in.Reason,
+		RequestID: in.RequestID,
+	}); err != nil {
+		return nil, err
+	}
+
+	return o, nil
+}
+
+// CancelOrderInput là yêu cầu hủy đơn từ giao diện quản trị.
+type CancelOrderInput struct {
+	OrderID   ids.ID
+	ActorID   string
+	Reason    string
+	RequestID string
+}
+
+// CancelOrderAsAdmin hủy đơn VÀ ghi vết kiểm toán trong CÙNG giao dịch.
+//
+// Khác CancelOrder ở chỗ lý do được GHI LẠI. CancelOrder nhận `reason`
+// nhưng bỏ qua nó — chấp nhận được với hủy tự động (hết hạn giữ hàng), vì
+// khi đó lý do luôn là một; không chấp nhận được khi người thật hủy đơn của
+// khách đã trả tiền.
+func (s *Service) CancelOrderAsAdmin(
+	ctx context.Context, in CancelOrderInput,
+) (*domain.Order, error) {
+	if s.audit == nil {
+		return nil, errors.New(
+			"order: thiếu AuditRecorder — hủy đơn là thao tác nhạy cảm")
+	}
+	if strings.TrimSpace(in.ActorID) == "" {
+		return nil, errors.New("order: thiếu định danh người thực hiện")
+	}
+
+	o, err := s.orders.FindByID(ctx, in.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := o.Cancel(s.clock.Now()); err != nil {
+		return nil, err
+	}
+
+	err = s.orders.UpdateWithAudit(ctx, o, func(txCtx context.Context) error {
+		return s.audit.RecordOrderCancellation(txCtx, OrderCancelRecord{
+			OrderID:     in.OrderID,
+			OrderNumber: o.OrderNumber(),
+			ActorID:     in.ActorID,
+			Reason:      in.Reason,
+			RequestID:   in.RequestID,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return o, nil
+}
+
 func (s *Service) CancelOrder(ctx context.Context, orderID ids.ID, reason string) error {
 	o, err := s.orders.FindByID(ctx, orderID)
 	if err != nil {

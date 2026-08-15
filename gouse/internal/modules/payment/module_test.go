@@ -8,6 +8,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/payment"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
@@ -38,7 +39,16 @@ func newModule(t *testing.T) (*payment.Module, *database.DB) {
 		}
 	}
 
-	m, err := payment.New(payment.Config{Storage: "postgres", DB: db})
+	// Dọn cả nhật ký: test điều chỉnh sổ cái kiểm tra vết kiểm toán.
+	if _, err := db.Pool().Exec(ctx, "TRUNCATE audit_log"); err != nil {
+		t.Fatalf("dọn nhật ký: %v", err)
+	}
+
+	m, err := payment.New(payment.Config{
+		Storage: "postgres",
+		DB:      db,
+		Audit:   audit.NewRecorder(db.Pool()),
+	})
 	if err != nil {
 		t.Fatalf("payment.New: %v", err)
 	}
@@ -383,5 +393,205 @@ func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
 		OrderID: "sai", GrossAmount: vnd(1000),
 	}); !errors.Is(err, payment.ErrInvalidID) {
 		t.Errorf("lỗi = %v, mong ErrInvalidID", err)
+	}
+}
+
+// ---------------------------------------------------------------- Điều chỉnh
+
+// adjustLines dựng hai dòng cân bằng: chuyển tiền từ doanh thu nền tảng
+// sang khoản phải trả seller.
+func adjustLines(sellerID string, amount int64) []payment.AdjustmentLine {
+	return []payment.AdjustmentLine{
+		{AccountType: "PLATFORM_REVENUE", Direction: "DEBIT",
+			Amount: amount, Currency: "VND"},
+		{AccountType: "SELLER_PAYABLE", OwnerID: sellerID, Direction: "CREDIT",
+			Amount: amount, Currency: "VND"},
+	}
+}
+
+// Điều chỉnh sổ cái ghi bút toán VÀ vết kiểm toán trong cùng giao dịch.
+//
+// Ví dụ từ đặc tả (admin-api.md mục 4): ghi nhầm hoa hồng 12% thay vì 10%.
+func TestDieuChinhSoCaiGhiVetKiemToan(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	orderID := ids.MustNew(ids.PrefixOrder).String()
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	const reason = "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình ngày 09/08"
+
+	entry, err := m.CreateLedgerAdjustment(ctx, payment.AdjustmentRequest{
+		ReferenceType:  "ORDER",
+		ReferenceID:    orderID,
+		Lines:          adjustLines(sellerID, 5980),
+		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
+		Reason:         reason,
+		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
+	})
+	if err != nil {
+		t.Fatalf("CreateLedgerAdjustment: %v", err)
+	}
+	if entry.Type != "ADJUSTMENT" {
+		t.Errorf("loại bút toán = %q, mong ADJUSTMENT", entry.Type)
+	}
+	if entry.Total.Value != 5980 {
+		t.Errorf("tổng = %d, mong 5980", entry.Total.Value)
+	}
+
+	rec := audit.NewRecorder(db.Pool())
+	got, _, err := rec.Query(ctx, audit.Filter{Action: "ledger.adjust"})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("mong 1 vết điều chỉnh, nhận %d", len(got))
+	}
+	if got[0].ActorID == "" {
+		t.Error("vết PHẢI có người thực hiện — đây là thao tác tạo tiền trong sổ")
+	}
+	if got[0].Reason != reason {
+		t.Errorf("lý do bị đổi: %q", got[0].Reason)
+	}
+	if got[0].Metadata["total_amount"] != float64(5980) {
+		t.Errorf("vết phải ghi quy mô điều chỉnh: %v", got[0].Metadata)
+	}
+}
+
+// TestDieuChinhKhongCanBangBiChan — bất biến cốt lõi của sổ cái.
+//
+// Bút toán không cân nghĩa là tiền xuất hiện từ hư không hoặc biến mất.
+func TestDieuChinhKhongCanBangBiChan(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	lines := adjustLines(sellerID, 5980)
+	lines[1].Amount = 5000 // lệch 980
+
+	_, err := m.CreateLedgerAdjustment(ctx, payment.AdjustmentRequest{
+		ReferenceType:  "ORDER",
+		ReferenceID:    ids.MustNew(ids.PrefixOrder).String(),
+		Lines:          lines,
+		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
+		Reason:         "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
+		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
+	})
+	if err == nil {
+		t.Fatal("bút toán không cân PHẢI bị từ chối")
+	}
+
+	// Và KHÔNG để lại vết kiểm toán cho việc chưa xảy ra.
+	rec := audit.NewRecorder(db.Pool())
+	entries, _, err := rec.Query(ctx, audit.Filter{Action: "ledger.adjust"})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("bút toán bị chặn thì KHÔNG được có vết, nhận %d", len(entries))
+	}
+}
+
+// TestDieuChinhLyDoRacBiChanVaKhongGhiSo là bất biến của P0-6 áp cho sổ cái.
+//
+// Lý do rác bị từ chối ở bộ ghi vết, và việc từ chối đó phải kéo theo hủy
+// CẢ bút toán — nếu không, sổ cái có một khoản tiền không ai giải thích được.
+func TestDieuChinhLyDoRacBiChanVaKhongGhiSo(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	_, err := m.CreateLedgerAdjustment(ctx, payment.AdjustmentRequest{
+		ReferenceType:  "ORDER",
+		ReferenceID:    ids.MustNew(ids.PrefixOrder).String(),
+		Lines:          adjustLines(sellerID, 5980),
+		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
+		Reason:         "testtesttesttesttesttest",
+		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
+	})
+	if err == nil {
+		t.Fatal("lý do rác PHẢI bị từ chối")
+	}
+
+	// Sổ cái phải SẠCH: không có bút toán nào ở lại.
+	var count int
+	if err := db.Pool().QueryRow(ctx,
+		"SELECT count(*) FROM ledger_entry WHERE entry_type = 'ADJUSTMENT'").
+		Scan(&count); err != nil {
+		t.Fatalf("đếm bút toán: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("ghi vết thất bại thì bút toán PHẢI bị hủy theo, còn %d", count)
+	}
+}
+
+// Gọi lại cùng khóa idempotency KHÔNG ghi bút toán thứ hai.
+//
+// Nhân đôi một bút toán điều chỉnh là nhân đôi số tiền.
+func TestDieuChinhIdempotent(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	req := payment.AdjustmentRequest{
+		ReferenceType:  "ORDER",
+		ReferenceID:    ids.MustNew(ids.PrefixOrder).String(),
+		Lines:          adjustLines(sellerID, 5980),
+		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
+		Reason:         "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
+		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
+	}
+
+	first, err := m.CreateLedgerAdjustment(ctx, req)
+	if err != nil {
+		t.Fatalf("lần 1: %v", err)
+	}
+	second, err := m.CreateLedgerAdjustment(ctx, req)
+	if err != nil {
+		t.Fatalf("lần 2 phải thành công (trả kết quả cũ): %v", err)
+	}
+	if first.ID != second.ID {
+		t.Errorf("gọi lại cùng khóa phải trả CÙNG bút toán: %s vs %s",
+			first.ID, second.ID)
+	}
+
+	var count int
+	if err := db.Pool().QueryRow(ctx,
+		"SELECT count(*) FROM ledger_entry WHERE entry_type = 'ADJUSTMENT'").
+		Scan(&count); err != nil {
+		t.Fatalf("đếm bút toán: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("phải có ĐÚNG 1 bút toán, nhận %d", count)
+	}
+}
+
+// Thiếu đường ghi vết thì từ chối, không âm thầm ghi sổ.
+func TestThieuAuditThiTuChoiDieuChinh(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("bỏ qua: cần DATABASE_URL")
+	}
+	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
+	if err != nil {
+		t.Fatalf("mở database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	// KHÔNG truyền Audit.
+	m, err := payment.New(payment.Config{Storage: "postgres", DB: db})
+	if err != nil {
+		t.Fatalf("payment.New: %v", err)
+	}
+
+	_, err = m.CreateLedgerAdjustment(context.Background(), payment.AdjustmentRequest{
+		ReferenceType:  "ORDER",
+		ReferenceID:    ids.MustNew(ids.PrefixOrder).String(),
+		Lines:          adjustLines(ids.MustNew(ids.PrefixSeller).String(), 5980),
+		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
+		Reason:         "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
+		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
+	})
+	if err == nil {
+		t.Error("thiếu AuditRecorder thì điều chỉnh sổ cái phải bị từ chối")
 	}
 }

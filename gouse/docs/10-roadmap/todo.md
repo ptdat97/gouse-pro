@@ -10,7 +10,7 @@
 **Cập nhật:** 15/08/2026 · **Giai đoạn:** Implementation Completion
 
 **17/17 module MVP đã có logic nghiệp vụ.** Việc còn lại lớn nhất là
-**tầng HTTP**: 10/71 endpoint đã cài đặt, 3/17 module có tầng HTTP.
+**tầng HTTP**: 18/71 endpoint đã cài đặt, 6/17 module có tầng HTTP.
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -35,10 +35,13 @@ Module MVP đã có code: 17/17  (catalog · product · pricing ·
 
 Còn thiếu ở MVP:        (không còn)
 Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
-Endpoint đã cài đặt:   10/71  (brand, collection, categories,
+Endpoint đã cài đặt:   18/71  (brand, collection, categories,
                                product detail, product list,
                                login, refresh, logout, admin/me,
-                               admin/audit-log)
+                               admin/audit-log,
+                               admin/sellers + detail/approve/suspend,
+                               admin/ledger/adjustments,
+                               admin/orders + detail/cancel)
 ```
 
 Kiểm chứng lần cuối (13/08/2026):

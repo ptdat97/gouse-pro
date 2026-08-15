@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -26,10 +27,48 @@ func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 var SystemClock Clock = systemClock{}
 
+// AuditRecorder ghi vết kiểm toán cho thao tác nhạy cảm.
+//
+// Là PORT do tầng application định nghĩa nên nó không biết database hay
+// bảng `audit_log`. Ngữ cảnh truyền vào PHẢI mang giao dịch của kho lưu
+// trữ — xem domain.TxFunc.
+type AuditRecorder interface {
+	// RecordLedgerAdjustment ghi việc điều chỉnh sổ cái.
+	//
+	// Trả lỗi nếu lý do trống hoặc quá ngắn. Đây là thao tác nhạy cảm nhất
+	// hệ thống: nó là đường DUY NHẤT tạo ra tiền trong sổ mà không có giao
+	// dịch thật phía sau. "Vì sao" là thứ duy nhất phân biệt một lần sửa
+	// sai chính đáng với một lần biển thủ.
+	RecordLedgerAdjustment(ctx context.Context, in AdjustmentRecord) error
+}
+
+// AdjustmentRecord là dữ liệu ghi vào nhật ký khi điều chỉnh sổ cái.
+type AdjustmentRecord struct {
+	EntryID ids.ID
+
+	// ActorID là nhân viên thực hiện. KHÔNG được rỗng.
+	ActorID string
+
+	ReferenceType string
+	ReferenceID   ids.ID
+
+	Reason string
+
+	// TotalAmount là tổng một chiều của bút toán (Σ DEBIT = Σ CREDIT).
+	//
+	// Ghi vào vết để tra cứu nhanh "có lần điều chỉnh nào trên 10 triệu
+	// tháng trước không" mà không phải đọc lại từng dòng bút toán.
+	TotalAmount int64
+	Currency    string
+
+	RequestID string
+}
+
 // Service là tầng application của module payment.
 type Service struct {
 	ledger   domain.LedgerRepository
 	balances domain.BalanceRepository
+	audit    AuditRecorder
 	clock    Clock
 }
 
@@ -37,6 +76,10 @@ type Deps struct {
 	Ledger   domain.LedgerRepository
 	Balances domain.BalanceRepository
 	Clock    Clock
+
+	// Audit có thể nil: các use case ghi sổ tự động (doanh thu, hoàn tiền)
+	// không cần. Chỉ RecordAdjustmentWithAudit bắt buộc có nó.
+	Audit AuditRecorder
 }
 
 func NewService(d Deps) *Service {
@@ -44,7 +87,12 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{ledger: d.Ledger, balances: d.Balances, clock: clock}
+	return &Service{
+		ledger:   d.Ledger,
+		balances: d.Balances,
+		audit:    d.Audit,
+		clock:    clock,
+	}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -249,6 +297,103 @@ func (s *Service) RecordAdjustment(
 		return nil, err
 	}
 	return entry, nil
+}
+
+// AdjustmentInput là dữ liệu điều chỉnh sổ cái từ giao diện quản trị.
+type AdjustmentInput struct {
+	ReferenceType string
+	ReferenceID   ids.ID
+
+	Lines []domain.Line
+
+	// ActorID là nhân viên thực hiện. BẮT BUỘC.
+	ActorID string
+
+	// Reason BẮT BUỘC, tối thiểu 20 ký tự.
+	Reason string
+
+	IdempotencyKey string
+	RequestID      string
+}
+
+// RecordAdjustmentWithAudit ghi bút toán điều chỉnh VÀ vết kiểm toán trong
+// CÙNG một giao dịch.
+//
+// Đây là đường mà giao diện quản trị phải dùng, không phải RecordAdjustment.
+//
+// # Vì sao thao tác này nguy hiểm nhất hệ thống
+//
+// Mọi bút toán khác đều có một sự kiện thật phía sau: khách trả tiền, hàng
+// được giao, tiền được chuyển. Bút toán điều chỉnh KHÔNG — nó chỉ có lời
+// giải thích của người tạo ra nó.
+//
+// Vì thế ba lớp bảo vệ phải cùng có mặt, và phải nguyên tử với nhau:
+//
+//  1. Σ DEBIT = Σ CREDIT      — cưỡng chế trong constructor của domain
+//  2. Lý do có ý nghĩa         — cưỡng chế ở bộ ghi vết
+//  3. Vết kiểm toán            — cùng giao dịch với bút toán
+func (s *Service) RecordAdjustmentWithAudit(
+	ctx context.Context, in AdjustmentInput,
+) (*domain.LedgerEntry, error) {
+	if s.audit == nil {
+		return nil, errors.New(
+			"payment: thiếu AuditRecorder — điều chỉnh sổ cái không được " +
+				"chạy khi chưa có đường ghi vết kiểm toán")
+	}
+	if strings.TrimSpace(in.ActorID) == "" {
+		return nil, errors.New("payment: thiếu định danh người thực hiện")
+	}
+
+	// Gọi lại cùng khóa idempotency trả kết quả cũ, KHÔNG ghi bút toán thứ
+	// hai — nhân đôi một bút toán điều chỉnh là nhân đôi số tiền.
+	if existing, err := s.ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return nil, err
+	}
+
+	entry, err := domain.NewAdjustmentEntry(
+		in.ReferenceType, in.ReferenceID, in.Lines,
+		in.Reason, in.IdempotencyKey, in.ActorID, s.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	total, currency := oneSideTotal(in.Lines)
+
+	err = s.ledger.AppendWithAudit(ctx, entry, func(txCtx context.Context) error {
+		return s.audit.RecordLedgerAdjustment(txCtx, AdjustmentRecord{
+			EntryID:       entry.ID(),
+			ActorID:       in.ActorID,
+			ReferenceType: in.ReferenceType,
+			ReferenceID:   in.ReferenceID,
+			Reason:        in.Reason,
+			TotalAmount:   total,
+			Currency:      currency,
+			RequestID:     in.RequestID,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return entry, nil
+}
+
+// oneSideTotal cộng các dòng DEBIT.
+//
+// Vì bút toán luôn cân bằng, tổng một chiều là "quy mô" của nó. Cộng cả hai
+// chiều sẽ ra số gấp đôi và gây hiểu nhầm khi đọc nhật ký.
+func oneSideTotal(lines []domain.Line) (int64, string) {
+	var total int64
+	var currency string
+	for _, l := range lines {
+		if l.Direction == domain.Debit {
+			total += l.Amount.Amount()
+			currency = string(l.Amount.Currency())
+		}
+	}
+	return total, currency
 }
 
 // ErrInsufficientBalance khi chi trả vượt số dư.

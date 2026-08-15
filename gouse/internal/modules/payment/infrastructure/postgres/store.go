@@ -34,6 +34,32 @@ func NewLedgerStore(pool *pgxpool.Pool) *LedgerStore {
 // dòng thất bại sẽ để lại một bút toán RỖNG — vừa vô nghĩa vừa làm hỏng
 // mọi phép tính số dư sau đó.
 func (s *LedgerStore) Append(ctx context.Context, e *domain.LedgerEntry) error {
+	return s.append(ctx, e, nil)
+}
+
+// AppendWithAudit ghi bút toán và chạy fn trong CÙNG một giao dịch.
+//
+// Thứ tự: ghi bút toán và các dòng TRƯỚC, chạy fn SAU, commit CUỐI. Nếu fn
+// thất bại, `defer Rollback` hủy toàn bộ — không có bút toán nào ở lại mà
+// thiếu vết kiểm toán.
+func (s *LedgerStore) AppendWithAudit(
+	ctx context.Context, e *domain.LedgerEntry, fn domain.TxFunc,
+) error {
+	return s.append(ctx, e, fn)
+}
+
+// txKey gắn giao dịch vào ngữ cảnh cho TxFunc.
+type txKey struct{}
+
+// TxFrom lấy giao dịch mà AppendWithAudit đang mở.
+func TxFrom(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return tx, ok
+}
+
+func (s *LedgerStore) append(
+	ctx context.Context, e *domain.LedgerEntry, fn domain.TxFunc,
+) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("payment: mở giao dịch: %w", err)
@@ -66,6 +92,13 @@ func (s *LedgerStore) Append(ctx context.Context, e *domain.LedgerEntry) error {
 			l.Description)
 		if err != nil {
 			return fmt.Errorf("payment: ghi dòng bút toán %d: %w", i+1, err)
+		}
+	}
+
+	if fn != nil {
+		// Ngữ cảnh MANG giao dịch, để fn ghi bằng chính nó.
+		if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
+			return err
 		}
 	}
 

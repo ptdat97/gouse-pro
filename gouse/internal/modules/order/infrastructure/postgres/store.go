@@ -152,6 +152,31 @@ func insertLine(ctx context.Context, tx pgx.Tx, orderID ids.ID, l *domain.Line) 
 // phẩm, đơn giá, tỷ lệ hoa hồng — không nằm trong câu UPDATE nào, ở đây
 // hay bất kỳ đâu khác trong package này.
 func (s *OrderStore) Update(ctx context.Context, o *domain.Order) error {
+	return s.update(ctx, o, nil)
+}
+
+// UpdateWithAudit ghi thay đổi và chạy fn trong CÙNG một giao dịch.
+//
+// Thứ tự: ghi trạng thái TRƯỚC, chạy fn SAU, commit CUỐI. fn thất bại thì
+// `defer Rollback` hủy cả hai — đơn không bị hủy mà thiếu vết kiểm toán.
+func (s *OrderStore) UpdateWithAudit(
+	ctx context.Context, o *domain.Order, fn domain.TxFunc,
+) error {
+	return s.update(ctx, o, fn)
+}
+
+// txKey gắn giao dịch vào ngữ cảnh cho TxFunc.
+type txKey struct{}
+
+// TxFrom lấy giao dịch mà UpdateWithAudit đang mở.
+func TxFrom(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return tx, ok
+}
+
+func (s *OrderStore) update(
+	ctx context.Context, o *domain.Order, fn domain.TxFunc,
+) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("order: mở giao dịch: %w", err)
@@ -202,10 +227,89 @@ func (s *OrderStore) Update(ctx context.Context, o *domain.Order) error {
 		}
 	}
 
+	if fn != nil {
+		// Ngữ cảnh MANG giao dịch, để fn ghi bằng chính nó.
+		if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
+			return err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("order: xác nhận giao dịch: %w", err)
 	}
 	return nil
+}
+
+// List trả đơn theo bộ lọc, cho giao diện quản trị.
+func (s *OrderStore) List(ctx context.Context, f domain.Filter) ([]*domain.Order, error) {
+	var (
+		conds []string
+		args  []any
+	)
+	add := func(cond string, val any) {
+		args = append(args, val)
+		conds = append(conds, fmt.Sprintf(cond, len(args)))
+	}
+
+	if f.OrderNumber != "" {
+		add("order_number = $%d", f.OrderNumber)
+	}
+	if f.Status != "" {
+		add("status = $%d", f.Status)
+	}
+	if !f.CustomerID.IsZero() {
+		add("customer_id = $%d", f.CustomerID.String())
+	}
+	if !f.From.IsZero() {
+		add("placed_at >= $%d", f.From)
+	}
+	if !f.To.IsZero() {
+		add("placed_at <= $%d", f.To)
+	}
+
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + strings.Join(conds, " AND ")
+	}
+
+	args = append(args, limitOr(f.Limit, 20), max0(f.Offset))
+	q := fmt.Sprintf(`SELECT`+orderCols+`
+		  FROM "order" %s
+		 ORDER BY placed_at DESC
+		 LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args))
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("order: liệt kê đơn: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*domain.Order
+	for rows.Next() {
+		o, err := scanOrder(rows)
+		if err != nil {
+			return nil, fmt.Errorf("order: đọc đơn hàng: %w", err)
+		}
+		out = append(out, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("order: đọc đơn hàng: %w", err)
+	}
+	rows.Close()
+
+	// Nạp dòng hàng SAU khi đóng con trỏ, cùng lý do với ListByCustomer.
+	//
+	// BẮT BUỘC nạp: tổng tiền được TÍNH TỪ dòng hàng, nên đơn không có
+	// dòng hiển thị 0đ — và một danh sách đơn toàn 0đ thì nhân viên hỗ trợ
+	// không dùng được.
+	for i, o := range out {
+		lines, err := s.loadLines(ctx, o.ID())
+		if err != nil {
+			return nil, err
+		}
+		out[i] = withLines(o, lines)
+	}
+	return out, nil
 }
 
 const orderCols = `

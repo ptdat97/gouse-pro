@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
@@ -39,6 +40,40 @@ type Repository interface {
 
 	// ListByCustomer trả lịch sử đơn của một khách.
 	ListByCustomer(ctx context.Context, customerID ids.ID, limit, offset int) ([]*Order, error)
+
+	// List trả đơn theo bộ lọc, cho giao diện quản trị.
+	//
+	// KHÁC ListByCustomer ở chỗ nó KHÔNG giới hạn theo khách: nhân viên hỗ
+	// trợ cần tra đơn của bất kỳ ai. Vì thế endpoint gọi nó phải chặn theo
+	// vai trò ở tầng route — không có giới hạn tự nhiên nào ở đây.
+	List(ctx context.Context, f Filter) ([]*Order, error)
+
+	// UpdateWithAudit ghi thay đổi VÀ chạy fn trong CÙNG một giao dịch.
+	//
+	// Hủy đơn là thao tác nhạy cảm: nó dừng việc giao hàng khách đã trả
+	// tiền. Trạng thái đổi mà không có vết kiểm toán nghĩa là không ai trả
+	// lời được vì sao đơn của khách bị hủy.
+	UpdateWithAudit(ctx context.Context, o *Order, fn TxFunc) error
+}
+
+// TxFunc chạy bên trong giao dịch mà kho lưu trữ đã mở.
+type TxFunc func(ctx context.Context) error
+
+// Filter là điều kiện lọc danh sách đơn ở giao diện quản trị.
+type Filter struct {
+	// OrderNumber tra chính xác một đơn. Khách đọc mã này qua điện thoại
+	// khi khiếu nại, nên đây là đường tra cứu chính của nhân viên hỗ trợ.
+	OrderNumber string
+
+	Status     string
+	CustomerID ids.ID
+
+	// From, To lọc theo thời điểm đặt. Giá trị zero = không giới hạn.
+	From time.Time
+	To   time.Time
+
+	Limit  int
+	Offset int
 }
 
 // NumberGenerator sinh mã đơn hiển thị cho khách: FC-2026-08-000001.

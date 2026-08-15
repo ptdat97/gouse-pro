@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
+	"github.com/fashion-commerce/platform/internal/modules/seller/application"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
@@ -29,11 +32,39 @@ func newModule(t *testing.T) (*seller.Module, *database.DB) {
 		t.Fatalf("dọn dữ liệu: %v", err)
 	}
 
-	m, err := seller.New(seller.Config{Storage: "postgres", DB: db})
+	// Dọn cả nhật ký: test đình chỉ kiểm tra vết kiểm toán được ghi.
+	if _, err := db.Pool().Exec(context.Background(), "TRUNCATE audit_log"); err != nil {
+		t.Fatalf("dọn nhật ký: %v", err)
+	}
+
+	m, err := seller.New(seller.Config{
+		Storage: "postgres",
+		DB:      db,
+		Audit:   audit.NewRecorder(db.Pool()),
+	})
 	if err != nil {
 		t.Fatalf("seller.New: %v", err)
 	}
 	return m, db
+}
+
+// suspendReq dựng yêu cầu đình chỉ hợp lệ với lý do đủ dài.
+func suspendReq(sellerID, reason string) seller.SuspendRequest {
+	return seller.SuspendRequest{
+		SellerID:   sellerID,
+		ActorID:    "usr_01J9XABC123DEF456GHJKMNPQR",
+		Reason:     reason,
+		ReasonCode: "PERFORMANCE_VIOLATION",
+	}
+}
+
+// approveReq dựng yêu cầu duyệt hợp lệ với hoa hồng 10%.
+func approveReq(sellerID string) seller.ApproveRequest {
+	return seller.ApproveRequest{
+		SellerID:         sellerID,
+		ActorID:          "usr_01J9XABC123DEF456GHJKMNPQR",
+		CommissionRateBP: 1000,
+	}
 }
 
 func apply(t *testing.T, m *seller.Module, slug string) *seller.SellerView {
@@ -80,7 +111,7 @@ func TestKhongKichHoatDuocKhiChuaCoTaiKhoanNganHang(t *testing.T) {
 	if _, err := svc.SubmitForReview(ctx, id); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
 	}
-	if err := m.ApproveSeller(ctx, v.ID, "admin"); err != nil {
+	if _, err := m.ApproveSeller(ctx, approveReq(v.ID)); err != nil {
 		t.Fatalf("ApproveSeller: %v", err)
 	}
 
@@ -164,12 +195,23 @@ func TestDinhChiLamAnOfferVaPhaiCoLyDo(t *testing.T) {
 	v := activeSeller(t, m, "bi-dinh-chi")
 
 	// Đình chỉ không lý do → bị chặn. Seller cần biết vì sao để khắc phục.
-	if err := m.SuspendSeller(ctx, v.ID, ""); err == nil {
+	if _, err := m.SuspendSeller(ctx, suspendReq(v.ID, "")); err == nil {
 		t.Error("đình chỉ không nêu lý do phải bị chặn")
 	}
 
-	if err := m.SuspendSeller(ctx, v.ID, "Tỷ lệ hủy đơn vượt 3%"); err != nil {
+	// Lý do quá ngắn cũng bị chặn: "Tỷ lệ hủy đơn vượt 3%" đọc lại sau sáu
+	// tháng không đủ để hiểu chuyện gì đã xảy ra.
+	if _, err := m.SuspendSeller(ctx, suspendReq(v.ID, "Tỷ lệ hủy cao")); err == nil {
+		t.Error("lý do quá ngắn phải bị chặn")
+	}
+
+	res, err := m.SuspendSeller(ctx, suspendReq(v.ID,
+		"Tỷ lệ hủy đơn 8% vượt ngưỡng 3% trong 30 ngày liên tiếp"))
+	if err != nil {
 		t.Fatalf("SuspendSeller: %v", err)
+	}
+	if res.Note == "" {
+		t.Error("phải trả ghi chú tác động: đơn đang xử lý KHÔNG bị hủy")
 	}
 
 	got, err := m.GetSeller(ctx, v.ID)
@@ -193,6 +235,284 @@ func TestDinhChiLamAnOfferVaPhaiCoLyDo(t *testing.T) {
 	}
 	if !got.IsActive || got.OffersHidden {
 		t.Error("sau khi khôi phục, seller phải hoạt động và offer hiện lại")
+	}
+}
+
+// Duyệt hồ sơ đặt hoa hồng, ghi vết, và nêu rõ bước CHƯA xong.
+//
+// Điểm dễ hiểu sai nhất: duyệt KHÔNG kích hoạt seller. Người duyệt tưởng
+// xong việc rồi không hiểu vì sao gian hàng vẫn im lìm — nên response phải
+// nói thẳng ra.
+func TestDuyetHoSoDatHoaHongVaGhiVet(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+	v := apply(t, m, "cho-duyet")
+
+	if _, err := m.Service().SubmitForReview(ctx, ids.ID(v.ID)); err != nil {
+		t.Fatalf("SubmitForReview: %v", err)
+	}
+
+	req := approveReq(v.ID)
+	req.CommissionRateBP = 1500 // 15%
+	res, err := m.ApproveSeller(ctx, req)
+	if err != nil {
+		t.Fatalf("ApproveSeller: %v", err)
+	}
+
+	if res.Seller.Status != "APPROVED" {
+		t.Errorf("trạng thái = %q, mong APPROVED", res.Seller.Status)
+	}
+	if res.Seller.IsActive {
+		t.Error("duyệt KHÔNG được kích hoạt seller — còn thiếu xác minh " +
+			"tài khoản ngân hàng")
+	}
+	if res.Seller.CommissionRateBP != 1500 {
+		t.Errorf("hoa hồng = %d, mong 1500", res.Seller.CommissionRateBP)
+	}
+
+	// side_effects phải cảnh báo bước còn thiếu.
+	var warned bool
+	for _, e := range res.SideEffects {
+		if strings.Contains(e, "CHƯA kích hoạt") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("side_effects phải nêu rõ seller CHƯA kích hoạt: %v",
+			res.SideEffects)
+	}
+
+	// Vết kiểm toán có tỷ lệ hoa hồng — cam kết tài chính phải truy được.
+	rec := audit.NewRecorder(db.Pool())
+	got, _, err := rec.Query(ctx, audit.Filter{
+		ResourceID: v.ID,
+		Action:     "seller.approve",
+	})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("mong 1 vết duyệt, nhận %d", len(got))
+	}
+	if got[0].ActorID == "" {
+		t.Error("vết duyệt PHẢI có người duyệt")
+	}
+	if got[0].Metadata["commission_rate_bp"] != float64(1500) {
+		t.Errorf("vết phải ghi tỷ lệ hoa hồng đã cam kết: %v",
+			got[0].Metadata)
+	}
+}
+
+// Hoa hồng ngoài khoảng [0, 10000] bị chặn.
+//
+// Hoa hồng 150% lọt vào là mọi đơn của seller đó tính sai cho tới khi có
+// người để ý — thường là lúc đối soát, đã qua vài kỳ.
+func TestHoaHongNgoaiKhoangBiChan(t *testing.T) {
+	m, _ := newModule(t)
+	ctx := context.Background()
+	v := apply(t, m, "hoa-hong-sai")
+
+	if _, err := m.Service().SubmitForReview(ctx, ids.ID(v.ID)); err != nil {
+		t.Fatalf("SubmitForReview: %v", err)
+	}
+
+	for _, rate := range []int32{-1, 10001, 15000} {
+		req := approveReq(v.ID)
+		req.CommissionRateBP = rate
+		if _, err := m.ApproveSeller(ctx, req); err == nil {
+			t.Errorf("hoa hồng %d phần vạn phải bị chặn", rate)
+		}
+	}
+}
+
+// Duyệt thất bại KHÔNG để lại trạng thái nửa vời.
+//
+// Cùng bất biến với đình chỉ, nhưng đường khác: ở đây máy trạng thái từ
+// chối (hồ sơ chưa nộp duyệt) chứ không phải việc ghi vết.
+func TestDuyetHoSoSaiTrangThaiBiChan(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	// Hồ sơ vừa nộp, CHƯA chuyển sang PENDING_REVIEW.
+	v := apply(t, m, "chua-nop-duyet")
+
+	_, err := m.ApproveSeller(ctx, approveReq(v.ID))
+	if err == nil {
+		t.Fatal("duyệt hồ sơ chưa nộp review phải bị chặn")
+	}
+
+	// Phải là ErrNotAllowed (→ 409 ở tầng HTTP), KHÔNG phải lỗi hệ thống.
+	//
+	// Trả 500 cho một thao tác sai của người dùng khiến họ tưởng hệ thống
+	// hỏng và thử lại mãi. Lỗi này đã xảy ra thật, bắt được lúc chạy server.
+	if !errors.Is(err, seller.ErrNotAllowed) {
+		t.Errorf("mong ErrNotAllowed (xung đột trạng thái), nhận: %v", err)
+	}
+
+	got, err := m.GetSeller(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetSeller: %v", err)
+	}
+	if got.Status != "APPLIED" {
+		t.Errorf("trạng thái phải giữ nguyên APPLIED, nhận %q", got.Status)
+	}
+
+	rec := audit.NewRecorder(db.Pool())
+	entries, _, err := rec.Query(ctx, audit.Filter{ResourceID: v.ID})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("duyệt bị chặn thì KHÔNG được có vết, nhận %d", len(entries))
+	}
+}
+
+// Đình chỉ phải ghi vết kiểm toán, kèm đủ danh tính và lý do.
+//
+// Vết thiếu người thực hiện là vết vô dụng: khi seller khiếu nại, câu hỏi
+// đầu tiên luôn là "ai quyết định việc này".
+func TestDinhChiGhiVetKiemToan(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+	v := activeSeller(t, m, "co-vet-kiem-toan")
+
+	const reason = "Tỷ lệ hủy đơn 8% vượt ngưỡng 3% trong 30 ngày liên tiếp"
+	if _, err := m.SuspendSeller(ctx, suspendReq(v.ID, reason)); err != nil {
+		t.Fatalf("SuspendSeller: %v", err)
+	}
+
+	// Lọc theo action: hồ sơ này đã có một vết `seller.approve` từ lúc
+	// dựng dữ liệu, và đó là hành vi đúng.
+	rec := audit.NewRecorder(db.Pool())
+	got, _, err := rec.Query(ctx, audit.Filter{
+		ResourceID: v.ID,
+		Action:     "seller.suspend",
+	})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("mong đúng 1 vết đình chỉ, nhận %d", len(got))
+	}
+
+	e := got[0]
+	if e.Action != "seller.suspend" {
+		t.Errorf("action = %q, mong seller.suspend", e.Action)
+	}
+	if e.ActorID == "" {
+		t.Error("vết kiểm toán PHẢI có người thực hiện")
+	}
+	if e.Reason != reason {
+		t.Errorf("lý do bị đổi: %q", e.Reason)
+	}
+	if e.ResourceType != audit.ResourceSeller {
+		t.Errorf("resource_type = %q", e.ResourceType)
+	}
+}
+
+// TestDinhChiThatBaiKhongDeLaiTrangThaiNuaVoi là bất biến của P0-6.
+//
+// Khi việc ghi vết kiểm toán thất bại (ở đây: lý do rác bị từ chối), việc
+// đổi trạng thái seller PHẢI bị hủy theo. Hai kết cục nửa vời đều nguy hiểm:
+//
+//	Seller bị đình chỉ mà không có vết  → không ai chịu trách nhiệm
+//	Có vết mà seller vẫn hoạt động      → bằng chứng cho việc chưa xảy ra
+func TestDinhChiThatBaiKhongDeLaiTrangThaiNuaVoi(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+	v := activeSeller(t, m, "khong-nua-voi")
+
+	// "test" lặp lại cho đủ 20 ký tự — đúng thứ người vội sẽ gõ.
+	_, err := m.SuspendSeller(ctx, suspendReq(v.ID, "testtesttesttesttesttest"))
+	if err == nil {
+		t.Fatal("lý do rác phải bị từ chối")
+	}
+
+	// Trạng thái seller KHÔNG được đổi.
+	got, err := m.GetSeller(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetSeller: %v", err)
+	}
+	if !got.IsActive {
+		t.Error("ghi vết thất bại thì việc đình chỉ PHẢI bị hủy theo — " +
+			"seller vẫn phải đang hoạt động")
+	}
+	if got.OffersHidden {
+		t.Error("offer không được bị ẩn khi việc đình chỉ đã bị hủy")
+	}
+
+	// Và không có vết kiểm toán nào ở lại.
+	rec := audit.NewRecorder(db.Pool())
+	entries, _, err := rec.Query(ctx, audit.Filter{
+		ResourceID: v.ID,
+		Action:     "seller.suspend",
+	})
+	if err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("giao dịch hủy thì KHÔNG được có vết đình chỉ, nhận %d",
+			len(entries))
+	}
+}
+
+// Thao tác nhạy cảm KHÔNG được chạy khi chưa nối đường ghi vết.
+//
+// Thà từ chối còn hơn đình chỉ thành công mà im lặng bỏ qua việc ghi vết —
+// lỗi nối dây kiểu đó không ai phát hiện cho tới khi cần tra cứu.
+func TestThieuAuditThiTuChoiDinhChi(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("bỏ qua: cần DATABASE_URL")
+	}
+	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
+	if err != nil {
+		t.Fatalf("mở database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	// KHÔNG truyền Audit.
+	m, err := seller.New(seller.Config{Storage: "postgres", DB: db})
+	if err != nil {
+		t.Fatalf("seller.New: %v", err)
+	}
+
+	_, err = m.SuspendSeller(context.Background(),
+		suspendReq("sel_01J9XABC123DEF456GHJKMNPQR",
+			"Tỷ lệ hủy đơn 8% vượt ngưỡng 3% trong 30 ngày liên tiếp"))
+	if err == nil {
+		t.Error("thiếu AuditRecorder thì thao tác nhạy cảm phải bị từ chối")
+	}
+}
+
+// Ghi vết NGOÀI giao dịch phải bị từ chối.
+//
+// Lớp phòng vệ này không nằm trên đường đi hiện tại (SaveWithAudit luôn
+// cung cấp giao dịch), nhưng nó chặn kiểu lỗi dễ mắc nhất về sau: gọi bộ
+// ghi vết từ một use case mới mà quên mở giao dịch. Khi đó vết và thay đổi
+// nghiệp vụ tách rời nhau, và nhật ký mất giá trị mà không ai nhận ra.
+func TestGhiVetNgoaiGiaoDichBiTuChoi(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("bỏ qua: cần DATABASE_URL")
+	}
+	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
+	if err != nil {
+		t.Fatalf("mở database: %v", err)
+	}
+	t.Cleanup(db.Close)
+
+	rec := seller.NewAuditRecorder(audit.NewRecorder(db.Pool()))
+
+	// Ngữ cảnh KHÔNG mang giao dịch.
+	err = rec.RecordSuspension(context.Background(), application.SuspensionRecord{
+		SellerID: ids.ID("sel_01J9XABC123DEF456GHJKMNPQR"),
+		ActorID:  "usr_01J9XABC123DEF456GHJKMNPQR",
+		Reason:   "Tỷ lệ hủy đơn 8% vượt ngưỡng 3% trong 30 ngày liên tiếp",
+	})
+	if err == nil {
+		t.Fatal("ghi vết ngoài giao dịch PHẢI bị từ chối, không được âm " +
+			"thầm ghi rời")
 	}
 }
 
@@ -308,7 +628,7 @@ func activeSeller(t *testing.T, m *seller.Module, slug string) *seller.SellerVie
 	if _, err := svc.SubmitForReview(ctx, id); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
 	}
-	if err := m.ApproveSeller(ctx, v.ID, "admin"); err != nil {
+	if _, err := m.ApproveSeller(ctx, approveReq(v.ID)); err != nil {
 		t.Fatalf("ApproveSeller: %v", err)
 	}
 	if _, err := svc.VerifyBankAccount(ctx, id); err != nil {

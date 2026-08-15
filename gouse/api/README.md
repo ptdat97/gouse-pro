@@ -41,7 +41,10 @@ npx @redocly/cli lint openapi.yaml
 npx @redocly/cli bundle openapi.yaml -o dist/openapi.bundled.yaml
 
 # Sinh kiểu TypeScript cho Next.js
-npx openapi-typescript openapi.yaml -o ../packages/api-client/types.ts
+#
+# Frontend nằm ở REPO ANH EM ../../gouse-web (không chung repo này).
+# Chạy từ bên đó: npm run types
+npx openapi-typescript openapi.yaml -o ../../gouse-web/packages/types/openapi.d.ts
 
 # Xem tài liệu tương tác
 npx @redocly/cli preview-docs openapi.yaml
@@ -156,14 +159,14 @@ Cập nhật: 15/08/2026.
 
 ```text
 TESTED          5      catalog · product
-IMPLEMENTED     5      auth · audit-log
+IMPLEMENTED    13      auth · audit-log · admin sellers · ledger · orders
 INTEGRATED      0      chưa có frontend
-DESIGNED       61      (46 MVP còn lại + 15 hoãn Phase 2/3)
+DESIGNED       53      (37 MVP còn lại + 16 hoãn Phase 2/3)
                 ──
                 71
 ```
 
-### Đã cài đặt (10)
+### Đã cài đặt (18)
 
 | Operation | Đường dẫn | Mức |
 |---|---|---|
@@ -177,12 +180,38 @@ DESIGNED       61      (46 MVP còn lại + 15 hoãn Phase 2/3)
 | `logout` | `POST /api/v1/auth/logout` | IMPLEMENTED |
 | `getAdminMe` | `GET /api/v1/admin/me` | IMPLEMENTED |
 | `listAuditLog` | `GET /api/v1/admin/audit-log` | IMPLEMENTED |
+| `listSellers` | `GET /api/v1/admin/sellers` | IMPLEMENTED |
+| `getSellerDetail` | `GET /api/v1/admin/sellers/{id}` | IMPLEMENTED |
+| `approveSeller` | `POST /api/v1/admin/sellers/{id}/approve` | IMPLEMENTED |
+| `suspendSeller` | `POST /api/v1/admin/sellers/{id}/suspend` | IMPLEMENTED |
+| `createLedgerAdjustment` | `POST /api/v1/admin/ledger/adjustments` | IMPLEMENTED |
+| `listAdminOrders` | `GET /api/v1/admin/orders` | IMPLEMENTED |
+| `getAdminOrderDetail` | `GET /api/v1/admin/orders/{id}` | IMPLEMENTED |
+| `cancelAdminOrder` | `POST /api/v1/admin/orders/{id}/cancel` | IMPLEMENTED |
 
-Năm operation `IMPLEMENTED` đã được kiểm chứng bằng **chạy server thật**,
-nhưng chưa có test HTTP tự động — nợ kỹ thuật P3-1 trong
-[backlog](../docs/10-roadmap/backlog.md).
+Mười ba operation `IMPLEMENTED` đã được kiểm chứng bằng **chạy server thật**,
+nhưng chưa có test tự động ở **tầng HTTP** — nợ kỹ thuật P3-1 trong
+[backlog](../docs/10-roadmap/backlog.md). Riêng `suspendSeller` có nghiệp vụ
+được phủ bởi test module chạy trên PostgreSQL thật (ranh giới giao dịch,
+kiểm tra lý do, ghi vết kiểm toán); phần chưa phủ tự động là lớp HTTP:
+phân quyền, hình dạng JSON, ánh xạ lỗi.
 
-### MVP còn lại (46) — `DESIGNED`
+**Đặc tả đã được sửa cho khớp kiến trúc — ba chỗ.** Cả ba đều là cùng một
+kiểu lỗi: đặc tả hứa dữ liệu TỔNG HỢP TỪ NHIỀU MODULE mà ranh giới phụ
+thuộc không cho phép. Chi tiết ở
+[backlog](../docs/10-roadmap/backlog.md) mục 3d.
+
+```text
+suspendSeller.effects.offers_hidden       → seller không gọi được marketplace
+listAdminOrders.fulfillment_count         → order không gọi được fulfillment
+getAdminOrderDetail.fulfillment_orders[]  → cùng lý do (ADR-0007, R5)
+getAdminOrderDetail.customer{}            → thay bằng customer_id
+```
+
+Việc ghép dữ liệu là của **TRANG**, không phải của **ENDPOINT**: Admin UI
+gọi nhiều endpoint rồi ghép lại.
+
+### MVP còn lại (37) — `DESIGNED`
 
 | Nhóm | Số | Operation |
 |---|---|---|
@@ -191,16 +220,17 @@ nhưng chưa có test HTTP tự động — nợ kỹ thuật P3-1 trong
 | Cart & Checkout | 10 | `getCart` · `addCartItem` · `updateCartItem` · `removeCartItem` · `startCheckout` · `getCheckout` · `setCheckoutShippingAddress` · `setCheckoutShippingMethod` · `applyCheckoutCoupon` · `completeCheckout` |
 | Orders | 4 | `listMyOrders` · `placeOrder` · `getOrder` · `cancelOrder` |
 | Seller | 11 | `applyAsSeller` · `listMyOffers` · `createOffer` · `updateOffer` · `updateInventory` · `listMyFulfillmentOrders` · `getMyFulfillmentOrder` · `shipFulfillmentOrder` · `getMyBalance` · `getMySettlement` · `getMyPerformance` |
-| Admin | 11 | `listSellers` · `getSellerDetail` · `approveSeller` · `suspendSeller` · `createLedgerAdjustment` · `executePayouts` · `adjustInventory` · `getCustomerAsAdmin` · `listAdminOrders` · `getAdminOrderDetail` · `cancelAdminOrder` |
+| Admin | 2 | `adjustInventory` · `getCustomerAsAdmin` |
 | Webhooks | 2 | `receivePaymentWebhook` · `receiveShippingWebhook` |
 
-### Hoãn (15) — `FUTURE`
+### Hoãn (16) — `FUTURE`
 
 Đặc tả **giữ nguyên**; chỉ hoãn phần cài đặt.
 
 | Giai đoạn | Số | Operation |
 |---|---|---|
 | Phase 2 | 12 | `applyAsCreator` · `getMyEarnings` · `getMyAnalytics` · `listMyContent` · `createContent` · `publishContent` · `getContent` · `getOutfit` · `listMyAffiliateLinks` · `createAffiliateLink` · `getFeed` · `requestReturn` |
+| Phase 2 | 1 | `executePayouts` — `settlement` **chưa có bảng nào**; payment.md ghi "payout tự động → Phase 2". MVP là **đối soát thủ công** |
 | Phase 2+ | 1 | `listProductReviews` — **không có module sở hữu** trong 17 module MVP |
 | Phase 3 | 2 | `createProductionOrder` · `listReplenishmentSuggestions` |
 

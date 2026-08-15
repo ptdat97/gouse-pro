@@ -59,12 +59,17 @@ seller_detail:
     tags: [Admin]
     summary: Chi tiết nhà bán
     description: |
-      Hồ sơ đầy đủ phục vụ màn hình duyệt.
+      Hồ sơ phục vụ màn hình duyệt.
 
-      **Xác minh tài khoản ngân hàng là bước bắt buộc trước khi duyệt** —
-      sai tài khoản nghĩa là chuyển tiền nhầm người, rất khó thu hồi. Vì
-      thế response tách riêng tên chủ tài khoản và tên đăng ký để người
-      duyệt tự đối chiếu, thay vì hệ thống tự kết luận là khớp.
+      **Xác minh tài khoản ngân hàng là bước bắt buộc trước khi seller được
+      ACTIVE** — sai tài khoản nghĩa là chuyển tiền nhầm người, rất khó thu
+      hồi. Ràng buộc này được cưỡng chế ở tầng database.
+
+      Phạm vi MVP là **hồ sơ cơ bản** (04-modules/seller.md mục cuối):
+      `bank_account_verified` là một CỜ do người duyệt xác nhận. Chi tiết
+      tài khoản ngân hàng (tên chủ tài khoản, số tài khoản) và giấy tờ pháp
+      lý thuộc bảng `seller_bank_account` / `seller_document` — **Phase 2**,
+      chưa có trong dữ liệu MVP nên không khai báo ở đây.
     operationId: getSellerDetail
     security:
       - bearerAuth: []
@@ -84,28 +89,31 @@ seller_detail:
                 - $ref: '#/AdminSellerSummary'
                 - type: object
                   properties:
+                    legal_name:
+                      type: string
                     tax_code:
                       type: string
-                    business_license_url:
+                    email:
                       type: string
-                    bank_account:
-                      type: object
+                    phone:
+                      type: string
+                    bank_account_verified:
+                      type: boolean
                       description: |
-                        `verified` do người duyệt xác nhận, **không** do hệ
-                        thống so chuỗi tự động — "CONG TY ABC" và "Công ty
-                        ABC" khác nhau về ký tự nhưng cùng một pháp nhân.
-                      properties:
-                        bank_name:
-                          type: string
-                        account_number_masked:
-                          type: string
-                        account_holder_name:
-                          type: string
-                        registered_name:
-                          type: string
-                        verified:
-                          type: boolean
-                    applied_at:
+                        Do NGƯỜI DUYỆT xác nhận, không phải hệ thống so
+                        chuỗi tự động — "CONG TY ABC" và "Công ty ABC" khác
+                        nhau về ký tự nhưng cùng một pháp nhân.
+
+                        Seller không phải INTERNAL bắt buộc có cờ này bằng
+                        `true` mới chuyển được sang ACTIVE.
+                    suspension_reason:
+                      type: string
+                      description: |
+                        Lý do của trạng thái REJECTED, SUSPENDED, hoặc
+                        TERMINATED. Rỗng với các trạng thái khác.
+                    approved_by:
+                      type: string
+                    approved_at:
                       $ref: '../components/common.yaml#/schemas/Timestamp'
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
@@ -117,11 +125,18 @@ seller_approve:
     tags: [Admin]
     summary: Duyệt hồ sơ nhà bán
     description: |
-      Duyệt và gán chính sách cho seller.
+      Duyệt hồ sơ và đặt tỷ lệ hoa hồng.
 
-      `reserve_rate` là cơ chế giữ lại một tỷ lệ doanh thu với seller mới —
-      bảo vệ khi seller có tỷ lệ hoàn hàng cao hoặc bỏ trốn với số dư âm.
-      Tỷ lệ này giảm dần khi seller chứng minh được độ tin cậy.
+      Duyệt chuyển seller sang `APPROVED`, **chưa phải** `ACTIVE`. Seller
+      chỉ ACTIVE khi tài khoản ngân hàng đã xác minh — ràng buộc cưỡng chế ở
+      tầng database, vì bán được hàng mà không nhận được tiền là tranh chấp
+      không đáng có.
+
+      **Phạm vi MVP** (04-modules/seller.md mục cuối): hoa hồng là một TỶ LỆ
+      trên seller. `seller_policy` với `reserve_rate`, `reserve_hold_days`,
+      `settlement_cycle` là **Phase 2** — chúng từng được khai báo ở đây
+      nhưng không có dữ liệu phía sau, nên đã gỡ bỏ thay vì để đặc tả hứa
+      thứ hệ thống không làm được.
     operationId: approveSeller
     security:
       - bearerAuth: []
@@ -138,24 +153,21 @@ seller_approve:
         application/json:
           schema:
             type: object
-            required: [seller_type, commission_policy_id]
+            required: [commission_rate_bp]
+            additionalProperties: false
             properties:
-              seller_type:
-                type: string
-                enum: [INDIVIDUAL, BUSINESS, LOCAL_BRAND, STRATEGIC_PARTNER]
-              commission_policy_id:
-                $ref: '../components/common.yaml#/schemas/Id'
-              reserve_rate:
+              commission_rate_bp:
                 allOf:
                   - $ref: '../components/common.yaml#/schemas/BasisPoints'
-                description: Tỷ lệ giữ bảo đảm (1000 = 10%).
-              reserve_hold_days:
-                type: integer
-              settlement_cycle:
-                type: string
-                enum: [WEEKLY, BIWEEKLY, MONTHLY]
+                description: |
+                  Tỷ lệ hoa hồng theo phần vạn (1000 = 10,00%).
+
+                  Bắt buộc và không có giá trị mặc định: quên đặt hoa hồng
+                  nghĩa là nền tảng bán hộ miễn phí, và phát hiện ra thì đã
+                  qua vài kỳ đối soát.
               notes:
                 type: string
+                description: Ghi chú nội bộ, lưu vào nhật ký thao tác.
     responses:
       '200':
         description: Seller đã được duyệt
@@ -176,8 +188,15 @@ seller_approve:
                 side_effects:
                   type: array
                   description: |
-                    Các tác động diễn ra **bất đồng bộ** qua domain event.
-                    Hiển thị để người vận hành hiểu điều gì đã xảy ra.
+                    Điều đã xảy ra, và điều **CHƯA** xảy ra.
+
+                    Nêu rõ bước còn thiếu quan trọng hơn liệt kê việc đã
+                    xong: người duyệt thường tưởng duyệt xong là seller bán
+                    được ngay, rồi không hiểu vì sao gian hàng vẫn im lìm.
+
+                    Chỉ liệt kê tác động ĐÃ xảy ra trong giao dịch này —
+                    việc chạy bất đồng bộ qua event không được kể ở đây như
+                    thể đã hoàn tất.
                   items:
                     type: string
             example:
@@ -186,9 +205,11 @@ seller_approve:
                 status: APPROVED
                 approved_at: '2026-08-11T09:30:00Z'
               side_effects:
-                - Đã cấp vai trò SELLER_OWNER
-                - Đã tạo tài khoản tài chính
-                - Đã gửi email thông báo
+                - Hồ sơ chuyển sang trạng thái APPROVED
+                - Đã đặt tỷ lệ hoa hồng
+                - >-
+                  CHƯA kích hoạt: cần xác minh tài khoản ngân hàng trước khi
+                  seller bán được hàng
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
 
@@ -841,13 +862,8 @@ orders:
                         type: string
                       total:
                         $ref: '../components/common.yaml#/schemas/Money'
-                      fulfillment_count:
+                      line_count:
                         type: integer
-                      has_sla_breach:
-                        type: boolean
-                        description: |
-                          Có lô giao quá hạn SLA. Hiển thị nổi bật — số liệu
-                          bất thường không được giấu.
                       placed_at:
                         $ref: '../components/common.yaml#/schemas/Timestamp'
                 pagination:
@@ -900,49 +916,53 @@ order_detail:
                   type: string
                 status:
                   type: string
-                customer:
+                customer_id:
+                  allOf:
+                    - $ref: '../components/common.yaml#/schemas/Id'
+                  description: |
+                    Chỉ là THAM CHIẾU. Hồ sơ khách lấy từ
+                    `GET /api/v1/admin/customers/{id}` — module `order`
+                    không sở hữu dữ liệu đó.
+                shipping:
                   type: object
-                  description: Dữ liệu cá nhân — truy cập đã được ghi audit.
+                  description: |
+                    Địa chỉ ĐÓNG BĂNG tại thời điểm đặt hàng, không trỏ tới
+                    sổ địa chỉ của khách. Đây là **dữ liệu cá nhân** — lý do
+                    endpoint này bắt buộc `reason` và ghi audit.
                   properties:
-                    id:
-                      $ref: '../components/common.yaml#/schemas/Id'
-                    display_name:
+                    recipient_name:
                       type: string
                     phone:
+                      type: string
+                    street:
+                      type: string
+                    ward:
+                      type: string
+                    district:
+                      type: string
+                    province:
                       type: string
                 total:
                   $ref: '../components/common.yaml#/schemas/Money'
                 placed_at:
                   $ref: '../components/common.yaml#/schemas/Timestamp'
-                fulfillment_orders:
+                lines:
                   type: array
                   items:
                     type: object
                     properties:
                       id:
                         $ref: '../components/common.yaml#/schemas/Id'
+                      sku_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
                       seller_id:
                         $ref: '../components/common.yaml#/schemas/Id'
-                      seller_name:
-                        type: string
+                      quantity:
+                        type: integer
                       status:
                         type: string
-                      tracking_number:
-                        type: string
-                      sla_breached:
-                        type: boolean
-                timeline:
-                  type: array
-                  description: Lịch sử thao tác trên đơn, cũ nhất trước.
-                  items:
-                    type: object
-                    properties:
-                      occurred_at:
-                        $ref: '../components/common.yaml#/schemas/Timestamp'
-                      actor:
-                        type: string
-                      action:
-                        type: string
+                      line_total:
+                        $ref: '../components/common.yaml#/schemas/Money' 
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
       '404':

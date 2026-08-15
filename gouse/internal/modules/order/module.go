@@ -3,6 +3,8 @@ package order
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -12,6 +14,8 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/order/application"
 	"github.com/fashion-commerce/platform/internal/modules/order/domain"
 	orderpg "github.com/fashion-commerce/platform/internal/modules/order/infrastructure/postgres"
+	orderhttp "github.com/fashion-commerce/platform/internal/modules/order/interfaces/http"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
@@ -33,7 +37,13 @@ type Config struct {
 	// lọt nghĩa là khách bị trừ tiền hai lần.
 	Storage string
 
-	DB    *database.DB
+	DB *database.DB
+
+	// Audit là nơi ghi nhật ký thao tác quản trị (xem chi tiết đơn, hủy đơn).
+	//
+	// Thiếu nó thì luồng đặt hàng của khách vẫn chạy, nhưng endpoint quản
+	// trị trả lỗi thay vì đọc dữ liệu khách không để lại dấu vết.
+	Audit *audit.Recorder
 	Clock application.Clock
 }
 
@@ -49,15 +59,102 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	pool := cfg.DB.Pool()
-	return &Module{svc: application.NewService(application.Deps{
+	deps := application.Deps{
 		Orders:  orderpg.NewOrderStore(pool),
 		Numbers: orderpg.NewNumberStore(pool),
 		Clock:   cfg.Clock,
-	})}, nil
+	}
+	if cfg.Audit != nil {
+		deps.Audit = NewAuditRecorder(cfg.Audit)
+	}
+
+	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
 func (m *Module) Service() *application.Service { return m.svc }
+
+// ---------------------------------------------------------------- Quản trị
+
+func (m *Module) ListOrders(ctx context.Context, f ListFilter) ([]OrderSummary, error) {
+	filter := domain.Filter{
+		OrderNumber: f.OrderNumber,
+		Status:      f.Status,
+		Limit:       f.Limit,
+		Offset:      f.Offset,
+	}
+	if f.CustomerID != "" {
+		filter.CustomerID = ids.ID(f.CustomerID)
+	}
+
+	orders, err := m.svc.ListOrders(ctx, filter)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	out := make([]OrderSummary, 0, len(orders))
+	for _, o := range orders {
+		out = append(out, OrderSummary{
+			ID:          o.ID().String(),
+			OrderNumber: o.OrderNumber(),
+			Status:      string(o.Status()),
+			Total:       toAmount(o.Total()),
+			LineCount:   len(o.Lines()),
+			PlacedAt:    o.PlacedAt().UTC().Format(time.RFC3339),
+		})
+	}
+	return out, nil
+}
+
+func (m *Module) ViewOrderAsAdmin(
+	ctx context.Context, req ViewOrderRequest,
+) (*OrderView, error) {
+	id, err := ids.Parse(req.OrderID, ids.PrefixOrder)
+	if err != nil {
+		return nil, ErrInvalidID
+	}
+
+	o, err := m.svc.ViewOrderAsAdmin(ctx, application.ViewOrderInput{
+		OrderID:   id,
+		ActorID:   req.ActorID,
+		Reason:    req.Reason,
+		RequestID: req.RequestID,
+	})
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	v := toOrderView(o)
+	return &v, nil
+}
+
+func (m *Module) CancelOrderAsAdmin(
+	ctx context.Context, req CancelOrderRequest,
+) (*OrderView, error) {
+	id, err := ids.Parse(req.OrderID, ids.PrefixOrder)
+	if err != nil {
+		return nil, ErrInvalidID
+	}
+
+	o, err := m.svc.CancelOrderAsAdmin(ctx, application.CancelOrderInput{
+		OrderID:   id,
+		ActorID:   req.ActorID,
+		Reason:    req.Reason,
+		RequestID: req.RequestID,
+	})
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	v := toOrderView(o)
+	return &v, nil
+}
+
+// RegisterAdminRoutes gắn các endpoint đơn hàng của quản trị vào mux.
+//
+// Mux truyền vào PHẢI đã bọc Auth và RequireRole. Gắn nhầm vào mux công khai
+// nghĩa là bất kỳ ai cũng đọc được địa chỉ và số điện thoại của mọi khách.
+func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
+	orderhttp.NewHandler(m.svc, log).Register(mux)
+}
 
 // ---------------------------------------------------------------- Khách hàng
 

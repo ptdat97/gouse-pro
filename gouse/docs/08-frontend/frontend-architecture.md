@@ -75,20 +75,33 @@ Gộp chung sẽ khiến storefront phải tải cả code của admin — làm 
 
 ## 4. Cấu trúc monorepo
 
-```text
-/apps
-    /storefront
-    /seller-center
-    /creator-center
-    /admin
+Frontend nằm ở **repo riêng**, ngang hàng với backend:
 
-/packages
-    /api-client        — sinh từ OpenAPI, dùng chung
-    /ui                — component dùng chung (button, input, modal)
-    /design-tokens     — màu, khoảng cách, typography
-    /utils             — tiện ích thuần (định dạng ngày, tiền)
-    /types             — kiểu TypeScript sinh từ OpenAPI
+```text
+gouse-pro/
+├── gouse/       — Go backend, đặc tả OpenAPI, tài liệu kiến trúc
+└── gouse-web/   — monorepo frontend
+    ├── apps/
+    │   ├── admin/           ✅ đang xây
+    │   ├── storefront/      (P2-5)
+    │   ├── seller-center/   (P2-6)
+    │   └── creator-center/  (Phase 2)
+    └── packages/
+        ├── types/           — kiểu SINH TỪ ../gouse/api/openapi.yaml
+        ├── api-client/      — gọi API, xử lý lỗi, làm mới token
+        ├── design-tokens/   — màu, khoảng cách, typography
+        ├── ui/              — component dùng chung
+        └── utils/           — tiện ích thuần (định dạng ngày, tiền)
 ```
+
+**Vì sao tách repo:** backend và frontend có nhịp phát hành khác nhau, và
+tách ra giữ cho ranh giới "Next.js không chạm database" thành ranh giới VẬT
+LÝ chứ không chỉ là quy ước — không có cách nào import gói Go từ bên kia.
+
+**Cái giá:** đặc tả OpenAPI nằm ở repo backend, nên `gouse-web` phụ thuộc
+đường dẫn `../gouse/api/openapi.yaml` khi sinh kiểu. Chấp nhận được vì đặc
+tả là **nguồn sự thật duy nhất** — sao chép nó sang frontend sẽ tạo bản thứ
+hai, và hai bản sẽ lệch nhau.
 
 ### Quy tắc packages
 

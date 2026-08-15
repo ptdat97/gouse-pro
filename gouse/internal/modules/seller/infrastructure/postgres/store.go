@@ -63,7 +63,63 @@ func scan(row pgx.Row) (*domain.Seller, error) {
 	return domain.RestoreSeller(p), nil
 }
 
+// execer là thứ chạy được câu lệnh: pool hoặc một giao dịch đang mở.
+//
+// Nhờ nó, Save và SaveWithAudit dùng CHUNG một câu SQL — hai bản sao của
+// cùng câu lệnh sẽ lệch nhau ngay lần thêm cột đầu tiên.
+type execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
 func (s *Store) Save(ctx context.Context, sel *domain.Seller) error {
+	return save(ctx, s.pool, sel)
+}
+
+// SaveWithAudit ghi nhà bán và chạy fn trong CÙNG một giao dịch.
+//
+// Thứ tự có chủ ý: ghi thay đổi TRƯỚC, chạy fn SAU, commit CUỐI. Nếu fn
+// thất bại, `defer Rollback` hủy cả hai — không có trường hợp seller đổi
+// trạng thái mà vết kiểm toán biến mất.
+func (s *Store) SaveWithAudit(
+	ctx context.Context, sel *domain.Seller, fn domain.TxFunc,
+) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("seller: mở giao dịch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := save(ctx, tx, sel); err != nil {
+		return err
+	}
+
+	if fn != nil {
+		// Ngữ cảnh MANG giao dịch, để fn ghi bằng chính nó.
+		if err := fn(withTx(ctx, tx)); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("seller: xác nhận giao dịch: %w", err)
+	}
+	return nil
+}
+
+// txKey gắn giao dịch vào ngữ cảnh cho TxFunc.
+type txKey struct{}
+
+func withTx(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, txKey{}, tx)
+}
+
+// TxFrom lấy giao dịch mà SaveWithAudit đang mở.
+func TxFrom(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return tx, ok
+}
+
+func save(ctx context.Context, ex execer, sel *domain.Seller) error {
 	const q = `
 		INSERT INTO seller (
 			id, name, slug, seller_type, status, legal_name, tax_code, email, phone,
@@ -90,7 +146,7 @@ func (s *Store) Save(ctx context.Context, sel *domain.Seller) error {
 		approvedAt = &t
 	}
 
-	_, err := s.pool.Exec(ctx, q,
+	_, err := ex.Exec(ctx, q,
 		sel.ID().String(), sel.Name(), sel.Slug(), string(sel.Type()), string(sel.Status()),
 		sel.LegalName(), sel.TaxCode(), sel.Email(), sel.Phone(),
 		sel.CommissionRate().Value(), sel.BankAccountVerified(), sel.SuspensionReason(),
