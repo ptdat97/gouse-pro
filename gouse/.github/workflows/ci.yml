@@ -92,6 +92,17 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/gouse?sslmode=disable
 
+      # Database KHUÔN cho test. Mỗi gói test tự sao một bản riêng từ đây
+      # (internal/platform/testdb), nhờ vậy chúng chạy song song được.
+      #
+      # PHẢI khác DATABASE_URL: testdb dừng hẳn test nếu hai biến trỏ cùng
+      # một database — test dọn dữ liệu bằng TRUNCATE.
+      #
+      # Thiếu biến này thì mọi test cần database TỰ BỎ QUA và bộ test vẫn
+      # xanh — đúng loại "an toàn giả" cần tránh nhất.
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/gouse_test?sslmode=disable
+      TEST_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -110,6 +121,12 @@ jobs:
         run: |
           migrate -path migrations -database "$DATABASE_URL" down -all
           migrate -path migrations -database "$DATABASE_URL" up
+
+      - name: Tạo database khuôn cho test
+        run: |
+          psql "$TEST_ADMIN_URL" -q -c 'DROP DATABASE IF EXISTS gouse_test' \
+                                  -c 'CREATE DATABASE gouse_test'
+          migrate -path migrations -database "$TEST_DATABASE_URL" up
 
       - name: Test kèm race detector
         # Race detector quan trọng với module inventory: khóa lạc quan

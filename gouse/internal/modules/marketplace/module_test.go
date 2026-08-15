@@ -3,7 +3,6 @@ package marketplace_test
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -13,7 +12,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/marketplace/application"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace/domain"
 	marketpg "github.com/fashion-commerce/platform/internal/modules/marketplace/infrastructure/postgres"
-	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 func vnd(n int64) money.Money { return money.MustNew(n, money.VND) }
@@ -85,16 +84,7 @@ type harness struct {
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	ctx := context.Background()
 	// offer_price_history có trigger chặn DELETE — dùng TRUNCATE.

@@ -3,7 +3,6 @@ package postgres_test
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -12,34 +11,20 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/domain"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/infrastructure/postgres"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 var testNow = time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
 
-// newPool mở kết nối tới database test.
+// newPool mở kết nối tới database RIÊNG của gói test này.
 //
-// BỎ QUA test nếu không có DATABASE_URL: người phát triển không có
-// PostgreSQL vẫn chạy được phần còn lại của bộ test. Nhưng CI PHẢI đặt
-// biến này — nếu không, toàn bộ tầng kho lưu trữ sẽ không được kiểm chứng
-// mà bộ test vẫn báo xanh.
+// BỎ QUA test nếu chưa dựng database test: người phát triển không có
+// PostgreSQL vẫn chạy được phần còn lại của bộ test. Nhưng CI PHẢI dựng nó
+// — nếu không, toàn bộ tầng kho lưu trữ không được kiểm chứng mà bộ test
+// vẫn báo xanh.
 func newPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("kết nối database: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Fatalf("ping database: %v", err)
-	}
-	return pool
+	return testdb.Open(t).Pool()
 }
 
 // cleanCatalog xóa dữ liệu catalog để mỗi test bắt đầu từ trạng thái sạch.

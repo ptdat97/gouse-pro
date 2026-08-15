@@ -3,7 +3,6 @@ package order_test
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 func vnd(n int64) order.Amount { return order.Amount{Value: n, Currency: "VND"} }
@@ -18,16 +18,7 @@ func vnd(n int64) order.Amount { return order.Amount{Value: n, Currency: "VND"} 
 func newModule(t *testing.T) *order.Module {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	ctx := context.Background()
 	for _, stmt := range []string{
@@ -61,13 +52,10 @@ func newModule(t *testing.T) *order.Module {
 func newModuleWithDB(t *testing.T) (*order.Module, *database.DB) {
 	t.Helper()
 	m := newModule(t)
-	db, err := database.Open(context.Background(),
-		database.Config{DSN: os.Getenv("DATABASE_URL")})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
-	return m, db
+	// Kết nối THỨ HAI tới cùng database riêng của gói: newModule không trả
+	// ra kết nối của nó, và mở thêm một pool rẻ hơn nhiều so với việc đổi
+	// chữ ký của mọi test đang dùng newModule.
+	return m, testdb.Open(t)
 }
 
 // line dựng một dòng hàng cho test.

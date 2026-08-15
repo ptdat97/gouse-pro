@@ -504,7 +504,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | # | Việc | Ghi chú |
 |---|---|---|
 | P3-1 | **Test HTTP cho auth và audit-log** | Hiện chỉ kiểm chứng bằng curl thủ công |
-| P3-2 | **Sửa test suite chập chờn** | `order` và `fulfillment` cùng `TRUNCATE "order"`, chạy song song |
+| P3-2 | **Sửa test suite chập chờn** | ✅ xong — xem ghi chú dưới bảng |
 | P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | Sau P1 |
 | P3-4 | Rate limit (`429` + `X-RateLimit-*`) | Đặc tả đã khai báo, chưa cài |
 | P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | Tăng cường SAU phát hành — chủ dự án đã gỡ khỏi điều kiện chặn (15/08) |
@@ -516,8 +516,32 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | Hiện lọc sau khi đọc: một trang có thể trả ít hơn `limit` |
 | P3-12 | Phân trang theo KHÓA thay vì offset | `next_cursor` hiện là offset mã hóa; đơn mới xen vào có thể làm lặp bản ghi |
 
-P3-1 và P3-2 là **nợ kỹ thuật đã biết**, không phải việc phát sinh — ghi ở
-đây để không bị quên.
+**P3-2 — đã xong (15/08).** Có HAI sự cố, không phải một:
+
+```text
+1. Test xóa sạch database phát triển
+   `make test-db` cũ chạy `go test ./...` thẳng lên DATABASE_URL.
+   Một lần chạy là mất hết dữ liệu mẫu — và im lặng, chỉ lộ ra khi
+   mở giao diện thấy trống. Đây là thứ đã chặn việc kiểm chứng P2-1.
+
+2. Test đỏ khi chạy song song
+   `order`, `fulfillment`, `checkout` cùng TRUNCATE bảng "order".
+   Tái hiện: chạy ba gói cùng lúc → hỏng 3/3 lần, không phải chập chờn.
+```
+
+Cách chữa cũ là cờ `-p 1` trong Makefile. Nó chỉ chữa sự cố thứ hai, chỉ khi
+người chạy dùng `make test` — `go test ./...` hay `make test-race` vẫn hỏng.
+
+Nay [internal/platform/testdb](../../internal/platform/testdb/testdb.go) cấp
+cho **mỗi gói test một database riêng**, sao từ khuôn bằng
+`CREATE DATABASE ... TEMPLATE` (nhanh hơn nhiều so với chạy lại 22 migration
+cho mỗi gói). Kèm một **hàng rào**: test dừng hẳn nếu `TEST_DATABASE_URL` và
+`DATABASE_URL` trỏ cùng một database.
+
+Hệ quả: `-p 1` đã bỏ khỏi Makefile, bộ test chạy song song trở lại.
+
+P3-1 là **nợ kỹ thuật đã biết**, không phải việc phát sinh — ghi ở đây để
+không bị quên.
 
 ---
 

@@ -15,9 +15,18 @@ curl localhost:8080/version
 ```
 
 ```bash
+make test-db          # MỘT LẦN: tạo database khuôn cho test
 make check            # chạy toàn bộ kiểm tra như CI
 make help             # xem tất cả lệnh
 ```
+
+Test chạy trên database **riêng**, không phải database phát triển. Mỗi gói
+test tự sao một bản từ khuôn `gouse_test`, nên chúng chạy song song được và
+không gói nào xóa dữ liệu của gói nào. Chi tiết:
+[internal/platform/testdb](internal/platform/testdb/testdb.go).
+
+Chưa chạy `make test-db` thì test cần database **tự bỏ qua** — bộ test vẫn
+xanh nhưng KHÔNG kiểm chứng tầng kho lưu trữ. CI phải chạy nó.
 
 ---
 
@@ -140,3 +149,12 @@ make api-types     # sinh kiểu TypeScript cho frontend
 - PostgreSQL 16+ (khi có module dùng database)
 
 Biến môi trường: xem [internal/platform/config/config.go](internal/platform/config/config.go). Ở `development` mọi biến đều có giá trị mặc định hợp lý; ở `production` thiếu `DATABASE_URL` là lỗi khởi động.
+
+| Biến | Dùng ở đâu |
+|---|---|
+| `DATABASE_URL` | Máy chủ API và worker |
+| `TEST_DATABASE_URL` | Database KHUÔN cho test |
+
+Hai biến này **không được trỏ cùng một database**: test dọn dữ liệu bằng
+`TRUNCATE`, nên dùng chung là một lần `go test ./...` mất sạch dữ liệu phát
+triển. `internal/platform/testdb` dừng hẳn test nếu phát hiện trùng.

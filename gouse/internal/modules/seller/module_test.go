@@ -3,7 +3,6 @@ package seller_test
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
@@ -12,21 +11,13 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller/application"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 func newModule(t *testing.T) (*seller.Module, *database.DB) {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	if _, err := db.Pool().Exec(context.Background(), "DELETE FROM seller"); err != nil {
 		t.Fatalf("dọn dữ liệu: %v", err)
@@ -461,15 +452,7 @@ func TestDinhChiThatBaiKhongDeLaiTrangThaiNuaVoi(t *testing.T) {
 // Thà từ chối còn hơn đình chỉ thành công mà im lặng bỏ qua việc ghi vết —
 // lỗi nối dây kiểu đó không ai phát hiện cho tới khi cần tra cứu.
 func TestThieuAuditThiTuChoiDinhChi(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL")
-	}
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	// KHÔNG truyền Audit.
 	m, err := seller.New(seller.Config{Storage: "postgres", DB: db})
@@ -492,20 +475,12 @@ func TestThieuAuditThiTuChoiDinhChi(t *testing.T) {
 // ghi vết từ một use case mới mà quên mở giao dịch. Khi đó vết và thay đổi
 // nghiệp vụ tách rời nhau, và nhật ký mất giá trị mà không ai nhận ra.
 func TestGhiVetNgoaiGiaoDichBiTuChoi(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL")
-	}
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	rec := seller.NewAuditRecorder(audit.NewRecorder(db.Pool()))
 
 	// Ngữ cảnh KHÔNG mang giao dịch.
-	err = rec.RecordSuspension(context.Background(), application.SuspensionRecord{
+	err := rec.RecordSuspension(context.Background(), application.SuspensionRecord{
 		SellerID: ids.ID("sel_01J9XABC123DEF456GHJKMNPQR"),
 		ActorID:  "usr_01J9XABC123DEF456GHJKMNPQR",
 		Reason:   "Tỷ lệ hủy đơn 8% vượt ngưỡng 3% trong 30 ngày liên tiếp",

@@ -3,7 +3,6 @@ package customer_test
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +11,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/customer"
-	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 type fakeClock struct {
@@ -39,16 +38,7 @@ func (c *fakeClock) advance(d time.Duration) {
 func newModule(t *testing.T, clock *fakeClock) (*customer.Module, *pgxpool.Pool) {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	ctx := context.Background()
 	for _, stmt := range []string{

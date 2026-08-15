@@ -3,7 +3,6 @@ package postgres_test
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/inventory/domain"
 	"github.com/fashion-commerce/platform/internal/modules/inventory/infrastructure/postgres"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 var testNow = time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
@@ -21,12 +21,7 @@ var testNow = time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 func newPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := pgxpool.ParseConfig(testdb.DSN(t))
 	if err != nil {
 		t.Fatalf("DSN không hợp lệ: %v", err)
 	}

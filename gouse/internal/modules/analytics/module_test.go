@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +13,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/analytics"
-	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 type fakeClock struct {
@@ -35,16 +34,7 @@ func (c *fakeClock) Now() time.Time {
 func newModule(t *testing.T, clock *fakeClock) (*analytics.Module, *pgxpool.Pool) {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	ctx := context.Background()
 	for _, stmt := range []string{
@@ -125,15 +115,7 @@ func TestGhiSuKien(t *testing.T) {
 // Test này dùng một module trỏ tới database ĐÃ ĐÓNG — mô phỏng sự cố hạ
 // tầng tệ nhất.
 func TestGhiNhanKhongChanLuongChinh(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
+	db := testdb.Open(t)
 
 	m, err := analytics.New(analytics.Config{
 		Storage: "postgres",
@@ -212,16 +194,7 @@ func TestSuKienNghiepVuChongGhiTrung(t *testing.T) {
 //
 // Test này bắt đúng ranh giới đó: ghi trùng KHÔNG được sinh cảnh báo nào.
 func TestSuKienTrungKhongSinhCanhBao(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	ctx := context.Background()
 	if _, err := db.Pool().Exec(ctx, "TRUNCATE event_log"); err != nil {

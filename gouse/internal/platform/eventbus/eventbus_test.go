@@ -5,15 +5,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
-	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
+	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
 // recordingHandler ghi lại mọi event nhận được.
@@ -65,16 +64,7 @@ func (h *recordingHandler) callCount() int {
 func newBus(t *testing.T) (*eventbus.Dispatcher, *pgxpool.Pool) {
 	t.Helper()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("bỏ qua: cần DATABASE_URL để chạy test với PostgreSQL thật")
-	}
-
-	db, err := database.Open(context.Background(), database.Config{DSN: dsn})
-	if err != nil {
-		t.Fatalf("mở database: %v", err)
-	}
-	t.Cleanup(db.Close)
+	db := testdb.Open(t)
 
 	ctx := context.Background()
 	for _, stmt := range []string{

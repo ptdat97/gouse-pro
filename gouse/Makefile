@@ -38,25 +38,25 @@ tidy: ## Dọn go.mod
 # ---------------------------------------------------------------- Kiểm tra
 
 .PHONY: test
-# -p 1 là BẮT BUỘC, không phải tùy chọn.
+# Chạy SONG SONG được vì mỗi gói test có database riêng.
 #
-# Các gói test tích hợp dùng CHUNG một database và TRUNCATE bảng ở bước
-# dọn dẹp. Chạy song song thì gói này xóa dữ liệu của gói kia đang chạy,
-# và test đỏ ngẫu nhiên theo thứ tự lịch trình — loại lỗi tốn nhiều giờ
-# nhất để tìm ra.
+# Trước đây target này phải dùng `-p 1`: các gói dùng chung một database và
+# TRUNCATE bảng khi dọn dẹp, nên gói này xóa dữ liệu gói kia đang chạy dở.
+# Nay internal/platform/testdb cấp cho mỗi gói một database sao từ khuôn, và
+# cờ đó không còn cần.
 #
-# Cách bỏ được -p 1: mỗi gói test dùng schema hoặc database riêng. Chưa
-# làm vì chi phí lớn hơn lợi ích ở quy mô hiện tại.
+# Cần chạy `make test-db` MỘT LẦN trước. Thiếu TEST_DATABASE_URL thì test
+# cần database sẽ tự bỏ qua chứ không chạy nhầm lên database phát triển.
 test: ## Chạy toàn bộ test
-	go test -p 1 ./...
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test ./...
 
 .PHONY: test-v
 test-v: ## Chạy test có chi tiết
-	go test -p 1 -v ./...
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -v ./...
 
 .PHONY: test-race
 test-race: ## Chạy test với race detector
-	go test -race ./...
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -race ./...
 
 .PHONY: cover
 cover: ## Báo cáo độ phủ test
@@ -95,6 +95,25 @@ check: fmt-check vet arch test ## Chạy toàn bộ kiểm tra như CI
 # Ghi đè bằng: make migrate-up DATABASE_URL=postgres://...
 DATABASE_URL ?= postgres://postgres@127.0.0.1:5432/gouse?sslmode=disable
 
+# Database KHUÔN cho test. Mỗi gói test tự sao một bản riêng từ đây.
+#
+# CỐ TÌNH khác DATABASE_URL: dùng chung thì một lần `go test ./...` là xóa
+# sạch dữ liệu phát triển, và không có gì báo cho tới khi mở giao diện thấy
+# trống. internal/platform/testdb có hàng rào chặn hai biến trỏ cùng chỗ.
+#
+# Đổi máy chủ thì phải đổi CẢ HAI biến dưới: TEST_ADMIN_URL là nơi chạy lệnh
+# CREATE DATABASE, nên nó phải trỏ cùng máy chủ với khuôn.
+TEST_DATABASE_URL ?= postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable
+TEST_ADMIN_URL    ?= postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+
+.PHONY: test-db
+test-db: ## Tạo database KHUÔN cho test — chạy một lần, và sau mỗi migration mới
+	@psql "$(TEST_ADMIN_URL)" -q \
+		-c 'DROP DATABASE IF EXISTS gouse_test' \
+		-c 'CREATE DATABASE gouse_test'
+	@migrate -path migrations -database "$(TEST_DATABASE_URL)" up
+	@echo "khuôn gouse_test đã sẵn sàng — chạy 'make test'"
+
 .PHONY: migrate-up
 migrate-up: ## Áp dụng toàn bộ migration
 	migrate -path migrations -database "$(DATABASE_URL)" up
@@ -116,10 +135,6 @@ migrate-version: ## Xem phiên bản migration hiện tại
 migrate-new: ## Tạo migration mới: make migrate-new NAME=ten_migration
 	@test -n "$(NAME)" || { echo "Thiếu NAME. Ví dụ: make migrate-new NAME=inventory"; exit 1; }
 	migrate create -ext sql -dir migrations -seq $(NAME)
-
-.PHONY: test-db
-test-db: ## Chạy test có dùng database thật
-	DATABASE_URL="$(DATABASE_URL)" go test ./... -count=1
 
 # ---------------------------------------------------------------- Tiện ích
 
