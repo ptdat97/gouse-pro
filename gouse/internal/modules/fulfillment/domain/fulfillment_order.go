@@ -178,6 +178,16 @@ type FulfillmentOrder struct {
 	// lineIDs là các dòng hàng thuộc nguồn này.
 	lineIDs []ids.ID
 
+	// lines là ẢNH CHỤP thông tin nhặt hàng, sao chép lúc tách đơn.
+	//
+	// Seller cần biết NHẶT GÌ. Chỉ có mã dòng thì họ phải mở đơn hàng gốc,
+	// mà quy tắc bảo mật không cho — họ sẽ thấy cả hàng của seller khác,
+	// email khách và tổng tiền đơn.
+	//
+	// Có thể RỖNG với đơn tách trước khi có ảnh chụp này; bên gọi phải
+	// chịu được, và khi đó lineIDs vẫn dùng được.
+	lines []FOLine
+
 	status FOStatus
 
 	// Số tiền của riêng phần này, để seller đối soát.
@@ -225,11 +235,34 @@ type FulfillmentOrder struct {
 	updatedAt time.Time
 }
 
+// FOLine là một dòng hàng trong đơn thực hiện — góc nhìn NHẶT HÀNG.
+//
+// Sao chép từ payload event lúc tách đơn, không tham chiếu order_line: đây
+// là con số seller đã thấy lúc giao hàng, còn order_line hiện tại có thể đã
+// khác (hủy một phần, điều chỉnh).
+type FOLine struct {
+	OrderLineID ids.ID
+	SKUID       ids.ID
+
+	ProductName string
+
+	// VariantDescription ("Trắng / M") quyết định nhặt ĐÚNG ô kệ nào.
+	VariantDescription string
+
+	Quantity int
+
+	// Có CẢ UnitPrice lẫn LineTotal: chia LineTotal cho Quantity là phép
+	// chia số nguyên và nó làm tròn sai với giá không chia hết.
+	UnitPrice money.Money
+	LineTotal money.Money
+}
+
 type NewFulfillmentOrderParams struct {
 	OrderID          ids.ID
 	FONumber         string
 	SellerID         ids.ID
 	LineIDs          []ids.ID
+	Lines            []FOLine
 	Subtotal         money.Money
 	CommissionAmount money.Money
 
@@ -278,6 +311,7 @@ func NewFulfillmentOrder(p NewFulfillmentOrderParams) (*FulfillmentOrder, error)
 		foNumber:         p.FONumber,
 		sellerID:         p.SellerID,
 		lineIDs:          append([]ids.ID(nil), p.LineIDs...),
+		lines:            append([]FOLine(nil), p.Lines...),
 		status:           FOPending,
 		subtotal:         p.Subtotal,
 		commissionAmount: p.CommissionAmount,
@@ -297,6 +331,7 @@ type RestoreFOParams struct {
 	FONumber          string
 	SellerID          ids.ID
 	LineIDs           []ids.ID
+	Lines             []FOLine
 	Status            FOStatus
 	Subtotal          money.Money
 	CommissionAmount  money.Money
@@ -329,6 +364,7 @@ func RestoreFulfillmentOrder(p RestoreFOParams) *FulfillmentOrder {
 		foNumber:          p.FONumber,
 		sellerID:          p.SellerID,
 		lineIDs:           p.LineIDs,
+		lines:             p.Lines,
 		status:            p.Status,
 		subtotal:          p.Subtotal,
 		commissionAmount:  p.CommissionAmount,
@@ -380,6 +416,14 @@ func (f *FulfillmentOrder) DeliveredAt() time.Time        { return f.deliveredAt
 func (f *FulfillmentOrder) CancelledAt() time.Time        { return f.cancelledAt }
 func (f *FulfillmentOrder) CreatedAt() time.Time          { return f.createdAt }
 func (f *FulfillmentOrder) UpdatedAt() time.Time          { return f.updatedAt }
+
+// Lines trả bản sao ảnh chụp thông tin nhặt hàng.
+//
+// RỖNG với đơn tách trước khi có ảnh chụp này — bên gọi phải chịu được và
+// dùng LineIDs thay thế.
+func (f *FulfillmentOrder) Lines() []FOLine {
+	return append([]FOLine(nil), f.lines...)
+}
 
 // LineIDs trả bản sao danh sách dòng hàng.
 func (f *FulfillmentOrder) LineIDs() []ids.ID {
@@ -571,10 +615,18 @@ type SplitInput struct {
 
 // SplitLine là một dòng hàng cần phân về nguồn.
 type SplitLine struct {
-	LineID           ids.ID
-	SellerID         ids.ID
-	SKUID            ids.ID
-	Quantity         int
+	LineID   ids.ID
+	SellerID ids.ID
+	SKUID    ids.ID
+	Quantity int
+
+	// ProductName và VariantDescription là thứ SELLER cần để NHẶT ĐÚNG
+	// hàng. Sao chép xuống đơn thực hiện chứ không tra ngược module order:
+	// seller không được phép xem đơn hàng gốc.
+	ProductName        string
+	VariantDescription string
+
+	UnitPrice        money.Money
 	LineTotal        money.Money
 	CommissionAmount money.Money
 }
@@ -592,6 +644,7 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 		lineIDs    []ids.ID
 		subtotal   money.Money
 		commission money.Money
+		lines      []FOLine
 	}
 	var groups []*group
 	index := map[ids.ID]*group{}
@@ -608,6 +661,15 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 			groups = append(groups, g)
 		}
 		g.lineIDs = append(g.lineIDs, l.LineID)
+		g.lines = append(g.lines, FOLine{
+			OrderLineID:        l.LineID,
+			SKUID:              l.SKUID,
+			ProductName:        l.ProductName,
+			VariantDescription: l.VariantDescription,
+			Quantity:           l.Quantity,
+			UnitPrice:          l.UnitPrice,
+			LineTotal:          l.LineTotal,
+		})
 		g.subtotal, _ = g.subtotal.Add(l.LineTotal)
 		g.commission, _ = g.commission.Add(l.CommissionAmount)
 	}
@@ -619,6 +681,7 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 			FONumber:         in.OrderNumber + "-" + string(rune('A'+i)),
 			SellerID:         g.sellerID,
 			LineIDs:          g.lineIDs,
+			Lines:            g.lines,
 			Subtotal:         g.subtotal,
 			CommissionAmount: g.commission,
 			CustomerID:       in.CustomerID,

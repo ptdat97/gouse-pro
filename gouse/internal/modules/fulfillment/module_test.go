@@ -11,6 +11,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
+	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
@@ -100,10 +101,17 @@ func (h *harness) placeOrder(t *testing.T, sellers ...string) []fulfillment.Fulf
 	reservations := make([]map[string]any, 0, len(res.Order.Lines))
 	for _, l := range res.Order.Lines {
 		reservations = append(reservations, map[string]any{
-			"line_id":           l.ID,
-			"sku_id":            l.SKUID,
-			"seller_id":         l.SellerID,
-			"quantity":          l.Quantity,
+			"line_id":   l.ID,
+			"sku_id":    l.SKUID,
+			"seller_id": l.SellerID,
+			"quantity":  l.Quantity,
+
+			// Thông tin NHẶT HÀNG: seller cần biết nhặt gì, và với thời
+			// trang thì tên sản phẩm không đủ — phải có cả size/màu.
+			"product_name":        l.ProductName,
+			"variant_description": "Trắng / M",
+			"unit_price":          l.UnitPrice.Value,
+
 			"line_total":        l.LineTotal.Value,
 			"commission_amount": l.CommissionAmount.Value,
 		})
@@ -501,5 +509,175 @@ func TestHoanTatDonQuaHanDoiTra(t *testing.T) {
 	}
 	if view.CompletedAt == "" {
 		t.Error("COMPLETED phải có mốc thời gian — đó là mốc tính hạn chi trả")
+	}
+}
+
+// ---------------------------------------------- Thông tin nhặt hàng
+
+// SELLER PHẢI BIẾT NHẶT GÌ.
+//
+// Đơn thực hiện trước đây chỉ có mã dòng — seller mở ra thấy một danh sách
+// mã. Với thời trang, tên sản phẩm cũng KHÔNG đủ: cùng một chiếc áo có năm
+// size nằm ở năm ô kệ khác nhau.
+//
+// Thiếu thông tin này thì seller phải mở đơn hàng gốc, mà quy tắc bảo mật
+// KHÔNG cho họ xem đơn gốc — họ sẽ thấy cả hàng của seller khác, email
+// khách và tổng tiền đơn.
+//
+// Test đọc qua kho lưu trữ (GetSellerFulfillment) để kiểm chứng ảnh chụp
+// thật sự được GHI XUỐNG, không phải chỉ nằm trong bộ nhớ lúc tách.
+func TestSellerThayDuocThongTinNhatHang(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	fos := h.placeOrder(t, sellerID)
+	if len(fos) != 1 {
+		t.Fatalf("có %d đơn thực hiện, mong 1", len(fos))
+	}
+
+	fo, err := h.ful.Service().GetSellerFulfillment(ctx,
+		ids.ID(sellerID), ids.ID(fos[0].ID))
+	if err != nil {
+		t.Fatalf("GetSellerFulfillment: %v", err)
+	}
+
+	lines := fo.Lines()
+	if len(lines) != 1 {
+		t.Fatalf("có %d dòng, mong 1 — ảnh chụp không được ghi xuống", len(lines))
+	}
+
+	l := lines[0]
+	if l.ProductName == "" {
+		t.Error("thiếu tên sản phẩm — seller không biết nhặt gì")
+	}
+	if l.VariantDescription == "" {
+		t.Error("thiếu mô tả biến thể — seller không biết nhặt size nào")
+	}
+	if l.Quantity != 1 {
+		t.Errorf("số lượng = %d, mong 1", l.Quantity)
+	}
+	if l.UnitPrice.Amount() != 300000 {
+		t.Errorf("đơn giá = %d, mong 300000 — chia LineTotal cho Quantity là "+
+			"phép chia số nguyên và nó làm tròn sai", l.UnitPrice.Amount())
+	}
+}
+
+// SELLER KHÔNG ĐỌC ĐƯỢC ĐƠN CỦA SELLER KHÁC.
+//
+// Đây là ranh giới bảo mật quan trọng nhất của module. Nó phải nằm trong
+// TRUY VẤN, không phải ở tầng hiển thị — lọc khi hiển thị nghĩa là dữ liệu
+// seller khác đã rời khỏi database và chỉ cần một lỗi nhỏ là rò rỉ.
+func TestSellerKhongDocDuocDonSellerKhac(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerA := ids.MustNew(ids.PrefixSeller).String()
+	sellerB := ids.MustNew(ids.PrefixSeller).String()
+
+	// Một đơn, hai nguồn hàng → hai đơn thực hiện.
+	fos := h.placeOrder(t, sellerA, sellerB)
+	if len(fos) != 2 {
+		t.Fatalf("có %d đơn thực hiện, mong 2", len(fos))
+	}
+
+	// Tìm đơn của B.
+	var foOfB string
+	for _, f := range fos {
+		if f.SellerID == sellerB {
+			foOfB = f.ID
+		}
+	}
+	if foOfB == "" {
+		t.Fatal("không tìm thấy đơn thực hiện của seller B")
+	}
+
+	// A hỏi ĐÍCH DANH mã đơn của B.
+	if _, err := h.ful.Service().GetSellerFulfillment(ctx,
+		ids.ID(sellerA), ids.ID(foOfB)); err == nil {
+		t.Fatal("seller A đọc được đơn thực hiện của seller B")
+	}
+
+	// Và danh sách của A chỉ có đơn của A.
+	list, err := h.ful.Service().ListSellerWork(ctx, ids.ID(sellerA), nil, 50, 0)
+	if err != nil {
+		t.Fatalf("ListSellerWork: %v", err)
+	}
+	for _, f := range list {
+		if f.SellerID().String() != sellerA {
+			t.Errorf("danh sách của A chứa đơn của seller %s", f.SellerID())
+		}
+	}
+}
+
+// BÀN GIAO VẬN CHUYỂN đi qua mọi bước trung gian còn thiếu.
+//
+// Đặc tả cho nhà bán ĐÚNG MỘT hành động. Bắt họ gọi confirm → pack → ship
+// là bắt gọi ba lần cho một việc, mà hai lời gọi đầu không có endpoint nào.
+//
+// Máy trạng thái vẫn nguyên vẹn: hàm đi đúng đường hợp lệ ngắn nhất thay vì
+// nhảy thẳng — nhảy thẳng sẽ phải nới đồ thị chuyển trạng thái, và khi đó
+// "đã đóng gói thì không hủy được" cũng lỏng theo.
+func TestBanGiaoVanChuyenTuTrangThaiChoXuLy(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	fos := h.placeOrder(t, sellerID)
+	foID := ids.ID(fos[0].ID)
+
+	if fos[0].Status != "PENDING" {
+		t.Fatalf("trạng thái ban đầu = %q, mong PENDING", fos[0].Status)
+	}
+
+	if err := h.ful.Service().RecordHandOver(ctx, ids.ID(sellerID), foID,
+		"GHN", "VN123456789"); err != nil {
+		t.Fatalf("RecordHandOver: %v", err)
+	}
+
+	fo, err := h.ful.Service().GetSellerFulfillment(ctx, ids.ID(sellerID), foID)
+	if err != nil {
+		t.Fatalf("GetSellerFulfillment: %v", err)
+	}
+
+	if fo.Status() != domain.FOHandedOver {
+		t.Errorf("trạng thái = %q, mong HANDED_OVER", fo.Status())
+	}
+	if fo.TrackingNumber() != "VN123456789" {
+		t.Errorf("mã vận đơn = %q — không có mã thì không ai trả lời được "+
+			"'hàng của tôi đang ở đâu'", fo.TrackingNumber())
+	}
+	// Mốc trung gian phải được ghi: chỉ số hiệu suất tính từ chúng.
+	if fo.ConfirmedAt().IsZero() || fo.PackedAt().IsZero() {
+		t.Error("thiếu mốc xác nhận hoặc đóng gói")
+	}
+}
+
+// MÃ VẬN ĐƠN là BẮT BUỘC.
+//
+// Từ lúc bàn giao, hàng ra khỏi tầm kiểm soát của seller. Không có mã thì
+// không ai — kể cả bộ phận hỗ trợ — trả lời được "hàng đang ở đâu".
+func TestBanGiaoThieuMaVanDonBiTuChoi(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	fos := h.placeOrder(t, sellerID)
+
+	if err := h.ful.Service().RecordHandOver(ctx, ids.ID(sellerID),
+		ids.ID(fos[0].ID), "GHN", ""); err == nil {
+		t.Fatal("bàn giao không có mã vận đơn phải bị từ chối")
+	}
+
+	// Và trạng thái PHẢI còn nguyên: từ chối nửa vời nghĩa là đơn đã
+	// chuyển sang PACKED rồi mới lỗi, và seller không giao được nữa.
+	fo, err := h.ful.Service().GetSellerFulfillment(ctx,
+		ids.ID(sellerID), ids.ID(fos[0].ID))
+	if err != nil {
+		t.Fatalf("GetSellerFulfillment: %v", err)
+	}
+	if fo.Status() != domain.FOPending {
+		t.Errorf("trạng thái = %q sau khi từ chối, mong PENDING — thao tác "+
+			"thất bại để lại trạng thái nửa vời", fo.Status())
 	}
 }

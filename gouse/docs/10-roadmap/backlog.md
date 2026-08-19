@@ -275,7 +275,71 @@ có" sẽ đếm được chính xác số đơn nền tảng bán mỗi tháng.
 3. **Lọc `status` và phân trang làm ở tầng HTTP**, không trong truy vấn —
    xem P3-11 và P3-12.
 
-### P1.5 — Seller Center (11 operation)
+### P1.5 — Seller Center (3/11 xong)
+
+**Đã xong: `listMyFulfillmentOrders` · `getMyFulfillmentOrder` ·
+`shipFulfillmentOrder`** — ba operation mở khóa **luồng 6**, một trong bảy
+tiêu chí nghiệm thu MVP. Trước đó đơn hàng nằm `PENDING` vĩnh viễn vì không
+ai thao tác được.
+
+Kiểm chứng khép kín trên hệ thống thật:
+
+```text
+đặt đơn → tách thành FC-2026-08-000002-A
+seller thấy: "Áo sơ mi linen Oxford · Trắng / M · SL 1 · 490.000đ"
+seller bàn giao: VN987654321 / GHN
+trạng thái đơn tự tính lại → SHIPPED
+khách tra đơn → thấy đúng mã vận đơn
+```
+
+#### Seller phải biết NHẶT GÌ — và điều đó cần dữ liệu mới
+
+Đơn thực hiện trước đây chỉ lưu MÃ dòng hàng. Seller mở ra thấy một danh
+sách mã. Với thời trang, tên sản phẩm cũng KHÔNG đủ: cùng một chiếc áo có
+năm size nằm ở năm ô kệ khác nhau.
+
+Thiếu nó thì seller phải mở đơn hàng gốc — mà quy tắc bảo mật KHÔNG cho họ
+xem đơn gốc (họ sẽ thấy hàng của seller khác, email khách, tổng tiền đơn).
+
+Đã thêm ảnh chụp thông tin nhặt hàng vào `fulfillment_order_line`
+(migration 000024), lấy từ payload event `checkout.completed` — event đã
+mang sẵn `product_name`, chỉ chưa mang `variant_description` và `unit_price`.
+Đã bổ sung cả hai.
+
+Có CẢ `unit_price` lẫn `line_total` là chủ ý: chia `line_total` cho
+`quantity` là phép chia số nguyên và nó làm tròn sai với giá không chia hết.
+
+#### Một nút "bàn giao", nhưng máy trạng thái vẫn nguyên vẹn
+
+Đặc tả cho nhà bán ĐÚNG MỘT hành động, còn domain đòi đi qua
+`CONFIRMED → PACKED → HANDED_OVER`. `RecordHandOver` đi hết đường hợp lệ
+ngắn nhất thay vì nhảy thẳng — nhảy thẳng sẽ phải nới đồ thị chuyển trạng
+thái, và khi đó những bước bảo vệ khác (như "đã đóng gói thì không hủy
+được") cũng lỏng theo.
+
+`confirmed_at` và `packed_at` ghi bằng thời điểm bàn giao. Đó là thông tin
+tốt nhất ta có, và bỏ trống thì chỉ số hiệu suất không tính được.
+
+#### Ranh giới bảo mật nằm ở HAI lớp
+
+Câu SQL (`WHERE seller_id = $1`) và kiểm tra ở tầng application
+(`BelongsTo`). Khi viết test tôi phá riêng lớp application thì test VẪN
+XANH — vì câu SQL còn giữ. Phải phá cả hai lớp test mới đỏ. Đó là phòng thủ
+nhiều lớp hoạt động đúng như thiết kế.
+
+### P1.10 — Địa chỉ giao trên đơn thực hiện (CHẶN VẬN HÀNH) — MỚI
+
+Seller biết **nhặt gì** nhưng không biết **gửi đi đâu**: đơn thực hiện chưa
+mang địa chỉ giao, nên seller chưa in được phiếu giao hàng.
+
+Payload event `checkout.completed` không chứa địa chỉ, nên lúc tách đơn
+không có gì để sao chép xuống. Cách sửa giống hệt thông tin nhặt hàng: thêm
+vào payload event, thêm cột, sao chép lúc tách.
+
+Đây là việc CHẶN vận hành thật — luồng 6 chạy được về mặt dữ liệu nhưng
+seller chưa giao hàng thật được.
+
+### P1.5 — Seller Center: 8 operation còn lại
 
 `applyAsSeller` · `listMyOffers` · `createOffer` · `updateOffer` ·
 `updateInventory` · `listMyFulfillmentOrders` · `getMyFulfillmentOrder` ·
@@ -689,6 +753,32 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-14 | **Tùy chọn khách hàng** (số đo cơ thể, size ưa thích) | Cần thiết kế lưu trữ MÃ HÓA trước; đặc tả tự yêu cầu điều đó |
 | P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | Chặn P1.9: khách từng đặt hàng vãng lai chưa đăng ký được bằng email đó |
 | P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
+| P3-17 | SLA cho đơn thực hiện | Đặc tả khai báo `sla_deadline`; domain chưa có khái niệm này |
+
+**Lỗi MẤT CẬP NHẬT ở khuyến mãi — đã sửa (19/08).**
+
+Phát hiện nhờ một test đồng thời chập chờn: `TestKhoaLacQuanChanMatBoDem` đỏ
+khi toàn bộ bộ test chạy song song, xanh khi chạy riêng. Không bỏ qua mà
+điều tra — và nó là lỗi thật, tái hiện được dưới tải.
+
+```text
+12 lượt áp mã song song
+→ bảng coupon_usage: 12 hàng
+→ bộ đếm used_count:  11        ← MẤT MỘT
+```
+
+**Nguyên nhân:** hàng được ghi ở một giao dịch, bộ đếm cập nhật ở giao dịch
+khác bằng ĐỌC-RỒI-GHI với khóa lạc quan, thử lại tối đa 10 lần. Dưới tải,
+mười lần trượt liên tiếp là chuyện XẢY RA — và khi đó lượt đã nằm trong
+bảng nhưng bộ đếm không tăng. Mã giới hạn 100 lượt sẽ được dùng vài trăm
+lần, vì bộ đếm không bao giờ chạm giới hạn.
+
+**Cách sửa:** khóa lạc quan tồn tại để chặn "ghi đè thay đổi của người
+khác". Với một phép CỘNG thì không có gì bị ghi đè — hai lượt +1 đồng thời
+phải thành +2, và cả hai đều đúng. Thay bằng một câu `UPDATE` cộng dồn tại
+chỗ, kèm tính trạng thái CẠN ngay trong cùng câu lệnh.
+
+Trước sửa: đỏ dưới tải. Sau sửa: 32 lượt chạy dưới tải đều xanh.
 
 **Tra sản phẩm theo lô (`GET /api/v1/products?ids=…`) — thêm 19/08.**
 

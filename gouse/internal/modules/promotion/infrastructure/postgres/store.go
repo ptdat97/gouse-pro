@@ -102,6 +102,67 @@ func (s *PromotionStore) Update(ctx context.Context, p *domain.Promotion) error 
 	return nil
 }
 
+// ApplyUsage tăng bộ đếm và ngân sách NGUYÊN TỬ trong MỘT câu lệnh.
+//
+// # Vì sao không đọc-rồi-ghi với khóa lạc quan
+//
+// Khóa lạc quan chặn "ghi đè thay đổi của người khác". Cộng dồn thì không
+// ghi đè gì: hai lượt +1 đồng thời phải thành +2, và cả hai đều đúng.
+//
+// Dùng khóa lạc quan cho phép cộng biến chuyện thường thành xung đột, và
+// khi hết số lần thử lại thì hàng ĐÃ ghi vào bảng lượt sử dụng nhưng bộ đếm
+// KHÔNG tăng — mã giới hạn 100 lượt bị dùng vài trăm lần.
+//
+// Câu lệnh này không bao giờ xung đột: PostgreSQL khóa hàng trong lúc
+// UPDATE, và các lượt cộng nối tiếp nhau.
+//
+// `version` vẫn tăng để những đường ghi khác (sửa nội dung khuyến mãi) tiếp
+// tục phát hiện được xung đột của chúng.
+func (s *PromotionStore) ApplyUsage(
+	ctx context.Context, id ids.ID, discount money.Money, now time.Time,
+) (domain.UsageResult, error) {
+	var out domain.UsageResult
+
+	const q = `
+		UPDATE promotion
+		   SET used_count  = used_count + 1,
+		       used_budget = used_budget + $2,
+		       version     = version + 1,
+		       updated_at  = $3,
+
+		       -- Trạng thái CẠN tính ngay trong câu lệnh, từ giá trị SAU
+		       -- khi cộng. Tính ở tầng ứng dụng nghĩa là đọc lại rồi ghi
+		       -- lần nữa — đúng khoảng trống vừa loại bỏ.
+		       status = CASE
+		           WHEN max_uses > 0 AND used_count + 1 >= max_uses THEN 'EXHAUSTED'
+		           WHEN max_budget > 0 AND used_budget + $2 >= max_budget THEN 'EXHAUSTED'
+		           ELSE status
+		       END
+		 WHERE id = $1
+		 RETURNING used_count, used_budget, currency, status`
+
+	var (
+		count    int
+		budget   int64
+		currency string
+		status   string
+	)
+	err := s.pool.QueryRow(ctx, q, id.String(), discount.Amount(), now).
+		Scan(&count, &budget, &currency, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, domain.ErrNotFound
+	}
+	if err != nil {
+		return out, fmt.Errorf("promotion: ghi nhận lượt sử dụng: %w", err)
+	}
+
+	return domain.UsageResult{
+		UsedCount:  count,
+		UsedBudget: money.MustNew(budget, money.Currency(currency)),
+		Exhausted:  status == string(domain.StatusExhausted),
+	}, nil
+}
+
 func (s *PromotionStore) FindByID(ctx context.Context, id ids.ID) (*domain.Promotion, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT`+promotionCols+` FROM promotion WHERE id = $1`, id.String())

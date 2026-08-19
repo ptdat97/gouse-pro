@@ -193,6 +193,18 @@ type ReservedLine struct {
 	// module product.
 	ProductName string
 
+	// VariantDescription ("Trắng / M") là thứ SELLER cần để nhặt đúng hàng.
+	//
+	// Với thời trang, tên sản phẩm KHÔNG đủ: cùng một chiếc áo có năm size
+	// và ba màu nằm ở năm ô kệ khác nhau. Thiếu nó thì seller phải mở đơn
+	// hàng gốc — mà họ không được phép xem đơn gốc.
+	VariantDescription string
+
+	// UnitPrice ĐÃ ĐÓNG BĂNG. Có cả nó lẫn LineTotal là chủ ý: chia
+	// LineTotal cho Quantity là phép chia số nguyên, và nó làm tròn sai
+	// với những giá không chia hết.
+	UnitPrice money.Money
+
 	// Tiền ĐÃ ĐÓNG BĂNG, để seller đối soát phần của mình mà không cần
 	// thấy toàn bộ đơn hàng.
 	LineTotal        money.Money
@@ -901,15 +913,17 @@ func (s *Service) completedEvent(
 		commission := lineTotal.ApplyRate(l.CommissionRate(), money.RoundHalfUp)
 
 		reservations = append(reservations, ReservedLine{
-			ReservationID:    l.ReservationID(),
-			InventoryItemID:  l.InventoryItemID(),
-			LineID:           l.ID(),
-			SKUID:            l.SKUID(),
-			SellerID:         l.SellerID(),
-			Quantity:         l.Quantity(),
-			ProductName:      l.ProductName(),
-			LineTotal:        lineTotal,
-			CommissionAmount: commission,
+			ReservationID:      l.ReservationID(),
+			InventoryItemID:    l.InventoryItemID(),
+			LineID:             l.ID(),
+			SKUID:              l.SKUID(),
+			SellerID:           l.SellerID(),
+			Quantity:           l.Quantity(),
+			ProductName:        l.ProductName(),
+			VariantDescription: l.VariantDescription(),
+			UnitPrice:          l.UnitPrice(),
+			LineTotal:          lineTotal,
+			CommissionAmount:   commission,
 		})
 	}
 

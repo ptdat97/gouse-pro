@@ -306,3 +306,12 @@ func (m *Module) RegisterCustomerRoutes(
 ) {
 	fulfillmenthttp.NewCustomerHandler(m.svc, access, log).Register(mux)
 }
+
+// RegisterSellerRoutes gắn các endpoint đơn thực hiện của NHÀ BÁN.
+//
+// Bên gọi PHẢI bọc httpserver.Auth và RequireRole("SELLER_OWNER",
+// "SELLER_STAFF"): định danh nhà bán lấy từ token, và handler từ chối khi
+// token không gắn với nhà bán nào.
+func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
+	fulfillmenthttp.NewSellerHandler(m.svc, log).Register(mux)
+}

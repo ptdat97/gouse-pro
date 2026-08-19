@@ -56,6 +56,16 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 		Quantity        int    `json:"quantity"`
 		ProductName     string `json:"product_name"`
 
+		// VariantDescription ("Trắng / M") là thứ SELLER cần để nhặt đúng
+		// hàng. Với thời trang, tên sản phẩm KHÔNG đủ: cùng một chiếc áo có
+		// năm size nằm ở năm ô kệ khác nhau.
+		VariantDescription string `json:"variant_description"`
+
+		// UnitPrice ĐÃ ĐÓNG BĂNG. Gửi kèm thay vì để bên nhận chia
+		// LineTotal cho Quantity — đó là phép chia số nguyên và nó làm
+		// tròn sai với giá không chia hết.
+		UnitPrice int64 `json:"unit_price"`
+
 		// Tiền ĐÃ ĐÓNG BĂNG, để fulfillment tính phần của từng seller.
 		LineTotal        int64 `json:"line_total"`
 		CommissionAmount int64 `json:"commission_amount"`
@@ -64,15 +74,17 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 	reservations := make([]reservationPayload, 0, len(in.Reservations))
 	for _, r := range in.Reservations {
 		reservations = append(reservations, reservationPayload{
-			ReservationID:    r.ReservationID.String(),
-			InventoryItemID:  r.InventoryItemID.String(),
-			LineID:           r.LineID.String(),
-			SKUID:            r.SKUID.String(),
-			SellerID:         r.SellerID.String(),
-			Quantity:         r.Quantity,
-			ProductName:      r.ProductName,
-			LineTotal:        r.LineTotal.Amount(),
-			CommissionAmount: r.CommissionAmount.Amount(),
+			ReservationID:      r.ReservationID.String(),
+			InventoryItemID:    r.InventoryItemID.String(),
+			LineID:             r.LineID.String(),
+			SKUID:              r.SKUID.String(),
+			SellerID:           r.SellerID.String(),
+			Quantity:           r.Quantity,
+			ProductName:        r.ProductName,
+			VariantDescription: r.VariantDescription,
+			UnitPrice:          r.UnitPrice.Amount(),
+			LineTotal:          r.LineTotal.Amount(),
+			CommissionAmount:   r.CommissionAmount.Amount(),
 		})
 	}
 

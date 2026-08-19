@@ -91,11 +91,26 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 		return err
 	}
 
+	// Ảnh chụp thông tin nhặt hàng, tra theo mã dòng.
+	//
+	// Đơn tách TRƯỚC khi có ảnh chụp này sẽ không có, và khi đó ta vẫn ghi
+	// mã dòng như cũ — seller thấy danh sách trống thay vì đơn hỏng.
+	snapshot := make(map[ids.ID]domain.FOLine, len(fo.Lines()))
+	for _, l := range fo.Lines() {
+		snapshot[l.OrderLineID] = l
+	}
+
 	for _, lineID := range fo.LineIDs() {
+		l := snapshot[lineID]
 		_, err := tx.Exec(ctx, `
-			INSERT INTO fulfillment_order_line (fulfillment_order_id, order_line_id)
-			VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-			fo.ID().String(), lineID.String())
+			INSERT INTO fulfillment_order_line (
+				fulfillment_order_id, order_line_id,
+				sku_id, product_name, variant_description,
+				quantity, unit_price, line_total
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
+			fo.ID().String(), lineID.String(),
+			l.SKUID.String(), l.ProductName, l.VariantDescription,
+			l.Quantity, l.UnitPrice.Amount(), l.LineTotal.Amount())
 		if err != nil {
 			return fmt.Errorf("gán dòng hàng %s: %w", lineID, err)
 		}
@@ -256,7 +271,9 @@ func (s *FulfillmentStore) withLineIDs(
 	ctx context.Context, fo *domain.FulfillmentOrder,
 ) (*domain.FulfillmentOrder, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT order_line_id FROM fulfillment_order_line
+		SELECT order_line_id, sku_id, product_name, variant_description,
+		       quantity, unit_price, line_total
+		  FROM fulfillment_order_line
 		 WHERE fulfillment_order_id = $1
 		 ORDER BY order_line_id`, fo.ID().String())
 	if err != nil {
@@ -264,13 +281,30 @@ func (s *FulfillmentStore) withLineIDs(
 	}
 	defer rows.Close()
 
-	var lineIDs []ids.ID
+	var (
+		lineIDs []ids.ID
+		lines   []domain.FOLine
+	)
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var (
+			id, skuID, name, variant string
+			qty                      int
+			unitPrice, lineTotal     int64
+		)
+		if err := rows.Scan(&id, &skuID, &name, &variant,
+			&qty, &unitPrice, &lineTotal); err != nil {
 			return nil, fmt.Errorf("order: đọc dòng hàng của đơn thực hiện: %w", err)
 		}
 		lineIDs = append(lineIDs, ids.ID(id))
+		lines = append(lines, domain.FOLine{
+			OrderLineID:        ids.ID(id),
+			SKUID:              ids.ID(skuID),
+			ProductName:        name,
+			VariantDescription: variant,
+			Quantity:           qty,
+			UnitPrice:          mustMoney(unitPrice, fo.Subtotal().Currency()),
+			LineTotal:          mustMoney(lineTotal, fo.Subtotal().Currency()),
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("order: đọc dòng hàng của đơn thực hiện: %w", err)
@@ -285,6 +319,7 @@ func (s *FulfillmentStore) withLineIDs(
 		FONumber:          fo.FONumber(),
 		SellerID:          fo.SellerID(),
 		LineIDs:           lineIDs,
+		Lines:             lines,
 		Status:            fo.Status(),
 		Subtotal:          fo.Subtotal(),
 		CommissionAmount:  fo.CommissionAmount(),

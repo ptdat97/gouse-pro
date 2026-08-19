@@ -9,6 +9,15 @@ import (
 )
 
 // PromotionRepository là PORT cho kho lưu trữ khuyến mãi.
+// UsageResult là trạng thái khuyến mãi SAU khi ghi nhận một lượt dùng.
+type UsageResult struct {
+	UsedCount  int
+	UsedBudget money.Money
+
+	// Exhausted = true nghĩa là lượt vừa rồi làm khuyến mãi cạn.
+	Exhausted bool
+}
+
 type PromotionRepository interface {
 	Save(ctx context.Context, p *Promotion) error
 
@@ -19,6 +28,32 @@ type PromotionRepository interface {
 	// đang chạy quảng cáo có thể có hàng trăm người cùng áp trong một
 	// giây, và mỗi lượt đều tăng bộ đếm.
 	Update(ctx context.Context, p *Promotion) error
+
+	// ApplyUsage TĂNG bộ đếm và ngân sách đã dùng, NGUYÊN TỬ.
+	//
+	// # Vì sao KHÔNG dùng Update với khóa lạc quan
+	//
+	// Khóa lạc quan tồn tại để chặn "ghi đè thay đổi của người khác". Với
+	// một phép CỘNG DỒN thì không có gì bị ghi đè — hai lượt +1 đồng thời
+	// phải thành +2, và cả hai đều đúng.
+	//
+	// Dùng khóa lạc quan ở đây biến chuyện thường thành xung đột, và khi
+	// hết số lần thử lại thì HÀNG ĐÃ GHI vào bảng lượt sử dụng nhưng bộ
+	// đếm KHÔNG tăng. Mã giới hạn 100 lượt sẽ được dùng vài trăm lần.
+	//
+	// LỖI NÀY CÓ THẬT: 12 lượt song song dưới tải làm bộ đếm dừng ở 11
+	// trong khi bảng có 12 hàng, tái hiện được nhiều lần.
+	//
+	// Cài đặt PHẢI là một câu UPDATE cộng dồn tại chỗ:
+	//
+	//	UPDATE promotion
+	//	   SET used_count = used_count + 1,
+	//	       used_budget = used_budget + $2
+	//	 WHERE id = $1
+	//
+	// Trả về trạng thái SAU khi cộng, để bên gọi biết khuyến mãi đã cạn
+	// hay chưa mà không phải đọc lại.
+	ApplyUsage(ctx context.Context, id ids.ID, discount money.Money, now time.Time) (UsageResult, error)
 
 	FindByID(ctx context.Context, id ids.ID) (*Promotion, error)
 

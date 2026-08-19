@@ -149,12 +149,23 @@ type splitPayload struct {
 	GuestEmail   string `json:"guest_email"`
 	GuestPhone   string `json:"guest_phone"`
 	Reservations []struct {
-		LineID           string `json:"line_id"`
-		SKUID            string `json:"sku_id"`
-		SellerID         string `json:"seller_id"`
-		Quantity         int    `json:"quantity"`
-		LineTotal        int64  `json:"line_total"`
-		CommissionAmount int64  `json:"commission_amount"`
+		LineID   string `json:"line_id"`
+		SKUID    string `json:"sku_id"`
+		SellerID string `json:"seller_id"`
+		Quantity int    `json:"quantity"`
+
+		// ProductName và VariantDescription là thứ SELLER cần để NHẶT ĐÚNG
+		// hàng. Với thời trang, tên sản phẩm không đủ: cùng một chiếc áo có
+		// năm size nằm ở năm ô kệ khác nhau.
+		//
+		// Sao chép xuống đơn thực hiện chứ không tra ngược module order:
+		// seller KHÔNG được phép xem đơn hàng gốc.
+		ProductName        string `json:"product_name"`
+		VariantDescription string `json:"variant_description"`
+
+		UnitPrice        int64 `json:"unit_price"`
+		LineTotal        int64 `json:"line_total"`
+		CommissionAmount int64 `json:"commission_amount"`
 	} `json:"reservations"`
 }
 
@@ -200,13 +211,24 @@ func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event)
 			return fmt.Errorf("hoa hồng của dòng %s: %w", r.LineID, err)
 		}
 
+		// Đơn giá có thể bằng 0 với event phát TRƯỚC khi payload mang
+		// trường này. Không chặn tách đơn vì chuyện đó: thiếu một con số
+		// hiển thị không đáng để cả đơn kẹt lại trong hàng đợi.
+		unitPrice, err := money.New(r.UnitPrice, currency)
+		if err != nil {
+			unitPrice = money.Zero(currency)
+		}
+
 		in.Lines = append(in.Lines, domain.SplitLine{
-			LineID:           ids.ID(r.LineID),
-			SellerID:         ids.ID(r.SellerID),
-			SKUID:            ids.ID(r.SKUID),
-			Quantity:         r.Quantity,
-			LineTotal:        lineTotal,
-			CommissionAmount: commission,
+			LineID:             ids.ID(r.LineID),
+			SellerID:           ids.ID(r.SellerID),
+			SKUID:              ids.ID(r.SKUID),
+			Quantity:           r.Quantity,
+			ProductName:        r.ProductName,
+			VariantDescription: r.VariantDescription,
+			UnitPrice:          unitPrice,
+			LineTotal:          lineTotal,
+			CommissionAmount:   commission,
 		})
 	}
 

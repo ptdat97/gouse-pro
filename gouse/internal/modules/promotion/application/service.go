@@ -294,21 +294,20 @@ func (s *Service) RecordUsage(ctx context.Context, in RecordInput) error {
 
 	// Lượt đã ghi vào bảng — thứ còn lại chỉ là cập nhật bản TÓM TẮT.
 	//
-	// # Vì sao phải thử lại, không được trả lỗi
+	// # Cộng dồn NGUYÊN TỬ, không phải đọc-rồi-ghi với khóa lạc quan
 	//
-	// Một mã đang chạy quảng cáo có hàng trăm người cùng áp trong một
-	// giây, nên khóa lạc quan xung đột là chuyện THƯỜNG XUYÊN chứ không
-	// hiếm. Trả lỗi ở đây để lại đúng trạng thái tệ nhất: hàng trong bảng
-	// lượt sử dụng đã có, nhưng bộ đếm và ngân sách KHÔNG tăng.
+	// Khóa lạc quan tồn tại để chặn "ghi đè thay đổi của người khác". Với
+	// một phép CỘNG thì không có gì bị ghi đè: hai lượt +1 đồng thời phải
+	// thành +2, và cả hai đều đúng.
 	//
-	// Khi đó mã giới hạn 100 lượt sẽ được dùng vài trăm lần — bộ đếm mãi
-	// không chạm tới giới hạn.
+	// Cách cũ đọc lại rồi ghi, thử lại tối đa 10 lần khi xung đột. Dưới
+	// tải thật, mười lần trượt liên tiếp là chuyện XẢY RA — và khi đó hàng
+	// ĐÃ nằm trong bảng lượt sử dụng nhưng bộ đếm KHÔNG tăng. Mã giới hạn
+	// 100 lượt sẽ được dùng vài trăm lần.
 	//
-	// Thử lại được vì thao tác là ĐỌC LẠI rồi cộng thêm, không phải ghi đè
-	// một giá trị đã tính từ trước.
-	if err := s.retryUpdate(ctx, promo.ID(), func(p *domain.Promotion) error {
-		return p.RecordUse(in.Discount, now)
-	}); err != nil {
+	// LỖI NÀY CÓ THẬT, tái hiện được: 12 lượt song song dưới tải làm bộ
+	// đếm dừng ở 11 trong khi bảng có 12 hàng.
+	if _, err := s.promos.ApplyUsage(ctx, promo.ID(), in.Discount, now); err != nil {
 		return err
 	}
 

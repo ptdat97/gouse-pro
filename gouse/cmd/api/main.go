@@ -621,6 +621,27 @@ func registerRoutes(
 			mux.Handle("POST /api/v1/admin/orders/{order_id}/cancel", authed)
 		}
 
+		// Nhà bán: CHỈ vai trò SELLER_OWNER và SELLER_STAFF.
+		//
+		// Ranh giới bảo mật quan trọng nhất của nhóm này nằm ở TRUY VẤN —
+		// mọi câu SQL lọc theo seller_id lấy từ token. Vai trò ở đây chỉ
+		// chặn người không phải nhà bán; nó KHÔNG chặn nhà bán A đọc dữ
+		// liệu nhà bán B, và không được nhầm hai việc đó với nhau.
+		if m.fulfillment != nil {
+			sellerFOMux := http.NewServeMux()
+			m.fulfillment.RegisterSellerRoutes(sellerFOMux, log)
+
+			authed := httpserver.Chain(
+				sellerFOMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
+				httpserver.RequireIdempotencyKey(),
+			)
+			mux.Handle("GET /api/v1/seller/fulfillment-orders", authed)
+			mux.Handle("GET /api/v1/seller/fulfillment-orders/{fulfillment_order_id}", authed)
+			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship", authed)
+		}
+
 		// Nhật ký thao tác: CHỈ vai trò ADMIN (admin-api.md mục 7).
 		//
 		// Chuỗi middleware theo thứ tự Auth → RequireRole. Đảo lại thì

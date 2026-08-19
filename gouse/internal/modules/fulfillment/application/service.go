@@ -201,6 +201,51 @@ func (s *Service) HandOver(
 	})
 }
 
+// RecordHandOver ghi nhận seller đã BÀN GIAO cho đơn vị vận chuyển, đi qua
+// mọi bước trung gian còn thiếu.
+//
+// # Vì sao một hàm thay vì bắt seller gọi ba lần
+//
+// Đặc tả cho nhà bán ĐÚNG MỘT hành động: "bàn giao vận chuyển". Đó là mức
+// chi tiết đúng cho một cửa hàng nhỏ — họ đóng gói ở bàn làm việc rồi ghi
+// nhận đã gửi, không có quy trình kho nhiều bước.
+//
+// Máy trạng thái vẫn NGUYÊN VẸN: hàm này đi đúng đường hợp lệ ngắn nhất
+// (CONFIRMED → PACKED → HANDED_OVER) thay vì nhảy thẳng. Nhảy thẳng sẽ phải
+// nới lỏng đồ thị chuyển trạng thái, và khi đó những bước bảo vệ khác —
+// như "đã đóng gói thì không hủy được" — cũng lỏng theo.
+//
+// # Mốc thời gian nghĩa là gì
+//
+// `confirmed_at` và `packed_at` ghi bằng thời điểm BÀN GIAO, không phải
+// thời điểm seller thật sự làm hai việc đó. Đây là thông tin tốt nhất ta
+// có: seller ghi nhận bàn giao nghĩa là họ ĐÃ xác nhận và ĐÃ đóng gói.
+//
+// Bỏ trống hai mốc đó cũng là một lựa chọn, nhưng khi đó chỉ số hiệu suất
+// (thời gian xử lý trung bình) không tính được cho phần lớn đơn.
+func (s *Service) RecordHandOver(
+	ctx context.Context, sellerID, foID ids.ID, provider, trackingNumber string,
+) error {
+	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
+		switch fo.Status() {
+		case domain.FOPending, domain.FOAllocated:
+			if err := fo.Confirm(now); err != nil {
+				return err
+			}
+			if err := fo.Pack(now); err != nil {
+				return err
+			}
+		case domain.FOConfirmed, domain.FOPicking:
+			if err := fo.Pack(now); err != nil {
+				return err
+			}
+		}
+		// Mọi trạng thái khác đi thẳng vào HandOver, và máy trạng thái tự
+		// từ chối nếu không hợp lệ (đã giao, đã hủy).
+		return fo.HandOver(provider, trackingNumber, now)
+	})
+}
+
 func (s *Service) MarkInTransit(ctx context.Context, sellerID, foID ids.ID) error {
 	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
 		return fo.MarkInTransit(now)
