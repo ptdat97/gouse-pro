@@ -14,6 +14,10 @@ curl localhost:8080/health/live
 curl localhost:8080/version
 ```
 
+Với `MODULES_STORAGE=postgres`, lần khởi động đầu nạp dữ liệu mẫu **mua
+được**: thương hiệu → sản phẩm → SKU → giá → **offer** → **tồn kho**. Định
+danh ghi ra log lúc khởi động (ULID sinh mới mỗi lần nạp nên không đoán được).
+
 ```bash
 make test-db          # MỘT LẦN: tạo database khuôn cho test
 make check            # chạy toàn bộ kiểm tra như CI

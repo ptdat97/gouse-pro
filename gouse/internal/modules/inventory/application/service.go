@@ -81,6 +81,21 @@ type Availability struct {
 //
 // locationID rỗng = cộng gộp mọi địa điểm và mọi chủ sở hữu. Đây là con số
 // khách nhìn thấy: họ không quan tâm hàng nằm ở kho nào.
+// EnsureLocation tạo kho, hoặc trả kho đã có cùng mã.
+//
+// Không có đường nào khác để tạo kho ở MVP: giao diện quản lý kho thuộc
+// giai đoạn sau. Hàm này tồn tại để nạp dữ liệu mẫu và để việc dựng môi
+// trường không phải chạy SQL tay.
+func (s *Service) EnsureLocation(
+	ctx context.Context, name, code string, kind domain.LocationKind,
+) (*domain.StockLocation, error) {
+	l, err := domain.NewStockLocation(name, code, kind, s.clock.Now())
+	if err != nil {
+		return nil, err
+	}
+	return s.repos.Locations.EnsureByCode(ctx, l)
+}
+
 func (s *Service) GetAvailability(
 	ctx context.Context, skuIDs []ids.ID, locationID ids.ID,
 ) (map[ids.ID]Availability, error) {

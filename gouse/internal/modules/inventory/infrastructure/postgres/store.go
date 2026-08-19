@@ -273,6 +273,7 @@ func (u *UnitOfWork) Do(ctx context.Context, fn func(domain.Repos) error) error 
 		Items:        NewItemStore(tx),
 		Reservations: NewReservationStore(tx),
 		Movements:    NewMovementStore(tx),
+		Locations:    NewLocationStore(tx),
 	}
 	if err := fn(repos); err != nil {
 		return err
@@ -298,6 +299,7 @@ func ReposForTx(tx querier) domain.Repos {
 		Items:        NewItemStore(tx),
 		Reservations: NewReservationStore(tx),
 		Movements:    NewMovementStore(tx),
+		Locations:    NewLocationStore(tx),
 	}
 }
 
@@ -307,5 +309,6 @@ func Repos(pool *pgxpool.Pool) domain.Repos {
 		Items:        NewItemStore(pool),
 		Reservations: NewReservationStore(pool),
 		Movements:    NewMovementStore(pool),
+		Locations:    NewLocationStore(pool),
 	}
 }

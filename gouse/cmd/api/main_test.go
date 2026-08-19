@@ -32,7 +32,7 @@ func newTestHandler(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatalf("khởi tạo module catalog: %v", err)
 	}
-	seeded, err := catalog.SeedDemo(context.Background(), catalogModule)
+	seeded, err := catalog.SeedDemo(context.Background(), catalogModule, catalog.SeedInput{})
 	if err != nil {
 		t.Fatalf("nạp dữ liệu mẫu: %v", err)
 	}

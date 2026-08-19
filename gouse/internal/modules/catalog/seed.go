@@ -5,9 +5,26 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/application"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/domain"
 )
+
+// SeedInput là dữ liệu bên ngoài mà seed cần.
+type SeedInput struct {
+	// OwnBrandSellerID là nhà bán own-brand của nền tảng.
+	//
+	// # Vì sao BẮT BUỘC phải có
+	//
+	// Thương hiệu của nền tảng ở mức bảo vệ RESTRICTED, và quy tắc chống
+	// hàng giả chỉ cho phép ĐÚNG nhà bán được chỉ định tạo offer
+	// (CanSellerSellBrand). Thương hiệu không chỉ định ai thì KHÔNG AI bán
+	// được — kể cả chính nền tảng.
+	//
+	// Rỗng thì thương hiệu vẫn được tạo, nhưng không sản phẩm own-brand nào
+	// lên kệ được.
+	OwnBrandSellerID ids.ID
+}
 
 // SeedResult là các định danh vừa tạo.
 //
@@ -39,7 +56,7 @@ type SeedResult struct {
 //
 // Dữ liệu phản ánh mô hình kinh doanh thật: một thương hiệu của nền tảng
 // (BrandTypeOwn, được bảo vệ) và một thương hiệu mở cho seller bán.
-func SeedDemo(ctx context.Context, m *Module) (SeedResult, error) {
+func SeedDemo(ctx context.Context, m *Module, in SeedInput) (SeedResult, error) {
 	var out SeedResult
 	svc := m.svc
 	now := svc.Now()
@@ -65,6 +82,10 @@ func SeedDemo(ctx context.Context, m *Module) (SeedResult, error) {
 		BrandType:       domain.BrandTypeOwn,
 		ProtectionLevel: domain.ProtectionRestricted,
 		CountryOfOrigin: "VN",
+
+		// CHỈ ĐỊNH nhà bán own-brand. Bỏ trống thì hàng rào chống hàng giả
+		// chặn mọi offer cho thương hiệu này, kể cả của chính nền tảng.
+		OwnerSellerID: in.OwnBrandSellerID,
 	})
 	if err != nil {
 		return out, fmt.Errorf("nạp thương hiệu của nền tảng: %w", err)

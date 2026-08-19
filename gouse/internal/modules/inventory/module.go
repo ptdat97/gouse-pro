@@ -233,6 +233,21 @@ func (m *Module) Ship(ctx context.Context, itemID string, quantity int, orderID 
 	return translateErr(m.svc.Ship(ctx, id, quantity, ordID))
 }
 
+// EnsureLocation tạo kho, hoặc trả kho đã có cùng mã.
+//
+// KHÔNG nằm trong interface API: module khác không cần tạo kho, và mở nó
+// ra sẽ mời gọi việc tạo kho rải rác khắp nơi. Chỉ cmd/api gọi khi nạp dữ
+// liệu mẫu.
+func (m *Module) EnsureLocation(
+	ctx context.Context, name, code, kind string,
+) (string, error) {
+	l, err := m.svc.EnsureLocation(ctx, name, code, domain.LocationKind(kind))
+	if err != nil {
+		return "", translateErr(err)
+	}
+	return l.ID.String(), nil
+}
+
 func (m *Module) Receive(ctx context.Context, req ReceiveRequest) (*ItemView, error) {
 	skuID, err := ids.Parse(req.SKUID, ids.PrefixSKU)
 	if err != nil {

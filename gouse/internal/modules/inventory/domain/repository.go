@@ -111,4 +111,5 @@ type Repos struct {
 	Items        ItemRepository
 	Reservations ReservationRepository
 	Movements    MovementRepository
+	Locations    LocationRepository
 }

@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
@@ -147,8 +148,12 @@ func run() error {
 		checkoutModule    *checkout.Module
 		fulfillmentModule *fulfillment.Module
 		identityModule    *identity.Module
-		sellerModule      *seller.Module
-		auditRecorder     *audit.Recorder
+
+		// ownBrandSellerID cần ở bước nạp dữ liệu mẫu bên dưới: offer phải
+		// đứng tên một nhà bán CÓ THẬT.
+		ownBrandSellerID string
+		sellerModule     *seller.Module
+		auditRecorder    *audit.Recorder
 	)
 	if cfg.Modules.Storage == "postgres" {
 		// Audit log là năng lực platform (ADR-0011), không phải module —
@@ -233,8 +238,9 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		ownBrandSellerID = ownBrand.ID().String()
 		log.Info("module seller và marketplace đã sẵn sàng",
-			"own_brand_seller_id", ownBrand.ID().String())
+			"own_brand_seller_id", ownBrandSellerID)
 
 		// payment và order cũng CHỈ chạy với PostgreSQL, vì cùng một lý do
 		// nhưng ở hai chỗ khác nhau: sổ cái cần trigger chặn UPDATE/DELETE,
@@ -382,7 +388,11 @@ func run() error {
 	// Với postgres: chỉ nạp LẦN ĐẦU. SeedDemo tự kiểm tra và bỏ qua nếu đã
 	// có dữ liệu — nạp lại sẽ vi phạm UNIQUE và làm tiến trình chết.
 	if cfg.Env == config.EnvDevelopment {
-		seeded, err := catalog.SeedDemo(ctx, catalogModule)
+		// Thương hiệu own-brand phải CHỈ ĐỊNH nhà bán, nếu không hàng rào
+		// chống hàng giả chặn mọi offer cho nó — kể cả của nền tảng.
+		seeded, err := catalog.SeedDemo(ctx, catalogModule, catalog.SeedInput{
+			OwnBrandSellerID: ids.ID(ownBrandSellerID),
+		})
 		if err != nil {
 			return fmt.Errorf("nạp dữ liệu mẫu catalog: %w", err)
 		}
@@ -410,6 +420,33 @@ func run() error {
 				return fmt.Errorf("nạp dữ liệu mẫu pricing: %w", err)
 			}
 
+			// Offer và tồn kho — HAI MẮT XÍCH cuối để dữ liệu mẫu MUA ĐƯỢC.
+			//
+			// Thiếu chúng thì catalog đầy sản phẩm mà giỏ hàng vĩnh viễn
+			// rỗng: khách mua OFFER chứ không mua SKU, và `startCheckout`
+			// luôn thất bại "không đủ hàng" nếu không có tồn kho.
+			//
+			// Thứ tự bắt buộc: offer trước, tồn kho sau — cả hai đều trỏ
+			// tới SKU vừa tạo, và offer còn cần seller có thật.
+			seededOffers, err := marketplace.SeedDemo(ctx, marketplaceModule,
+				marketplace.SeedInput{
+					SellerID:    ownBrandSellerID,
+					SKUIDs:      seededProducts.SKUIDs,
+					PriceAmount: 490000,
+				})
+			if err != nil {
+				return fmt.Errorf("nạp dữ liệu mẫu marketplace: %w", err)
+			}
+
+			seededStock, err := inventory.SeedDemo(ctx, inventoryModule,
+				inventory.SeedInput{
+					SKUIDs:   seededProducts.SKUIDs,
+					Quantity: 100,
+				})
+			if err != nil {
+				return fmt.Errorf("nạp dữ liệu mẫu inventory: %w", err)
+			}
+
 			// Ghi ID ra log: ULID sinh mới mỗi lần nạp nên không gọi thử
 			// được nếu không biết chúng.
 			log.Warn("đã nạp dữ liệu mẫu — chỉ dành cho môi trường phát triển",
@@ -424,6 +461,10 @@ func run() error {
 				"sku_code", seededProducts.SKUCode,
 				"priced_sku_id", seededPrices.PricedSKUID,
 				"clearance_sku_id", seededPrices.ClearanceSKUID,
+				"seller_id", ownBrandSellerID,
+				"offer_ids", seededOffers.OfferIDs,
+				"stock_location_id", seededStock.LocationID,
+				"so_sku_co_hang", len(seededStock.StockedSKUIDs),
 			)
 		}
 	}

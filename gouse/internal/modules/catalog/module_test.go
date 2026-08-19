@@ -17,7 +17,7 @@ func newSeeded(t *testing.T) (*Module, SeedResult) {
 	if err != nil {
 		t.Fatalf("khởi tạo module: %v", err)
 	}
-	seeded, err := SeedDemo(context.Background(), m)
+	seeded, err := SeedDemo(context.Background(), m, SeedInput{})
 	if err != nil {
 		t.Fatalf("nạp dữ liệu mẫu: %v", err)
 	}
