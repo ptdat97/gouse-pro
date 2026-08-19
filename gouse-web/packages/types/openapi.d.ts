@@ -2363,10 +2363,16 @@ export interface components {
             fulfillment_number: string;
             status: components["schemas"]["FulfillmentStatus"];
             created_at?: components["schemas"]["Timestamp"];
-            /** @description Hạn cam kết xử lý. Trễ ảnh hưởng chỉ số hiệu suất. */
+            /**
+             * @description Hạn cam kết xử lý. Trễ ảnh hưởng chỉ số hiệu suất.
+             *
+             *     **CHƯA được trả về** — module `fulfillment` chưa có khái niệm SLA.
+             *     Xem backlog P3-17.
+             */
             sla_deadline?: components["schemas"]["Timestamp"];
             items: {
                 sku_id?: components["schemas"]["Id"];
+                /** @description **CHƯA được trả về** — payload event chưa mang trường này. */
                 sku_code?: string;
                 product_name?: string;
                 variant_description?: string;
@@ -2376,6 +2382,14 @@ export interface components {
             /**
              * @description Chỉ thông tin **cần cho việc giao hàng**. Không có email khách,
              *     không có lịch sử mua hàng.
+             *
+             *     **CHƯA được trả về.** Đơn thực hiện chưa mang địa chỉ giao: payload
+             *     event `checkout.completed` không chứa nó, nên khi tách đơn không có
+             *     gì để sao chép xuống.
+             *
+             *     **Hệ quả vận hành:** seller biết nhặt gì nhưng không biết gửi đi
+             *     đâu — họ chưa in được phiếu giao hàng. Đây là việc CHẶN vận hành
+             *     thật, không phải thiếu sót nhỏ. Xem backlog P1.10.
              */
             shipping_address?: components["schemas"]["Address"];
             shipping_method?: string;
@@ -2383,6 +2397,10 @@ export interface components {
             /**
              * @description Ước tính số tiền seller nhận sau khi trừ hoa hồng và phí.
              *     Hiển thị ngay từ lúc nhận đơn tạo minh bạch, giảm tranh chấp về sau.
+             *
+             *     **CHƯA được trả về** dưới dạng này. Hiện endpoint trả ba trường
+             *     phẳng — `subtotal`, `commission_amount`, `seller_payable` — vì phí
+             *     thanh toán và phí thực hiện chưa có nguồn tính.
              */
             payout_estimate?: {
                 gross?: components["schemas"]["Money"];
