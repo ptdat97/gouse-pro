@@ -28,6 +28,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
+	markethttp "github.com/fashion-commerce/platform/internal/modules/marketplace/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
@@ -486,6 +487,7 @@ func run() error {
 		cart:        cartModule,
 		checkout:    checkoutModule,
 		fulfillment: fulfillmentModule,
+		inventory:   inventoryModule,
 		audit:       auditRecorder,
 	})
 
@@ -511,6 +513,7 @@ type modules struct {
 	cart        *cart.Module
 	checkout    *checkout.Module
 	fulfillment *fulfillment.Module
+	inventory   *inventory.Module
 
 	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
 	// cũng cần nối route nên đi cùng chỗ này.
@@ -640,6 +643,36 @@ func registerRoutes(
 			mux.Handle("GET /api/v1/seller/fulfillment-orders", authed)
 			mux.Handle("GET /api/v1/seller/fulfillment-orders/{fulfillment_order_id}", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship", authed)
+		}
+
+		// Offer và tồn kho của nhà bán — nửa còn lại của luồng 2.
+		//
+		// Cùng chuỗi middleware với đơn thực hiện: vai trò chặn người
+		// không phải nhà bán, còn ranh giới giữa các nhà bán nằm ở truy
+		// vấn và ở kiểm tra quyền sở hữu trong handler.
+		if m.marketplace != nil || m.inventory != nil {
+			sellerMux := http.NewServeMux()
+			if m.marketplace != nil {
+				var stock markethttp.StockPort
+				if m.inventory != nil {
+					stock = &sellerStock{inv: m.inventory}
+				}
+				m.marketplace.RegisterSellerRoutes(sellerMux, stock, log)
+			}
+			if m.inventory != nil {
+				m.inventory.RegisterSellerRoutes(sellerMux, log)
+			}
+
+			authed := httpserver.Chain(
+				sellerMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
+				httpserver.RequireIdempotencyKey(),
+			)
+			mux.Handle("GET /api/v1/seller/offers", authed)
+			mux.Handle("POST /api/v1/seller/offers", authed)
+			mux.Handle("PATCH /api/v1/seller/offers/{offer_id}", authed)
+			mux.Handle("PUT /api/v1/seller/inventory/{sku_id}", authed)
 		}
 
 		// Nhật ký thao tác: CHỈ vai trò ADMIN (admin-api.md mục 7).

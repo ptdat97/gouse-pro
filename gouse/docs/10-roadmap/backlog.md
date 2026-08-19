@@ -275,11 +275,63 @@ có" sẽ đếm được chính xác số đơn nền tảng bán mỗi tháng.
 3. **Lọc `status` và phân trang làm ở tầng HTTP**, không trong truy vấn —
    xem P3-11 và P3-12.
 
-### P1.5 — Seller Center (3/11 xong)
+### P1.5 — Seller Center (7/11 xong)
 
-**Đã xong: `listMyFulfillmentOrders` · `getMyFulfillmentOrder` ·
-`shipFulfillmentOrder`** — ba operation mở khóa **luồng 6**, một trong bảy
-tiêu chí nghiệm thu MVP. Trước đó đơn hàng nằm `PENDING` vĩnh viễn vì không
+**Đã xong: `listMyOffers` · `createOffer` · `updateOffer` ·
+`updateInventory` · `listMyFulfillmentOrders` · `getMyFulfillmentOrder` ·
+`shipFulfillmentOrder`** — mở khóa **luồng 2 VÀ luồng 6**, hai trong bảy
+tiêu chí nghiệm thu MVP. Trước đó seller không đăng bán được gì (mọi offer
+đều do seed tạo) và đơn hàng nằm `PENDING` vĩnh viễn.
+
+Luồng 2 kiểm chứng khép kín trên hệ thống thật:
+
+```text
+seller lưu trữ offer cũ → tạo offer mới 390.000đ kèm nhập kho 25
+→ hàng vào KHO RIÊNG của seller, chủ sở hữu là seller (không phải nền tảng)
+→ kiểm kê lại còn 40 → nhật ký ghi ADJUST 15 kèm lý do
+→ khách thấy offer mới ở trang sản phẩm
+```
+
+#### Kiểm kê nhận con số TUYỆT ĐỐI, và phép trừ nằm TRONG vòng thử lại
+
+Đặc tả nhận `quantity_available` tuyệt đối, còn `inventory.Adjust` nhận
+chênh lệch. Tính chênh lệch ở tầng gọi rồi mới ghi là **đọc-rồi-ghi ngoài
+vòng khóa lạc quan** — đúng lỗi vừa sửa ở bộ đếm khuyến mãi. Giữa hai bước,
+một khách đặt hàng làm số khả dụng đổi, và chênh lệch cũ áp lên số mới cho
+ra con số KHÔNG PHẢI cái seller đã đếm.
+
+Đã thêm `inventory.SetAvailable`: phép trừ nằm bên trong vòng thử lại, nên
+xung đột làm đọc lại và tính lại.
+
+Kiểm kê ĐÚNG BẰNG số hiện tại thì **không ghi nhật ký** — một dòng "điều
+chỉnh 0 đơn vị" làm loãng thứ người ta đọc khi đi tìm hàng thất lạc.
+
+#### `initial_inventory` là bắt buộc, không phải tùy chọn
+
+Seller tạo offer mà không nhập kho thì offer HẾT HÀNG từ giây đầu tiên, và
+họ không có đường nào để nhập: `updateInventory` chỉ SỬA bản ghi đã có.
+
+Cổng `InventoryPort` của marketplace CHỈ ĐỌC và giữ nguyên như vậy — module
+này không giành lấy quyền tạo tồn kho. Thay vào đó tầng HTTP khai báo một
+cổng ghi riêng, `cmd/api` nối với inventory (cùng mẫu với `TokenVerifier`).
+
+Nhập kho thất bại KHÔNG hủy offer: offer đã tồn tại và hợp lệ, chỉ là chưa
+có hàng. Hủy nó để "sạch sẽ" là vứt đi thứ seller vừa tạo thành công.
+
+#### Quyền sở hữu offer: quy tắc chuyển xuống tầng application
+
+Ban đầu tôi để nó ở handler. Sai — nó được hỏi từ MỌI đường ghi của seller
+(đổi giá, đưa lên bán, lưu trữ), và mỗi nơi tự kiểm lại nghĩa là sớm muộn
+một nơi quên. Một nơi quên là đủ để bất kỳ ai hạ giá offer đối thủ về 1đ,
+mà định danh offer thì LỘ RA ở trang công khai.
+
+Một sai lầm nữa đã sửa: tôi từng gộp `changedBy` (ai sửa — cho vết kiểm
+toán) làm khóa phân quyền. Hai khái niệm khác nhau: quản trị viên cũng sửa
+giá được. Test cũ đỏ ngay và chỉ ra điều đó.
+
+---
+
+**Ba operation đơn thực hiện** mở khóa **luồng 6**. Trước đó đơn hàng nằm `PENDING` vĩnh viễn vì không
 ai thao tác được.
 
 Kiểm chứng khép kín trên hệ thống thật:

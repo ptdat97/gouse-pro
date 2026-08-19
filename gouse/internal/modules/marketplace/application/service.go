@@ -269,9 +269,42 @@ func (s *Service) CheckCanCreateOffer(ctx context.Context, sellerID, skuID ids.I
 //
 // Quy tắc 5: lưu lịch sử mọi lần đổi giá. Cần cho việc phát hiện thao túng
 // giá (tăng rồi giảm để giả vờ khuyến mãi).
+// OwnedOffer đọc offer và KIỂM TRA nó thuộc về seller đang gọi.
+//
+// # Vì sao quy tắc này nằm ở tầng application, không phải ở handler
+//
+// Nó được hỏi từ mọi đường GHI của seller: đổi giá, đưa lên bán, lưu trữ.
+// Mỗi handler tự kiểm lại nghĩa là sớm muộn có một đường quên kiểm — và
+// một đường quên là đủ để bất kỳ ai đổi giá offer của đối thủ về 1đ chỉ
+// bằng cách đoán định danh.
+//
+// `GetOffer` KHÔNG lọc theo seller vì nó còn phục vụ trang sản phẩm công
+// khai. Đó là lý do phải có hàm riêng này thay vì thêm điều kiện vào đó.
+//
+// Trả ErrNotFound cho CẢ offer không tồn tại lẫn offer của người khác:
+// phân biệt hai trường hợp cho phép dò xem đối thủ đang bán những gì, mà
+// định danh offer thì lộ ra ở trang công khai.
+func (s *Service) OwnedOffer(
+	ctx context.Context, offerID, sellerID ids.ID,
+) (*domain.Offer, error) {
+	o, err := s.offers.FindByID(ctx, offerID)
+	if err != nil {
+		return nil, err
+	}
+	if o.SellerID() != sellerID {
+		return nil, domain.ErrNotFound
+	}
+	return o, nil
+}
+
 func (s *Service) UpdatePrice(
 	ctx context.Context, offerID ids.ID, price, compareAt money.Money, changedBy ids.ID,
 ) (*domain.Offer, error) {
+	// KHÔNG kiểm quyền sở hữu ở đây: `changedBy` là "AI SỬA" cho vết
+	// kiểm toán, và quản trị viên cũng sửa giá được. Gộp nó làm khóa phân
+	// quyền là lẫn hai khái niệm khác nhau.
+	//
+	// Đường của seller đi qua `OwnedOffer` trước — xem tầng interfaces.
 	o, err := s.offers.FindByID(ctx, offerID)
 	if err != nil {
 		return nil, err

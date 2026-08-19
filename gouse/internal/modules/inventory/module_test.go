@@ -514,3 +514,140 @@ func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
 		t.Errorf("lỗi = %v, mong ErrInvalidID", err)
 	}
 }
+
+// ---------------------------------------------------- Kiểm kê tồn kho
+
+// KIỂM KÊ đặt số lượng về con số TUYỆT ĐỐI, không phải cộng thêm.
+//
+// Đó là cách người kiểm kê nghĩ: "đếm được 40 cái", không phải "thêm 15
+// cái". Bắt họ tự tính chênh lệch là mời gọi lỗi số học vào một con số
+// quyết định bán được bao nhiêu hàng.
+func TestKiemKeDatSoLuongTuyetDoi(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	locID := newLocation(t, db)
+	skuID := ids.MustNew(ids.PrefixSKU).String()
+	seller := ids.MustNew(ids.PrefixSeller).String()
+
+	item, err := m.Receive(ctx, inventory.ReceiveRequest{
+		SKUID: skuID, LocationID: locID, OwnerID: seller,
+		Quantity: 25, ReferenceID: "nhap-dau", PerformedBy: seller,
+	})
+	if err != nil {
+		t.Fatalf("Receive: %v", err)
+	}
+
+	// Đếm được 40 → phải thành 40, không phải 25+40.
+	if err := m.SetAvailable(ctx, item.ID, 40,
+		"Kiểm kê thực tế cuối tháng", seller); err != nil {
+		t.Fatalf("SetAvailable: %v", err)
+	}
+
+	var available int
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT quantity_available FROM inventory_item WHERE id = $1`,
+		item.ID).Scan(&available); err != nil {
+		t.Fatalf("đọc tồn kho: %v", err)
+	}
+	if available != 40 {
+		t.Errorf("khả dụng = %d, mong 40 — con số kiểm kê là TUYỆT ĐỐI", available)
+	}
+
+	// Đếm được ÍT hơn cũng phải đúng: mất mát hàng là chuyện có thật.
+	if err := m.SetAvailable(ctx, item.ID, 12,
+		"Kiểm kê phát hiện thiếu hàng", seller); err != nil {
+		t.Fatalf("SetAvailable giảm: %v", err)
+	}
+	if err := db.Pool().QueryRow(ctx,
+		`SELECT quantity_available FROM inventory_item WHERE id = $1`,
+		item.ID).Scan(&available); err != nil {
+		t.Fatalf("đọc tồn kho: %v", err)
+	}
+	if available != 12 {
+		t.Errorf("khả dụng = %d, mong 12", available)
+	}
+}
+
+// KIỂM KÊ PHẢI GHI NHẬT KÝ, kèm lý do.
+//
+// Quy tắc 7 của inventory.md: tồn kho lệch mà không có lý do thì không ai
+// đối soát được, và MẤT MÁT trông giống hệt sai sót nhập liệu.
+func TestKiemKeGhiNhatKyKemLyDo(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	locID := newLocation(t, db)
+	skuID := ids.MustNew(ids.PrefixSKU).String()
+	seller := ids.MustNew(ids.PrefixSeller).String()
+
+	item, err := m.Receive(ctx, inventory.ReceiveRequest{
+		SKUID: skuID, LocationID: locID, OwnerID: seller,
+		Quantity: 25, ReferenceID: "nhap-dau", PerformedBy: seller,
+	})
+	if err != nil {
+		t.Fatalf("Receive: %v", err)
+	}
+
+	const reason = "Kiểm kê thực tế cuối tháng"
+	if err := m.SetAvailable(ctx, item.ID, 40, reason, seller); err != nil {
+		t.Fatalf("SetAvailable: %v", err)
+	}
+
+	var (
+		mType, gotReason string
+		qty              int
+	)
+	if err := db.Pool().QueryRow(ctx, `
+		SELECT movement_type, quantity, reason FROM inventory_movement
+		 WHERE inventory_item_id = $1 AND movement_type = 'ADJUST'
+		 ORDER BY occurred_at DESC LIMIT 1`, item.ID,
+	).Scan(&mType, &qty, &gotReason); err != nil {
+		t.Fatalf("đọc nhật ký: %v", err)
+	}
+
+	// Nhật ký lưu CHÊNH LỆCH (25 → 40 là 15), vì đó là thứ đã biến động.
+	if qty != 15 {
+		t.Errorf("số lượng biến động = %d, mong 15", qty)
+	}
+	if gotReason != reason {
+		t.Errorf("lý do = %q, mong %q", gotReason, reason)
+	}
+}
+
+// KIỂM KÊ ĐÚNG BẰNG số hiện tại thì KHÔNG ghi nhật ký.
+//
+// Một dòng "điều chỉnh 0 đơn vị" làm loãng nhật ký mà không nói lên điều
+// gì — và nhật ký tồn kho là thứ người ta đọc khi đi tìm hàng thất lạc.
+func TestKiemKeKhongDoiThiKhongGhiNhatKy(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	locID := newLocation(t, db)
+	skuID := ids.MustNew(ids.PrefixSKU).String()
+	seller := ids.MustNew(ids.PrefixSeller).String()
+
+	item, err := m.Receive(ctx, inventory.ReceiveRequest{
+		SKUID: skuID, LocationID: locID, OwnerID: seller,
+		Quantity: 25, ReferenceID: "nhap-dau", PerformedBy: seller,
+	})
+	if err != nil {
+		t.Fatalf("Receive: %v", err)
+	}
+
+	if err := m.SetAvailable(ctx, item.ID, 25, "Kiểm kê khớp sổ", seller); err != nil {
+		t.Fatalf("SetAvailable: %v", err)
+	}
+
+	var adjusts int
+	if err := db.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM inventory_movement
+		 WHERE inventory_item_id = $1 AND movement_type = 'ADJUST'`, item.ID,
+	).Scan(&adjusts); err != nil {
+		t.Fatalf("đếm nhật ký: %v", err)
+	}
+	if adjusts != 0 {
+		t.Errorf("có %d dòng điều chỉnh, mong 0 — kiểm kê khớp sổ không phải "+
+			"một biến động", adjusts)
+	}
+}

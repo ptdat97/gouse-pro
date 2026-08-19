@@ -93,6 +93,15 @@ func New(cfg Config) (*Module, error) {
 func (m *Module) Service() *application.Service { return m.svc }
 
 // RegisterRoutes gắn các endpoint công khai của module vào mux.
+// RegisterSellerRoutes gắn các endpoint offer của NHÀ BÁN.
+//
+// Bên gọi PHẢI bọc Auth và RequireRole("SELLER_OWNER", "SELLER_STAFF").
+func (m *Module) RegisterSellerRoutes(
+	mux *http.ServeMux, stock markethttp.StockPort, log *slog.Logger,
+) {
+	markethttp.NewSellerHandler(m.svc, stock, log).Register(mux)
+}
+
 func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
 	markethttp.NewHandler(m.svc, log).Register(mux)
 }

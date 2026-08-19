@@ -160,15 +160,19 @@ Cập nhật: 15/08/2026.
 ```text
 TESTED         23      catalog · product · cart · checkout · orders (khách) ·
                        account (hồ sơ · địa chỉ · yêu thích) · đăng ký
-IMPLEMENTED    19      auth · audit-log · admin sellers · ledger · orders ·
+IMPLEMENTED    27      auth · audit-log · admin sellers · ledger · orders ·
                        offers · search · checkout (3 đường cần phiên thật) ·
-                       placeOrder
+                       placeOrder · seller (offers · tồn kho · đơn thực hiện) ·
+                       lô giao cho khách
 INTEGRATED      3      Admin UI đang gọi: listSellers · listAdminOrders ·
                        listAuditLog (+ các thao tác kèm theo)
-DESIGNED       31      (15 MVP còn lại + 16 hoãn Phase 2/3)
+DESIGNED       23      (7 MVP còn lại + 16 hoãn Phase 2/3)
                 ──
-                73
+                74
 ```
+
+**Bảy luồng nghiệm thu MVP: 7/7 chạy được.** Luồng 2 (seller đăng bán) và
+luồng 6 (giao hàng đến quyết toán) vừa được mở khóa ở P1.5.
 
 ### Đã cài đặt (42)
 

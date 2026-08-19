@@ -419,3 +419,59 @@ func TestChiHoTroPostgres(t *testing.T) {
 		t.Error("mong lỗi khi thiếu kết nối database")
 	}
 }
+
+// SELLER KHÔNG SỬA ĐƯỢC OFFER CỦA SELLER KHÁC.
+//
+// Không có hàng rào này thì bất kỳ nhà bán nào cũng hạ giá offer của đối
+// thủ về 1đ — hoặc lưu trữ nó — chỉ bằng cách đoán định danh. Mà định danh
+// offer thì LỘ RA ở trang sản phẩm công khai.
+func TestSellerKhongSuaDuocOfferCuaNguoiKhac(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	chuOffer := ids.MustNew(ids.PrefixSeller)
+	keTomo := ids.MustNew(ids.PrefixSeller)
+	skuID := ids.MustNew(ids.PrefixSKU)
+
+	o := h.createOffer(t, skuID, chuOffer, 500_000)
+
+	// Đọc có kiểm quyền: phải TỪ CHỐI.
+	if _, err := h.svc.OwnedOffer(ctx, o.ID(), keTomo); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("OwnedOffer với seller khác: lỗi = %v, mong ErrNotFound", err)
+	}
+
+	// CHỦ offer thì đọc được.
+	//
+	// Hàng rào chặn nhầm người thật còn tệ hơn không có hàng rào: nó làm
+	// seller không bán được hàng và không ai hiểu vì sao.
+	if _, err := h.svc.OwnedOffer(ctx, o.ID(), chuOffer); err != nil {
+		t.Errorf("chủ offer không đọc được offer của mình: %v", err)
+	}
+
+	// Offer KHÔNG TỒN TẠI trả CÙNG một lỗi với offer của người khác —
+	// phân biệt hai trường hợp cho phép dò xem đối thủ đang bán những gì.
+	khong := ids.MustNew(ids.PrefixOffer)
+	if _, err := h.svc.OwnedOffer(ctx, khong, chuOffer); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("offer không tồn tại: lỗi = %v, mong ErrNotFound", err)
+	}
+}
+
+// CHỦ OFFER VẪN sửa được offer của mình.
+//
+// Hàng rào chặn nhầm người thật còn tệ hơn không có hàng rào: nó làm seller
+// không bán được hàng và không ai hiểu vì sao.
+func TestChuOfferVanSuaDuocOfferCuaMinh(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller)
+	o := h.createOffer(t, ids.MustNew(ids.PrefixSKU), sellerID, 500_000)
+
+	updated, err := h.svc.UpdatePrice(ctx, o.ID(), vnd(450_000), vnd(0), sellerID)
+	if err != nil {
+		t.Fatalf("UpdatePrice: %v", err)
+	}
+	if updated.Price().Amount() != 450_000 {
+		t.Errorf("giá = %d, mong 450000", updated.Price().Amount())
+	}
+}

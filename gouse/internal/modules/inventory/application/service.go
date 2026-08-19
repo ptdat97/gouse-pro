@@ -476,6 +476,105 @@ func (s *Service) Adjust(ctx context.Context, in AdjustInput) error {
 		func(i *domain.InventoryItem, t time.Time) error { return i.AdjustAvailable(in.Delta, t) })
 }
 
+// FindOwnedItem tìm bản ghi tồn kho CỦA MỘT CHỦ SỞ HỮU cụ thể.
+//
+// # Vì sao phải lọc theo chủ sở hữu
+//
+// Cùng một SKU có thể có nhiều bản ghi tồn kho: hàng của nền tảng, hàng của
+// seller A gửi ở kho nền tảng, hàng của seller B ở kho riêng. Không lọc
+// nghĩa là seller sửa được số lượng hàng của người khác.
+//
+// `locationID` rỗng = kho nào cũng được; dùng khi seller chỉ có một kho,
+// tức là phần lớn trường hợp.
+func (s *Service) FindOwnedItem(
+	ctx context.Context, skuID, ownerID, locationID ids.ID,
+) (*domain.InventoryItem, error) {
+	if !locationID.IsZero() {
+		return s.repos.Items.FindByKey(ctx, domain.ItemKey{
+			SKUID: skuID, LocationID: locationID, OwnerID: ownerID,
+		})
+	}
+
+	found, err := s.repos.Items.FindBySKUs(ctx, []ids.ID{skuID}, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range found[skuID] {
+		if item.OwnerID() == ownerID {
+			return item, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+// SetAvailableInput là yêu cầu đặt số lượng khả dụng về một con số ĐÃ ĐẾM.
+type SetAvailableInput struct {
+	ItemID ids.ID
+
+	// Target là số lượng khả dụng SAU khi điều chỉnh — con số TUYỆT ĐỐI,
+	// không phải chênh lệch.
+	Target int
+
+	Reason      string
+	PerformedBy ids.ID
+}
+
+// SetAvailable đưa số lượng khả dụng về đúng con số seller đã kiểm kê.
+//
+// # Vì sao không tính chênh lệch ở tầng gọi rồi dùng Adjust
+//
+// Tính `delta = target - current` bằng một lần ĐỌC RIÊNG rồi mới ghi là
+// đọc-rồi-ghi ngoài vòng thử lại. Giữa hai bước đó, một khách đặt hàng làm
+// số khả dụng đổi, và chênh lệch cũ áp lên số mới cho ra con số SAI — không
+// phải con số seller đã đếm.
+//
+// Ở đây phép trừ nằm BÊN TRONG vòng thử lại: xung đột khóa lạc quan làm
+// đọc lại và tính lại, nên kết quả luôn là con số đã đếm.
+//
+// Cùng loại lỗi với bộ đếm khuyến mãi (P3 backlog), chỉ khác chỗ xảy ra.
+func (s *Service) SetAvailable(ctx context.Context, in SetAvailableInput) error {
+	if in.Target < 0 {
+		return errors.New("inventory: số lượng kiểm kê không được âm")
+	}
+	if in.Reason == "" {
+		return errors.New("inventory: điều chỉnh thủ công bắt buộc phải nêu lý do")
+	}
+	if in.PerformedBy.IsZero() {
+		return errors.New("inventory: điều chỉnh thủ công bắt buộc phải ghi người thực hiện")
+	}
+
+	return s.withRetry(ctx, func(r domain.Repos) error {
+		item, err := r.Items.FindByID(ctx, in.ItemID)
+		if err != nil {
+			return err
+		}
+
+		delta := in.Target - item.Available()
+		if delta == 0 {
+			// Không có gì đổi thì KHÔNG ghi nhật ký: một dòng "điều chỉnh
+			// 0 đơn vị" làm loãng nhật ký mà không nói lên điều gì.
+			return nil
+		}
+
+		qty := delta
+		if qty < 0 {
+			qty = -qty
+		}
+
+		var saved *domain.InventoryItem
+		return s.mutate(ctx, r, item, mutation{
+			apply: func(i *domain.InventoryItem, t time.Time) error {
+				return i.AdjustAvailable(delta, t)
+			},
+			movement:    domain.MovementAdjust,
+			quantity:    qty,
+			reason:      in.Reason,
+			performedBy: in.PerformedBy,
+			result:      &saved,
+		})
+	})
+}
+
 // simpleChange áp dụng một thay đổi số lượng kèm ghi nhật ký.
 func (s *Service) simpleChange(
 	ctx context.Context, itemID ids.ID, qty int,

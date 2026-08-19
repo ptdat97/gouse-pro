@@ -3,12 +3,15 @@ package inventory
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/inventory/application"
 	"github.com/fashion-commerce/platform/internal/modules/inventory/domain"
 	inventorypg "github.com/fashion-commerce/platform/internal/modules/inventory/infrastructure/postgres"
+	inventoryhttp "github.com/fashion-commerce/platform/internal/modules/inventory/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
@@ -280,6 +283,26 @@ func (m *Module) Receive(ctx context.Context, req ReceiveRequest) (*ItemView, er
 	return &v, nil
 }
 
+// SetAvailable đưa số lượng khả dụng về đúng con số ĐÃ KIỂM KÊ.
+//
+// Khác Adjust ở chỗ nhận con số TUYỆT ĐỐI thay vì chênh lệch — đó là cách
+// seller nghĩ khi kiểm kê ("đếm được 50 cái"), và phép trừ nằm bên trong
+// vòng thử lại nên không bị sai khi có đơn hàng chen vào giữa.
+func (m *Module) SetAvailable(
+	ctx context.Context, itemID string, target int, reason, performedBy string,
+) error {
+	id, err := ids.Parse(itemID, ids.PrefixInventoryItem)
+	if err != nil {
+		return ErrInvalidID
+	}
+	return translateErr(m.svc.SetAvailable(ctx, application.SetAvailableInput{
+		ItemID:      id,
+		Target:      target,
+		Reason:      reason,
+		PerformedBy: ids.ID(performedBy),
+	}))
+}
+
 func (m *Module) Adjust(ctx context.Context, req AdjustRequest) error {
 	id, err := ids.Parse(req.ItemID, ids.PrefixInventoryItem)
 	if err != nil {
@@ -395,4 +418,11 @@ func translateErr(err error) error {
 		return ErrConflict
 	}
 	return err
+}
+
+// RegisterSellerRoutes gắn endpoint cập nhật tồn kho của NHÀ BÁN.
+//
+// Bên gọi PHẢI bọc Auth và RequireRole("SELLER_OWNER", "SELLER_STAFF").
+func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
+	inventoryhttp.NewSellerHandler(m.svc, log).Register(mux)
 }
