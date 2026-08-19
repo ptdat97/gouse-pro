@@ -1173,3 +1173,37 @@ func TestKhoaLacQuanChanMatCapNhat(t *testing.T) {
 			version, okN+1, okN)
 	}
 }
+
+// CỜ "BÁO KHI CÓ HÀNG" được LƯU XUỐNG DATABASE.
+//
+// Đây là thước đo NHU CẦU KHÔNG ĐƯỢC ĐÁP ỨNG: khách để lại lời hứa "có hàng
+// là tôi mua", nói chính xác nên sản xuất lại mã nào và bao nhiêu. Nhận rồi
+// vứt đi thì nút bấm là nút giả — khách chờ một thông báo không bao giờ tới.
+//
+// Test TRUY VẤN THẲNG bảng: đọc qua module thì không phân biệt được "đã ghi
+// xuống" với "còn trong bộ nhớ từ lúc thêm".
+func TestCoBaoKhiCoHangLuuXuongDatabase(t *testing.T) {
+	m, pool := newModule(t, newClock())
+	ctx := context.Background()
+
+	c := create(t, m, "cho-hang@example.com")
+	productID := ids.MustNew(ids.PrefixProduct).String()
+
+	if _, err := m.AddToWishlist(ctx, customer.WishlistRequest{
+		CustomerID:          c.ID,
+		ProductID:           productID,
+		NotifyWhenAvailable: true,
+	}); err != nil {
+		t.Fatalf("AddToWishlist: %v", err)
+	}
+
+	var stored bool
+	if err := pool.QueryRow(ctx,
+		`SELECT notify_when_available FROM wishlist_item WHERE product_id = $1`,
+		productID).Scan(&stored); err != nil {
+		t.Fatalf("đọc cờ đã lưu: %v", err)
+	}
+	if !stored {
+		t.Error("cờ báo khi có hàng trong database = false, mong true")
+	}
+}

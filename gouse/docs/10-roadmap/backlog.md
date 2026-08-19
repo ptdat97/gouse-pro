@@ -184,10 +184,36 @@ Dùng event chứ không gọi đồng bộ: "khách tìm không ra kết quả"
 ĐÃ XẢY RA, và kết quả tìm kiếm không phụ thuộc việc ghi tín hiệu có thành
 công hay không (ADR-0006 phần 3). Ghi hỏng KHÔNG làm hỏng tìm kiếm.
 
-### P1.2 — Tài khoản khách (6 operation)
+### P1.2 — Tài khoản khách (6 operation) — ✅ XONG
 
 `getMyProfile` · `updateMyProfile` · `listMyAddresses` · `addMyAddress` ·
 `getMyWishlist` · `addWishlistItem` — module `customer`.
+
+**Mọi endpoint ở đây BẮT BUỘC đăng nhập** — khác hẳn cart và checkout, vốn
+phải chạy được cho khách vãng lai. Hồ sơ và sổ địa chỉ không có nghĩa gì nếu
+không có tài khoản, và cho khách vãng lai đi qua nghĩa là mọi request ẩn
+danh cùng trỏ vào một hồ sơ "định danh rỗng".
+
+**KHÔNG đổi được email qua `updateMyProfile`.** Đổi email là đổi DANH TÍNH,
+cần xác minh quyền sở hữu địa chỉ mới — cho đi qua là mở đường chiếm tài
+khoản người khác. `DisallowUnknownFields` biến việc này thành `400` thay vì
+bỏ qua im lặng.
+
+**Hai khoảng lệch với đặc tả, đã sửa đặc tả:**
+
+1. **`preferences` chưa trả về.** Số đo cơ thể là dữ liệu nhạy cảm, và yêu
+   cầu của chính lược đồ là "mã hóa khi lưu". Module chưa có chỗ lưu đã mã
+   hóa; lưu dạng thô sẽ VI PHẠM đúng yêu cầu đó. Thiếu một trường tùy chọn
+   thì giao diện chịu được, lưu sai cách thì không sửa ngược được. → **P3-14**.
+
+2. **`getMyWishlist` trả `product_id`, không trả `ProductSummary`.** Tên,
+   ảnh, giá thuộc module `product`, mà `customer` nằm CÙNG TẦNG với nó — mũi
+   tên phụ thuộc chỉ đi từ trên xuống. Trang gọi `listProducts` MỘT lần cho
+   cả danh sách; đó cũng là cách ít truy vấn hơn.
+
+Thêm cột `wishlist_item.notify_when_available` (migration 000023): đặc tả
+cho khách bật cờ này, nhận rồi vứt đi thì nút bấm là nút giả — và nền tảng
+mất thước đo nhu cầu KHÔNG ĐƯỢC ĐÁP ỨNG.
 
 ### P1.3 — Giỏ hàng và thanh toán (10 operation) — ✅ XONG
 
@@ -442,25 +468,34 @@ Nghiêng về **A**. Chọn B hoặc C là quyết định kiến trúc → cầ
 
 | # | Việc | Phụ thuộc |
 |---|---|---|
-| P2-1 | Demand signal từ event (`add_to_cart`, `order_placed`, `search_no_result`) | Đường đã thông (P1.3, P1.4 xong) — xem ghi chú dưới |
+| P2-1 | Demand signal từ event (`add_to_cart`, `order_placed`, `search_no_result`) | ✅ xong — xem ghi chú dưới bảng |
 | P2-2 | Analytics đọc event, **không phải nguồn sự thật về tiền** | P2-1 |
 | P2-3 | Monorepo Next.js + `packages/types` sinh từ OpenAPI | ✅ xong |
 | P2-4 | Admin UI — 3 nhóm trang (sellers · audit log · orders) | ✅ xong |
 | P2-7 | **CORS** — giao diện ở origin khác gọi được API | ✅ xong |
 
-**P2-1 — trạng thái CHÍNH XÁC.** Ba mảnh đã có và đã nối:
+**P2-1 — ✅ xong, kiểm chứng end-to-end trên hệ thống thật (19/08).**
 
 ```text
-search_no_result  ✅ kiểm chứng end-to-end trên hệ thống thật
-add_to_cart       ⬜ handler đã đăng ký, cart đã phát event,
-                     CHƯA quan sát được tín hiệu vào bảng
-order_placed      ⬜ như trên
+search_no_result  ✅ demand_signal ghi đúng từ khóa đã tìm
+add_to_cart       ✅ ADD_TO_CART, đúng sku, quantity=2
+order_placed      ✅ ORDER, đúng sku, quantity=2
 ```
 
-Hai dòng cuối chưa đánh dấu xong vì **chưa chạy thử được**: database phát
-triển không còn offer/SKU hợp lệ nào (test đã TRUNCATE — chính là P3-2), nên
-không thêm được món vào giỏ để sinh tín hiệu. Sửa P3-2 trước, rồi kiểm chứng
-lại. Đánh dấu xong dựa trên "code trông đúng" là đúng thứ mục 1 cấm.
+Kiểm chứng bằng cách đi HẾT luồng mua hàng thật, không phải đọc code:
+
+```text
+thêm giỏ → mở phiên (giữ hàng) → địa chỉ → vận chuyển → đặt hàng
+    ↓
+đơn FC-2026-08-000001 · 1.010.000đ
+tồn kho   100 → 98 khả dụng, 2 đã chốt
+lô giao   FC-2026-08-000001-A · PENDING
+outbox    cart.item_added ✅ · checkout.completed ✅ (đã phát hết)
+```
+
+Trước đó việc này bị chặn hai lớp: P3-2 (test xóa sạch database phát triển)
+là NGUYÊN NHÂN, P3-13 (dữ liệu mẫu thiếu offer và tồn kho) là HẬU QUẢ. Sửa
+cả hai mới chạy thử được.
 | P2-5 | Storefront | P1.1–P1.4 |
 | P2-6 | Seller Center | P1.5 |
 
@@ -515,6 +550,8 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | Cần cả bốn module thật; có từ trước P1.3 |
 | P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | Hiện lọc sau khi đọc: một trang có thể trả ít hơn `limit` |
 | P3-12 | Phân trang theo KHÓA thay vì offset | `next_cursor` hiện là offset mã hóa; đơn mới xen vào có thể làm lặp bản ghi |
+| P3-13 | **Dữ liệu mẫu MUA ĐƯỢC**: seed cho offer + tồn kho | ✅ xong — xem ghi chú dưới bảng |
+| P3-14 | **Tùy chọn khách hàng** (số đo cơ thể, size ưa thích) | Cần thiết kế lưu trữ MÃ HÓA trước; đặc tả tự yêu cầu điều đó |
 
 **P3-2 — đã xong (15/08).** Có HAI sự cố, không phải một:
 
@@ -539,6 +576,22 @@ cho mỗi gói). Kèm một **hàng rào**: test dừng hẳn nếu `TEST_DATABA
 `DATABASE_URL` trỏ cùng một database.
 
 Hệ quả: `-p 1` đã bỏ khỏi Makefile, bộ test chạy song song trở lại.
+
+**P3-13 — đã xong (19/08).** Dữ liệu mẫu trước đây dừng ở SKU và giá, nên
+catalog đầy sản phẩm mà giỏ hàng vĩnh viễn rỗng: khách mua OFFER chứ không
+mua SKU, và `startCheckout` luôn thất bại "không đủ hàng" nếu không có tồn.
+
+Đã thêm `marketplace.SeedDemo` và `inventory.SeedDemo`. Hai việc phát sinh
+khi làm, cả hai đều là khoảng trống có thật chứ không phải chuyện của seed:
+
+1. **Không có đường nào tạo kho hàng.** Test phải chèn `stock_location` bằng
+   SQL tay. Đã thêm `domain.StockLocation` + `LocationRepository` +
+   `EnsureLocation` (idempotent theo MÃ kho, không theo id).
+
+2. **Thương hiệu own-brand không ai bán được — kể cả nền tảng.** Thương hiệu
+   ở mức `RESTRICTED` chỉ cho phép `OwnerSellerID` tạo offer, mà seed để
+   trống trường đó. Hàng rào chống hàng giả chặn đúng; thiếu sót nằm ở chỗ
+   chưa CHỈ ĐỊNH nhà bán. `catalog.SeedDemo` nay nhận `OwnBrandSellerID`.
 
 P3-1 là **nợ kỹ thuật đã biết**, không phải việc phát sinh — ghi ở đây để
 không bị quên.

@@ -3,11 +3,14 @@ package customer
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/customer/application"
 	"github.com/fashion-commerce/platform/internal/modules/customer/domain"
 	customerpg "github.com/fashion-commerce/platform/internal/modules/customer/infrastructure/postgres"
+	customerhttp "github.com/fashion-commerce/platform/internal/modules/customer/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
@@ -58,6 +61,14 @@ func New(cfg Config) (*Module, error) {
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
 func (m *Module) Service() *application.Service { return m.svc }
+
+// RegisterRoutes gắn các endpoint tài khoản khách hàng vào mux.
+//
+// Bên gọi PHẢI bọc httpserver.ResolveShopper: handler lấy định danh khách
+// hàng từ context, và mọi endpoint ở đây yêu cầu đã đăng nhập.
+func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
+	customerhttp.NewHandler(m.svc, log).Register(mux)
+}
 
 // ---------------------------------------------------------------- Hồ sơ
 
@@ -233,7 +244,8 @@ func (m *Module) GetConsentHistory(
 
 func (m *Module) AddToWishlist(ctx context.Context, req WishlistRequest) (bool, error) {
 	added, err := m.svc.AddToWishlist(ctx, ids.ID(req.CustomerID),
-		ids.ID(req.ProductID), ids.ID(req.VariantID), req.Note)
+		ids.ID(req.ProductID), ids.ID(req.VariantID), req.Note,
+		req.NotifyWhenAvailable)
 	if err != nil {
 		return false, translateErr(err)
 	}
@@ -263,10 +275,11 @@ func (m *Module) GetWishlist(ctx context.Context, customerID string) (WishlistVi
 	}
 	for _, item := range items {
 		out.Items = append(out.Items, WishlistItemView{
-			ProductID: item.ProductID.String(),
-			VariantID: item.VariantID.String(),
-			Note:      item.Note,
-			AddedAt:   item.AddedAt,
+			ProductID:           item.ProductID.String(),
+			VariantID:           item.VariantID.String(),
+			Note:                item.Note,
+			NotifyWhenAvailable: item.NotifyWhenAvailable,
+			AddedAt:             item.AddedAt,
 		})
 	}
 	return out, nil

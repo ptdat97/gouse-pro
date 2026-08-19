@@ -58,7 +58,7 @@ func (r *customerResolver) CustomerIDForUser(
 // mua được (mvp.md mục 4). Dùng Auth ở đây là chặn mọi khách chưa đăng ký
 // khỏi việc thêm hàng vào giỏ.
 func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m modules) {
-	if m.cart == nil && m.checkout == nil && m.order == nil {
+	if m.cart == nil && m.checkout == nil && m.order == nil && m.customer == nil {
 		return
 	}
 
@@ -114,6 +114,19 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m modules) {
 		// module order: nó phải đọc phiên thanh toán, mà order không được
 		// gọi checkout (ADR-0007). Xem chú thích ở checkout Register.
 		mux.Handle("POST /api/v1/orders", h)
+	}
+
+	if m.customer != nil {
+		accountMux := http.NewServeMux()
+		m.customer.RegisterRoutes(accountMux, log)
+
+		h := shopper(accountMux, httpserver.RequireIdempotencyKey())
+		mux.Handle("GET /api/v1/me", h)
+		mux.Handle("PATCH /api/v1/me", h)
+		mux.Handle("GET /api/v1/me/addresses", h)
+		mux.Handle("POST /api/v1/me/addresses", h)
+		mux.Handle("GET /api/v1/me/wishlist", h)
+		mux.Handle("POST /api/v1/me/wishlist", h)
 	}
 
 	if m.order != nil {

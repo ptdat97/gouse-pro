@@ -245,6 +245,10 @@ type WishlistRequest struct {
 	VariantID string
 
 	Note string
+
+	// NotifyWhenAvailable là lời hứa "có hàng là tôi mua" — thước đo nhu
+	// cầu KHÔNG ĐƯỢC ĐÁP ỨNG. Chỉ dùng khi THÊM món.
+	NotifyWhenAvailable bool
 }
 
 // MergeRequest là dữ liệu gộp danh tính.
@@ -330,7 +334,11 @@ type WishlistItemView struct {
 	ProductID string
 	VariantID string
 	Note      string
-	AddedAt   time.Time
+
+	// NotifyWhenAvailable: khách đang chờ món này về hàng.
+	NotifyWhenAvailable bool
+
+	AddedAt time.Time
 }
 
 // ---------------------------------------------------------------- Lỗi

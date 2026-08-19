@@ -42,6 +42,12 @@ type WishlistItem struct {
 
 	Note string
 
+	// NotifyWhenAvailable là lời hứa "có hàng là tôi mua".
+	//
+	// Thước đo NHU CẦU KHÔNG ĐƯỢC ĐÁP ỨNG, mạnh hơn hẳn lượt xem hay lượt
+	// thích: nó nói nên sản xuất lại mã nào và bao nhiêu.
+	NotifyWhenAvailable bool
+
 	AddedAt time.Time
 }
 

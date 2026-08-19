@@ -416,7 +416,8 @@ func (s *Service) wishlistFor(
 // Trả về true nếu món thật sự được thêm mới. Thêm lại món đã có KHÔNG báo
 // lỗi: khách bấm tim hai lần là chuyện thường.
 func (s *Service) AddToWishlist(
-	ctx context.Context, customerID, productID, variantID ids.ID, note string,
+	ctx context.Context, customerID, productID, variantID ids.ID,
+	note string, notifyWhenAvailable bool,
 ) (bool, error) {
 	w, err := s.wishlistFor(ctx, customerID)
 	if err != nil {
@@ -424,10 +425,11 @@ func (s *Service) AddToWishlist(
 	}
 
 	return s.wishlists.AddItem(ctx, w.ID(), domain.WishlistItem{
-		ProductID: productID,
-		VariantID: variantID,
-		Note:      note,
-		AddedAt:   s.clock.Now(),
+		ProductID:           productID,
+		VariantID:           variantID,
+		Note:                note,
+		NotifyWhenAvailable: notifyWhenAvailable,
+		AddedAt:             s.clock.Now(),
 	})
 }
 

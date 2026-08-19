@@ -158,18 +158,19 @@ Cập nhật: 15/08/2026.
 ### Tổng hợp
 
 ```text
-TESTED         15      catalog · product · cart · checkout · orders (khách)
+TESTED         21      catalog · product · cart · checkout · orders (khách) ·
+                       account (hồ sơ · địa chỉ · yêu thích)
 IMPLEMENTED    19      auth · audit-log · admin sellers · ledger · orders ·
                        offers · search · checkout (3 đường cần phiên thật) ·
                        placeOrder
 INTEGRATED      3      Admin UI đang gọi: listSellers · listAdminOrders ·
                        listAuditLog (+ các thao tác kèm theo)
-DESIGNED       37      (21 MVP còn lại + 16 hoãn Phase 2/3)
+DESIGNED       31      (15 MVP còn lại + 16 hoãn Phase 2/3)
                 ──
                 71
 ```
 
-### Đã cài đặt (34)
+### Đã cài đặt (40)
 
 | Operation | Đường dẫn | Mức |
 |---|---|---|
@@ -217,6 +218,17 @@ E2E (P3-3).
 đọc phiên thanh toán, mà order không được gọi checkout (ADR-0007). Nó ở mức
 `IMPLEMENTED` vì đường thành công cần một phiên có thật — cùng lý do với ba
 operation checkout ở trên.
+
+| `getMyProfile` | `GET /api/v1/me` | TESTED |
+| `updateMyProfile` | `PATCH /api/v1/me` | TESTED |
+| `listMyAddresses` | `GET /api/v1/me/addresses` | TESTED |
+| `addMyAddress` | `POST /api/v1/me/addresses` | TESTED |
+| `getMyWishlist` | `GET /api/v1/me/wishlist` | TESTED |
+| `addWishlistItem` | `POST /api/v1/me/wishlist` | TESTED |
+
+**Mọi endpoint tài khoản BẮT BUỘC đăng nhập.** Khách vãng lai nhận `401`,
+không phải hồ sơ rỗng — khác hẳn cart và checkout, vốn phải chạy được cho
+khách chưa có tài khoản.
 
 **Về mức của nhóm checkout:** `TESTED` ở đây nghĩa là có test HTTP cho những
 gì handler CHẶN — quyền sở hữu giỏ, phương thức thanh toán, phương thức vận

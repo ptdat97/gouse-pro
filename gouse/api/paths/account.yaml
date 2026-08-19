@@ -34,7 +34,16 @@ me:
                       type: string
                       enum: [GUEST, REGISTERED, MEMBER, VIP]
                     preferences:
-                      $ref: '#/CustomerPreferences'
+                      allOf:
+                        - $ref: '#/CustomerPreferences'
+                      description: |
+                        **CHƯA được trả về.** Số đo cơ thể là dữ liệu cá nhân
+                        nhạy cảm, và yêu cầu của chính lược đồ này là "mã hóa
+                        khi lưu". Module `customer` chưa có chỗ lưu đã mã hóa,
+                        nên trả về thiếu một trường tùy chọn còn hơn lưu dữ
+                        liệu nhạy cảm sai cách — thứ không sửa ngược được.
+
+                        Xem backlog P3-14.
       '401':
         $ref: '../components/common.yaml#/responses/Unauthorized'
 
@@ -63,7 +72,9 @@ me:
               phone:
                 type: string
               preferences:
-                $ref: '#/CustomerPreferences'
+                allOf:
+                  - $ref: '#/CustomerPreferences'
+                description: '**CHƯA được xử lý** — xem ghi chú ở `getMyProfile`.'
     responses:
       '200':
         description: Hồ sơ đã cập nhật
@@ -168,9 +179,24 @@ wishlist:
                   type: array
                   items:
                     type: object
+                    required: [product_id, notify_when_available, added_at]
                     properties:
-                      product:
-                        $ref: '../components/schemas.yaml#/ProductSummary'
+                      product_id:
+                        allOf:
+                          - $ref: '../components/common.yaml#/schemas/Id'
+                        description: |
+                          **Chỉ mã, không phải object sản phẩm.** Tên, ảnh và giá
+                          thuộc module `product`, mà `customer` nằm CÙNG TẦNG với
+                          nó trong đồ thị phụ thuộc — mũi tên chỉ đi từ trên
+                          xuống, nên customer không được gọi product.
+
+                          Trang gọi endpoint này lấy danh sách mã, rồi gọi
+                          `listProducts` **một lần** cho tất cả. Cách đó cũng ít
+                          truy vấn hơn so với để endpoint tự ghép từng món.
+                      variant_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      note:
+                        type: string
                       added_at:
                         $ref: '../components/common.yaml#/schemas/Timestamp'
                       notify_when_available:

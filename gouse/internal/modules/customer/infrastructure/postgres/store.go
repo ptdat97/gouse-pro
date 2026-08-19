@@ -529,11 +529,13 @@ func (s *WishlistStore) Save(ctx context.Context, w *domain.Wishlist) error {
 
 	for _, item := range w.Items() {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO wishlist_item (wishlist_id, product_id, variant_id, note, added_at)
-			VALUES ($1,$2,$3,$4,$5)
+			INSERT INTO wishlist_item (
+				wishlist_id, product_id, variant_id, note,
+				notify_when_available, added_at
+			) VALUES ($1,$2,$3,$4,$5,$6)
 			ON CONFLICT DO NOTHING`,
 			w.ID().String(), item.ProductID.String(), item.VariantID.String(),
-			item.Note, item.AddedAt); err != nil {
+			item.Note, item.NotifyWhenAvailable, item.AddedAt); err != nil {
 			return fmt.Errorf("customer: ghi món yêu thích: %w", err)
 		}
 	}
@@ -579,7 +581,7 @@ func (s *WishlistStore) loadItems(
 	ctx context.Context, wishlistID ids.ID,
 ) ([]domain.WishlistItem, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT product_id, variant_id, note, added_at
+		SELECT product_id, variant_id, note, notify_when_available, added_at
 		  FROM wishlist_item WHERE wishlist_id = $1
 		 ORDER BY added_at DESC`, wishlistID.String())
 	if err != nil {
@@ -593,7 +595,8 @@ func (s *WishlistStore) loadItems(
 			item             domain.WishlistItem
 			product, variant string
 		)
-		if err := rows.Scan(&product, &variant, &item.Note, &item.AddedAt); err != nil {
+		if err := rows.Scan(&product, &variant, &item.Note,
+			&item.NotifyWhenAvailable, &item.AddedAt); err != nil {
 			return nil, fmt.Errorf("customer: đọc món yêu thích: %w", err)
 		}
 		item.ProductID = ids.ID(product)
@@ -615,11 +618,13 @@ func (s *WishlistStore) AddItem(
 	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
 ) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
-		INSERT INTO wishlist_item (wishlist_id, product_id, variant_id, note, added_at)
-		VALUES ($1,$2,$3,$4,$5)
+		INSERT INTO wishlist_item (
+			wishlist_id, product_id, variant_id, note,
+			notify_when_available, added_at
+		) VALUES ($1,$2,$3,$4,$5,$6)
 		ON CONFLICT DO NOTHING`,
 		wishlistID.String(), item.ProductID.String(), item.VariantID.String(),
-		item.Note, item.AddedAt)
+		item.Note, item.NotifyWhenAvailable, item.AddedAt)
 	if err != nil {
 		return false, fmt.Errorf("customer: thêm món yêu thích: %w", err)
 	}
