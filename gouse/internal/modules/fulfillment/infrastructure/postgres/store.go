@@ -72,13 +72,18 @@ func (s *FulfillmentStore) SaveBatch(
 // lần cho cùng một đơn hàng sẽ tạo hai bộ đơn thực hiện, và seller thấy
 // việc trùng.
 func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error {
+	addr := fo.ShippingAddress()
+
 	_, err := tx.Exec(ctx, `
 		INSERT INTO fulfillment_order (
 			id, order_id, fo_number, seller_id, status,
 			subtotal, commission_amount, currency, cancel_reason,
 			fulfillment_type, customer_id, notify_email, notify_phone,
+			ship_recipient_name, ship_phone, ship_street,
+			ship_ward, ship_district, ship_province, ship_country_code,
 			created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+		          $14,$15,$16,$17,$18,$19,$20,$21,$22)
 		ON CONFLICT (id) DO NOTHING`,
 		fo.ID().String(), fo.OrderID().String(), fo.FONumber(),
 		fo.SellerID().String(), string(fo.Status()),
@@ -86,6 +91,8 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 		string(fo.Subtotal().Currency()), fo.CancelReason(),
 		string(fo.Type()), fo.CustomerID().String(),
 		fo.NotifyEmail(), fo.NotifyPhone(),
+		addr.RecipientName, addr.Phone, addr.StreetAddress,
+		addr.Ward, addr.District, addr.Province, defaultCountry(addr.CountryCode),
 		fo.CreatedAt(), fo.UpdatedAt())
 	if err != nil {
 		return err
@@ -167,6 +174,8 @@ const foCols = `
 	id, order_id, fo_number, seller_id, status,
 	subtotal, commission_amount, currency, cancel_reason, failure_reason,
 	customer_id, notify_email, notify_phone,
+	ship_recipient_name, ship_phone, ship_street,
+	ship_ward, ship_district, ship_province, ship_country_code,
 	stock_location_id, fulfillment_type, shipping_method, shipping_provider,
 	tracking_number, estimated_delivery_date,
 	confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
@@ -328,6 +337,7 @@ func (s *FulfillmentStore) withLineIDs(
 		CustomerID:        fo.CustomerID(),
 		NotifyEmail:       fo.NotifyEmail(),
 		NotifyPhone:       fo.NotifyPhone(),
+		ShippingAddress:   fo.ShippingAddress(),
 		StockLocationID:   fo.StockLocationID(),
 		Type:              fo.Type(),
 		ShippingMethod:    fo.ShippingMethod(),
@@ -353,6 +363,7 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 		subtotal, commission        int64
 		cancelReason, failureReason string
 		customerID, email, phone    string
+		addr                        domain.ShippingAddress
 		locationID, foType          string
 		method, provider, tracking  string
 		estimatedDelivery           *time.Time
@@ -364,6 +375,8 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 		&id, &orderID, &foNumber, &sellerID, &status,
 		&subtotal, &commission, &currency, &cancelReason, &failureReason,
 		&customerID, &email, &phone,
+		&addr.RecipientName, &addr.Phone, &addr.StreetAddress,
+		&addr.Ward, &addr.District, &addr.Province, &addr.CountryCode,
 		&locationID, &foType, &method, &provider, &tracking, &estimatedDelivery,
 		&confirmed, &packed, &shipped, &delivered, &cancelled,
 		&completed, &p.CreatedAt, &p.UpdatedAt,
@@ -384,6 +397,7 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 	p.CustomerID = ids.ID(customerID)
 	p.NotifyEmail = email
 	p.NotifyPhone = phone
+	p.ShippingAddress = addr
 	p.StockLocationID = ids.ID(locationID)
 	p.Type = domain.FulfillmentType(foType)
 	p.ShippingMethod = method
@@ -443,4 +457,15 @@ func max0(n int) int {
 		return 0
 	}
 	return n
+}
+
+// defaultCountry điền VN khi bỏ trống.
+//
+// Ràng buộc NOT NULL của cột không cho chuỗi rỗng đi kèm ý nghĩa "chưa
+// biết" — và với thị trường hiện tại, không biết nghĩa là Việt Nam.
+func defaultCountry(code string) string {
+	if code == "" {
+		return "VN"
+	}
+	return code
 }

@@ -47,6 +47,21 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 				"thay đổi phiên phải cùng thành công hoặc cùng thất bại")
 	}
 
+	// addressPayload là địa chỉ giao, KHÔNG kèm email.
+	//
+	// Chỉ những trường CẦN cho việc giao hàng: người nhận, số điện thoại
+	// để gọi trước khi giao, và địa chỉ. Email khách không giúp giao hàng
+	// và không được đưa tới seller.
+	type addressPayload struct {
+		RecipientName string `json:"recipient_name"`
+		Phone         string `json:"phone"`
+		StreetAddress string `json:"street_address"`
+		Ward          string `json:"ward"`
+		District      string `json:"district"`
+		Province      string `json:"province"`
+		CountryCode   string `json:"country_code"`
+	}
+
 	type reservationPayload struct {
 		ReservationID   string `json:"reservation_id"`
 		InventoryItemID string `json:"inventory_item_id"`
@@ -97,23 +112,40 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 		eventbus.AggregateCheckout,
 		in.CheckoutID,
 		struct {
-			CheckoutID   string               `json:"checkout_id"`
-			OrderID      string               `json:"order_id"`
-			OrderNumber  string               `json:"order_number"`
-			CartID       string               `json:"cart_id"`
-			CustomerID   string               `json:"customer_id"`
-			GuestEmail   string               `json:"guest_email"`
-			GuestPhone   string               `json:"guest_phone"`
+			CheckoutID  string `json:"checkout_id"`
+			OrderID     string `json:"order_id"`
+			OrderNumber string `json:"order_number"`
+			CartID      string `json:"cart_id"`
+			CustomerID  string `json:"customer_id"`
+			GuestEmail  string `json:"guest_email"`
+			GuestPhone  string `json:"guest_phone"`
+
+			// ShippingAddress để SELLER in được phiếu giao hàng.
+			//
+			// Không có nó thì họ biết nhặt gì mà không biết gửi đi đâu — và
+			// họ KHÔNG được mở đơn hàng gốc để tra, vì ở đó có cả hàng của
+			// seller khác lẫn email khách.
+			ShippingAddress addressPayload `json:"shipping_address"`
+
 			Currency     string               `json:"currency"`
 			Reservations []reservationPayload `json:"reservations"`
 		}{
-			CheckoutID:   in.CheckoutID.String(),
-			OrderID:      in.OrderID.String(),
-			OrderNumber:  in.OrderNumber,
-			CartID:       in.CartID.String(),
-			CustomerID:   in.CustomerID.String(),
-			GuestEmail:   in.GuestEmail,
-			GuestPhone:   in.GuestPhone,
+			CheckoutID:  in.CheckoutID.String(),
+			OrderID:     in.OrderID.String(),
+			OrderNumber: in.OrderNumber,
+			CartID:      in.CartID.String(),
+			CustomerID:  in.CustomerID.String(),
+			GuestEmail:  in.GuestEmail,
+			GuestPhone:  in.GuestPhone,
+			ShippingAddress: addressPayload{
+				RecipientName: in.ShippingAddress.RecipientName,
+				Phone:         in.ShippingAddress.Phone,
+				StreetAddress: in.ShippingAddress.StreetAddress,
+				Ward:          in.ShippingAddress.Ward,
+				District:      in.ShippingAddress.District,
+				Province:      in.ShippingAddress.Province,
+				CountryCode:   in.ShippingAddress.CountryCode,
+			},
 			Currency:     string(in.Currency),
 			Reservations: reservations,
 		})

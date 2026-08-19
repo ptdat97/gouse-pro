@@ -145,9 +145,20 @@ type splitPayload struct {
 
 	// Thông tin liên hệ, sao chép xuống đơn thực hiện để event phát từ
 	// module này mang theo được — notification không gọi ngược để lấy.
-	CustomerID   string `json:"customer_id"`
-	GuestEmail   string `json:"guest_email"`
-	GuestPhone   string `json:"guest_phone"`
+	CustomerID string `json:"customer_id"`
+	GuestEmail string `json:"guest_email"`
+	GuestPhone string `json:"guest_phone"`
+
+	// ShippingAddress là nơi hàng phải đến — SELLER cần để in phiếu giao.
+	ShippingAddress struct {
+		RecipientName string `json:"recipient_name"`
+		Phone         string `json:"phone"`
+		StreetAddress string `json:"street_address"`
+		Ward          string `json:"ward"`
+		District      string `json:"district"`
+		Province      string `json:"province"`
+		CountryCode   string `json:"country_code"`
+	} `json:"shipping_address"`
 	Reservations []struct {
 		LineID   string `json:"line_id"`
 		SKUID    string `json:"sku_id"`
@@ -199,6 +210,15 @@ func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event)
 		CustomerID:  ids.ID(p.CustomerID),
 		NotifyEmail: p.GuestEmail,
 		NotifyPhone: p.GuestPhone,
+		ShippingAddress: domain.ShippingAddress{
+			RecipientName: p.ShippingAddress.RecipientName,
+			Phone:         p.ShippingAddress.Phone,
+			StreetAddress: p.ShippingAddress.StreetAddress,
+			Ward:          p.ShippingAddress.Ward,
+			District:      p.ShippingAddress.District,
+			Province:      p.ShippingAddress.Province,
+			CountryCode:   p.ShippingAddress.CountryCode,
+		},
 	}
 
 	for _, r := range p.Reservations {

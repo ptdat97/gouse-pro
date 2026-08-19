@@ -327,17 +327,37 @@ Câu SQL (`WHERE seller_id = $1`) và kiểm tra ở tầng application
 XANH — vì câu SQL còn giữ. Phải phá cả hai lớp test mới đỏ. Đó là phòng thủ
 nhiều lớp hoạt động đúng như thiết kế.
 
-### P1.10 — Địa chỉ giao trên đơn thực hiện (CHẶN VẬN HÀNH) — MỚI
+### P1.10 — Địa chỉ giao trên đơn thực hiện — ✅ XONG
 
-Seller biết **nhặt gì** nhưng không biết **gửi đi đâu**: đơn thực hiện chưa
-mang địa chỉ giao, nên seller chưa in được phiếu giao hàng.
+Seller biết **nhặt gì** nhưng không biết **gửi đi đâu**. Đã sửa theo đúng
+cách của thông tin nhặt hàng: thêm vào payload event `checkout.completed`,
+thêm cột (migration 000025), sao chép xuống TỪNG đơn thực hiện lúc tách.
 
-Payload event `checkout.completed` không chứa địa chỉ, nên lúc tách đơn
-không có gì để sao chép xuống. Cách sửa giống hệt thông tin nhặt hàng: thêm
-vào payload event, thêm cột, sao chép lúc tách.
+Sao chép xuống từng đơn chứ không lưu một chỗ: một đơn có hàng từ hai nguồn
+thì CẢ HAI seller cùng giao tới một nơi, và mỗi người cần phiếu giao riêng.
 
-Đây là việc CHẶN vận hành thật — luồng 6 chạy được về mặt dữ liệu nhưng
-seller chưa giao hàng thật được.
+**KHÔNG kèm email khách.** Chỉ những trường cần để giao: người nhận, số điện
+thoại (gọi trước khi giao) và địa chỉ. Email không giúp giao hàng, và mọi
+trường thừa là dữ liệu cá nhân trao cho bên thứ ba không cần tới nó. Đơn
+thực hiện vẫn lưu `notify_email` cho module notification, nhưng trường đó
+KHÔNG ra tới API của seller — đã kiểm chứng trên response thật.
+
+Phiếu giao hàng đầy đủ, chạy thật:
+
+```text
+PHIẾU GIAO HÀNG — FC-2026-08-000004-A
+  Gửi tới: Khách FO · +84911222333
+           9 Hai Bà Trưng, TP. Hồ Chí Minh
+  Nhặt:    Áo sơ mi linen Oxford · Trắng / M · SL 1
+  Phải trả seller: 490.000đ
+```
+
+**Một bài học vận hành khi kiểm chứng:** lần chạy đầu địa chỉ KHÔNG xuống
+đơn thực hiện, dù payload event đã có. Nguyên nhân: một tiến trình worker
+CŨ (chạy từ trước khi sửa) vẫn còn sống và xử lý event trước. Khi triển khai
+thật, thay đổi payload event đòi hỏi worker phải được triển khai TRƯỚC hoặc
+cùng lúc với bên phát — nếu không, event mới đi qua bên nhận cũ và dữ liệu
+mới bị bỏ im lặng.
 
 ### P1.5 — Seller Center: 8 operation còn lại
 

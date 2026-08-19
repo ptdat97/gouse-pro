@@ -160,6 +160,13 @@ type CheckoutCompleted struct {
 	GuestEmail string
 	GuestPhone string
 
+	// ShippingAddress là nơi hàng phải đến.
+	//
+	// SELLER cần nó để in phiếu giao hàng. Không có nó thì họ biết nhặt gì
+	// mà không biết gửi đi đâu — và họ KHÔNG được phép mở đơn hàng gốc để
+	// tra, vì ở đó có cả hàng của seller khác và email khách.
+	ShippingAddress domain.Address
+
 	Currency money.Currency
 
 	// Reservations là các dòng hàng đã giữ chỗ, kèm đủ dữ liệu cho mọi
@@ -928,15 +935,16 @@ func (s *Service) completedEvent(
 	}
 
 	return CheckoutCompleted{
-		CheckoutID:   c.ID(),
-		OrderID:      orderID,
-		OrderNumber:  orderNumber,
-		CartID:       c.CartID(),
-		CustomerID:   c.CustomerID(),
-		GuestEmail:   c.GuestEmail(),
-		GuestPhone:   c.GuestPhone(),
-		Currency:     c.Currency(),
-		Reservations: reservations,
+		CheckoutID:      c.ID(),
+		OrderID:         orderID,
+		OrderNumber:     orderNumber,
+		CartID:          c.CartID(),
+		CustomerID:      c.CustomerID(),
+		GuestEmail:      c.GuestEmail(),
+		GuestPhone:      c.GuestPhone(),
+		ShippingAddress: c.ShippingAddress(),
+		Currency:        c.Currency(),
+		Reservations:    reservations,
 	}
 }
 

@@ -124,6 +124,15 @@ func (h *harness) placeOrder(t *testing.T, sellers ...string) []fulfillment.Fulf
 			"order_id":     res.Order.ID,
 			"order_number": res.Order.OrderNumber,
 			"currency":     "VND",
+			"shipping_address": map[string]any{
+				"recipient_name": "Nguyễn Văn A",
+				"phone":          "+84901234567",
+				"street_address": "12 Lê Lợi",
+				"ward":           "Bến Nghé",
+				"district":       "Quận 1",
+				"province":       "TP. Hồ Chí Minh",
+				"country_code":   "VN",
+			},
 			"reservations": reservations,
 		})
 	if err != nil {
@@ -679,5 +688,72 @@ func TestBanGiaoThieuMaVanDonBiTuChoi(t *testing.T) {
 	if fo.Status() != domain.FOPending {
 		t.Errorf("trạng thái = %q sau khi từ chối, mong PENDING — thao tác "+
 			"thất bại để lại trạng thái nửa vời", fo.Status())
+	}
+}
+
+// SELLER PHẢI BIẾT GỬI ĐI ĐÂU.
+//
+// Biết nhặt gì mà không biết gửi đâu thì không in được phiếu giao hàng —
+// luồng 6 chạy đúng về dữ liệu nhưng không giao được hàng thật.
+//
+// Seller KHÔNG được tra đơn hàng gốc để lấy địa chỉ: ở đó có cả dòng hàng
+// của seller khác, email khách và tổng tiền đơn.
+//
+// Test đọc qua kho lưu trữ để kiểm chứng địa chỉ thật sự được GHI XUỐNG.
+func TestSellerThayDuocDiaChiGiao(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerID := ids.MustNew(ids.PrefixSeller).String()
+	fos := h.placeOrder(t, sellerID)
+
+	fo, err := h.ful.Service().GetSellerFulfillment(ctx,
+		ids.ID(sellerID), ids.ID(fos[0].ID))
+	if err != nil {
+		t.Fatalf("GetSellerFulfillment: %v", err)
+	}
+
+	addr := fo.ShippingAddress()
+	if addr.IsEmpty() {
+		t.Fatal("đơn thực hiện không có địa chỉ giao — seller không in được phiếu")
+	}
+	if addr.RecipientName != "Nguyễn Văn A" {
+		t.Errorf("người nhận = %q", addr.RecipientName)
+	}
+	if addr.Phone == "" {
+		t.Error("thiếu số điện thoại — không gọi được trước khi giao")
+	}
+	if addr.StreetAddress != "12 Lê Lợi" || addr.Province != "TP. Hồ Chí Minh" {
+		t.Errorf("địa chỉ sai: %q, %q", addr.StreetAddress, addr.Province)
+	}
+}
+
+// ĐỊA CHỈ SAO CHÉP XUỐNG TỪNG đơn thực hiện.
+//
+// Một đơn có hàng từ hai nguồn thì CẢ HAI seller cùng giao tới một nơi, và
+// mỗi người cần phiếu giao riêng. Chỉ lưu ở một chỗ nghĩa là người kia phải
+// hỏi ngược — mà không có đường nào để hỏi.
+func TestDiaChiSaoChepXuongMoiDonThucHien(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerA := ids.MustNew(ids.PrefixSeller).String()
+	sellerB := ids.MustNew(ids.PrefixSeller).String()
+	fos := h.placeOrder(t, sellerA, sellerB)
+
+	if len(fos) != 2 {
+		t.Fatalf("có %d đơn thực hiện, mong 2", len(fos))
+	}
+
+	for _, f := range fos {
+		fo, err := h.ful.Service().GetSellerFulfillment(ctx,
+			ids.ID(f.SellerID), ids.ID(f.ID))
+		if err != nil {
+			t.Fatalf("GetSellerFulfillment: %v", err)
+		}
+		if fo.ShippingAddress().IsEmpty() {
+			t.Errorf("đơn %s của seller %s thiếu địa chỉ giao",
+				f.FONumber, f.SellerID)
+		}
 	}
 }

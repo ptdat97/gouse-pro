@@ -72,12 +72,32 @@ type moneyJSON struct {
 	Currency string `json:"currency"`
 }
 
+// shipToJSON là nơi hàng phải đến.
+//
+// CỐ Ý KHÔNG có email khách. Chỉ những trường cần để giao: người nhận, số
+// điện thoại (gọi trước khi giao) và địa chỉ. Email không giúp giao hàng,
+// và mọi trường thừa ở đây là dữ liệu cá nhân trao cho một bên thứ ba
+// không cần tới nó.
+type shipToJSON struct {
+	RecipientName string `json:"recipient_name"`
+	Phone         string `json:"phone"`
+	StreetAddress string `json:"street_address"`
+	Ward          string `json:"ward,omitempty"`
+	District      string `json:"district,omitempty"`
+	Province      string `json:"province"`
+	CountryCode   string `json:"country_code"`
+}
+
 type sellerFOJSON struct {
 	ID                string `json:"id"`
 	FulfillmentNumber string `json:"fulfillment_number"`
 	Status            string `json:"status"`
 
 	Items []foItemJSON `json:"items"`
+
+	// ShippingAddress vắng mặt với đơn tách TRƯỚC khi trường này ra đời.
+	// Giao diện phải chịu được và nói rõ với seller thay vì in phiếu trống.
+	ShippingAddress *shipToJSON `json:"shipping_address,omitempty"`
 
 	// Subtotal và SellerPayable là phần CỦA SELLER NÀY, không phải tổng
 	// đơn. Seller đối soát phần của mình mà không thấy đơn của người khác.
@@ -290,11 +310,25 @@ func toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
 		})
 	}
 
+	var shipTo *shipToJSON
+	if a := fo.ShippingAddress(); !a.IsEmpty() {
+		shipTo = &shipToJSON{
+			RecipientName: a.RecipientName,
+			Phone:         a.Phone,
+			StreetAddress: a.StreetAddress,
+			Ward:          a.Ward,
+			District:      a.District,
+			Province:      a.Province,
+			CountryCode:   a.CountryCode,
+		}
+	}
+
 	return sellerFOJSON{
 		ID:                fo.ID().String(),
 		FulfillmentNumber: fo.FONumber(),
 		Status:            string(fo.Status()),
 		Items:             items,
+		ShippingAddress:   shipTo,
 		Subtotal:          toMoney(fo.Subtotal()),
 		Commission:        toMoney(fo.CommissionAmount()),
 		SellerPayable:     toMoney(fo.SellerPayable()),

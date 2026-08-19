@@ -209,6 +209,16 @@ type FulfillmentOrder struct {
 	notifyEmail string
 	notifyPhone string
 
+	// shippingAddress là nơi hàng phải đến — thứ SELLER cần để in phiếu
+	// giao hàng.
+	//
+	// KHÔNG chứa email khách: chỉ những trường cần cho việc giao. Email
+	// nằm ở notifyEmail và chỉ dùng cho module notification, KHÔNG lộ ra
+	// API của seller.
+	//
+	// RỖNG với đơn tách trước khi có trường này — bên gọi phải chịu được.
+	shippingAddress ShippingAddress
+
 	// stockLocationID là kho xuất hàng.
 	//
 	// Rỗng với đơn seller tự giao: nền tảng không biết và không cần biết
@@ -233,6 +243,32 @@ type FulfillmentOrder struct {
 
 	createdAt time.Time
 	updatedAt time.Time
+}
+
+// ShippingAddress là nơi hàng phải đến.
+//
+// Chỉ những trường CẦN cho việc giao hàng. Không có email khách, không có
+// lịch sử mua hàng — seller chỉ cần biết gửi tới đâu và gọi ai.
+type ShippingAddress struct {
+	RecipientName string
+
+	// Phone để gọi trước khi giao. Đây là dữ liệu cá nhân, và nó ở đây vì
+	// KHÔNG giao được hàng nếu không liên hệ được người nhận.
+	Phone string
+
+	StreetAddress string
+	Ward          string
+	District      string
+	Province      string
+	CountryCode   string
+}
+
+// IsEmpty cho biết địa chỉ có dùng được không.
+//
+// Thiếu người nhận hoặc thiếu đường phố thì phiếu giao hàng vô nghĩa.
+func (a ShippingAddress) IsEmpty() bool {
+	return strings.TrimSpace(a.RecipientName) == "" ||
+		strings.TrimSpace(a.StreetAddress) == ""
 }
 
 // FOLine là một dòng hàng trong đơn thực hiện — góc nhìn NHẶT HÀNG.
@@ -270,6 +306,9 @@ type NewFulfillmentOrderParams struct {
 	CustomerID  ids.ID
 	NotifyEmail string
 	NotifyPhone string
+
+	// ShippingAddress là nơi hàng phải đến — seller cần để in phiếu giao.
+	ShippingAddress ShippingAddress
 
 	// Type mặc định SELLER nếu để trống — đó là trường hợp phổ biến nhất
 	// của marketplace.
@@ -318,6 +357,7 @@ func NewFulfillmentOrder(p NewFulfillmentOrderParams) (*FulfillmentOrder, error)
 		customerID:       p.CustomerID,
 		notifyEmail:      strings.TrimSpace(p.NotifyEmail),
 		notifyPhone:      strings.TrimSpace(p.NotifyPhone),
+		shippingAddress:  p.ShippingAddress,
 		fulfillmentType:  fulfillmentType,
 		createdAt:        now,
 		updatedAt:        now,
@@ -340,6 +380,7 @@ type RestoreFOParams struct {
 	CustomerID        ids.ID
 	NotifyEmail       string
 	NotifyPhone       string
+	ShippingAddress   ShippingAddress
 	StockLocationID   ids.ID
 	Type              FulfillmentType
 	ShippingMethod    string
@@ -373,6 +414,7 @@ func RestoreFulfillmentOrder(p RestoreFOParams) *FulfillmentOrder {
 		customerID:        p.CustomerID,
 		notifyEmail:       p.NotifyEmail,
 		notifyPhone:       p.NotifyPhone,
+		shippingAddress:   p.ShippingAddress,
 		stockLocationID:   p.StockLocationID,
 		fulfillmentType:   p.Type,
 		shippingMethod:    p.ShippingMethod,
@@ -402,20 +444,26 @@ func (f *FulfillmentOrder) FailureReason() string         { return f.failureReas
 func (f *FulfillmentOrder) CustomerID() ids.ID            { return f.customerID }
 func (f *FulfillmentOrder) NotifyEmail() string           { return f.notifyEmail }
 func (f *FulfillmentOrder) NotifyPhone() string           { return f.notifyPhone }
-func (f *FulfillmentOrder) StockLocationID() ids.ID       { return f.stockLocationID }
-func (f *FulfillmentOrder) Type() FulfillmentType         { return f.fulfillmentType }
-func (f *FulfillmentOrder) ShippingMethod() string        { return f.shippingMethod }
-func (f *FulfillmentOrder) ShippingProvider() string      { return f.shippingProvider }
-func (f *FulfillmentOrder) TrackingNumber() string        { return f.trackingNumber }
-func (f *FulfillmentOrder) EstimatedDelivery() time.Time  { return f.estimatedDelivery }
-func (f *FulfillmentOrder) CompletedAt() time.Time        { return f.completedAt }
-func (f *FulfillmentOrder) ConfirmedAt() time.Time        { return f.confirmedAt }
-func (f *FulfillmentOrder) PackedAt() time.Time           { return f.packedAt }
-func (f *FulfillmentOrder) ShippedAt() time.Time          { return f.shippedAt }
-func (f *FulfillmentOrder) DeliveredAt() time.Time        { return f.deliveredAt }
-func (f *FulfillmentOrder) CancelledAt() time.Time        { return f.cancelledAt }
-func (f *FulfillmentOrder) CreatedAt() time.Time          { return f.createdAt }
-func (f *FulfillmentOrder) UpdatedAt() time.Time          { return f.updatedAt }
+
+// ShippingAddress là nơi hàng phải đến. RỖNG với đơn tách trước khi có
+// trường này.
+func (f *FulfillmentOrder) ShippingAddress() ShippingAddress {
+	return f.shippingAddress
+}
+func (f *FulfillmentOrder) StockLocationID() ids.ID      { return f.stockLocationID }
+func (f *FulfillmentOrder) Type() FulfillmentType        { return f.fulfillmentType }
+func (f *FulfillmentOrder) ShippingMethod() string       { return f.shippingMethod }
+func (f *FulfillmentOrder) ShippingProvider() string     { return f.shippingProvider }
+func (f *FulfillmentOrder) TrackingNumber() string       { return f.trackingNumber }
+func (f *FulfillmentOrder) EstimatedDelivery() time.Time { return f.estimatedDelivery }
+func (f *FulfillmentOrder) CompletedAt() time.Time       { return f.completedAt }
+func (f *FulfillmentOrder) ConfirmedAt() time.Time       { return f.confirmedAt }
+func (f *FulfillmentOrder) PackedAt() time.Time          { return f.packedAt }
+func (f *FulfillmentOrder) ShippedAt() time.Time         { return f.shippedAt }
+func (f *FulfillmentOrder) DeliveredAt() time.Time       { return f.deliveredAt }
+func (f *FulfillmentOrder) CancelledAt() time.Time       { return f.cancelledAt }
+func (f *FulfillmentOrder) CreatedAt() time.Time         { return f.createdAt }
+func (f *FulfillmentOrder) UpdatedAt() time.Time         { return f.updatedAt }
 
 // Lines trả bản sao ảnh chụp thông tin nhặt hàng.
 //
@@ -610,6 +658,10 @@ type SplitInput struct {
 	NotifyEmail string
 	NotifyPhone string
 
+	// ShippingAddress sao chép xuống TỪNG đơn thực hiện: mỗi seller giao
+	// phần của mình tới cùng một nơi, và mỗi người cần phiếu giao riêng.
+	ShippingAddress ShippingAddress
+
 	Lines []SplitLine
 }
 
@@ -687,6 +739,7 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 			CustomerID:       in.CustomerID,
 			NotifyEmail:      in.NotifyEmail,
 			NotifyPhone:      in.NotifyPhone,
+			ShippingAddress:  in.ShippingAddress,
 			Now:              now,
 		})
 		if err != nil {
