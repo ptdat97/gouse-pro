@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/inventory/application"
@@ -54,6 +55,21 @@ type updateInventoryRequest struct {
 type updateInventoryResponse struct {
 	SKUID             string `json:"sku_id"`
 	QuantityAvailable int    `json:"quantity_available"`
+
+	// UpdatedAt là lúc con số THAY ĐỔI lần cuối — KHÔNG phải lúc đếm lần
+	// cuối. Hai thứ này khác nhau, và nhầm chúng là nói dối người dùng.
+	//
+	// Kiểm kê ra đúng con số đang có là việc KHÔNG-LÀM-GÌ: `SetAvailable`
+	// thấy chênh lệch bằng 0 thì thoát sớm, cố ý, để một lần đếm xác nhận
+	// không đẻ ra bản ghi biến động giả trong sổ kho. Hệ quả là đếm lại
+	// mười lần vẫn trả về mốc thời gian của lần SỬA gần nhất.
+	//
+	// Kiểm chứng bằng đơn thật (19/08): 37→36 đổi mốc; đếm lại 36 giữ
+	// nguyên mốc; 36→37 đổi mốc.
+	//
+	// Muốn có "đếm lần cuối lúc nào" thì phải ghi riêng thời điểm kiểm kê,
+	// kể cả khi không lệch — đó là một khái niệm khác, chưa có.
+	UpdatedAt string `json:"updated_at"`
 }
 
 // update phục vụ PUT /api/v1/seller/inventory/{sku_id}
@@ -125,6 +141,7 @@ func (h *SellerHandler) update(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, updateInventoryResponse{
 		SKUID:             skuID.String(),
 		QuantityAvailable: updated.Available(),
+		UpdatedAt:         updated.UpdatedAt().UTC().Format(time.RFC3339),
 	})
 }
 

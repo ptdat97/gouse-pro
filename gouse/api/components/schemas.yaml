@@ -256,6 +256,54 @@ Offer:
     is_buy_box:
       type: boolean
 
+SellerOffer:
+  type: object
+  description: |
+    Offer nhìn từ phía **người bán** — khác `Offer` của trang công khai.
+
+    Hai góc nhìn KHÔNG dùng chung schema được, vì mỗi bên cần đúng cái bên
+    kia cố tình giấu:
+
+    - Người bán cần `status`: họ phải biết hàng của mình đang bán, đang tạm
+      ngừng hay đã bị đình chỉ. Khách thì không — trang công khai đơn giản
+      là không hiện offer không bán được.
+    - Khách cần `is_buy_box` và `seller`: kết quả cạnh tranh giữa các seller.
+      Với người bán, `is_buy_box` là thuộc tính của cuộc so sánh chứ không
+      phải của offer, còn `seller` luôn là chính họ.
+  required: [id, sku_id, seller_id, price, condition, status, is_sellable, created_at]
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    sku_id:
+      $ref: './common.yaml#/schemas/Id'
+    seller_id:
+      $ref: './common.yaml#/schemas/Id'
+    price:
+      $ref: './common.yaml#/schemas/Money'
+    compare_at_price:
+      $ref: './common.yaml#/schemas/Money'
+    condition:
+      type: string
+      enum: [NEW, USED_LIKE_NEW, USED_GOOD]
+    handling_time_hours:
+      type: integer
+    min_order_quantity:
+      type: integer
+    max_order_quantity:
+      type: integer
+      description: Vắng mặt nghĩa là không giới hạn.
+    status:
+      type: string
+      enum: [DRAFT, ACTIVE, OUT_OF_STOCK, SUSPENDED, ARCHIVED]
+    is_sellable:
+      type: boolean
+      description: |
+        Khách mua được hay không. **Đừng suy ra từ `status` ở giao diện**:
+        quy tắc còn phụ thuộc seller có bị đình chỉ không, và suy ở hai nơi
+        thì hai nơi sẽ lệch.
+    created_at:
+      $ref: './common.yaml#/schemas/Timestamp'
+
 # ============================================================ GIỎ HÀNG
 Cart:
   type: object

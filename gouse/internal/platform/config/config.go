@@ -209,6 +209,7 @@ func Load() (*Config, error) {
 		allowedOrigins = []string{
 			"http://localhost:3000", // admin
 			"http://localhost:3001", // cửa hàng
+			"http://localhost:3002", // trung tâm người bán
 		}
 	}
 	// Ở production KHÔNG có mặc định: quên cấu hình thì giao diện không gọi

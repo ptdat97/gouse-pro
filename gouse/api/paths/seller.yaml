@@ -128,7 +128,7 @@ offers:
                 data:
                   type: array
                   items:
-                    $ref: '../components/schemas.yaml#/Offer'
+                    $ref: '../components/schemas.yaml#/SellerOffer'
                 pagination:
                   $ref: '../components/common.yaml#/schemas/CursorPagination'
       '403':
@@ -195,7 +195,7 @@ offers:
               type: object
               properties:
                 offer:
-                  $ref: '../components/schemas.yaml#/Offer'
+                  $ref: '../components/schemas.yaml#/SellerOffer'
       '403':
         description: Không được phép bán thương hiệu này
         content:
@@ -276,14 +276,14 @@ offer_detail:
               type: object
               properties:
                 offer:
-                  $ref: '../components/schemas.yaml#/Offer'
+                  $ref: '../components/schemas.yaml#/SellerOffer'
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
       '422':
         $ref: '../components/common.yaml#/responses/UnprocessableEntity'
 
 inventory_item:
-  patch:
+  put:
     tags: [Seller]
     summary: Cập nhật tồn kho
     description: |
@@ -291,6 +291,12 @@ inventory_item:
       gọi lại không làm sai lệch.
 
       Trường `reason` bắt buộc và được ghi vào nhật ký biến động tồn kho.
+
+      **PUT chứ không phải PATCH** — và đây không phải chuyện thẩm mỹ. PATCH
+      nghĩa là "sửa phần này", đọc lại hai lần thì cộng hai lần. Ở đây thân
+      yêu cầu là toàn bộ trạng thái mong muốn: gửi mười lần vẫn ra đúng con
+      số đã đếm. Đường mạng chập chờn ở kho là chuyện thường, nên tính chất
+      này phải nằm trong giao thức chứ không nằm ở chỗ khách gọi cẩn thận.
     operationId: updateInventory
     security:
       - bearerAuth: []
@@ -326,13 +332,24 @@ inventory_item:
           application/json:
             schema:
               type: object
+              required: [sku_id, quantity_available, updated_at]
               properties:
                 sku_id:
                   $ref: '../components/common.yaml#/schemas/Id'
                 quantity_available:
                   type: integer
+                  description: |
+                    Con số THỰC TẾ sau khi ghi, đọc lại từ kho lưu trữ. Có
+                    thể KHÁC con số vừa gửi nếu có đơn hàng chen vào giữa —
+                    giao diện phải hiện con số này, không phải con số đã gõ.
                 updated_at:
-                  $ref: '../components/common.yaml#/schemas/Timestamp'
+                  allOf:
+                    - $ref: '../components/common.yaml#/schemas/Timestamp'
+                  description: |
+                    Lúc con số **thay đổi** lần cuối — không phải lúc **đếm**
+                    lần cuối. Kiểm kê ra đúng số đang có là việc không-làm-gì
+                    (cố ý: một lần đếm xác nhận không được đẻ ra bản ghi biến
+                    động giả), nên mốc này đứng yên.
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
 
@@ -727,15 +744,39 @@ SellerFulfillmentOrder:
       type: string
     tracking_number:
       type: [string, "null"]
+    subtotal:
+      allOf:
+        - $ref: '../components/common.yaml#/schemas/Money'
+      description: Tiền hàng phần CỦA SELLER NÀY, không phải tổng đơn.
+    commission_amount:
+      $ref: '../components/common.yaml#/schemas/Money'
+    seller_payable:
+      allOf:
+        - $ref: '../components/common.yaml#/schemas/Money'
+      description: |
+        Tiền hàng trừ hoa hồng. Hiển thị NGAY từ lúc nhận đơn tạo minh bạch
+        và giảm tranh chấp về sau.
+    shipping_provider:
+      type: [string, "null"]
+    confirmed_at:
+      $ref: '../components/common.yaml#/schemas/Timestamp'
+    packed_at:
+      $ref: '../components/common.yaml#/schemas/Timestamp'
+    shipped_at:
+      allOf:
+        - $ref: '../components/common.yaml#/schemas/Timestamp'
+      description: |
+        Thời điểm bàn giao vận chuyển. Rỗng nghĩa là **chưa gửi** — giao
+        diện dùng nó để tách "việc cần làm" khỏi "đã xong".
+    delivered_at:
+      $ref: '../components/common.yaml#/schemas/Timestamp'
     payout_estimate:
       type: object
       description: |
-        Ước tính số tiền seller nhận sau khi trừ hoa hồng và phí.
-        Hiển thị ngay từ lúc nhận đơn tạo minh bạch, giảm tranh chấp về sau.
+        Ước tính chi tiết sau khi trừ MỌI khoản phí.
 
-        **CHƯA được trả về** dưới dạng này. Hiện endpoint trả ba trường
-        phẳng — `subtotal`, `commission_amount`, `seller_payable` — vì phí
-        thanh toán và phí thực hiện chưa có nguồn tính.
+        **CHƯA được trả về** — phí thanh toán và phí thực hiện chưa có
+        nguồn tính. Ba trường phẳng ở trên là thứ tính được hôm nay.
       properties:
         gross:
           $ref: '../components/common.yaml#/schemas/Money'
