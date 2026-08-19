@@ -583,16 +583,19 @@ Shipment:
 
 FulfillmentStatus:
   type: string
+  description: |
+    Trạng thái của MỘT GÓI GIAO, khác `OrderStatus` là trạng thái tổng hợp
+    của cả đơn. Một đơn có thể có gói `DELIVERED` và gói `PACKED` cùng lúc.
   enum:
     - PENDING
     - ALLOCATED
+    - CONFIRMED
     - PICKING
     - PACKED
     - HANDED_OVER
     - IN_TRANSIT
     - DELIVERED
     - DELIVERY_FAILED
-    - RETURNED_TO_SENDER
     - COMPLETED
     - CANCELLED
 
