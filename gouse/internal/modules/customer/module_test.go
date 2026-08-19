@@ -3,6 +3,10 @@ package customer_test
 import (
 	"context"
 	"errors"
+	"github.com/fashion-commerce/platform/internal/modules/identity"
+	"github.com/fashion-commerce/platform/internal/platform/token"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -1205,5 +1209,247 @@ func TestCoBaoKhiCoHangLuuXuongDatabase(t *testing.T) {
 	}
 	if !stored {
 		t.Error("cờ báo khi có hàng trong database = false, mong true")
+	}
+}
+
+// ---------------------------------------------------------------- Đăng ký
+
+// newModuleWithIdentity dựng customer KÈM identity thật.
+//
+// Dùng identity thật chứ không phải bản giả: điều cần kiểm chứng là hai
+// module phối hợp đúng — tài khoản và hồ sơ cùng tồn tại, hoặc không cái
+// nào. Bản giả sẽ luôn "tạo tài khoản thành công" và test không chứng minh
+// được gì về sự phối hợp đó.
+func newModuleWithIdentity(t *testing.T) (*customer.Module, *pgxpool.Pool) {
+	t.Helper()
+
+	db := testdb.Open(t)
+	ctx := context.Background()
+	for _, stmt := range []string{
+		"TRUNCATE wishlist_item",
+		"TRUNCATE wishlist CASCADE",
+		"TRUNCATE customer_address CASCADE",
+		"TRUNCATE customer_consent",
+		"TRUNCATE customer CASCADE",
+		"TRUNCATE user_role",
+		"TRUNCATE user_credential",
+		"TRUNCATE session",
+		`TRUNCATE "user" CASCADE`,
+	} {
+		if _, err := db.Pool().Exec(ctx, stmt); err != nil {
+			t.Fatalf("dọn dữ liệu (%s): %v", stmt, err)
+		}
+	}
+
+	issuer, err := token.NewIssuer(token.Config{
+		Secret: "khoa-test-du-dai-toi-thieu-32-ky-tu!!",
+	})
+	if err != nil {
+		t.Fatalf("token.NewIssuer: %v", err)
+	}
+
+	idm, err := identity.New(identity.Config{
+		Storage: "postgres", DB: db, Issuer: issuer,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("identity.New: %v", err)
+	}
+
+	m, err := customer.New(customer.Config{
+		Storage: "postgres", DB: db, Identity: idm,
+	})
+	if err != nil {
+		t.Fatalf("customer.New: %v", err)
+	}
+	return m, db.Pool()
+}
+
+// ĐĂNG KÝ tạo CẢ HAI: tài khoản đăng nhập và hồ sơ mua hàng.
+//
+// Thiếu một trong hai là trạng thái nửa vời tệ nhất: có tài khoản mà không
+// mua được gì, hoặc có hồ sơ mà không đăng nhập được.
+func TestDangKyTaoCaTaiKhoanVaHoSo(t *testing.T) {
+	m, pool := newModuleWithIdentity(t)
+	ctx := context.Background()
+
+	res, err := m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email:       "khach.moi@example.com",
+		Password:    "mat-khau-du-dai-123",
+		DisplayName: "Nguyễn Văn A",
+	})
+	if err != nil {
+		t.Fatalf("RegisterShopper: %v", err)
+	}
+
+	var linkedUser string
+	if err := pool.QueryRow(ctx,
+		`SELECT user_id FROM customer WHERE id = $1`, res.CustomerID,
+	).Scan(&linkedUser); err != nil {
+		t.Fatalf("đọc hồ sơ: %v", err)
+	}
+	if linkedUser != res.UserID {
+		t.Errorf("hồ sơ gắn với tài khoản %q, mong %q — hai bản ghi không "+
+			"nối được với nhau thì khách đăng nhập xong vẫn là người lạ",
+			linkedUser, res.UserID)
+	}
+
+	var users int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM "user" WHERE id = $1`, res.UserID,
+	).Scan(&users); err != nil {
+		t.Fatalf("đọc tài khoản: %v", err)
+	}
+	if users != 1 {
+		t.Errorf("số tài khoản = %d, mong 1", users)
+	}
+}
+
+// EMAIL ĐÃ ĐẶT HÀNG VÃNG LAI thì KHÔNG đăng ký được.
+//
+// Đây là quyết định bảo mật quan trọng nhất của luồng này. Hồ sơ vãng lai
+// chứa lịch sử mua hàng và địa chỉ nhà; gắn nó vào tài khoản vừa đăng ký
+// nghĩa là bất kỳ ai biết email người khác đều đọc được những thứ đó
+// (docs/04-modules/customer.md mục 5).
+//
+// Gộp chỉ được phép SAU KHI xác minh quyền sở hữu email.
+func TestKhongDangKyDuocBangEmailDaDatHang(t *testing.T) {
+	m, pool := newModuleWithIdentity(t)
+	ctx := context.Background()
+
+	// Khách vãng lai đặt hàng — hệ thống tạo hồ sơ cho họ.
+	guest, err := m.EnsureByEmail(ctx, customer.CreateRequest{
+		Email: "nguoi.khac@example.com",
+	})
+	if err != nil {
+		t.Fatalf("EnsureByEmail: %v", err)
+	}
+
+	_, err = m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email:    "nguoi.khac@example.com",
+		Password: "mat-khau-du-dai-123",
+	})
+	if !errors.Is(err, customer.ErrEmailUsedByGuest) {
+		t.Fatalf("lỗi = %v, mong ErrEmailUsedByGuest — đăng ký bằng email "+
+			"người khác KHÔNG được kế thừa hồ sơ của họ", err)
+	}
+
+	// Hồ sơ cũ PHẢI còn nguyên và KHÔNG gắn với tài khoản nào.
+	var linkedUser string
+	if err := pool.QueryRow(ctx,
+		`SELECT user_id FROM customer WHERE id = $1`, guest.ID,
+	).Scan(&linkedUser); err != nil {
+		t.Fatalf("đọc hồ sơ vãng lai: %v", err)
+	}
+	if linkedUser != "" {
+		t.Errorf("hồ sơ vãng lai đã bị gắn vào tài khoản %q", linkedUser)
+	}
+
+	// Và KHÔNG được để lại tài khoản mồ côi: kiểm tra hồ sơ phải xảy ra
+	// TRƯỚC khi tạo tài khoản.
+	var users int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM "user" WHERE email = $1`, "nguoi.khac@example.com",
+	).Scan(&users); err != nil {
+		t.Fatalf("đếm tài khoản: %v", err)
+	}
+	if users != 0 {
+		t.Errorf("còn %d tài khoản mồ côi — lần đăng ký sau sẽ báo 'email "+
+			"đã dùng' vì chính tài khoản này", users)
+	}
+}
+
+// ĐĂNG KÝ HAI LẦN cùng email thì lần hai bị từ chối.
+func TestDangKyHaiLanBiTuChoi(t *testing.T) {
+	m, _ := newModuleWithIdentity(t)
+	ctx := context.Background()
+
+	req := customer.RegisterRequest{
+		Email:    "trung@example.com",
+		Password: "mat-khau-du-dai-123",
+	}
+	if _, err := m.RegisterShopper(ctx, req); err != nil {
+		t.Fatalf("lần đăng ký đầu: %v", err)
+	}
+
+	// Lần hai: hồ sơ đã tồn tại nên chặn ngay ở bước một.
+	if _, err := m.RegisterShopper(ctx, req); err == nil {
+		t.Fatal("đăng ký lần hai cùng email phải bị từ chối")
+	}
+}
+
+// ĐĂNG KÝ KHÔNG BAO GIỜ tự cấp vai trò.
+//
+// RegisterRequest của module này KHÔNG có trường Roles, nên không có đường
+// nào để client tự chọn. Test khẳng định điều đó ở mức dữ liệu: tài khoản
+// mới chỉ được vai trò mặc định, tuyệt đối không có ADMIN.
+func TestDangKyKhongTuCapVaiTroQuanTri(t *testing.T) {
+	m, pool := newModuleWithIdentity(t)
+	ctx := context.Background()
+
+	res, err := m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email:    "vai-tro@example.com",
+		Password: "mat-khau-du-dai-123",
+	})
+	if err != nil {
+		t.Fatalf("RegisterShopper: %v", err)
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT role FROM user_role WHERE user_id = $1`, res.UserID)
+	if err != nil {
+		t.Fatalf("đọc vai trò: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			t.Fatalf("đọc vai trò: %v", err)
+		}
+		if role != "CUSTOMER" {
+			t.Errorf("tài khoản mới có vai trò %q — đường đăng ký công khai "+
+				"chỉ được cấp CUSTOMER", role)
+		}
+	}
+}
+
+// HAI LÝ DO "email đã dùng" phải PHÂN BIỆT được.
+//
+// Chúng dẫn tới hai hành động khác hẳn của người dùng:
+//
+//	đã có TÀI KHOẢN      → đăng nhập, hoặc quên mật khẩu
+//	đã ĐẶT HÀNG vãng lai → tra đơn bằng mã đơn + số điện thoại
+//
+// Trả chung một lỗi đẩy nhóm thứ hai vào đường cụt: họ bấm "quên mật khẩu"
+// cho một tài khoản không tồn tại và không bao giờ nhận được thư.
+func TestPhanBietDaCoTaiKhoanVoiDaDatHangVangLai(t *testing.T) {
+	m, _ := newModuleWithIdentity(t)
+	ctx := context.Background()
+
+	// Trường hợp A: đã có TÀI KHOẢN.
+	if _, err := m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email: "da-co-tk@example.com", Password: "mat-khau-du-dai-123",
+	}); err != nil {
+		t.Fatalf("đăng ký lần đầu: %v", err)
+	}
+	_, err := m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email: "da-co-tk@example.com", Password: "mat-khau-du-dai-123",
+	})
+	if !errors.Is(err, identity.ErrDuplicateEmail) {
+		t.Errorf("email đã có tài khoản: lỗi = %v, mong ErrDuplicateEmail", err)
+	}
+
+	// Trường hợp B: chỉ đặt hàng VÃNG LAI.
+	if _, err := m.EnsureByEmail(ctx, customer.CreateRequest{
+		Email: "vang-lai@example.com",
+	}); err != nil {
+		t.Fatalf("EnsureByEmail: %v", err)
+	}
+	_, err = m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email: "vang-lai@example.com", Password: "mat-khau-du-dai-123",
+	})
+	if !errors.Is(err, customer.ErrEmailUsedByGuest) {
+		t.Errorf("email vãng lai: lỗi = %v, mong ErrEmailUsedByGuest", err)
 	}
 }

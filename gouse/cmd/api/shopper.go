@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/modules/customer"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
@@ -43,6 +44,15 @@ func (r *customerResolver) CustomerIDForUser(
 	}
 	return view.ID, nil
 }
+
+// Hạn mức đăng ký: 5 lần mỗi 10 phút cho mỗi IP.
+//
+// Đủ rộng cho người thật gõ sai vài lần, đủ hẹp để dò danh sách email trở
+// nên vô nghĩa: 5 lần/10 phút là 720 email một ngày từ một máy.
+const (
+	registerLimit  = 5
+	registerWindow = 10 * time.Minute
+)
 
 // registerShoppingRoutes nối giỏ hàng và phiên thanh toán.
 //
@@ -94,6 +104,9 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m modules) {
 		mux.Handle("POST /api/v1/cart/items", h)
 		mux.Handle("PATCH /api/v1/cart/items/{cart_item_id}", h)
 		mux.Handle("DELETE /api/v1/cart/items/{cart_item_id}", h)
+
+		// Gộp giỏ vãng lai vào giỏ tài khoản, gọi NGAY SAU khi đăng nhập.
+		mux.Handle("POST /api/v1/cart/merge", h)
 	}
 
 	if m.checkout != nil {
@@ -117,6 +130,22 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m modules) {
 	}
 
 	if m.customer != nil {
+		// Đăng ký là endpoint CÔNG KHAI: người đăng ký chưa có tài khoản,
+		// nên không thể yêu cầu đăng nhập.
+		//
+		// GIỚI HẠN TẦN SUẤT là bắt buộc, không phải tùy chọn. Endpoint này
+		// CỐ Ý trả "email đã được dùng" (người dùng thật cần biết vì sao
+		// không đăng ký được), nên nó trả lời được câu "email này có tài
+		// khoản chưa" — không giới hạn thì nó là công cụ dò danh sách email.
+		// identity/public.go ghi rõ ràng buộc này.
+		publicMux := http.NewServeMux()
+		m.customer.RegisterPublicRoutes(publicMux, log)
+		mux.Handle("POST /api/v1/auth/register", httpserver.Chain(
+			publicMux,
+			httpserver.RateLimit(registerLimit, registerWindow),
+			httpserver.RequireIdempotencyKey(),
+		))
+
 		accountMux := http.NewServeMux()
 		m.customer.RegisterRoutes(accountMux, log)
 

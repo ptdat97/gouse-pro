@@ -322,6 +322,77 @@ mẫu đã có ở `seller`.
 ký HMAC. Không có bước này thì bất kỳ ai cũng gửi được "thanh toán thành
 công" giả.
 
+### P1.9 — Đăng ký và đăng nhập cho khách (2 operation) — ✅ XONG
+
+`registerCustomer` (`POST /api/v1/auth/register`) ·
+`mergeCartOnLogin` (`POST /api/v1/cart/merge`)
+
+**Vì sao đây không phải việc tự phát sinh:** đăng ký khách hàng có trong
+docs từ đầu — `01-business/customer.md` mục 1 (vòng đời Guest → Registered)
+và `04-modules/customer.md` mục 5 (gộp danh tính). `identity.Register` đã
+tồn tại sẵn ở tầng application; đặc tả chỉ quên khai báo endpoint.
+
+**Module `customer` phục vụ `/api/v1/auth/register`, không phải `identity`.**
+Một lần đăng ký sinh ra HAI thứ ở hai module: tài khoản đăng nhập và hồ sơ
+mua hàng. identity nằm DƯỚI customer trong đồ thị phụ thuộc nên không gọi
+ngược lên được; customer gọi xuống thì hợp lệ.
+
+**Đăng ký KHÔNG trả token** — client gọi `login` ngay sau đó. Phát hành
+token là việc của identity; làm ở hai chỗ là nhân bản logic quản lý phiên.
+
+#### Quyết định bảo mật: email đã dùng để đặt hàng vãng lai thì TỪ CHỐI
+
+```text
+hồ sơ CÓ user_id      → "đã có tài khoản, vui lòng đăng nhập"
+hồ sơ KHÔNG có        → "email đã từng đặt hàng, tra đơn bằng mã + SĐT"
+chưa có hồ sơ         → tạo tài khoản
+```
+
+Hồ sơ vãng lai chứa lịch sử mua hàng và địa chỉ nhà. Gắn nó vào tài khoản
+vừa đăng ký nghĩa là bất kỳ ai biết email người khác đều đọc được những thứ
+đó (customer.md mục 5). Gộp chỉ được phép SAU KHI xác minh quyền sở hữu
+email — luồng đó chưa dựng, xem P3-15.
+
+Hai thông báo phải PHÂN BIỆT vì chúng dẫn tới hai hành động khác hẳn: trả
+chung một câu đẩy nhóm thứ hai đi bấm "quên mật khẩu" cho một tài khoản
+không tồn tại.
+
+**Thứ tự các bước có chủ ý:** kiểm tra hồ sơ TRƯỚC khi tạo tài khoản. Đảo
+lại thì mỗi lần từ chối để lại một tài khoản mồ côi, và lần đăng ký sau báo
+"email đã dùng" vì chính tài khoản đó.
+
+#### Giới hạn tần suất là BẮT BUỘC, không phải tùy chọn
+
+`identity/public.go` ghi rõ: endpoint đăng ký CỐ Ý phân biệt "email đã có
+tài khoản" với "chưa dùng", nên nó trả lời được câu hỏi đó — không giới hạn
+thì nó là công cụ dò danh sách email. Đã thêm
+[`httpserver.RateLimit`](../../internal/platform/httpserver/ratelimit.go),
+5 lần / 10 phút / IP.
+
+**Một lỗi bắt được khi chạy thật:** bộ đếm dùng `RemoteAddr` nguyên văn, mà
+chuỗi đó kèm CỔNG NGUỒN — đổi theo từng kết nối TCP. Mỗi request thành một
+khóa khác và bộ đếm không bao giờ chạm hạn mức: 7 lần đăng ký liên tiếp đều
+qua với hạn mức 5. Log sạch, test bằng khóa cố định vẫn xanh, tác dụng thật
+bằng không. Đã cắt cổng và thêm test.
+
+**Giới hạn đã biết:** bộ đếm nằm trong BỘ NHỚ, không chia sẻ giữa các tiến
+trình — chạy ba bản sao thì kẻ tấn công được gấp ba lượt. Bộ đếm dùng chung
+cần Redis; thêm một phụ thuộc hạ tầng cho MVP là cái giá lớn hơn lợi ích.
+
+#### Gộp giỏ khi đăng nhập
+
+`cart.MergeOnLogin` đã tồn tại nhưng CHƯA từng được nối. Không gộp thì khách
+thêm hàng lúc chưa đăng nhập, đăng nhập xong thấy giỏ trống — và họ nghĩ hệ
+thống mất dữ liệu của mình.
+
+Endpoint KHÔNG nhận tham số: cả hai định danh đã có ở máy chủ (mã khách hàng
+từ token, mã phiên từ cookie). Cho client truyền vào là để ai cũng gộp được
+giỏ của phiên người khác vào tài khoản mình.
+
+Kiểm chứng trên hệ thống thật: giỏ vãng lai 980.000đ → đăng ký → đăng nhập →
+gộp → **cùng mã giỏ, cùng tổng tiền**. Đó là nhánh "đổi chủ", giữ nguyên mọi
+nguồn giới thiệu.
+
 ### P1.8 — Lô giao cho khách (1 operation) — MỚI
 
 `listOrderShipments` — `GET /api/v1/orders/{order_id}/shipments`, module
@@ -586,6 +657,8 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-12 | Phân trang theo KHÓA thay vì offset | `next_cursor` hiện là offset mã hóa; đơn mới xen vào có thể làm lặp bản ghi |
 | P3-13 | **Dữ liệu mẫu MUA ĐƯỢC**: seed cho offer + tồn kho | ✅ xong — xem ghi chú dưới bảng |
 | P3-14 | **Tùy chọn khách hàng** (số đo cơ thể, size ưa thích) | Cần thiết kế lưu trữ MÃ HÓA trước; đặc tả tự yêu cầu điều đó |
+| P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | Chặn P1.9: khách từng đặt hàng vãng lai chưa đăng ký được bằng email đó |
+| P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
 
 **P3-2 — đã xong (15/08).** Có HAI sự cố, không phải một:
 

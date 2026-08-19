@@ -112,12 +112,18 @@ paths:
   /api/v1/outfits/{outfit_id}:
     $ref: './paths/storefront.yaml#/outfit_detail'
 
+  /api/v1/auth/register:
+    $ref: './paths/auth.yaml#/register'
+
   /api/v1/cart:
     $ref: './paths/cart-checkout.yaml#/cart'
   /api/v1/cart/items:
     $ref: './paths/cart-checkout.yaml#/cart_items'
   /api/v1/cart/items/{cart_item_id}:
     $ref: './paths/cart-checkout.yaml#/cart_item_detail'
+
+  /api/v1/cart/merge:
+    $ref: './paths/cart-checkout.yaml#/cart_merge'
 
   /api/v1/checkout:
     $ref: './paths/cart-checkout.yaml#/checkout'

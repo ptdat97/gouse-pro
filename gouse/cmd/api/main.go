@@ -292,6 +292,10 @@ func run() error {
 		customerModule, err = customer.New(customer.Config{
 			Storage: "postgres",
 			DB:      db,
+
+			// Identity để khách ĐĂNG KÝ được: một lần đăng ký sinh ra tài
+			// khoản đăng nhập (identity) VÀ hồ sơ mua hàng (customer).
+			Identity: identityModule,
 		})
 		if err != nil {
 			return err

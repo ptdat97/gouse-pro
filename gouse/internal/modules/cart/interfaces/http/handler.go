@@ -51,6 +51,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/cart/items", http.HandlerFunc(h.addItem))
 	mux.Handle("PATCH /api/v1/cart/items/{cart_item_id}", http.HandlerFunc(h.updateItem))
 	mux.Handle("DELETE /api/v1/cart/items/{cart_item_id}", http.HandlerFunc(h.removeItem))
+	mux.Handle("POST /api/v1/cart/merge", http.HandlerFunc(h.merge))
 }
 
 // ---------------------------------------------------------------- Kiểu JSON
@@ -244,6 +245,78 @@ func (h *Handler) removeItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.ok(w, r, updated)
+}
+
+// ---------------------------------------------------------------- Gộp giỏ
+
+type mergeWarningJSON struct {
+	OfferID     string `json:"offer_id"`
+	ProductName string `json:"product_name"`
+	Reason      string `json:"reason"`
+	WantedQty   int    `json:"wanted_quantity"`
+	ActualQty   int    `json:"actual_quantity"`
+}
+
+type mergeResponse struct {
+	Cart cartJSON `json:"cart"`
+
+	// Warnings PHẢI được giao diện hiển thị.
+	//
+	// Im lặng bỏ qua nghĩa là khách đăng nhập xong thấy giỏ ít hàng hơn
+	// lúc chưa đăng nhập mà không hiểu vì sao — trải nghiệm tệ nhất của
+	// luồng này.
+	Warnings []mergeWarningJSON `json:"warnings"`
+}
+
+// merge phục vụ POST /api/v1/cart/merge (operationId: mergeCartOnLogin).
+//
+// # KHÔNG nhận tham số nào
+//
+// Cả hai định danh cần thiết đều đã nằm trong context sau khi qua
+// ResolveShopper: `CustomerID` từ token vừa nhận, `SessionID` từ cookie
+// phiên vãng lai. Cho client truyền vào nghĩa là ai cũng gộp được giỏ của
+// phiên người khác vào tài khoản mình — và đọc được toàn bộ nội dung.
+//
+// Gọi khi nào: NGAY SAU khi đăng nhập thành công. Gọi lúc khác vẫn an
+// toàn — không có giỏ phiên thì nó chỉ trả giỏ tài khoản.
+func (h *Handler) merge(w http.ResponseWriter, r *http.Request) {
+	s, ok := httpserver.ShopperFrom(r.Context())
+	if !ok {
+		h.log.ErrorContext(r.Context(),
+			"cart merge chạy không qua ResolveShopper — kiểm tra nối dây")
+		h.fail(w, r, apierror.ErrInternal)
+		return
+	}
+	if s.CustomerID == "" {
+		h.fail(w, r, apierror.New(apierror.CodeUnauthorized,
+			"Cần đăng nhập để gộp giỏ hàng"))
+		return
+	}
+
+	res, err := h.svc.MergeOnLogin(r.Context(), parseID(s.CustomerID), s.SessionID)
+	if err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+
+	warnings := make([]mergeWarningJSON, 0, len(res.Warnings))
+	for _, wn := range res.Warnings {
+		warnings = append(warnings, mergeWarningJSON{
+			OfferID:     wn.OfferID.String(),
+			ProductName: wn.ProductName,
+			Reason:      string(wn.Reason),
+			WantedQty:   wn.WantedQty,
+			ActualQty:   wn.ActualQty,
+		})
+	}
+
+	if err := apierror.WriteJSON(w, http.StatusOK, mergeResponse{
+		Cart:     toJSON(res.Cart),
+		Warnings: warnings,
+	}); err != nil {
+		h.log.ErrorContext(r.Context(), "không ghi được response",
+			"error", err, "path", r.URL.Path)
+	}
 }
 
 // ---------------------------------------------------------------- Hỗ trợ

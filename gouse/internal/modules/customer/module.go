@@ -11,6 +11,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/customer/domain"
 	customerpg "github.com/fashion-commerce/platform/internal/modules/customer/infrastructure/postgres"
 	customerhttp "github.com/fashion-commerce/platform/internal/modules/customer/interfaces/http"
+	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
@@ -18,6 +19,13 @@ import (
 // Module là cài đặt của API công khai.
 type Module struct {
 	svc *application.Service
+
+	// identity tạo TÀI KHOẢN ĐĂNG NHẬP khi khách đăng ký.
+	//
+	// nil nghĩa là đường đăng ký không dùng được — mọi thứ còn lại vẫn
+	// chạy. Đó là chủ ý: hồ sơ khách hàng tồn tại độc lập với việc có tài
+	// khoản hay không (khách vãng lai cũng có hồ sơ).
+	identity identity.API
 }
 
 var _ API = (*Module)(nil)
@@ -34,6 +42,13 @@ type Config struct {
 	DB *database.DB
 
 	Clock application.Clock
+
+	// Identity tạo tài khoản đăng nhập ở đường ĐĂNG KÝ.
+	//
+	// Bỏ trống thì mọi thứ khác vẫn chạy, chỉ RegisterShopper trả lỗi —
+	// hồ sơ khách hàng không phụ thuộc việc có tài khoản (khách vãng lai
+	// cũng có hồ sơ).
+	Identity identity.API
 }
 
 // New khởi tạo module customer.
@@ -49,7 +64,7 @@ func New(cfg Config) (*Module, error) {
 
 	pool := cfg.DB.Pool()
 
-	return &Module{svc: application.NewService(application.Deps{
+	return &Module{identity: cfg.Identity, svc: application.NewService(application.Deps{
 		Customers: customerpg.NewCustomerStore(pool),
 		Addresses: customerpg.NewAddressStore(pool),
 		Consents:  customerpg.NewConsentStore(pool),
@@ -68,6 +83,45 @@ func (m *Module) Service() *application.Service { return m.svc }
 // hàng từ context, và mọi endpoint ở đây yêu cầu đã đăng nhập.
 func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
 	customerhttp.NewHandler(m.svc, log).Register(mux)
+}
+
+// RegisterPublicRoutes gắn đường ĐĂNG KÝ — endpoint công khai duy nhất của
+// module này.
+//
+// Tách khỏi RegisterRoutes vì hai nhóm cần chuỗi middleware khác hẳn:
+// nhóm kia yêu cầu đã đăng nhập, nhóm này thì không được yêu cầu (người
+// đăng ký chưa có tài khoản) nhưng PHẢI có giới hạn tần suất.
+func (m *Module) RegisterPublicRoutes(mux *http.ServeMux, log *slog.Logger) {
+	customerhttp.NewRegisterHandler(
+		&registerAdapter{m: m}, log,
+		identity.ErrDuplicateEmail, ErrEmailUsedByGuest, identity.ErrWeakPassword,
+	).Register(mux)
+}
+
+// registerAdapter nối cổng của tầng HTTP với Module.
+//
+// Cần một adapter vì tầng interfaces KHÔNG được import gói cha (gói cha đã
+// import nó — vòng lặp). Cổng dùng kiểu của riêng nó, và chỗ này dịch qua.
+type registerAdapter struct{ m *Module }
+
+var _ customerhttp.RegisterPort = (*registerAdapter)(nil)
+
+func (a *registerAdapter) RegisterShopper(
+	ctx context.Context, in customerhttp.RegisterInput,
+) (customerhttp.RegisterOutput, error) {
+	res, err := a.m.RegisterShopper(ctx, RegisterRequest{
+		Email:       in.Email,
+		Password:    in.Password,
+		Phone:       in.Phone,
+		DisplayName: in.DisplayName,
+	})
+	if err != nil {
+		return customerhttp.RegisterOutput{}, err
+	}
+	return customerhttp.RegisterOutput{
+		CustomerID: res.CustomerID,
+		UserID:     res.UserID,
+	}, nil
 }
 
 // ---------------------------------------------------------------- Hồ sơ

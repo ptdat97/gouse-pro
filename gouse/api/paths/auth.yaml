@@ -226,3 +226,85 @@ AuthResult:
           type: array
           items:
             type: string
+
+register:
+  post:
+    tags: [Auth]
+    summary: Đăng ký tài khoản khách hàng
+    description: |
+      Một lần gọi tạo **hai thứ ở hai module**: tài khoản đăng nhập
+      (`identity`) và hồ sơ mua hàng (`customer`).
+
+      **KHÔNG trả token.** Client phải gọi `login` ngay sau đó. Phát hành
+      token là việc của module `identity`; làm ở đây nghĩa là nhân bản logic
+      quản lý phiên ra chỗ thứ hai.
+
+      **Email đã từng dùng để đặt hàng vãng lai sẽ bị TỪ CHỐI** (`409`).
+      Hồ sơ cũ có thể chứa lịch sử mua hàng và địa chỉ nhà; gắn nó vào tài
+      khoản vừa đăng ký nghĩa là bất kỳ ai biết email người khác đều đọc
+      được những thứ đó. Gộp chỉ được phép **sau khi xác minh quyền sở hữu
+      email** — luồng đó chưa dựng, xem `docs/04-modules/customer.md` mục 5.
+
+      Khách gặp trường hợp này vẫn tra cứu được đơn cũ bằng **mã đơn + số
+      điện thoại**, không cần tài khoản.
+
+      **Giới hạn tần suất BẮT BUỘC.** Endpoint này cố ý phân biệt "email đã
+      có tài khoản" với "email chưa dùng" — người dùng thật cần biết vì sao
+      không đăng ký được. Cái giá là nó trả lời được câu "email này có tài
+      khoản chưa", nên không giới hạn thì nó là công cụ dò danh sách email.
+    operationId: registerCustomer
+    security:
+      - {}
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, password]
+            properties:
+              email:
+                type: string
+                format: email
+              password:
+                type: string
+                format: password
+                minLength: 8
+              name:
+                type: string
+              phone:
+                type: string
+    responses:
+      '201':
+        description: Đã tạo tài khoản. Gọi `login` để lấy token.
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_id, user_id]
+              properties:
+                customer_id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                user_id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+      '409':
+        description: |
+          Email đã được dùng. Hai lý do KHÁC NHAU, và thông báo phải phân
+          biệt được vì chúng dẫn tới hai hành động khác hẳn:
+
+          - đã có **tài khoản** → đăng nhập, hoặc quên mật khẩu
+          - đã **đặt hàng vãng lai** → tra đơn bằng mã đơn + số điện thoại
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+      '429':
+        description: Vượt giới hạn tần suất. Header `Retry-After` cho biết chờ bao lâu.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'

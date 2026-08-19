@@ -540,3 +540,57 @@ checkout_complete:
                 details:
                   reason: INSUFFICIENT_FUNDS
               request_id: req_01J9XABC123DEF456GHJKMNPQR
+
+cart_merge:
+  post:
+    tags: [Cart]
+    summary: Gộp giỏ vãng lai vào giỏ tài khoản
+    description: |
+      Gọi **ngay sau khi đăng nhập**. Không gọi thì khách thêm hàng lúc chưa
+      đăng nhập, đăng nhập xong thấy giỏ trống — và họ nghĩ hệ thống mất dữ
+      liệu của mình.
+
+      **KHÔNG nhận tham số nào.** Cả hai định danh cần thiết đều đã có ở máy
+      chủ: mã khách hàng từ token vừa nhận, mã phiên từ cookie vãng lai. Cho
+      client truyền vào nghĩa là ai cũng gộp được giỏ của phiên người khác
+      vào tài khoản mình — và đọc được toàn bộ nội dung giỏ đó.
+
+      Gọi lúc khác vẫn an toàn: không có giỏ vãng lai thì chỉ trả giỏ tài
+      khoản.
+
+      **`warnings` PHẢI được hiển thị.** Món không gộp trọn vẹn được (hết
+      hàng, vượt giới hạn số lượng của nhà bán) nằm ở đây. Bỏ qua im lặng
+      thì khách thấy giỏ ít hàng hơn mà không hiểu vì sao.
+    operationId: mergeCartOnLogin
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    responses:
+      '200':
+        description: Giỏ sau khi gộp
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cart, warnings]
+              properties:
+                cart:
+                  $ref: '../components/schemas.yaml#/Cart'
+                warnings:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      offer_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      product_name:
+                        type: string
+                      reason:
+                        type: string
+                      wanted_quantity:
+                        type: integer
+                      actual_quantity:
+                        type: integer
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
