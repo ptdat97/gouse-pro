@@ -734,7 +734,47 @@ Trước đó việc này bị chặn hai lớp: P3-2 (test xóa sạch database
 là NGUYÊN NHÂN, P3-13 (dữ liệu mẫu thiếu offer và tồn kho) là HẬU QUẢ. Sửa
 cả hai mới chạy thử được.
 | P2-5 | Storefront | ✅ luồng mua hàng xong — xem ghi chú dưới bảng |
-| P2-6 | Seller Center | P1.5 |
+| P2-6 | Seller Center | ✅ hai màn hình xong — xem ghi chú dưới bảng |
+
+**P2-6 — Trung tâm người bán đã dựng xong (19/08).** `apps/seller` ở cổng
+3002, hai màn hình đúng bằng hai câu hỏi nhà bán hỏi mỗi ngày:
+
+```text
+/         Việc cần làm    — đơn cần soạn, mỗi đơn một phiếu soạn hàng
+/offers   Hàng đang bán   — đăng bán, đổi giá, kiểm kê, ngừng bán
+```
+
+**Phiếu soạn hàng gộp ba thứ vào một chỗ:** nhặt gì (kèm mô tả biến thể),
+gửi đi đâu, nhận về bao nhiêu. Nhà bán đứng cạnh kệ hàng chứ không ngồi
+trước hai màn hình. Thiếu địa chỉ giao thì nút bàn giao bị KHÓA kèm lời
+nhắc đừng đoán — giao nhầm địa chỉ đoán ra tốn hơn nhiều so với chờ hỏi.
+
+**Giá và tồn kho tách thành hai ô nhập.** Chúng ở hai module khác nhau dưới
+backend, và lẫn lộn là nguồn sai sót phổ biến: đổi giá không làm hàng nhiều
+lên, kiểm kê không làm hàng rẻ đi.
+
+**Bốn chỗ đặc tả lệch với API thật**, cả bốn do TypeScript sinh từ đặc tả
+bắt được — không chịu biên dịch với handler thật:
+
+1. Ba endpoint offer khai trả `Offer` của trang công khai, thiếu `status`
+   mà nhà bán bắt buộc phải thấy. Thêm schema `SellerOffer`.
+2. `updateInventory` khai PATCH, handler đăng ký PUT — client sinh đúng
+   theo đặc tả sẽ ăn 405. Handler đúng: thân yêu cầu mang toàn bộ trạng
+   thái mong muốn.
+3. `updated_at` được hứa nhưng không bao giờ trả. Không bắt được bằng kiểu
+   vì trường không `required`; chỉ lộ ra khi gọi thật.
+4. `http://localhost:3002` thiếu trong danh sách trắng CORS — lỗi thứ ba
+   cùng loại, lần thứ ba chỉ hiện ở console trình duyệt.
+
+**Một đính chính về ngữ nghĩa, kiểm chứng bằng đơn thật:** `updated_at` là
+lúc con số THAY ĐỔI lần cuối, không phải lúc ĐẾM lần cuối — kiểm kê ra đúng
+số đang có là việc không-làm-gì, cố ý, để một lần đếm xác nhận không đẻ ra
+bản ghi biến động giả. 37→36 đổi mốc; đếm lại 36 giữ nguyên mốc; 36→37 đổi
+mốc. Muốn có "đếm lần cuối" thì phải ghi riêng thời điểm kiểm kê kể cả khi
+không lệch — khái niệm khác, chưa có.
+
+Và một lỗi backend nghiêm trọng phát hiện ngay khi thử màn kiểm kê: **P3-18**
+(giữ hàng chọn nhầm chủ sở hữu tồn kho).
 
 **P2-5 — luồng mua hàng đã dựng xong (19/08).** `apps/storefront` ở cổng
 3001, sáu trang:
