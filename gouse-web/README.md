@@ -146,9 +146,5 @@ mới biết hết hàng. Đồng hồ đếm ngược luôn hiển thị.
 ### Chưa có ở đợt này
 
 - Tiến độ giao hàng theo từng gói — cần endpoint lô giao cho khách (P1.8).
-- **Yêu thích chỉ hiện MÃ sản phẩm.** Backend trả `product_id` chứ không
-  trả tên và ảnh: `customer` nằm cùng tầng với `product` nên không gọi được.
-  Ghép là việc của TRANG — gọi `listProducts` một lần cho cả danh sách — và
-  việc ghép đó chưa làm.
 - Quên mật khẩu, đổi mật khẩu, xác minh email.
 - Tìm kiếm, lọc theo danh mục/thương hiệu, đánh giá sản phẩm.

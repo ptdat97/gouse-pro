@@ -42,6 +42,32 @@ export function listProducts(api: ApiClient, q: ProductQuery = {}): Promise<Prod
   return api.get<ProductList>("/api/v1/products", q);
 }
 
+/**
+ * Tra NHIỀU sản phẩm theo mã, trong MỘT lượt gọi.
+ *
+ * Dùng khi trang có danh sách mã mà không có tên hay ảnh — rõ nhất là danh
+ * sách yêu thích: module `customer` nằm cùng tầng với `product` nên chỉ trả
+ * `product_id`.
+ *
+ * Gọi `getProduct` cho từng mã là vấn đề N+1: danh sách 30 món thành 30
+ * lượt đi-về.
+ *
+ * Trả về theo ĐÚNG THỨ TỰ mã được hỏi. Mã không tồn tại hoặc sản phẩm chưa
+ * duyệt thì VẮNG MẶT — nên độ dài kết quả có thể ngắn hơn danh sách hỏi.
+ */
+export function listProductsByIds(
+  api: ApiClient,
+  ids: string[],
+): Promise<ProductList["data"]> {
+  // Danh sách rỗng thì KHÔNG gọi mạng: `ids=` rỗng sẽ bị bỏ qua và server
+  // trả về toàn bộ catalog — đúng thứ ngược lại với ý định.
+  if (ids.length === 0) return Promise.resolve([]);
+
+  return api
+    .get<ProductList>("/api/v1/products", { ids: ids.join(",") })
+    .then((res) => res.data ?? []);
+}
+
 export function getProduct(api: ApiClient, productId: string): Promise<ProductDetail> {
   return api.get<ProductDetail>(`/api/v1/products/${productId}`);
 }

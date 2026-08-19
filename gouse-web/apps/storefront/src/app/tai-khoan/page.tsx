@@ -5,9 +5,10 @@ import {
   getMyWishlist,
   isApiError,
   listMyAddresses,
+  listProductsByIds,
   updateMyProfile,
   type MyAddresses,
-  type MyWishlist,
+  type ProductList,
 } from "@fc/api-client";
 import { Alert, Button, Field, Input } from "@fc/ui";
 import Link from "next/link";
@@ -26,11 +27,14 @@ import { useShop } from "@/lib/shop";
  * điều hướng qua lại để làm những việc thường đi cùng nhau (đổi số điện
  * thoại rồi thêm địa chỉ giao hàng).
  *
- * # Yêu thích chỉ có MÃ sản phẩm
+ * # Yêu thích: TRANG tự ghép tên sản phẩm
  *
- * Backend trả `product_id` chứ không trả tên và ảnh: module `customer` nằm
- * cùng tầng với `product` nên không gọi được. Ghép là việc của TRANG — và
- * việc ghép đó chưa làm, nên tạm hiển thị mã. Xem README.
+ * Backend trả `product_id` chứ không trả tên và ảnh — module `customer` nằm
+ * cùng tầng với `product` nên không gọi được. Việc ghép là của TRANG, và nó
+ * gọi `listProductsByIds` MỘT lần cho cả danh sách.
+ *
+ * Gọi `getProduct` cho từng món là vấn đề N+1 mà kiến trúc cảnh báo: danh
+ * sách 30 món thành 30 lượt đi-về.
  */
 export default function AccountPage() {
   const { me, authLoading, logout } = useShop();
@@ -218,37 +222,78 @@ function AddressSection() {
   );
 }
 
+interface WishlistRow {
+  productId: string;
+  addedAt: string;
+  notify: boolean;
+  name?: string;
+  brand?: string;
+}
+
 function WishlistSection() {
   const { api } = useShop();
-  const [list, setList] = React.useState<MyWishlist | null>(null);
+  const [rows, setRows] = React.useState<WishlistRow[] | null>(null);
 
   React.useEffect(() => {
     void (async () => {
       try {
-        setList(await getMyWishlist(api));
+        const wl = await getMyWishlist(api);
+        const items = wl.data ?? [];
+
+        // MỘT lượt gọi cho cả danh sách, không phải một lượt mỗi món.
+        let products: ProductList["data"] = [];
+        try {
+          products = await listProductsByIds(
+            api,
+            items.map((i) => i.product_id),
+          );
+        } catch {
+          // Ghép tên hỏng KHÔNG được làm mất cả danh sách: khách vẫn thấy
+          // món mình đã lưu, chỉ thiếu tên.
+          products = [];
+        }
+
+        const byId = new Map(products.map((p) => [p.id, p]));
+        setRows(
+          items.map((i) => {
+            const p = byId.get(i.product_id);
+            return {
+              productId: i.product_id,
+              addedAt: i.added_at,
+              notify: Boolean(i.notify_when_available),
+              name: p?.name,
+              brand: p?.brand?.name,
+            };
+          }),
+        );
       } catch {
-        setList(null);
+        setRows([]);
       }
     })();
   }, [api]);
 
-  const items = list?.data ?? [];
+  if (!rows) return <section className="panel"><h2>Yêu thích</h2><p className="muted">Đang tải…</p></section>;
 
   return (
     <section className="panel">
       <h2>Yêu thích</h2>
-      {items.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="muted">Bạn chưa lưu sản phẩm nào.</p>
       ) : (
         <ul className="lines">
-          {items.map((it, i) => (
-            <li key={it.product_id ?? i} className="line">
+          {rows.map((r) => (
+            <li key={r.productId} className="line">
               <div>
-                <Link href={`/products/${it.product_id}`}>{it.product_id}</Link>
-                <div className="muted">Lưu lúc {dateTime(it.added_at)}</div>
+                <Link href={`/products/${r.productId}`}>
+                  {/* Không ghép được tên thì hiện mã — vẫn bấm vào được,
+                      hơn hẳn một dòng trống. */}
+                  {r.name ?? r.productId}
+                </Link>
+                {r.brand && <div className="muted">{r.brand}</div>}
+                <div className="muted">Lưu lúc {dateTime(r.addedAt)}</div>
               </div>
               <div className="muted">
-                {it.notify_when_available ? "Báo khi có hàng" : ""}
+                {r.notify ? "Báo khi có hàng" : ""}
               </div>
             </li>
           ))}

@@ -2763,6 +2763,23 @@ export interface operations {
                  *     quét toàn bảng và là lỗ hổng gây quá tải.
                  */
                 sort?: components["parameters"]["Sort"];
+                /**
+                 * @description Tra **nhiều sản phẩm theo mã**, phân tách bằng dấu phẩy. Tối đa
+                 *     100 mã mỗi lần.
+                 *
+                 *     Khi có tham số này, MỌI bộ lọc khác bị bỏ qua — đây là đường tra
+                 *     theo lô, không phải một bộ lọc.
+                 *
+                 *     **Vì sao cần:** nhiều trang có danh sách mã sản phẩm mà không có
+                 *     tên hay ảnh (rõ nhất là danh sách yêu thích — module `customer`
+                 *     nằm cùng tầng với `product` nên chỉ trả `product_id`). Không có
+                 *     đường này thì trang phải gọi `getProduct` cho từng mã: danh sách
+                 *     30 món là 30 lượt đi-về.
+                 *
+                 *     Kết quả trả về theo **đúng thứ tự mã được hỏi**. Mã không tồn tại
+                 *     hoặc sản phẩm chưa duyệt thì **vắng mặt**, không phải ô rỗng.
+                 */
+                ids?: string;
                 category_id?: components["schemas"]["Id"];
                 brand_id?: components["schemas"]["Id"];
                 collection_id?: components["schemas"]["Id"];
