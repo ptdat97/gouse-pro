@@ -660,6 +660,27 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | Chặn P1.9: khách từng đặt hàng vãng lai chưa đăng ký được bằng email đó |
 | P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
 
+**Tra sản phẩm theo lô (`GET /api/v1/products?ids=…`) — thêm 19/08.**
+
+Nhiều trang có danh sách MÃ sản phẩm mà không có tên hay ảnh; rõ nhất là
+danh sách yêu thích — `customer` nằm cùng tầng với `product` nên chỉ trả
+`product_id`. Không có đường này thì trang phải gọi `getProduct` cho từng
+mã: danh sách 30 món thành 30 lượt đi-về, đúng vấn đề N+1 mà
+`product.GetProductsByIDs` sinh ra để tránh (hàm đó đã có sẵn, chỉ thiếu
+tầng HTTP).
+
+Hai bất biến dễ sót, cả hai đều có test:
+
+1. **Giữ đúng thứ tự mã được hỏi.** Bên gọi đã sắp xếp danh sách của họ;
+   trả thứ tự khác buộc họ sắp lại, hoặc tệ hơn là họ không nhận ra.
+2. **Hàng chưa duyệt không lọt ra**, kể cả khi hỏi đích danh mã. Bộ lọc
+   `OnlyVisible` nằm ở truy vấn danh sách, còn đường này đi thẳng vào
+   `FindByIDs` và bỏ qua nó.
+
+Test thứ tự dùng SÁU sản phẩm chứ không phải hai: duyệt map trong Go trả
+thứ tự ngẫu nhiên, nên với hai phần tử một cài đặt sai vẫn đúng 50% số lần
+— test chập chờn thay vì bắt lỗi.
+
 **P3-2 — đã xong (15/08).** Có HAI sự cố, không phải một:
 
 ```text

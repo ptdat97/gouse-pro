@@ -124,9 +124,30 @@ func (h *Handler) getProduct(w http.ResponseWriter, r *http.Request) {
 // string: cho phép `?status=DRAFT` trên endpoint công khai sẽ lộ toàn bộ
 // hàng chưa duyệt của mọi seller.
 func (h *Handler) listProducts(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	// `ids` là đường TRA THEO LÔ, không phải một bộ lọc như những cái khác.
+	//
+	// # Vì sao nó cần tồn tại
+	//
+	// Nhiều trang có một danh sách MÃ sản phẩm mà không có tên hay ảnh —
+	// danh sách yêu thích là ví dụ rõ nhất: module `customer` nằm cùng tầng
+	// với `product` nên không gọi được, và nó chỉ trả `product_id`.
+	//
+	// Không có đường này thì trang phải gọi `getProduct` cho từng mã. Danh
+	// sách 30 món = 30 lượt đi-về — đúng vấn đề N+1 mà `GetProductsByIDs`
+	// sinh ra để tránh.
+	//
+	// Trả về theo ĐÚNG THỨ TỰ mã được hỏi: bên gọi đã sắp xếp danh sách của
+	// họ (yêu thích theo thời gian thêm), và trả về thứ tự khác buộc họ sắp
+	// lại — hoặc tệ hơn, họ không nhận ra và hiển thị sai thứ tự.
+	if raw := q.Get("ids"); raw != "" {
+		h.listByIDs(w, r, raw)
+		return
+	}
+
 	f := domain.Filter{OnlyVisible: true, Limit: 50}
 
-	q := r.URL.Query()
 	if raw := q.Get("brand_id"); raw != "" {
 		id, err := ids.Parse(raw, ids.PrefixBrand)
 		if err != nil {
@@ -165,6 +186,62 @@ func (h *Handler) listProducts(w http.ResponseWriter, r *http.Request) {
 	for _, p := range list {
 		out = append(out, toProductSummary(p))
 	}
+	h.ok(w, r, productListResponse{Data: out})
+}
+
+// maxBatchIDs giới hạn số mã tra một lần.
+//
+// Không giới hạn thì một request kéo cả bảng sản phẩm — và mệnh đề IN với
+// hàng nghìn phần tử là truy vấn chậm mà không chỉ mục nào cứu được.
+const maxBatchIDs = 100
+
+// listByIDs tra nhiều sản phẩm theo mã, trong MỘT truy vấn.
+func (h *Handler) listByIDs(w http.ResponseWriter, r *http.Request, raw string) {
+	parts := strings.Split(raw, ",")
+	if len(parts) > maxBatchIDs {
+		h.fail(w, r, apierror.Newf(apierror.CodeValidationFailed,
+			"tối đa %d mã mỗi lần", maxBatchIDs))
+		return
+	}
+
+	wanted := make([]ids.ID, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		id, err := ids.Parse(p, ids.PrefixProduct)
+		if err != nil {
+			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+				"ids chứa mã sản phẩm không đúng định dạng"))
+			return
+		}
+		wanted = append(wanted, id)
+	}
+
+	found, err := h.svc.GetProductsByIDs(r.Context(), wanted)
+	if err != nil {
+		h.fail(w, r, apierror.From(err))
+		return
+	}
+
+	out := make([]productSummary, 0, len(wanted))
+	for _, id := range wanted {
+		p, ok := found[id]
+		if !ok {
+			// Mã không tồn tại thì VẮNG MẶT, không phải một ô rỗng. Bên
+			// gọi thấy danh sách ngắn hơn và tự hiểu — trả về phần tử rỗng
+			// buộc mọi vòng lặp phải kiểm tra null.
+			continue
+		}
+		// Sản phẩm chưa duyệt KHÔNG lọt ra đường công khai, kể cả khi bên
+		// gọi hỏi đích danh mã của nó.
+		if !p.IsVisibleToCustomer() {
+			continue
+		}
+		out = append(out, toProductSummary(p))
+	}
+
 	h.ok(w, r, productListResponse{Data: out})
 }
 

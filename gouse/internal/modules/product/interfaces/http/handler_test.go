@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -375,5 +376,137 @@ func TestNhieuBienTheTraDuMauVaSize(t *testing.T) {
 	colors := item["available_colors"].([]any)
 	if len(colors) != 2 {
 		t.Errorf("số màu = %d, mong 2", len(colors))
+	}
+}
+
+// ---------------------------------------------------- Tra theo lô bằng `ids`
+
+// TRA NHIỀU SẢN PHẨM trong MỘT lượt gọi.
+//
+// Không có đường này thì trang có danh sách mã (rõ nhất là yêu thích) phải
+// gọi getProduct cho từng mã — 30 món là 30 lượt đi-về, đúng vấn đề N+1 mà
+// GetProductsByIDs sinh ra để tránh.
+func TestTraNhieuSanPhamTheoMa(t *testing.T) {
+	mux, svc := newServer(t)
+
+	a := taoSanPham(t, svc, "ao-so-mi-a", true)
+	b := taoSanPham(t, svc, "ao-so-mi-b", true)
+
+	_, body := do(t, mux, "/api/v1/products?ids="+a.ID().String()+","+b.ID().String())
+	data := body["data"].([]any)
+	if len(data) != 2 {
+		t.Fatalf("trả về %d sản phẩm, mong 2", len(data))
+	}
+}
+
+// GIỮ ĐÚNG THỨ TỰ mã được hỏi.
+//
+// Bên gọi đã sắp xếp danh sách của họ (yêu thích theo thời gian thêm). Trả
+// về thứ tự khác buộc họ sắp lại — hoặc tệ hơn, họ không nhận ra và hiển
+// thị sai thứ tự.
+func TestGiuDungThuTuMaDuocHoi(t *testing.T) {
+	mux, svc := newServer(t)
+
+	// SÁU sản phẩm, không phải hai. Duyệt map trong Go trả thứ tự ngẫu
+	// nhiên, nên với hai phần tử thì một cài đặt SAI vẫn đúng 50% số lần —
+	// test sẽ chập chờn thay vì bắt lỗi. Sáu phần tử thì xác suất trùng
+	// ngẫu nhiên là 1/720.
+	const n = 6
+	made := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		p := taoSanPham(t, svc, "thu-tu-"+strconv.Itoa(i), true)
+		made = append(made, p.ID().String())
+	}
+
+	// Hỏi NGƯỢC thứ tự tạo.
+	want := make([]string, 0, n)
+	for i := n - 1; i >= 0; i-- {
+		want = append(want, made[i])
+	}
+
+	_, body := do(t, mux, "/api/v1/products?ids="+strings.Join(want, ","))
+	data := body["data"].([]any)
+	if len(data) != n {
+		t.Fatalf("trả về %d sản phẩm, mong %d", len(data), n)
+	}
+
+	for i, item := range data {
+		got := item.(map[string]any)["id"]
+		if got != want[i] {
+			t.Fatalf("vị trí %d: %v, mong %v — thứ tự không theo mã được hỏi",
+				i, got, want[i])
+		}
+	}
+}
+
+// SẢN PHẨM CHƯA DUYỆT không lọt ra, kể cả khi hỏi ĐÍCH DANH mã của nó.
+//
+// Đây là điểm dễ sót nhất của đường tra theo lô: bộ lọc `OnlyVisible` nằm ở
+// truy vấn danh sách, còn đường này đi thẳng vào FindByIDs và bỏ qua nó.
+func TestSanPhamChuaDuyetKhongLotQuaTraTheoMa(t *testing.T) {
+	mux, svc := newServer(t)
+
+	nhap := taoSanPham(t, svc, "con-nhap", false)
+	daDuyet := taoSanPham(t, svc, "da-duyet", true)
+
+	_, body := do(t, mux,
+		"/api/v1/products?ids="+nhap.ID().String()+","+daDuyet.ID().String())
+	data := body["data"].([]any)
+
+	if len(data) != 1 {
+		t.Fatalf("trả về %d sản phẩm, mong 1 — hàng chưa duyệt đã lọt ra", len(data))
+	}
+	if got := data[0].(map[string]any)["id"]; got != daDuyet.ID().String() {
+		t.Errorf("sản phẩm trả về = %v, mong %v", got, daDuyet.ID())
+	}
+}
+
+// MÃ KHÔNG TỒN TẠI thì VẮNG MẶT, không phải ô rỗng.
+//
+// Trả về phần tử rỗng buộc mọi vòng lặp ở giao diện phải kiểm tra null.
+func TestMaKhongTonTaiThiVangMat(t *testing.T) {
+	mux, svc := newServer(t)
+
+	a := taoSanPham(t, svc, "co-that", true)
+	khong := ids.MustNew(ids.PrefixProduct)
+
+	_, body := do(t, mux, "/api/v1/products?ids="+a.ID().String()+","+khong.String())
+	if data := body["data"].([]any); len(data) != 1 {
+		t.Errorf("trả về %d sản phẩm, mong 1", len(data))
+	}
+}
+
+// MÃ SAI ĐỊNH DẠNG bị từ chối thay vì âm thầm bỏ qua.
+func TestMaSaiDinhDangBiTuChoi(t *testing.T) {
+	mux, _ := newServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/products?ids=khong-phai-ma", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("mã trạng thái = %d, mong 400", rec.Code)
+	}
+}
+
+// QUÁ NHIỀU MÃ bị từ chối.
+//
+// Không giới hạn thì một request kéo cả bảng sản phẩm, và mệnh đề IN với
+// hàng nghìn phần tử là truy vấn chậm mà không chỉ mục nào cứu được.
+func TestQuaNhieuMaBiTuChoi(t *testing.T) {
+	mux, _ := newServer(t)
+
+	list := make([]string, 0, 101)
+	for i := 0; i < 101; i++ {
+		list = append(list, ids.MustNew(ids.PrefixProduct).String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/products?ids="+strings.Join(list, ","), nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("mã trạng thái = %d, mong 400", rec.Code)
 	}
 }
