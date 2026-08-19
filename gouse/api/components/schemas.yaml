@@ -482,9 +482,10 @@ OrderDetail:
     shipments:
       type: array
       description: |
-        Lô giao. **Chưa có endpoint nào trả trường này** — giữ lại trong
-        lược đồ để trang ghép được dữ liệu từ hai nguồn khi endpoint lô giao
-        cho khách ra đời (backlog P1.8).
+        Lô giao. **KHÔNG do endpoint này trả về** — gọi
+        `GET /api/v1/orders/{order_id}/shipments` (module `fulfillment`).
+        Giữ lại trong lược đồ vì trang chi tiết đơn ghép hai nguồn: dòng
+        hàng và tiền từ đây, tiến độ giao từ endpoint kia.
       items:
         $ref: '#/Shipment'
     subtotal:

@@ -292,10 +292,44 @@ func (o *Order) IdempotencyKey() string      { return o.idempotencyKey }
 // CancellationReason là lý do khách chọn khi tự hủy. Rỗng nếu đơn chưa
 // hủy, hoặc nếu quản trị viên hủy (lý do đó nằm ở nhật ký thao tác).
 func (o *Order) CancellationReason() string { return o.cancellationReason }
-func (o *Order) PlacedAt() time.Time        { return o.placedAt }
-func (o *Order) CompletedAt() time.Time     { return o.completedAt }
-func (o *Order) CreatedAt() time.Time       { return o.createdAt }
-func (o *Order) UpdatedAt() time.Time       { return o.updatedAt }
+
+// ViewableBy cho biết một người mua có được xem đơn này không.
+//
+// # Quy tắc quyền xem đơn nằm ở ĐÂY, một chỗ duy nhất
+//
+// Nó được hỏi từ nhiều nơi: trang chi tiết đơn, trang hủy đơn, và endpoint
+// lô giao của module fulfillment. Mỗi nơi tự cài lại nghĩa là sớm muộn có
+// một nơi cài lỏng hơn — và một nơi lỏng là đủ để lộ lịch sử mua hàng.
+//
+// Hai đường, không hơn:
+//
+//	Đã đăng nhập  → định danh khách hàng phải TRÙNG
+//	Vãng lai      → số điện thoại phải TRÙNG số trên đơn
+//
+// Chuỗi rỗng KHÔNG khớp với gì cả. Nếu không, một đơn thiếu số điện thoại
+// sẽ mở cho bất kỳ ai không gửi gì.
+func (o *Order) ViewableBy(customerID, guestPhone string) bool {
+	// Đơn ĐÃ CÓ CHỦ thì CHỈ chủ mở được.
+	//
+	// Số điện thoại KHÔNG còn là chìa khóa ở đây, dù nó vẫn nằm trên đơn.
+	// Nếu không: ai biết số điện thoại của một khách đã đăng ký đều đọc
+	// được đơn của họ — và số điện thoại thì khách cho đi khắp nơi (giao
+	// hàng, hóa đơn, nhóm chat), khác hẳn mật khẩu.
+	if !o.customerID.IsZero() {
+		return customerID != "" && o.customerID.String() == customerID
+	}
+
+	// Đơn vãng lai: số điện thoại là thứ DUY NHẤT chứng minh quyền sở hữu.
+	guestPhone = strings.TrimSpace(guestPhone)
+	if guestPhone == "" || o.guestPhone == "" {
+		return false
+	}
+	return o.guestPhone == guestPhone
+}
+func (o *Order) PlacedAt() time.Time    { return o.placedAt }
+func (o *Order) CompletedAt() time.Time { return o.completedAt }
+func (o *Order) CreatedAt() time.Time   { return o.createdAt }
+func (o *Order) UpdatedAt() time.Time   { return o.updatedAt }
 
 // IsGuestOrder cho biết đây có phải đơn của khách vãng lai không.
 func (o *Order) IsGuestOrder() bool { return o.customerID.IsZero() }

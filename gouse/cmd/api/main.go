@@ -485,6 +485,7 @@ func run() error {
 		customer:    customerModule,
 		cart:        cartModule,
 		checkout:    checkoutModule,
+		fulfillment: fulfillmentModule,
 		audit:       auditRecorder,
 	})
 
@@ -509,6 +510,7 @@ type modules struct {
 	customer    *customer.Module
 	cart        *cart.Module
 	checkout    *checkout.Module
+	fulfillment *fulfillment.Module
 
 	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
 	// cũng cần nối route nên đi cùng chỗ này.

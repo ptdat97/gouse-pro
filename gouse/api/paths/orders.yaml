@@ -338,3 +338,86 @@ order_returns:
               request_id: req_01J9XABC123DEF456GHJKMNPQR
       '422':
         $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+
+order_shipments:
+  get:
+    tags: [Orders]
+    summary: Lô giao của một đơn
+    description: |
+      Khách thấy **một đơn** nhưng hàng từ nhiều nguồn về thành **nhiều
+      gói**, giao ở những thời điểm khác nhau. Không có endpoint này thì
+      khách nhận một phần hàng và tưởng đơn bị thiếu.
+
+      **Phục vụ bởi module `fulfillment`**, dù đường dẫn thuộc khái niệm
+      "đơn hàng": `order` không được gọi `fulfillment` (fulfillment đã phụ
+      thuộc order — ADR-0007). Route đi theo **năng lực**.
+
+      **Trả `seller_id`, không trả object nhà bán.** Tên và đánh giá thuộc
+      module `seller`, mà `fulfillment` không phụ thuộc module nào — nó chỉ
+      lắng nghe event. Việc ghép tên là của trang.
+
+      **Trả `order_line_ids`, không lặp lại tên và giá.** Trang chi tiết đơn
+      đã có sẵn dòng hàng từ `getOrder`; nó chỉ cần biết dòng nào đi trong
+      gói nào. Lặp lại dữ liệu của module order ở đây nghĩa là hai bản, và
+      chúng lệch nhau khi đơn bị hủy một phần.
+
+      Quyền xem giống hệt `getOrder`: đã đăng nhập thì theo định danh khách
+      hàng, vãng lai thì theo `X-Guest-Phone`. Không có quyền trả `404`
+      **y hệt** đơn không tồn tại — mã đơn tăng dần nên hai thông báo khác
+      nhau sẽ đếm được số đơn nền tảng bán mỗi tháng.
+    operationId: listOrderShipments
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: X-Guest-Phone
+        in: header
+        description: Bắt buộc với khách vãng lai.
+        schema:
+          type: string
+    responses:
+      '200':
+        description: Danh sách lô giao
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    required: [fulfillment_number, seller_id, status, order_line_ids]
+                    properties:
+                      fulfillment_number:
+                        type: string
+                        examples: ['FC-2026-08-001234-A']
+                      seller_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      status:
+                        $ref: '../components/schemas.yaml#/FulfillmentStatus'
+                      tracking_number:
+                        type: string
+                      shipping_provider:
+                        type: string
+                      estimated_delivery_date:
+                        type: string
+                      order_line_ids:
+                        type: array
+                        description: |
+                          Dòng hàng của **đơn** đi trong gói này. Trang ghép
+                          với `lines` đã có từ `getOrder`.
+                        items:
+                          $ref: '../components/common.yaml#/schemas/Id'
+                      shipped_at:
+                        $ref: '../components/common.yaml#/schemas/Timestamp'
+                      delivered_at:
+                        $ref: '../components/common.yaml#/schemas/Timestamp'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'

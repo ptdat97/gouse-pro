@@ -37,6 +37,31 @@ type API interface {
 	// trước khi gửi email xác nhận hay trừ tiền.
 	PlaceOrder(ctx context.Context, req PlaceOrderRequest) (*PlaceOrderResult, error)
 
+	// ResolveViewableOrder phân giải mã đơn VÀ kiểm tra quyền xem.
+	//
+	// # Vì sao là hàm CỦA MODULE ORDER, không phải của bên hỏi
+	//
+	// Quyền xem đơn được hỏi từ nhiều nơi — trang chi tiết đơn, trang hủy
+	// đơn, và endpoint lô giao của module fulfillment. Mỗi nơi tự cài lại
+	// nghĩa là sớm muộn có một nơi cài lỏng hơn, và MỘT nơi lỏng là đủ để
+	// lộ lịch sử mua hàng của người khác.
+	//
+	// `customerID` rỗng = khách vãng lai; khi đó `guestPhone` là thứ duy
+	// nhất chứng minh đơn thuộc về họ.
+	//
+	// Trả false cho cả đơn KHÔNG TỒN TẠI lẫn đơn KHÔNG PHẢI của người hỏi:
+	// phân biệt hai trường hợp là để lộ mã đơn nào có thật, mà mã đơn thì
+	// tăng dần nên dò được số đơn nền tảng bán mỗi tháng.
+	// `key` nhận CẢ mã đơn (`ord_...`) lẫn mã hiển thị
+	// (`FC-2026-08-000001`): khách vãng lai chỉ có mã hiển thị trong email
+	// xác nhận, không có mã nội bộ.
+	//
+	// Trả về mã đơn CHUẨN khi được phép — bên gọi cần nó để tra dữ liệu
+	// của mình, và bắt họ tự phân giải lần nữa là làm hai lần một việc.
+	ResolveViewableOrder(
+		ctx context.Context, key, customerID, guestPhone string,
+	) (orderID string, allowed bool, err error)
+
 	GetOrder(ctx context.Context, orderID string) (*OrderView, error)
 	GetOrderByNumber(ctx context.Context, number string) (*OrderView, error)
 

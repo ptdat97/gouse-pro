@@ -335,15 +335,14 @@ func (h *CustomerHandler) findOwned(r *http.Request) (*domain.Order, error) {
 // Số điện thoại rỗng KHÔNG khớp với gì cả. Nếu không, một đơn thiếu số
 // điện thoại sẽ mở cho bất kỳ ai không gửi header.
 func (h *CustomerHandler) owns(r *http.Request, o *domain.Order) bool {
-	if s, ok := httpserver.ShopperFrom(r.Context()); ok && s.CustomerID != "" {
-		return o.CustomerID().String() == s.CustomerID
+	var customerID string
+	if s, ok := httpserver.ShopperFrom(r.Context()); ok {
+		customerID = s.CustomerID
 	}
 
-	phone := strings.TrimSpace(r.Header.Get("X-Guest-Phone"))
-	if phone == "" || o.GuestPhone() == "" {
-		return false
-	}
-	return o.GuestPhone() == phone
+	// Quy tắc nằm ở DOMAIN, không phải ở đây: nó còn được hỏi từ endpoint
+	// lô giao của module fulfillment, và hai bản cài đặt sẽ lệch nhau.
+	return o.ViewableBy(customerID, r.Header.Get("X-Guest-Phone"))
 }
 
 // page đọc tham số phân trang.

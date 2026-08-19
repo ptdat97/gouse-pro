@@ -142,6 +142,9 @@ paths:
     $ref: './paths/orders.yaml#/orders'
   /api/v1/orders/{order_id}:
     $ref: './paths/orders.yaml#/order_detail'
+  /api/v1/orders/{order_id}/shipments:
+    $ref: './paths/orders.yaml#/order_shipments'
+
   /api/v1/orders/{order_id}/cancel:
     $ref: './paths/orders.yaml#/order_cancel'
   /api/v1/orders/{order_id}/returns:

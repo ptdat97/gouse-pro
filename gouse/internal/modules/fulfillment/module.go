@@ -3,6 +3,8 @@ package fulfillment
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/application"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 	fulfillmentpg "github.com/fashion-commerce/platform/internal/modules/fulfillment/infrastructure/postgres"
+	fulfillmenthttp "github.com/fashion-commerce/platform/internal/modules/fulfillment/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
@@ -288,4 +291,18 @@ func translateErr(err error) error {
 		return ErrInvalidInput
 	}
 	return err
+}
+
+// RegisterCustomerRoutes gắn endpoint lô giao cho KHÁCH.
+//
+// `access` trả lời câu "người này có được xem đơn đó không" — quy tắc đó
+// thuộc module `order`, và module này HỎI thay vì cài lại. Hai bản cài đặt
+// của một quy tắc bảo mật sẽ lệch nhau, và một bản lỏng là đủ để lộ lịch
+// sử mua hàng.
+//
+// Bên gọi PHẢI bọc httpserver.ResolveShopper.
+func (m *Module) RegisterCustomerRoutes(
+	mux *http.ServeMux, access fulfillmenthttp.OrderAccessPort, log *slog.Logger,
+) {
+	fulfillmenthttp.NewCustomerHandler(m.svc, access, log).Register(mux)
 }

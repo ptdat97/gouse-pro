@@ -293,6 +293,39 @@ func toPlaceOrderLine(
 	return out, nil
 }
 
+func (m *Module) ResolveViewableOrder(
+	ctx context.Context, key, customerID, guestPhone string,
+) (string, bool, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", false, nil
+	}
+
+	var (
+		o   *domain.Order
+		err error
+	)
+	if strings.HasPrefix(key, string(ids.PrefixOrder)) {
+		o, err = m.svc.GetOrder(ctx, ids.ID(key))
+	} else {
+		o, err = m.svc.GetOrderByNumber(ctx, key)
+	}
+
+	// Không tìm thấy KHÔNG phải lỗi hệ thống — chỉ là "không xem được".
+	// Trả lỗi ở đây biến một mã gõ sai thành 500.
+	if errors.Is(err, domain.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, translateErr(err)
+	}
+
+	if !o.ViewableBy(customerID, guestPhone) {
+		return "", false, nil
+	}
+	return o.ID().String(), true, nil
+}
+
 func (m *Module) GetOrder(ctx context.Context, orderID string) (*OrderView, error) {
 	id, err := ids.Parse(orderID, ids.PrefixOrder)
 	if err != nil {

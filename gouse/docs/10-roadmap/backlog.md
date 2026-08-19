@@ -393,7 +393,7 @@ Kiểm chứng trên hệ thống thật: giỏ vãng lai 980.000đ → đăng k
 gộp → **cùng mã giỏ, cùng tổng tiền**. Đó là nhánh "đổi chủ", giữ nguyên mọi
 nguồn giới thiệu.
 
-### P1.8 — Lô giao cho khách (1 operation) — MỚI
+### P1.8 — Lô giao cho khách (1 operation) — ✅ XONG
 
 `listOrderShipments` — `GET /api/v1/orders/{order_id}/shipments`, module
 `fulfillment` (đã có `GetOrderFulfillments`, chỉ thiếu tầng HTTP).
@@ -401,7 +401,37 @@ nguồn giới thiệu.
 **Vì sao đây là việc mới chứ không phải phát sinh:** docs mô tả khách thấy
 nhiều lô giao với thời gian giao riêng, và `fulfillment.API` đã có sẵn hàm
 ghi rõ "dành cho KHÁCH và quản trị viên". Đặc tả chỉ quên khai báo endpoint.
-Trang chi tiết đơn của storefront (P2-5) cần nó.
+
+**Quy tắc quyền xem đơn đã được nâng lên DOMAIN** (`Order.ViewableBy`). Nó
+được hỏi từ BA nơi — chi tiết đơn, hủy đơn, lô giao — và mỗi nơi tự cài lại
+nghĩa là sớm muộn một nơi cài lỏng hơn. Module `fulfillment` HỎI qua cổng
+`OrderAccessPort` thay vì cài lại, nên nó vẫn không phụ thuộc module nào.
+
+#### Lỗ hổng bảo mật CÓ SẴN TỪ TRƯỚC, phát hiện khi viết test
+
+Quy tắc cũ kiểm tra theo thứ tự: có `customerID` thì so định danh, không thì
+so số điện thoại. Hệ quả: **đơn đã gắn tài khoản vẫn mở được bằng số điện
+thoại** — ai biết số của một khách đã đăng ký đều đọc được đơn của họ, kể cả
+địa chỉ nhà. Mà số điện thoại thì khách cho đi khắp nơi (giao hàng, hóa đơn,
+nhóm chat), khác hẳn mật khẩu.
+
+Quy tắc đúng: **đơn đã có chủ thì CHỈ chủ mở được**; số điện thoại chỉ là
+chìa khóa cho đơn vãng lai. Lỗi này tồn tại từ khi viết P1.4 và chỉ lộ ra
+khi nâng quy tắc lên domain rồi viết bảng test cho từng tổ hợp.
+
+#### Trả MÃ, không trả object
+
+`seller_id` chứ không phải object nhà bán: tên và đánh giá thuộc module
+`seller`, mà `fulfillment` không phụ thuộc module nào.
+
+`order_line_ids` chứ không lặp lại tên và giá: trang chi tiết đơn ĐÃ CÓ dòng
+hàng từ `getOrder`, nó chỉ cần biết dòng nào đi trong gói nào. Lặp lại dữ
+liệu của module order ở đây nghĩa là hai bản, và chúng lệch nhau khi đơn bị
+hủy một phần.
+
+Endpoint nhận CẢ mã đơn lẫn mã hiển thị — khách vãng lai chỉ có mã hiển thị
+trong email xác nhận. Cổng phân giải và kiểm quyền trong MỘT bước rồi trả về
+mã chuẩn, thay vì bắt bên gọi phân giải lần nữa.
 
 ---
 

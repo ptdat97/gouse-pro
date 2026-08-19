@@ -169,4 +169,16 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m modules) {
 		mux.Handle("GET /api/v1/orders/{order_id}", h)
 		mux.Handle("POST /api/v1/orders/{order_id}/cancel", h)
 	}
+
+	// Lô giao do module FULFILLMENT phục vụ, dù đường dẫn thuộc khái niệm
+	// "đơn hàng": order không được gọi fulfillment (fulfillment đã phụ
+	// thuộc order — ADR-0007). Route đi theo NĂNG LỰC.
+	//
+	// Cần cả order để hỏi quyền xem: quy tắc đó thuộc module order, và
+	// fulfillment hỏi thay vì cài lại.
+	if m.fulfillment != nil && m.order != nil {
+		shipMux := http.NewServeMux()
+		m.fulfillment.RegisterCustomerRoutes(shipMux, m.order, log)
+		mux.Handle("GET /api/v1/orders/{order_id}/shipments", shopper(shipMux))
+	}
 }
