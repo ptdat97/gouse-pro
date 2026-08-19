@@ -18,7 +18,8 @@
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev --workspace=@fc/admin",
     "dev:admin": "npm run dev --workspace=@fc/admin",
-    "dev:storefront": "npm run dev --workspace=@fc/storefront"
+    "dev:storefront": "npm run dev --workspace=@fc/storefront",
+    "dev:seller": "npm run dev --workspace=@fc/seller"
   },
   "config": {
     "spec": "../gouse/api/openapi.yaml"

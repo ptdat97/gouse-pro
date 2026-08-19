@@ -111,6 +111,18 @@ export class ApiClient {
    *
    * Tên `del` chứ không phải `delete`: `delete` là từ khóa của JavaScript.
    */
+  async put<T>(
+    path: string,
+    body?: unknown,
+    opts?: Pick<RequestOptions, "idempotencyKey">,
+  ): Promise<T> {
+    return this.request<T>(path, {
+      method: "PUT",
+      body,
+      idempotencyKey: opts?.idempotencyKey,
+    });
+  }
+
   async del<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: "DELETE" });
   }
@@ -152,7 +164,7 @@ export class ApiClient {
 
     // Mọi POST/PATCH đều cần Idempotency-Key — backend từ chối nếu thiếu.
     const method = opts.method ?? "GET";
-    if (method === "POST" || method === "PATCH") {
+    if (method === "POST" || method === "PATCH" || method === "PUT") {
       headers["Idempotency-Key"] = opts.idempotencyKey ?? newIdempotencyKey();
     }
 

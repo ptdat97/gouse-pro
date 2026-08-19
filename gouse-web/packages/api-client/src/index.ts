@@ -6,3 +6,4 @@ export type { FieldError } from "./error";
 
 export * from "./admin";
 export * from "./storefront";
+export * from "./seller";

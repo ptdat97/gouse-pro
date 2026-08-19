@@ -890,19 +890,25 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
         /**
          * Cập nhật tồn kho
          * @description Đặt **giá trị tuyệt đối**, không phải cộng trừ — idempotent tự nhiên,
          *     gọi lại không làm sai lệch.
          *
          *     Trường `reason` bắt buộc và được ghi vào nhật ký biến động tồn kho.
+         *
+         *     **PUT chứ không phải PATCH** — và đây không phải chuyện thẩm mỹ. PATCH
+         *     nghĩa là "sửa phần này", đọc lại hai lần thì cộng hai lần. Ở đây thân
+         *     yêu cầu là toàn bộ trạng thái mong muốn: gửi mười lần vẫn ra đúng con
+         *     số đã đếm. Đường mạng chập chờn ở kho là chuyện thường, nên tính chất
+         *     này phải nằm trong giao thức chứ không nằm ở chỗ khách gọi cẩn thận.
          */
-        patch: operations["updateInventory"];
+        put: operations["updateInventory"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/seller/fulfillment-orders": {
@@ -2352,6 +2358,41 @@ export interface components {
             };
         };
         /**
+         * @description Offer nhìn từ phía **người bán** — khác `Offer` của trang công khai.
+         *
+         *     Hai góc nhìn KHÔNG dùng chung schema được, vì mỗi bên cần đúng cái bên
+         *     kia cố tình giấu:
+         *
+         *     - Người bán cần `status`: họ phải biết hàng của mình đang bán, đang tạm
+         *       ngừng hay đã bị đình chỉ. Khách thì không — trang công khai đơn giản
+         *       là không hiện offer không bán được.
+         *     - Khách cần `is_buy_box` và `seller`: kết quả cạnh tranh giữa các seller.
+         *       Với người bán, `is_buy_box` là thuộc tính của cuộc so sánh chứ không
+         *       phải của offer, còn `seller` luôn là chính họ.
+         */
+        SellerOffer: {
+            id: components["schemas"]["Id"];
+            sku_id: components["schemas"]["Id"];
+            seller_id: components["schemas"]["Id"];
+            price: components["schemas"]["Money"];
+            compare_at_price?: components["schemas"]["Money"];
+            /** @enum {string} */
+            condition: "NEW" | "USED_LIKE_NEW" | "USED_GOOD";
+            handling_time_hours?: number;
+            min_order_quantity?: number;
+            /** @description Vắng mặt nghĩa là không giới hạn. */
+            max_order_quantity?: number;
+            /** @enum {string} */
+            status: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" | "SUSPENDED" | "ARCHIVED";
+            /**
+             * @description Khách mua được hay không. **Đừng suy ra từ `status` ở giao diện**:
+             *     quy tắc còn phụ thuộc seller có bị đình chỉ không, và suy ở hai nơi
+             *     thì hai nơi sẽ lệch.
+             */
+            is_sellable: boolean;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /**
          * @description Đơn thực hiện — góc nhìn của seller.
          *
          *     **Cố ý KHÔNG chứa:** `order_id`, tổng tiền đơn, các lô khác, tên seller
@@ -2380,27 +2421,42 @@ export interface components {
                 unit_price?: components["schemas"]["Money"];
             }[];
             /**
-             * @description Chỉ thông tin **cần cho việc giao hàng**. Không có email khách,
-             *     không có lịch sử mua hàng.
+             * @description Chỉ thông tin **cần cho việc giao hàng**: người nhận, số điện thoại
+             *     (gọi trước khi giao) và địa chỉ.
              *
-             *     **CHƯA được trả về.** Đơn thực hiện chưa mang địa chỉ giao: payload
-             *     event `checkout.completed` không chứa nó, nên khi tách đơn không có
-             *     gì để sao chép xuống.
+             *     **KHÔNG có email khách.** Email không giúp giao hàng, và mọi trường
+             *     thừa ở đây là dữ liệu cá nhân trao cho một bên thứ ba không cần tới
+             *     nó. Đơn thực hiện có lưu email ở `notify_email` cho module
+             *     notification, nhưng trường đó **không bao giờ** ra tới API này.
              *
-             *     **Hệ quả vận hành:** seller biết nhặt gì nhưng không biết gửi đi
-             *     đâu — họ chưa in được phiếu giao hàng. Đây là việc CHẶN vận hành
-             *     thật, không phải thiếu sót nhỏ. Xem backlog P1.10.
+             *     **Vắng mặt** với đơn tách trước khi trường này ra đời — giao diện
+             *     phải nói rõ với seller thay vì in phiếu trống.
              */
             shipping_address?: components["schemas"]["Address"];
             shipping_method?: string;
             tracking_number?: string | null;
+            /** @description Tiền hàng phần CỦA SELLER NÀY, không phải tổng đơn. */
+            subtotal?: components["schemas"]["Money"];
+            commission_amount?: components["schemas"]["Money"];
             /**
-             * @description Ước tính số tiền seller nhận sau khi trừ hoa hồng và phí.
-             *     Hiển thị ngay từ lúc nhận đơn tạo minh bạch, giảm tranh chấp về sau.
+             * @description Tiền hàng trừ hoa hồng. Hiển thị NGAY từ lúc nhận đơn tạo minh bạch
+             *     và giảm tranh chấp về sau.
+             */
+            seller_payable?: components["schemas"]["Money"];
+            shipping_provider?: string | null;
+            confirmed_at?: components["schemas"]["Timestamp"];
+            packed_at?: components["schemas"]["Timestamp"];
+            /**
+             * @description Thời điểm bàn giao vận chuyển. Rỗng nghĩa là **chưa gửi** — giao
+             *     diện dùng nó để tách "việc cần làm" khỏi "đã xong".
+             */
+            shipped_at?: components["schemas"]["Timestamp"];
+            delivered_at?: components["schemas"]["Timestamp"];
+            /**
+             * @description Ước tính chi tiết sau khi trừ MỌI khoản phí.
              *
-             *     **CHƯA được trả về** dưới dạng này. Hiện endpoint trả ba trường
-             *     phẳng — `subtotal`, `commission_amount`, `seller_payable` — vì phí
-             *     thanh toán và phí thực hiện chưa có nguồn tính.
+             *     **CHƯA được trả về** — phí thanh toán và phí thực hiện chưa có
+             *     nguồn tính. Ba trường phẳng ở trên là thứ tính được hôm nay.
              */
             payout_estimate?: {
                 gross?: components["schemas"]["Money"];
@@ -4737,7 +4793,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data?: components["schemas"]["Offer"][];
+                        data?: components["schemas"]["SellerOffer"][];
                         pagination?: components["schemas"]["CursorPagination"];
                     };
                 };
@@ -4797,7 +4853,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        offer?: components["schemas"]["Offer"];
+                        offer?: components["schemas"]["SellerOffer"];
                     };
                 };
             };
@@ -4898,7 +4954,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        offer?: components["schemas"]["Offer"];
+                        offer?: components["schemas"]["SellerOffer"];
                     };
                 };
             };
@@ -4945,9 +5001,20 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        sku_id?: components["schemas"]["Id"];
-                        quantity_available?: number;
-                        updated_at?: components["schemas"]["Timestamp"];
+                        sku_id: components["schemas"]["Id"];
+                        /**
+                         * @description Con số THỰC TẾ sau khi ghi, đọc lại từ kho lưu trữ. Có
+                         *     thể KHÁC con số vừa gửi nếu có đơn hàng chen vào giữa —
+                         *     giao diện phải hiện con số này, không phải con số đã gõ.
+                         */
+                        quantity_available: number;
+                        /**
+                         * @description Lúc con số **thay đổi** lần cuối — không phải lúc **đếm**
+                         *     lần cuối. Kiểm kê ra đúng số đang có là việc không-làm-gì
+                         *     (cố ý: một lần đếm xác nhận không được đẻ ra bản ghi biến
+                         *     động giả), nên mốc này đứng yên.
+                         */
+                        updated_at: components["schemas"]["Timestamp"];
                     };
                 };
             };

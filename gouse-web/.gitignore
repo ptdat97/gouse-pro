@@ -4,6 +4,12 @@ out/
 dist/
 *.tsbuildinfo
 
+# Next.js tự sinh hai file này trong từng app mỗi lần build. Chúng là bản
+# tóm tắt máy sinh cho công cụ AI, không phải tài liệu của dự án — commit
+# vào là ba app cùng sinh ra ba bản gần giống nhau và cùng lệch dần.
+apps/*/AGENTS.md
+apps/*/CLAUDE.md
+
 # Môi trường — KHÔNG BAO GIỜ commit bí mật
 .env
 .env.*
