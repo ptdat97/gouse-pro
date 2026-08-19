@@ -158,8 +158,8 @@ Cập nhật: 15/08/2026.
 ### Tổng hợp
 
 ```text
-TESTED         21      catalog · product · cart · checkout · orders (khách) ·
-                       account (hồ sơ · địa chỉ · yêu thích)
+TESTED         23      catalog · product · cart · checkout · orders (khách) ·
+                       account (hồ sơ · địa chỉ · yêu thích) · đăng ký
 IMPLEMENTED    19      auth · audit-log · admin sellers · ledger · orders ·
                        offers · search · checkout (3 đường cần phiên thật) ·
                        placeOrder
@@ -167,10 +167,10 @@ INTEGRATED      3      Admin UI đang gọi: listSellers · listAdminOrders ·
                        listAuditLog (+ các thao tác kèm theo)
 DESIGNED       31      (15 MVP còn lại + 16 hoãn Phase 2/3)
                 ──
-                71
+                73
 ```
 
-### Đã cài đặt (40)
+### Đã cài đặt (42)
 
 | Operation | Đường dẫn | Mức |
 |---|---|---|
@@ -229,6 +229,17 @@ operation checkout ở trên.
 **Mọi endpoint tài khoản BẮT BUỘC đăng nhập.** Khách vãng lai nhận `401`,
 không phải hồ sơ rỗng — khác hẳn cart và checkout, vốn phải chạy được cho
 khách chưa có tài khoản.
+
+| `registerCustomer` | `POST /api/v1/auth/register` | TESTED |
+| `mergeCartOnLogin` | `POST /api/v1/cart/merge` | TESTED |
+
+**`registerCustomer` do module `customer` phục vụ**, không phải `identity`:
+một lần đăng ký sinh ra tài khoản đăng nhập VÀ hồ sơ mua hàng, mà identity
+nằm dưới customer trong đồ thị phụ thuộc. Nó **không trả token** — client
+gọi `login` ngay sau đó.
+
+**Đây là hai operation KHÔNG có trong đặc tả ban đầu.** Tính năng thì có
+trong docs (`01-business/customer.md` mục 1), chỉ endpoint là thiếu.
 
 **Về mức của nhóm checkout:** `TESTED` ở đây nghĩa là có test HTTP cho những
 gì handler CHẶN — quyền sở hữu giỏ, phương thức thanh toán, phương thức vận
