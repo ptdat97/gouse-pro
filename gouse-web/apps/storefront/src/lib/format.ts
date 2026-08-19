@@ -110,3 +110,39 @@ export function orderStatusLabel(s: string | undefined): string {
       return s ?? "—";
   }
 }
+
+/**
+ * Nhãn tiếng Việt cho trạng thái một GÓI GIAO.
+ *
+ * Khác `orderStatusLabel`: đó là trạng thái TỔNG HỢP của cả đơn, còn đây là
+ * của từng gói. Khách có thể thấy "Đã giao" ở một gói và "Đang đóng gói" ở
+ * gói khác trong cùng một đơn — dùng chung một bảng nhãn sẽ nói sai.
+ */
+export function shipmentStatusLabel(s: string | undefined): string {
+  switch (s) {
+    case "PENDING":
+      return "Chờ xử lý";
+    case "ALLOCATED":
+      return "Đã phân bổ kho";
+    case "CONFIRMED":
+      return "Nhà bán đã xác nhận";
+    case "PICKING":
+      return "Đang lấy hàng";
+    case "PACKED":
+      return "Đã đóng gói";
+    case "HANDED_OVER":
+      return "Đã bàn giao vận chuyển";
+    case "IN_TRANSIT":
+      return "Đang vận chuyển";
+    case "DELIVERED":
+      return "Đã giao";
+    case "DELIVERY_FAILED":
+      return "Giao không thành công";
+    case "COMPLETED":
+      return "Hoàn tất";
+    case "CANCELLED":
+      return "Đã hủy";
+    default:
+      return s ?? "—";
+  }
+}

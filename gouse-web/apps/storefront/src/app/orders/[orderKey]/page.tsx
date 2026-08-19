@@ -1,21 +1,36 @@
 "use client";
 
-import { getMyOrder, isApiError, type OrderView } from "@fc/api-client";
+import {
+  getMyOrder,
+  isApiError,
+  listOrderShipments,
+  type OrderShipments,
+  type OrderView,
+} from "@fc/api-client";
 import { Alert, Badge } from "@fc/ui";
 import { useSearchParams } from "next/navigation";
 import * as React from "react";
 
-import { dateTime, money, orderStatusLabel } from "@/lib/format";
+import {
+  dateTime,
+  money,
+  orderStatusLabel,
+  shipmentStatusLabel,
+} from "@/lib/format";
 import { useShop } from "@/lib/shop";
 
 /**
  * Chi tiết đơn hàng.
  *
- * # Response KHÔNG có tiến độ giao hàng
+ * # TRANG ghép hai nguồn, không phải một endpoint
  *
- * Dữ liệu lô giao thuộc module `fulfillment`, và endpoint cho khách xem nó
- * CHƯA tồn tại (backlog P1.8). Trang này hiển thị thứ có thật — trạng thái
- * tổng hợp, dòng hàng, tiền, địa chỉ — thay vì để chỗ trống hứa hẹn.
+ * `order` giữ dòng hàng và tiền; `fulfillment` giữ tiến độ giao. Hai module
+ * không gọi được nhau (fulfillment đã phụ thuộc order), nên trang gọi hai
+ * endpoint và khớp `order_line_ids` với `lines` đã có — không cần lượt gọi
+ * thứ ba để lấy tên sản phẩm.
+ *
+ * Lô giao hỏng KHÔNG làm mất cả trang: khách vẫn thấy đơn của mình, chỉ
+ * thiếu phần tiến độ.
  *
  * # 404 cho cả "không có" lẫn "không phải của bạn"
  *
@@ -34,6 +49,7 @@ export default function OrderDetailPage({
   const justPlaced = search.get("placed") === "1";
 
   const [order, setOrder] = React.useState<OrderView | null>(null);
+  const [shipments, setShipments] = React.useState<OrderShipments["data"]>([]);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -41,7 +57,16 @@ export default function OrderDetailPage({
     void (async () => {
       try {
         const res = await getMyOrder(api, orderKey, phone);
-        if (!cancelled) setOrder(res);
+        if (cancelled) return;
+        setOrder(res);
+
+        try {
+          const s = await listOrderShipments(api, orderKey, phone);
+          if (!cancelled) setShipments(s.data ?? []);
+        } catch {
+          // Tiến độ giao hỏng thì bỏ qua phần đó — đơn hàng vẫn hiển thị.
+          if (!cancelled) setShipments([]);
+        }
       } catch (e) {
         if (cancelled) return;
         setError(
@@ -132,9 +157,56 @@ export default function OrderDetailPage({
         </section>
       )}
 
-      <p className="muted">
-        Tiến độ giao hàng theo từng gói sẽ hiển thị ở đây khi có.
-      </p>
+      <section className="panel">
+        <h2>Tiến độ giao hàng</h2>
+
+        {shipments.length === 0 ? (
+          <p className="muted">
+            Đơn chưa được tách thành gói giao. Thông tin sẽ hiện ở đây khi
+            nhà bán bắt đầu chuẩn bị hàng.
+          </p>
+        ) : (
+          shipments.map((s) => {
+            // Khớp với dòng hàng ĐÃ CÓ từ getOrder — không gọi thêm gì.
+            const inThisPackage = (order.lines ?? []).filter((l) =>
+              (s.order_line_ids ?? []).includes(l.order_line_id),
+            );
+
+            return (
+              <div key={s.fulfillment_number} className="group">
+                <p className="group__seller">
+                  Gói {s.fulfillment_number} ·{" "}
+                  <Badge>{shipmentStatusLabel(s.status)}</Badge>
+                </p>
+
+                {s.tracking_number && (
+                  <p className="muted">
+                    Mã vận đơn {s.tracking_number}
+                    {s.shipping_provider ? ` · ${s.shipping_provider}` : ""}
+                  </p>
+                )}
+                {s.delivered_at && (
+                  <p className="muted">Đã giao {dateTime(s.delivered_at)}</p>
+                )}
+
+                <ul className="lines">
+                  {inThisPackage.map((l) => (
+                    <li key={l.order_line_id} className="line">
+                      <div>
+                        {l.product_name}
+                        {l.variant_description && (
+                          <span className="muted"> · {l.variant_description}</span>
+                        )}
+                      </div>
+                      <div className="muted">SL {l.quantity}</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })
+        )}
+      </section>
     </div>
   );
 }

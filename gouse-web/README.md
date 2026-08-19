@@ -121,12 +121,17 @@ trong `message`, nên trang đăng ký hiển thị nguyên văn thay vì tự �
 /cart                  sửa số lượng, xóa món — nhóm theo nhà bán
 /checkout              MỞ PHIÊN (giữ hàng 15 phút) → địa chỉ → vận chuyển → đặt
 /orders                tra cứu bằng mã đơn + số điện thoại
-/orders/{key}          chi tiết đơn
+/orders/{key}          chi tiết đơn + TIẾN ĐỘ GIAO theo từng gói
 
 /dang-nhap             đăng nhập → GỘP GIỎ → hồ sơ
 /dang-ky               đăng ký → tự đăng nhập
 /tai-khoan             hồ sơ · sổ địa chỉ · yêu thích
 ```
+
+**Trang chi tiết đơn ghép HAI nguồn.** `order` giữ dòng hàng và tiền,
+`fulfillment` giữ tiến độ giao — hai module không gọi được nhau. Trang gọi
+hai endpoint rồi khớp `order_line_ids` với `lines` đã có, nên không cần lượt
+gọi thứ ba để lấy tên sản phẩm.
 
 **Phiên thanh toán mở LÚC VÀO `/checkout`**, không phải lúc bấm "Đặt hàng".
 Mở phiên là giữ tồn kho: mở sớm hơn (ở trang giỏ) là khóa hàng của người
@@ -145,6 +150,5 @@ mới biết hết hàng. Đồng hồ đếm ngược luôn hiển thị.
 
 ### Chưa có ở đợt này
 
-- Tiến độ giao hàng theo từng gói — cần endpoint lô giao cho khách (P1.8).
 - Quên mật khẩu, đổi mật khẩu, xác minh email.
 - Tìm kiếm, lọc theo danh mục/thương hiệu, đánh giá sản phẩm.

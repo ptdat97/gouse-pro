@@ -222,6 +222,7 @@ export function completeCheckout(
 
 export type MyOrders = Ok<operations["listMyOrders"]>;
 export type OrderView = Ok<operations["getOrder"]>;
+export type OrderShipments = Ok<operations["listOrderShipments"]>;
 
 export function listMyOrders(api: ApiClient, limit?: number): Promise<MyOrders> {
   return api.get<MyOrders>("/api/v1/orders", { limit });
@@ -331,4 +332,24 @@ export function addWishlistItem(
     product_id: productId,
     notify_when_available: notifyWhenAvailable,
   });
+}
+
+/**
+ * Lô giao của một đơn.
+ *
+ * Tách khỏi `getMyOrder` vì hai module khác nhau sở hữu hai nửa dữ liệu:
+ * `order` giữ dòng hàng và tiền, `fulfillment` giữ tiến độ giao. Ghép là
+ * việc của TRANG — nó khớp `order_line_ids` với `lines` đã có sẵn, nên
+ * không cần thêm lượt gọi nào.
+ */
+export function listOrderShipments(
+  api: ApiClient,
+  key: string,
+  guestPhone?: string,
+): Promise<OrderShipments> {
+  return api.get<OrderShipments>(
+    `/api/v1/orders/${encodeURIComponent(key)}/shipments`,
+    undefined,
+    guestPhone ? { "X-Guest-Phone": guestPhone } : undefined,
+  );
 }

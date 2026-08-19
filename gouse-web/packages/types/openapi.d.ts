@@ -648,6 +648,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders/{order_id}/shipments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lô giao của một đơn
+         * @description Khách thấy **một đơn** nhưng hàng từ nhiều nguồn về thành **nhiều
+         *     gói**, giao ở những thời điểm khác nhau. Không có endpoint này thì
+         *     khách nhận một phần hàng và tưởng đơn bị thiếu.
+         *
+         *     **Phục vụ bởi module `fulfillment`**, dù đường dẫn thuộc khái niệm
+         *     "đơn hàng": `order` không được gọi `fulfillment` (fulfillment đã phụ
+         *     thuộc order — ADR-0007). Route đi theo **năng lực**.
+         *
+         *     **Trả `seller_id`, không trả object nhà bán.** Tên và đánh giá thuộc
+         *     module `seller`, mà `fulfillment` không phụ thuộc module nào — nó chỉ
+         *     lắng nghe event. Việc ghép tên là của trang.
+         *
+         *     **Trả `order_line_ids`, không lặp lại tên và giá.** Trang chi tiết đơn
+         *     đã có sẵn dòng hàng từ `getOrder`; nó chỉ cần biết dòng nào đi trong
+         *     gói nào. Lặp lại dữ liệu của module order ở đây nghĩa là hai bản, và
+         *     chúng lệch nhau khi đơn bị hủy một phần.
+         *
+         *     Quyền xem giống hệt `getOrder`: đã đăng nhập thì theo định danh khách
+         *     hàng, vãng lai thì theo `X-Guest-Phone`. Không có quyền trả `404`
+         *     **y hệt** đơn không tồn tại — mã đơn tăng dần nên hai thông báo khác
+         *     nhau sẽ đếm được số đơn nền tảng bán mỗi tháng.
+         */
+        get: operations["listOrderShipments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orders/{order_id}/cancel": {
         parameters: {
             query?: never;
@@ -2158,8 +2198,12 @@ export interface components {
             /** @enum {string} */
             status: "ACTIVE" | "CANCELLED" | "RETURNED";
         };
-        /** @enum {string} */
-        FulfillmentStatus: "PENDING" | "ALLOCATED" | "PICKING" | "PACKED" | "HANDED_OVER" | "IN_TRANSIT" | "DELIVERED" | "DELIVERY_FAILED" | "RETURNED_TO_SENDER" | "COMPLETED" | "CANCELLED";
+        /**
+         * @description Trạng thái của MỘT GÓI GIAO, khác `OrderStatus` là trạng thái tổng hợp
+         *     của cả đơn. Một đơn có thể có gói `DELIVERED` và gói `PACKED` cùng lúc.
+         * @enum {string}
+         */
+        FulfillmentStatus: "PENDING" | "ALLOCATED" | "CONFIRMED" | "PICKING" | "PACKED" | "HANDED_OVER" | "IN_TRANSIT" | "DELIVERED" | "DELIVERY_FAILED" | "COMPLETED" | "CANCELLED";
         OrderLineSummary: {
             order_line_id: components["schemas"]["Id"];
             product_id?: components["schemas"]["Id"];
@@ -2220,9 +2264,10 @@ export interface components {
             /** @description Dòng hàng của đơn với con số **đã đóng băng** tại thời điểm đặt. */
             lines?: components["schemas"]["OrderDetailLine"][];
             /**
-             * @description Lô giao. **Chưa có endpoint nào trả trường này** — giữ lại trong
-             *     lược đồ để trang ghép được dữ liệu từ hai nguồn khi endpoint lô giao
-             *     cho khách ra đời (backlog P1.8).
+             * @description Lô giao. **KHÔNG do endpoint này trả về** — gọi
+             *     `GET /api/v1/orders/{order_id}/shipments` (module `fulfillment`).
+             *     Giữ lại trong lược đồ vì trang chi tiết đơn ghép hai nguồn: dòng
+             *     hàng và tiền từ đây, tiến độ giao từ endpoint kia.
              */
             shipments?: components["schemas"]["Shipment"][];
             subtotal?: components["schemas"]["Money"];
@@ -4114,6 +4159,49 @@ export interface operations {
                 };
             };
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listOrderShipments: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Bắt buộc với khách vãng lai. */
+                "X-Guest-Phone"?: string;
+            };
+            path: {
+                order_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách lô giao */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            /** @example FC-2026-08-001234-A */
+                            fulfillment_number: string;
+                            seller_id: components["schemas"]["Id"];
+                            status: components["schemas"]["FulfillmentStatus"];
+                            tracking_number?: string;
+                            shipping_provider?: string;
+                            estimated_delivery_date?: string;
+                            /**
+                             * @description Dòng hàng của **đơn** đi trong gói này. Trang ghép
+                             *     với `lines` đã có từ `getOrder`.
+                             */
+                            order_line_ids: components["schemas"]["Id"][];
+                            shipped_at?: components["schemas"]["Timestamp"];
+                            delivered_at?: components["schemas"]["Timestamp"];
+                        }[];
+                    };
+                };
+            };
             404: components["responses"]["NotFound"];
         };
     };
