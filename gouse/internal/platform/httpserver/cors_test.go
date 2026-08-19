@@ -98,7 +98,11 @@ func TestCORSPreflightDoesNotReachHandler(t *testing.T) {
 	// Client PHẢI gửi được các header mà API yêu cầu, nếu không mọi lệnh
 	// ghi đều bị trình duyệt chặn trước khi rời máy.
 	allow := rec.Header().Get("Access-Control-Allow-Headers")
-	for _, h := range []string{"Authorization", "Idempotency-Key", "Content-Type"} {
+	// X-Guest-Phone nằm trong danh sách vì khách VÃNG LAI tra đơn bằng mã
+	// đơn kèm số điện thoại — thiếu nó thì cả trang tra cứu đơn không chạy.
+	for _, h := range []string{
+		"Authorization", "Idempotency-Key", "Content-Type", "X-Guest-Phone",
+	} {
 		if !contains(allow, h) {
 			t.Errorf("preflight phải cho phép header %q, nhận %q", h, allow)
 		}

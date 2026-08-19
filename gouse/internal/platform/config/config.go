@@ -192,7 +192,12 @@ func Load() (*Config, error) {
 		collect(fmt.Errorf("MODULES_STORAGE không hợp lệ: %q (phải là memory|postgres)", storage))
 	}
 
-	// Origin của giao diện. Mặc định khi phát triển là Next.js ở cổng 3000.
+	// Origin của giao diện.
+	//
+	// Mặc định khi phát triển là CẢ HAI ứng dụng Next.js: admin ở cổng 3000
+	// và cửa hàng ở 3001. Thiếu một cái thì trình duyệt chặn mọi lời gọi
+	// của ứng dụng đó — và lỗi hiện ra ở console trình duyệt, không phải ở
+	// log máy chủ, nên rất dễ mất thời gian tìm nhầm chỗ.
 	var allowedOrigins []string
 	if raw := os.Getenv("AUTH_ALLOWED_ORIGINS"); raw != "" {
 		for _, o := range strings.Split(raw, ",") {
@@ -201,7 +206,10 @@ func Load() (*Config, error) {
 			}
 		}
 	} else if !env.IsProduction() {
-		allowedOrigins = []string{"http://localhost:3000"}
+		allowedOrigins = []string{
+			"http://localhost:3000", // admin
+			"http://localhost:3001", // cửa hàng
+		}
 	}
 	// Ở production KHÔNG có mặc định: quên cấu hình thì giao diện không gọi
 	// được API và người ta sửa ngay. Mặc định sai còn nguy hiểm hơn, vì nó

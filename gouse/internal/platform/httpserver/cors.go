@@ -66,9 +66,16 @@ func CORS(allowedOrigins []string) Middleware {
 				h.Add("Vary", "Access-Control-Request-Headers")
 				h.Set("Access-Control-Allow-Methods",
 					"GET, POST, PATCH, PUT, DELETE, OPTIONS")
+				// Danh sách này phải khớp MỌI header giao diện gửi lên.
+				// Thiếu một cái thì trình duyệt chặn request, và lỗi chỉ
+				// hiện ở console trình duyệt — log máy chủ hoàn toàn sạch,
+				// nên rất dễ đi tìm nhầm chỗ.
+				//
+				// X-Guest-Phone: khách vãng lai tra đơn bằng mã đơn kèm số
+				// điện thoại (orders.yaml, operationId getOrder).
 				h.Set("Access-Control-Allow-Headers",
 					"Authorization, Content-Type, Idempotency-Key, "+
-						"X-Request-ID, Accept-Language")
+						"X-Request-ID, Accept-Language, X-Guest-Phone")
 				h.Set("Access-Control-Max-Age",
 					strconv.Itoa(int(preflightMaxAge.Seconds())))
 

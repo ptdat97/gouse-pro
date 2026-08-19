@@ -496,8 +496,42 @@ outbox    cart.item_added ✅ · checkout.completed ✅ (đã phát hết)
 Trước đó việc này bị chặn hai lớp: P3-2 (test xóa sạch database phát triển)
 là NGUYÊN NHÂN, P3-13 (dữ liệu mẫu thiếu offer và tồn kho) là HẬU QUẢ. Sửa
 cả hai mới chạy thử được.
-| P2-5 | Storefront | P1.1–P1.4 |
+| P2-5 | Storefront | ✅ luồng mua hàng xong — xem ghi chú dưới bảng |
 | P2-6 | Seller Center | P1.5 |
+
+**P2-5 — luồng mua hàng đã dựng xong (19/08).** `apps/storefront` ở cổng
+3001, sáu trang:
+
+```text
+/                danh sách sản phẩm
+/products/{id}   chọn NHÀ BÁN (offer) → thêm giỏ
+/cart            sửa số lượng, xóa — nhóm theo nhà bán
+/checkout        mở phiên (giữ hàng 15 phút) → địa chỉ → vận chuyển → đặt
+/orders          tra cứu bằng mã đơn + số điện thoại
+/orders/{key}    chi tiết đơn
+```
+
+**Khách VÃNG LAI là mặc định.** Không trang nào ở đường mua hàng cần đăng
+nhập — danh tính đến từ cookie `shopper_session`.
+
+**Hai lỗi CORS bắt được khi chạy thật**, cả hai đều thuộc loại chỉ hiện ở
+console trình duyệt còn log máy chủ hoàn toàn sạch:
+
+1. `http://localhost:3001` không nằm trong danh sách trắng mặc định của môi
+   trường phát triển — mọi lời gọi của cửa hàng bị chặn.
+2. `X-Guest-Phone` thiếu trong `Access-Control-Allow-Headers` — riêng trang
+   tra cứu đơn không chạy.
+
+Cả hai đã sửa kèm test.
+
+**Chưa dựng, có lý do:**
+
+- **Trang tài khoản** (hồ sơ, sổ địa chỉ, yêu thích): sáu endpoint đã xong ở
+  P1.2, nhưng đặc tả CHƯA có endpoint ĐĂNG KÝ cho khách. `login` hiện phục
+  vụ tài khoản nội bộ, nên khách không có đường nào để có tài khoản. Cần
+  quyết định sản phẩm trước khi dựng giao diện.
+- **Tiến độ giao hàng từng gói**: cần P1.8.
+- Tìm kiếm, lọc danh mục/thương hiệu, đánh giá sản phẩm.
 
 Chi tiết P2-3, P2-4: xem [admin-ui-plan.md](admin-ui-plan.md).
 

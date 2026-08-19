@@ -220,3 +220,53 @@ func TestEnvironmentHelpers(t *testing.T) {
 		t.Error("EnvDevelopment.IsDevelopment() phải true")
 	}
 }
+
+// MẶC ĐỊNH KHI PHÁT TRIỂN phải cho phép CẢ HAI giao diện.
+//
+// Admin ở cổng 3000, cửa hàng ở 3001. Thiếu một cái thì trình duyệt chặn
+// mọi lời gọi của ứng dụng đó — và lỗi chỉ hiện ở console trình duyệt,
+// không có gì trong log máy chủ, nên rất dễ đi tìm nhầm chỗ.
+func TestOriginMacDinhChoPhepCaHaiGiaoDien(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("AUTH_ALLOWED_ORIGINS", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := map[string]bool{
+		"http://localhost:3000": false,
+		"http://localhost:3001": false,
+	}
+	for _, o := range cfg.Auth.AllowedOrigins {
+		if _, ok := want[o]; ok {
+			want[o] = true
+		}
+	}
+	for origin, found := range want {
+		if !found {
+			t.Errorf("thiếu origin %q trong danh sách trắng mặc định", origin)
+		}
+	}
+}
+
+// KHÔNG có mặc định ở production: quên cấu hình thì giao diện không gọi
+// được API và người ta sửa ngay. Mặc định sai nguy hiểm hơn nhiều, vì nó
+// chạy được và không ai để ý.
+func TestProductionKhongCoOriginMacDinh(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("AUTH_ALLOWED_ORIGINS", "")
+	t.Setenv("AUTH_JWT_SECRET", "khoa-du-dai-toi-thieu-32-ky-tu-cho-hs256")
+	t.Setenv("DATABASE_URL", "postgres://u@127.0.0.1:5432/db?sslmode=disable")
+	t.Setenv("MODULES_STORAGE", "postgres")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Skipf("production cần thêm cấu hình khác: %v", err)
+	}
+	if len(cfg.Auth.AllowedOrigins) != 0 {
+		t.Errorf("production có origin mặc định %v — phải rỗng",
+			cfg.Auth.AllowedOrigins)
+	}
+}
