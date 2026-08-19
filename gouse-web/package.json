@@ -1,0 +1,30 @@
+{
+  "name": "fashion-commerce-web",
+  "private": true,
+  "description": "Tầng trình bày của nền tảng thương mại thời trang. Chỉ hiển thị — mọi logic nghiệp vụ nằm ở Go backend (../gouse).",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "types": "openapi-typescript $npm_package_config_spec -o packages/types/openapi.d.ts",
+    "types:check": "npm run types && git diff --exit-code packages/types/openapi.d.ts",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace=@fc/admin",
+    "dev:admin": "npm run dev --workspace=@fc/admin",
+    "dev:storefront": "npm run dev --workspace=@fc/storefront"
+  },
+  "config": {
+    "spec": "../gouse/api/openapi.yaml"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.9.1",
+    "typescript": "^5.9.2"
+  }
+}

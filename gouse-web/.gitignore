@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# Môi trường — KHÔNG BAO GIỜ commit bí mật
+.env
+.env.*
+!.env.example
+
+.DS_Store
+.idea/
+.vscode/
