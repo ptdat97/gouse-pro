@@ -68,6 +68,38 @@ export function listProductsByIds(
     .then((res) => res.data ?? []);
 }
 
+// Tên khác `SellerList` của admin.ts: hai endpoint khác nhau, hai tập
+// trường khác nhau. Trùng tên là mời gọi dùng nhầm.
+type SellerLookup = Ok<operations["lookupSellers"]>;
+export type SellerRef = NonNullable<SellerLookup["data"]>[number];
+
+/**
+ * Tra hồ sơ nhà bán theo LÔ.
+ *
+ * Endpoint offer cố ý chỉ trả `seller_id` — ghép dữ liệu là việc của
+ * TRANG, không phải của ENDPOINT. Nếu mỗi offer kéo theo cả hồ sơ nhà bán
+ * thì cùng một nhà bán bị lặp ở mọi offer của họ, và những lời gọi không
+ * hiển thị tên ai vẫn phải trả giá.
+ *
+ * Đổi lại, TRANG phải gọi thêm một lượt — MỘT lượt cho cả danh sách, không
+ * phải một lượt mỗi offer.
+ *
+ * Trả về theo đúng thứ tự hỏi. Mã không tồn tại thì VẮNG MẶT, nên kết quả
+ * có thể ngắn hơn danh sách hỏi — bên gọi phải chịu được điều đó.
+ */
+export function listSellersByIds(
+  api: ApiClient,
+  ids: string[],
+): Promise<SellerRef[]> {
+  // Danh sách rỗng thì KHÔNG gọi mạng: `ids=` rỗng bị máy chủ từ chối với
+  // 400, và một lỗi đỏ trong console cho một câu hỏi không ai hỏi.
+  if (ids.length === 0) return Promise.resolve([]);
+
+  return api
+    .get<SellerLookup>("/api/v1/sellers", { ids: ids.join(",") })
+    .then((res) => res.data ?? []);
+}
+
 export function getProduct(api: ApiClient, productId: string): Promise<ProductDetail> {
   return api.get<ProductDetail>(`/api/v1/products/${productId}`);
 }

@@ -35,6 +35,13 @@ test("khách vãng lai mua được: chọn nhà bán → thêm giỏ → giỏ 
   await expect(offer).toBeVisible();
   await offer.check();
 
+  // TÊN nhà bán phải hiện ra. Endpoint offer chỉ trả `seller_id`, nên trang
+  // tra tên bằng một lượt gọi riêng — nếu lượt đó hỏng, cả danh sách kẹt ở
+  // "Đang tra nhà bán…" và khách không biết mình mua của ai.
+  await expect(page.getByText("Đang tra nhà bán…")).toHaveCount(0, {
+    timeout: 10_000,
+  });
+
   // Điểm mấu chốt của cả bài test.
   const nut = page.getByRole("button", { name: "Thêm vào giỏ" });
   await expect(

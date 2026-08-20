@@ -4,8 +4,10 @@ import {
   getProduct,
   isApiError,
   listProductOffers,
+  listSellersByIds,
   type ProductDetail,
   type ProductOffers,
+  type SellerRef,
 } from "@fc/api-client";
 import { Alert, Button, Input } from "@fc/ui";
 import { useRouter } from "next/navigation";
@@ -42,6 +44,11 @@ export default function ProductPage({
 
   const [product, setProduct] = React.useState<ProductDetail | null>(null);
   const [offers, setOffers] = React.useState<Offer[]>([]);
+
+  // Tên nhà bán tra RIÊNG: endpoint offer chỉ trả `seller_id`.
+  //
+  // Một lượt gọi cho cả danh sách, không phải một lượt mỗi offer.
+  const [sellers, setSellers] = React.useState<Record<string, SellerRef>>({});
   const [selected, setSelected] = React.useState<string | null>(null);
   const [quantity, setQuantity] = React.useState(1);
   const [error, setError] = React.useState<string | null>(null);
@@ -65,6 +72,14 @@ export default function ProductPage({
         // nghị, và bắt khách tự chọn khi chỉ có một nhà bán là thừa.
         const best = list.find((x) => x.is_buy_box) ?? list[0];
         setSelected(best?.id ?? null);
+
+        // Tra tên nhà bán SAU khi đã hiện offer, không phải trong cùng
+        // Promise.all: giá và nút mua không được chờ một thông tin chỉ
+        // dùng để hiển thị. Thiếu tên thì offer vẫn mua được.
+        const ids = [...new Set(list.map((x) => x.seller_id))];
+        const found = await listSellersByIds(api, ids);
+        if (cancelled) return;
+        setSellers(Object.fromEntries(found.map((sl) => [sl.id, sl])));
       } catch (e) {
         if (!cancelled) {
           setError(isApiError(e) ? e.message : "Không tải được sản phẩm");
@@ -160,12 +175,11 @@ export default function ProductPage({
                   </span>
                 </div>
 
-                {/*
-                  Chưa hiện TÊN nhà bán: chưa có endpoint công khai tra hồ
-                  sơ nhà bán, và endpoint offer chỉ trả `seller_id`. Hiện ô
-                  trống còn tệ hơn không hiện — khách tưởng giao diện hỏng.
-                  Xem P3-19 trong backlog.
-                */}
+                <div className="offer__seller">
+                  {sellers[o.seller_id]?.name ?? "Đang tra nhà bán…"}
+                  {sellers[o.seller_id]?.is_official && " · Chính hãng"}
+                </div>
+
                 <div className="offer__seller">
                   {o.is_sellable ? "Còn hàng" : "Hết hàng"}
                   {o.handling_time_hours

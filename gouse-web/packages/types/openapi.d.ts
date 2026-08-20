@@ -814,7 +814,24 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Tra hồ sơ nhà bán theo lô
+         * @description Đổi danh sách `seller_id` lấy thông tin hiển thị cho khách.
+         *
+         *     **Tra theo LÔ, không phải từng cái.** Trang chi tiết sản phẩm hiện N
+         *     offer của N nhà bán; một endpoint `/sellers/{id}` buộc trang gọi N
+         *     lần. Endpoint offer cố ý chỉ trả `seller_id` — ghép dữ liệu là việc
+         *     của TRANG, không phải của ENDPOINT.
+         *
+         *     **Chỉ trả trường công khai.** Tên pháp lý, mã số thuế, liên hệ và tỷ
+         *     lệ hoa hồng là điều khoản thương mại giữa nền tảng và nhà bán, chỉ có
+         *     ở `/api/v1/admin/sellers/{id}`.
+         *
+         *     Mã sai định dạng hoặc không tồn tại bị **bỏ qua**, không làm hỏng cả
+         *     lời gọi: trang đang hiển thị một danh sách, và một mã hỏng không đáng
+         *     để cả danh sách trống. Thứ tự kết quả giữ đúng thứ tự hỏi.
+         */
+        get: operations["lookupSellers"];
         put?: never;
         /**
          * Đăng ký làm nhà bán
@@ -4703,6 +4720,35 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    lookupSellers: {
+        parameters: {
+            query: {
+                /**
+                 * @description Danh sách mã nhà bán, ngăn cách bằng dấu phẩy. Tối đa 50.
+                 * @example sel_01J9XABC123DEF456GHJKMNPQR,sel_01J9XABC123DEF456GHJKMNPQS
+                 */
+                ids: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hồ sơ công khai của các nhà bán tìm thấy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SellerRef"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
         };
     };
     applyAsSeller: {
