@@ -867,6 +867,21 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
 | P3-17 | SLA cho đơn thực hiện | Đặc tả khai báo `sla_deadline`; domain chưa có khái niệm này |
 | P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
+| P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | Trang so sánh offer không hiện được TÊN nhà bán; chỉ có `/api/v1/admin/sellers/{id}` |
+| P3-20 | `SKU.buy_box_offer` trong đặc tả không bao giờ được trả | Cùng lớp với lỗi `availability` đã sửa: trường không `required` nên không ai phát hiện |
+
+**P3-19 — chưa có đường công khai để tra tên nhà bán (19/08).**
+
+Trang chi tiết sản phẩm có tiêu đề "Chọn nhà bán" và liệt kê các offer,
+nhưng KHÔNG hiện được tên ai cả: `GET /api/v1/products/{id}/offers` chỉ trả
+`seller_id`, và endpoint duy nhất tra hồ sơ nhà bán nằm dưới `/admin`.
+
+Trước mắt giao diện hiện tình trạng hàng và thời gian chuẩn bị thay vì một
+ô trống — ô trống làm khách tưởng giao diện hỏng. Nhưng một cái chợ mà
+khách không biết mình đang mua của ai thì mất đúng thứ khiến nó là cái chợ.
+
+Module cart ĐÃ giải quyết việc này ở phía máy chủ: nó trả `seller.name`
+trong từng nhóm giỏ. Nên tiền lệ có sẵn, chỉ là chưa áp cho offer.
 
 **P3-18 — giữ hàng chọn nhầm chủ sở hữu tồn kho (phát hiện và sửa 19/08).**
 

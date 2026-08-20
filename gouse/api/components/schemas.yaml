@@ -224,19 +224,26 @@ Image:
 Offer:
   type: object
   description: |
-    Lời chào bán của **một seller** cho một SKU.
+    Lời chào bán của **một seller** cho một SKU — đơn vị khách thực sự mua.
 
-    Đây là đơn vị khách thực sự mua. Offer **không chứa số lượng tồn kho** —
-    nguồn sự thật là `InventoryItem`; `availability` là dữ liệu dẫn xuất
-    cập nhật qua event.
-  required: [id, seller, price]
+    Offer **không chứa số lượng tồn kho**: nguồn sự thật là `InventoryItem`.
+    Câu hỏi giao diện cần trả lời không phải "còn mấy cái" mà là **mua được
+    hay không**, và câu đó là `is_sellable`.
+
+    Endpoint này **không** trả tên nhà bán, chỉ trả `seller_id`. Ghép dữ
+    liệu là việc của TRANG, không phải của ENDPOINT: trang so sánh nhà bán
+    tra tên theo lô cho cả danh sách, thay vì mỗi offer kéo theo một bản
+    sao hồ sơ nhà bán mà phần lớn lời gọi không dùng tới.
+  required:
+    [id, sku_id, seller_id, price, condition, handling_time_hours,
+     is_buy_box, is_sellable, status]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
     sku_id:
       $ref: './common.yaml#/schemas/Id'
-    seller:
-      $ref: '#/SellerRef'
+    seller_id:
+      $ref: './common.yaml#/schemas/Id'
     price:
       $ref: './common.yaml#/schemas/Money'
     compare_at_price:
@@ -244,17 +251,26 @@ Offer:
     condition:
       type: string
       enum: [NEW, USED_LIKE_NEW, USED_GOOD]
-    estimated_delivery_days:
+    handling_time_hours:
       type: integer
-    shipping_fee:
-      $ref: './common.yaml#/schemas/Money'
-    return_policy_days:
-      type: integer
-    availability:
-      type: string
-      enum: [IN_STOCK, LOW_STOCK, OUT_OF_STOCK]
+      description: Thời gian nhà bán cần để chuẩn bị hàng.
     is_buy_box:
       type: boolean
+      description: Offer được chọn sẵn khi khách mở trang.
+    is_sellable:
+      type: boolean
+      description: |
+        Khách mua được offer này hay không — **cờ mà giao diện phải dùng**
+        để bật/tắt nút thêm giỏ.
+
+        KHÁC với việc offer có hiện ra hay không: offer hết hàng vẫn hiện
+        (để khách đăng ký nhận thông báo) nhưng `is_sellable: false`.
+
+        Đừng suy lại từ `status` ở giao diện: quy tắc còn phụ thuộc tồn kho
+        và trạng thái nhà bán, và suy ở hai nơi thì hai nơi sẽ lệch.
+    status:
+      type: string
+      enum: [DRAFT, ACTIVE, OUT_OF_STOCK, SUSPENDED, ARCHIVED]
 
 SellerOffer:
   type: object
