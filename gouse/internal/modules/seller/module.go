@@ -177,6 +177,18 @@ func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 	sellerhttp.NewHandler(m.svc, log).Register(mux)
 }
 
+// RegisterPublicRoutes gắn endpoint tra hồ sơ nhà bán cho KHÁCH.
+//
+// Mux truyền vào KHÔNG cần Auth: khách chưa đăng nhập vẫn phải xem được
+// mình đang mua của ai.
+//
+// Handler công khai trả một tập trường HẸP HƠN hẳn bản quản trị — không
+// có tên pháp lý, mã số thuế, liên hệ hay tỷ lệ hoa hồng. Xem
+// interfaces/http/public.go.
+func (m *Module) RegisterPublicRoutes(mux *http.ServeMux, log *slog.Logger) {
+	sellerhttp.NewPublicHandler(m.svc, log).Register(mux)
+}
+
 // suspensionNote là ghi chú tác động trả cho người vận hành.
 //
 // Quy tắc quan trọng nhất của thao tác này, nên nó đi kèm mọi response chứ

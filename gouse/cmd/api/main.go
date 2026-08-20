@@ -552,6 +552,15 @@ func registerRoutes(
 		marketplaceModule.RegisterRoutes(mux, log)
 	}
 
+	// Hồ sơ nhà bán — công khai, và đi CÙNG CẶP với offer ở trên.
+	//
+	// Endpoint offer chỉ trả `seller_id`; trang tự tra tên theo lô qua
+	// đường này. Thiếu nó thì trang "Chọn nhà bán" liệt kê được giá nhưng
+	// không nói được đang mua của ai.
+	if sellerModule != nil {
+		sellerModule.RegisterPublicRoutes(mux, log)
+	}
+
 	registerShoppingRoutes(mux, log, m)
 
 	if identityModule != nil {

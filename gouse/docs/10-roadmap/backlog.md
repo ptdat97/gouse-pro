@@ -867,21 +867,50 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
 | P3-17 | SLA cho đơn thực hiện | Đặc tả khai báo `sla_deadline`; domain chưa có khái niệm này |
 | P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
-| P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | Trang so sánh offer không hiện được TÊN nhà bán; chỉ có `/api/v1/admin/sellers/{id}` |
+| P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | ✅ xong (20/08) — `GET /api/v1/sellers?ids=` |
+| P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | Nghiêm trọng với hàng thời trang — xem ghi chú dưới bảng |
 | P3-20 | `SKU.buy_box_offer` trong đặc tả không bao giờ được trả | Cùng lớp với lỗi `availability` đã sửa: trường không `required` nên không ai phát hiện |
 
-**P3-19 — chưa có đường công khai để tra tên nhà bán (19/08).**
+**P3-19 — đã xong (20/08).** `GET /api/v1/sellers?ids=` tra hồ sơ nhà bán
+theo LÔ, công khai, không cần đăng nhập.
 
-Trang chi tiết sản phẩm có tiêu đề "Chọn nhà bán" và liệt kê các offer,
-nhưng KHÔNG hiện được tên ai cả: `GET /api/v1/products/{id}/offers` chỉ trả
-`seller_id`, và endpoint duy nhất tra hồ sơ nhà bán nằm dưới `/admin`.
+Tra theo lô chứ không phải `/sellers/{id}`: trang sản phẩm hiện N offer của
+N nhà bán, và một endpoint đơn lẻ buộc trang gọi N lần. Endpoint offer vẫn
+CHỈ trả `seller_id` — ghép dữ liệu là việc của TRANG.
 
-Trước mắt giao diện hiện tình trạng hàng và thời gian chuẩn bị thay vì một
-ô trống — ô trống làm khách tưởng giao diện hỏng. Nhưng một cái chợ mà
-khách không biết mình đang mua của ai thì mất đúng thứ khiến nó là cái chợ.
+**Handler tách hẳn khỏi bản quản trị, và đó là ranh giới bảo mật.** Hồ sơ
+quản trị có tên pháp lý, mã số thuế, email, số điện thoại và tỷ lệ hoa
+hồng; endpoint này không có Auth nên bất kỳ ai cũng gọi được. Dùng chung
+một struct rồi lọc bằng `omitempty` là cách rò rỉ kinh điển: thêm một
+trường vào hồ sơ quản trị, quên cập nhật bộ lọc, và nó ra ngoài mà không
+ai biết. Ở đây trường công khai được LIỆT KÊ RA, nên thêm trường mới mặc
+định là KHÔNG lộ.
 
-Module cart ĐÃ giải quyết việc này ở phía máy chủ: nó trả `seller.name`
-trong từng nhóm giỏ. Nên tiền lệ có sẵn, chỉ là chưa áp cho offer.
+Test kiểm danh sách TRẮNG (chỉ ba trường được phép) chứ không phải danh
+sách đen, và quét cả thân response tìm giá trị nhạy cảm. Xác nhận đỏ khi
+cố tình thêm `email` và `commission_rate_bp`.
+
+**P3-21 — trang sản phẩm chưa cho chọn màu/size (20/08).**
+
+Phát hiện khi xem kết quả render thật sau khi nối tên nhà bán. Trang liệt
+kê offer của MỌI SKU thuộc sản phẩm, lẫn lộn, không nói offer nào ứng với
+màu/size nào:
+
+```text
+469.000 ₫ · Đề xuất · Lumière · Chính hãng
+490.000 ₫ · Đề xuất · Lumière · Chính hãng
+390.000 ₫ · Đề xuất · Lumière · Chính hãng
+```
+
+Khách chọn theo giá mà không biết mình đang mua size nào. Với thời trang
+thì đó không phải chi tiết phụ — màu và size LÀ thứ khách quyết định.
+
+Cả ba đều hiện "Đề xuất" cũng vì lý do này: buy box tính theo TỪNG SKU nên
+mỗi SKU có một offer thắng, và gộp ba SKU vào một danh sách thì cả ba cùng
+thắng. Nhãn đúng ở tầng dữ liệu, vô nghĩa ở tầng hiển thị.
+
+Cần: chọn màu → chọn size → mới lọc offer theo SKU đã chọn. Dữ liệu đã có
+sẵn (`product.variants[].skus[]` và `offer.sku_id`); thiếu là ở giao diện.
 
 **P3-18 — giữ hàng chọn nhầm chủ sở hữu tồn kho (phát hiện và sửa 19/08).**
 

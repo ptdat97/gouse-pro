@@ -7,7 +7,60 @@
 # Token chứa seller_id. Mọi truy vấn tự động lọc theo seller_id này
 # ở TẦNG REPOSITORY, không phải ở tầng hiển thị.
 
-seller_registration:
+# `/api/v1/sellers` là MỘT tài nguyên với hai thao tác:
+#
+#   GET   tra hồ sơ công khai theo lô  (trang sản phẩm dùng)
+#   POST  đăng ký làm nhà bán
+#
+# Chúng ở chung một node vì OpenAPI khai theo ĐƯỜNG DẪN, không theo nhóm
+# chức năng. Tách ra hai khóa `/api/v1/sellers` là YAML trùng khóa — bản
+# sau lặng lẽ đè bản trước.
+sellers:
+  get:
+    tags: [Catalog]
+    summary: Tra hồ sơ nhà bán theo lô
+    description: |
+      Đổi danh sách `seller_id` lấy thông tin hiển thị cho khách.
+
+      **Tra theo LÔ, không phải từng cái.** Trang chi tiết sản phẩm hiện N
+      offer của N nhà bán; một endpoint `/sellers/{id}` buộc trang gọi N
+      lần. Endpoint offer cố ý chỉ trả `seller_id` — ghép dữ liệu là việc
+      của TRANG, không phải của ENDPOINT.
+
+      **Chỉ trả trường công khai.** Tên pháp lý, mã số thuế, liên hệ và tỷ
+      lệ hoa hồng là điều khoản thương mại giữa nền tảng và nhà bán, chỉ có
+      ở `/api/v1/admin/sellers/{id}`.
+
+      Mã sai định dạng hoặc không tồn tại bị **bỏ qua**, không làm hỏng cả
+      lời gọi: trang đang hiển thị một danh sách, và một mã hỏng không đáng
+      để cả danh sách trống. Thứ tự kết quả giữ đúng thứ tự hỏi.
+    operationId: lookupSellers
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: ids
+        in: query
+        required: true
+        description: Danh sách mã nhà bán, ngăn cách bằng dấu phẩy. Tối đa 50.
+        schema:
+          type: string
+        example: sel_01J9XABC123DEF456GHJKMNPQR,sel_01J9XABC123DEF456GHJKMNPQS
+    responses:
+      '200':
+        description: Hồ sơ công khai của các nhà bán tìm thấy
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/SellerRef'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
   post:
     tags: [Seller]
     summary: Đăng ký làm nhà bán

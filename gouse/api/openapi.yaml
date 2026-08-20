@@ -159,7 +159,7 @@ paths:
 
   # ------------------------------------------------------------ Seller Center
   /api/v1/sellers:
-    $ref: './paths/seller.yaml#/seller_registration'
+    $ref: './paths/seller.yaml#/sellers'
   /api/v1/seller/offers:
     $ref: './paths/seller.yaml#/offers'
   /api/v1/seller/offers/{offer_id}:
