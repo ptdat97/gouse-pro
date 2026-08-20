@@ -459,6 +459,41 @@ Nếu bắt buộc thay đổi phá vỡ:
 
 **Nguyên tắc thiết kế:** thiết kế event contract như thể chúng **sẽ vượt qua ranh giới tiến trình** — vì trong tương lai chúng sẽ. Điều này có nghĩa: không truyền con trỏ, không truyền đối tượng có hành vi, chỉ truyền dữ liệu thuần.
 
+### 8.1. Thứ tự TRIỂN KHAI, không chỉ thứ tự thay đổi
+
+Các quy tắc trên nói được phép đổi gì. Chúng KHÔNG nói khi nào được triển
+khai — và đó mới là chỗ đã gây sự cố thật.
+
+```text
+BÊN NHẬN triển khai TRƯỚC, hoặc CÙNG LÚC với bên phát.
+KHÔNG BAO GIỜ bên phát trước.
+```
+
+**Sự cố ngày 19/08/2026.** Thêm địa chỉ giao vào `checkout.completed`. Một
+tiến trình worker CŨ còn sống đã tiêu thụ event mới và **âm thầm bỏ qua**
+trường nó không biết. Không lỗi, không log, không cảnh báo — chỉ là đơn
+thực hiện thiếu địa chỉ giao, và nhà bán không giao được.
+
+Thứ khiến nó nguy hiểm chính là quy tắc "thêm trường tùy chọn là tương
+thích ngược": nó đúng theo nghĩa bên nhận cũ KHÔNG VỠ. Nhưng "không vỡ"
+với "làm đúng việc" là hai chuyện khác nhau, và im lặng là cách hỏng tệ
+nhất vì không ai biết để đi sửa.
+
+### 8.2. Trạng thái triển khai (20/08/2026)
+
+```text
+✅ Trường `event_version` — có ở cả Go (`Event.Version`) và outbox
+🔴 Không bên nhận nào ĐỌC version — mọi handler unmarshal thẳng
+🔴 Chưa có bên phát nào phát hai phiên bản song song
+🔴 Chưa có quy trình triển khai bắt buộc thứ tự bên nhận trước
+```
+
+Nghĩa là cơ chế mới có phần KHUNG. Việc hoàn thiện nằm ở
+[backlog mục 2.8](../10-roadmap/backlog.md) (PH-7).
+
+Trước mắt, khi payload event đổi: **triển khai worker trước, API sau** —
+và kiểm tra không còn tiến trình worker cũ nào đang chạy.
+
 ---
 
 ## 9. Danh sách event bắt buộc cho MVP

@@ -413,7 +413,21 @@ Giai đoạn 6 — Marketplace hoàn chỉnh
 Giai đoạn 7 — Hoàn thiện MVP
     promotion · analytics cơ bản · demand_signal
     customer (wishlist, preference)
+
+Giai đoạn 8 — PRODUCTION HARDENING          ← ĐANG Ở ĐÂY (20/08/2026)
+    E2E đầy đủ · idempotency · event versioning
+    · audit phân quyền · hợp đồng API · observability
+    KHÔNG mở rộng miền
 ```
+
+**Vị trí hiện tại:** giai đoạn 1–5 xong, 6 xong phần bán hàng (còn tiền và
+điểm hiệu suất), 7 xong. Giai đoạn 8 là phase hiện tại — chi tiết ở
+[backlog.md mục 2](backlog.md) và [todo.md mục 12](todo.md).
+
+**Vì sao hardening là một giai đoạn riêng chứ không rải vào các giai đoạn
+trước:** những thứ nó chứng minh — đồng thời, thử lại, cô lập giữa các nhà
+bán, ranh giới giao dịch — chỉ tồn tại KHI ĐÃ CÓ đủ các module cùng chạy.
+Viết chúng sớm hơn là viết test cho một hệ thống chưa tồn tại.
 
 **Lý do thứ tự:** mỗi giai đoạn xây trên giai đoạn trước theo đúng đồ thị phụ thuộc. Không giai đoạn nào phải chờ module chưa làm.
 

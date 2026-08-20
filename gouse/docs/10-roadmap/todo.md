@@ -18,32 +18,24 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 
 ## 1. Tình hình hiện tại
 
+Đo ngày **20/08/2026**:
+
 ```text
-Tài liệu     128 file · 35.945 dòng · 13 thư mục      ✓ ĐÓNG BĂNG
-Đặc tả API   12 file YAML · 71 operation · 0 lỗi lint ✓ hoàn thành
-             (còn 4 cảnh báo redocly, không chặn)
-Code Go      231 file · 66.610 dòng · 586 hàm test    → Hết giai đoạn 5/7
-Migration    40 file SQL · 17 module + outbox + audit · đảo được
+Tài liệu     128 file · 37.107 dòng                  ✓ đồng bộ với code
+Đặc tả API   12 file YAML · 75 thao tác · 0 lỗi lint
+Code Go      282 file · 84.117 dòng · 740 hàm test
+Migration    25 file SQL · đảo được
+Giao diện    3 app Next.js (kho riêng) · 5 test trình duyệt · 10 test đơn vị
 
-Module MVP đã có code: 17/17  (catalog · product · pricing ·
-                               inventory · seller · marketplace ·
-                               payment · order · cart · checkout ·
-                               fulfillment · notification ·
-                               supply-chain — chỉ ghi demand_signal ·
-                               identity · customer · promotion ·
-                               analytics)
+Module MVP có logic:   17/17
+Module có tầng HTTP:   12/17
+Thao tác có route:     51/75   (24 còn lại: 20 thuộc Phase 2/3)
 
-Còn thiếu ở MVP:        (không còn)
-Kho lưu trữ:            in-memory VÀ PostgreSQL, cùng port
-Endpoint đã cài đặt:   20/71  (brand, collection, categories,
-                               product detail, product list,
-                               login, refresh, logout, admin/me,
-                               admin/audit-log,
-                               admin/sellers + detail/approve/suspend,
-                               admin/ledger/adjustments,
-                               admin/orders + detail/cancel,
-                               products/{id}/offers, search)
+Bảy luồng nghiệm thu MVP:  7/7 chạy được
 ```
+
+**Giai đoạn 1–5 xong. Giai đoạn 6 xong một phần. Giai đoạn 7 xong.**
+Phase hiện tại là **Production Hardening** — mục 12.
 
 Kiểm chứng lần cuối (13/08/2026):
 
@@ -772,41 +764,46 @@ im lặng.
 
 ---
 
-## 7. Giai đoạn 6 — Marketplace hoàn chỉnh `[ ]`
+## 7. Giai đoạn 6 — Marketplace hoàn chỉnh `[~]`
 
-- [ ] Đăng ký seller
-- [ ] Đối soát
-- [ ] Chi trả
+- [x] **Nhà bán tự quản offer** — tạo, đổi giá, ngừng bán
+      (`listMyOffers` · `createOffer` · `updateOffer`)
+- [x] **Nhà bán tự kiểm kê** (`updateInventory`, con số tuyệt đối)
+- [x] **Nhà bán tự thực hiện đơn** — xem việc, bàn giao vận chuyển
+      (`listMyFulfillmentOrders` · `getMyFulfillmentOrder` · `shipFulfillmentOrder`)
+- [x] **Cô lập giữa các nhà bán** — phòng vệ hai lớp: `WHERE seller_id`
+      ở SQL và `BelongsTo` ở domain
+- [x] **Trung tâm người bán** (giao diện, cổng 3002)
+- [ ] Đăng ký seller (`applyAsSeller` — đặc tả có, chưa có route)
+- [ ] Đối soát (`getMyBalance` · `getMySettlement`)
+- [ ] Chi trả (`executePayouts`)
+- [ ] Điểm hiệu suất nhà bán (`getMyPerformance`)
+
+Bốn việc còn lại đều thuộc nhóm TIỀN và điểm số — chúng không chặn luồng
+bán hàng, và được hoãn lại sau Production Hardening theo nguyên tắc không
+mở rộng miền trong phase này.
 
 ---
 
-## 8. Giai đoạn 7 — Hoàn thiện MVP `[~]`
+## 8. Giai đoạn 7 — Hoàn thiện MVP ✓
 
-- [x] `promotion` — **xong**, làm sớm trước giai đoạn 6 (xem mục 6)
-- [x] `analytics` cơ bản — **xong**, đã nối vào bus event
-- [x] **`demand_signal`** — **xong** ở giai đoạn 5
-- [x] `customer` — **xong**: hồ sơ, địa chỉ, wishlist, đồng ý
+- [x] `promotion` — làm sớm trước giai đoạn 6
+- [x] `analytics` cơ bản — đã nối vào bus event
+- [x] **`demand_signal`** — xong ở giai đoạn 5, kiểm chứng end-to-end
+- [x] `customer` — hồ sơ, địa chỉ, wishlist, đồng ý
       (preference/dữ liệu size là Phase 2 theo customer.md mục 11)
-- [ ] `identity` — **xong** phần module, CHƯA có tầng HTTP
+- [x] `identity` — **cả module lẫn tầng HTTP**: đăng nhập, làm mới,
+      đăng xuất, `/admin/me`
+- [x] **Đăng ký và đăng nhập cho KHÁCH** — mở khóa 6 endpoint tài khoản
+- [x] **Gộp giỏ khi đăng nhập** (`POST /api/v1/cart/merge`)
 
-**Bốn module MVP đã làm sớm**, trước giai đoạn 6, vì mọi tính năng của
-giai đoạn 6 đều bắt đầu bằng "ai đang gọi, và họ xem được dữ liệu của gian
-hàng nào".
+**Tầng HTTP đã hết là chỗ nghẽn.** Mô tả cũ của mục này ("chỉ 5 endpoint
+nghiệp vụ, 15 module chưa có tầng interfaces") là tình hình đầu tháng 8;
+nay 12/17 module có tầng HTTP và 51/75 thao tác có route.
 
-**Việc còn lại của giai đoạn 7 là TẦNG HTTP**, không phải logic nghiệp vụ:
-
-```text
-Đặc tả API      71 operation
-Đã cài đặt       5 endpoint nghiệp vụ  (brand, collection, categories,
-                                        product detail, product list)
-                 + 3 endpoint vận hành (health/live, health/ready, version)
-
-Có tầng interfaces: catalog, product
-Chưa có:            15 module còn lại
-```
-
-Toàn bộ logic nghiệp vụ đã chạy được và có test với PostgreSQL thật —
-nhưng hiện chỉ gọi được từ Go, chưa gọi được qua HTTP.
+Năm module không có tầng HTTP — `analytics`, `notification`, `pricing`,
+`promotion`, `supplychain` — là CỐ Ý: chúng phục vụ module khác qua Go và
+qua event, không có người dùng gọi thẳng.
 
 ---
 
@@ -843,17 +840,30 @@ có lịch sử thật để dự báo.
 | Không có thư mục `common/` `utils/` `helpers/` `services/` | `[x]` archcheck R7 |
 | Kiểm tra ranh giới module trong CI đều xanh | `[x]` job `architecture` chạy đầu tiên, thất bại = chặn merge |
 | Không có JOIN vượt ranh giới module | `[x]` không bảng nào có `REFERENCES` vượt module — `order_line.offer_id` chỉ giữ định danh |
-| Mọi lệnh ghi API đều idempotent | `[~]` `PlaceOrder`, `CompleteCheckout` và ghi sổ đã idempotent; các endpoint còn lại chưa có |
-| Outbox hoạt động, không có event kẹt | `[ ]` `platform/eventbus` còn rỗng |
+| Mọi lệnh ghi API đều idempotent | `[~]` header BẮT BUỘC ở mọi đường ghi, nhưng chỉ `order` và `payment` có ràng buộc `UNIQUE` ở database — chi tiết ở [backlog mục 2.7](backlog.md) |
+| Outbox hoạt động, không có event kẹt | `[x]` `platform/eventbus`: rollback thì KHÔNG phát, phát lại xử lý đúng một lần, event hỏng vào dead letter sau 5 lần |
 
 ### Chức năng · Chất lượng
 
-Chưa đánh giá được — cần đủ module giao dịch. Riêng "API p95 < 300ms" và
-"LCP < 2,5s" cần môi trường có tải thật.
+| Tiêu chí | Trạng thái |
+|---|---|
+| Bảy luồng nghiệm thu MVP chạy được | `[x]` cả 7 |
+| Luồng mua hàng chạy trên giao diện thật | `[x]` cửa hàng + trung tâm người bán, 5 test trình duyệt |
+| E2E xuyên module trên PostgreSQL | `[~]` 1/10 kịch bản — xem [backlog mục 2.5](backlog.md) |
+| Không oversell dưới thanh toán đồng thời | `[~]` chứng minh ở tầng inventory (10 khách tranh 5 món); chưa chứng minh xuyên chuỗi checkout |
+| API p95 < 300ms · LCP < 2,5s | `[ ]` cần môi trường có tải thật — [backlog mục 2.12](backlog.md) |
+
+**Hai dòng `[~]` là điều kiện chặn của phase Production Hardening**, không
+phải việc "làm sau nếu còn thời gian".
 
 ---
 
 ## 11. Việc tiếp theo
+
+> **Việc tiếp theo nay là PRODUCTION HARDENING — xem mục 12.**
+>
+> Mục này giữ lại lịch sử từng giai đoạn vì nó ghi cách kiểm chứng của
+> mỗi giai đoạn, và cách kiểm chứng là thứ dùng lại được.
 
 **Giai đoạn 4 đã xong.** Luồng mua hàng chạy đầu-cuối trên PostgreSQL thật:
 
@@ -994,7 +1004,74 @@ lại giá trị đã bỏ ra.
 
 ---
 
-## 12. Tài liệu liên quan
+## 12. PHASE HIỆN TẠI — Production Hardening
+
+Danh sách việc chi tiết ở [backlog.md mục 2](backlog.md). Mục này ghi
+**cái gì đã thực sự xong**, kèm bằng chứng — không đánh dấu xong nếu chưa
+có code VÀ test chứng minh.
+
+### 12.1 Commerce core — đã xong
+
+| Phần | Bằng chứng |
+|---|---|
+| Catalog · Product · SKU | `product` 74 test · `catalog` 54 test · route công khai chạy |
+| Offer · Pricing | `marketplace` 23 test · `pricing` 67 test |
+| Seller · Marketplace | `seller` 23 test · 3 endpoint offer của nhà bán |
+| Tồn kho của NHÀ BÁN | `inventory` 33 test · `FindOwnedItem` lọc theo chủ |
+| Tồn kho NỀN TẢNG / Own Brand | `inventory.OwnerForSeller` · `TestOwnBrandLayHangCuaNenTang` |
+| Cart | `cart` 33 test · gộp giỏ khi đăng nhập |
+| Checkout | `checkout` 37 test · giữ hàng 15 phút · đóng băng giá |
+| Customer · tài khoản · địa chỉ · wishlist | `customer` 41 test · 6 endpoint |
+| Order | `order` 33 test · mã đơn qua SEQUENCE · idempotency `UNIQUE` |
+| Payment | `payment` 30 test · sổ cái hai vế · idempotency `UNIQUE` |
+| Fulfillment | `fulfillment` 26 test · vòng đời đầy đủ tới DELIVERED |
+| Trung tâm người bán (MVP) | `apps/seller` cổng 3002 · 2 test trình duyệt |
+| Nền móng Demand Signal | bảng `demand_signal` · `supplychain` 9 test · kiểm chứng 3 loại tín hiệu |
+| Hợp đồng OpenAPI + TypeScript sinh ra | `npm run types:check` chặn ở CI |
+| Outbox + Event Dispatcher | `platform/eventbus` · rollback không phát · dead letter sau 5 lần |
+| Tách đơn nhiều nhà bán | `TestTachDonBaNguonHangQuaEvent` · hậu tố cơ số 26 |
+| Cô lập fulfillment giữa nhà bán | `TestSellerKhongThayDuocPhanCuaSellerKhac` · phòng vệ hai lớp |
+| **Phân giải chủ sở hữu tồn kho** | P3-18 · 3 test hồi quy, mỗi test xác nhận đỏ khi phá |
+| E2E thương mại trên PostgreSQL | `internal/e2e` · `TestDonNhieuNhaBanDiHetChuoi` |
+| Own Brand + Marketplace trong CÙNG một đơn | cùng test trên: 2 đơn thực hiện, tiền và tồn kho đúng từng bên |
+| Đồng bộ tài liệu / README | 20/08 · mọi liên kết đã kiểm |
+
+### 12.2 Chưa xong — và vì sao nó chặn production
+
+| Khoảng trống | Hậu quả nếu bỏ qua |
+|---|---|
+| E2E mới phủ 1/10 kịch bản | Lỗi ở KHOẢNG GIỮA module không ai thấy — P3-18 đã chứng minh |
+| Idempotency thiếu ràng buộc DB ở inventory và fulfillment | Hai request song song cùng khóa vẫn lọt |
+| Event versioning chỉ có TRƯỜNG, chưa có quy trình | Đã xảy ra: worker cũ nuốt event mới, bỏ trường mới, không lỗi |
+| Không có metrics, không có tracing | Sự cố production chỉ biết khi khách báo |
+| Correlation ID gần như luôn rỗng | Không lần được một đơn qua nhiều tiến trình |
+| Rate limit chỉ áp cho đăng ký, và đếm trong bộ nhớ | Đăng nhập bị dò; N bản sao = N lần hạn mức |
+| Webhook thanh toán và vận chuyển chưa có route | Đơn không bao giờ rời `PENDING_PAYMENT` bằng đường thật |
+| `MarkOutOfStock` là code chết (P3-23) | Trạng thái offer trong database sai; mới vá ở tầng đọc |
+
+### 12.3 Điều kiện kết thúc phase
+
+Không chuyển phase cho tới khi chuỗi đầy đủ chạy E2E ổn định với **sáu
+kịch bản** — own brand · 1 nhà bán · nhiều nhà bán · đơn trộn · thực hiện
+từng phần · lỗi và thử lại · thanh toán đồng thời — và mọi bất biến về
+ownership, authorization, inventory, transaction, idempotency đều có test
+hồi quy tự động.
+
+### 12.4 Nguyên tắc của phase
+
+```text
+Correctness > Consistency > Security > Reliability > Performance > Feature velocity
+```
+
+- Không thêm trừu tượng khi chưa có nhu cầu thật.
+- Không thêm miền chỉ để "đủ tính năng" — danh sách khóa ở backlog mục 6.
+- Không đánh dấu xong khi chưa có cài đặt VÀ test.
+- **Mỗi lỗi kiểu production phải thành một test hồi quy.**
+- Mỗi bất biến quan trọng phải có mặt ở cả ba nơi: code, test, tài liệu.
+
+---
+
+## 13. Tài liệu liên quan
 
 - [deliverables.md](deliverables.md) — thứ tự triển khai, ma trận, rủi ro
 - [mvp.md](mvp.md) — phạm vi và tiêu chí hoàn thành MVP

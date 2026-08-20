@@ -1,5 +1,49 @@
 # Bảo mật
 
+## 0. Trạng thái triển khai (20/08/2026)
+
+Tài liệu này mô tả THIẾT KẾ. Bảng dưới ghi mức đã thực sự cài.
+
+| Phần | Trạng thái |
+|---|---|
+| Xác thực: access token 15 phút + refresh cookie httpOnly 30 ngày | ✅ |
+| Xoay refresh token, phát hiện dùng lại | ✅ có test song song |
+| `RequireRole` ở tầng middleware | ✅ |
+| **Ranh giới dữ liệu kiểm ở domain/application, không ở HTTP** | ✅ xem dưới |
+| Kiểm tra đầu vào ở biên | ✅ từng handler, lỗi theo `apierror` |
+| CORS theo danh sách trắng | ✅ 3 origin phát triển; production KHÔNG có mặc định |
+| Rate limit | 🟡 CHỈ đăng ký; đếm trong BỘ NHỚ (P3-16) |
+| 2FA cho `ADMIN` / `OPS_FINANCE` | 🔴 hoãn sau phát hành (P3-5) |
+| Nhật ký kiểm toán cho thao tác nhạy cảm | ✅ cùng giao dịch với thao tác |
+| Rà soát lộ dữ liệu theo danh sách TRẮNG | 🟡 mới làm cho `/api/v1/sellers` |
+
+### Ranh giới dữ liệu — đã cài ở đâu
+
+Kiểm ở **domain hoặc application**, không phải ở tầng HTTP: tầng HTTP là
+nơi dễ quên nhất khi thêm endpoint mới.
+
+```text
+Order.ViewableBy              đơn ĐÃ CÓ CHỦ thì CHỈ chủ mở được
+Address.BelongsTo             địa chỉ khách khác không đọc được
+Wishlist.BelongsTo
+FulfillmentOrder.BelongsTo    + WHERE seller_id ở SQL — phòng vệ HAI lớp
+marketplace.OwnedOffer        không sở hữu → ErrNotFound, không phải 403
+inventory.FindOwnedItem       lọc theo CHỦ SỞ HỮU tồn kho
+```
+
+**Hai bài học đã trả giá:**
+
+1. `Order.ViewableBy` từng cho mở đơn của khách ĐÃ ĐĂNG KÝ chỉ bằng số
+   điện thoại. Quy tắc đúng: **không suy quyền từ id hay số điện thoại.**
+2. `OwnedOffer` trả `ErrNotFound` chứ không phải `Forbidden`. Phân biệt
+   hai lỗi đó cho kẻ dò biết offer nào TỒN TẠI.
+
+Việc còn lại — bảng liệt kê MỌI resource × MỌI vai trò, và test khẳng định
+response công khai không chứa dữ liệu nội bộ — ở
+[backlog.md mục 2.9](../10-roadmap/backlog.md).
+
+---
+
 ## 1. Ba tài sản cần bảo vệ nhất
 
 ```text

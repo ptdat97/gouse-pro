@@ -42,6 +42,7 @@ Deprecated — không còn áp dụng
 | [0009](0009-service-extraction.md) | Hoãn tách service | Accepted | Toàn hệ thống |
 | [0010](0010-database-layer.md) | PostgreSQL + sqlc cho tầng dữ liệu | Accepted | Toàn hệ thống |
 | [0011](0011-audit-log.md) | Audit log là năng lực platform | Accepted | Toàn hệ thống |
+| [0012](0012-inventory-ownership.md) | Chủ sở hữu tồn kho suy ra từ nhà bán | Accepted | Commerce, Marketplace, Inventory |
 
 ## Quy trình thêm ADR mới
 

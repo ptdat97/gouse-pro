@@ -9,10 +9,22 @@ FUTURE — KHÔNG TRIỂN KHAI TRONG GIAI ĐOẠN NÀY
 > chạy end-to-end.
 >
 > **Mười hai module dưới đây chưa tồn tại trong code** và không được tạo
-> mới. Mười lăm operation thuộc các giai đoạn này đã có trong OpenAPI vẫn ở
-> mức `DESIGNED` — xem [../../api/README.md](../../api/README.md).
+> mới: `creator` · `content` · `affiliate` · `loyalty` · `recommendation`
+> · `campaign` · `return` · `warehouse` · `quality` · `procurement` ·
+> `manufacturing` · `supplier`. Hai mươi thao tác thuộc các giai đoạn này
+> đã có trong OpenAPI vẫn ở mức `DESIGNED` — xem
+> [../../api/README.md](../../api/README.md).
 >
-> Việc đang làm: [backlog.md](backlog.md).
+> `supplychain` LÀ ngoại lệ đã tồn tại: nó chỉ GHI `demand_signal`, không
+> suy luận gì. Phần dự báo nhu cầu vẫn thuộc giai đoạn sau.
+>
+> **Trạng thái 20/08/2026: Commerce Core đã chạy end-to-end.** Nhưng điều
+> kiện mở khóa các giai đoạn này KHÔNG phải "chạy được" mà là "chịu được
+> điều kiện thật" — dự án đang ở phase **Production Hardening**, và trong
+> phase đó danh sách trên bị KHÓA cứng. Lý do ở
+> [backlog.md mục 6](backlog.md).
+>
+> Việc đang làm: [backlog.md mục 2](backlog.md).
 
 ---
 

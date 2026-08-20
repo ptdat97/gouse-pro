@@ -1,5 +1,30 @@
 # Quan sát hệ thống (Observability)
 
+## 0. Trạng thái triển khai (20/08/2026)
+
+Tài liệu này mô tả THIẾT KẾ. Bảng dưới ghi mức đã thực sự cài — đọc phần
+còn lại với hiểu biết đó.
+
+| Phần | Trạng thái |
+|---|---|
+| Log có cấu trúc (`slog`, `platform/logger`) | ✅ dùng ở mọi module |
+| Request ID trong log và trong mọi response lỗi | ✅ |
+| Correlation ID xuyên tiến trình | 🔴 trường có (`Event.WithTrace`), nhưng chỉ 2 chỗ gọi — phần còn lại luôn rỗng |
+| Metrics kỹ thuật (mục 3) | 🔴 chưa có gì |
+| Metrics nghiệp vụ (mục 4) | 🔴 chưa có gì |
+| Distributed tracing (mục 5) | 🔴 chưa có gì |
+| Cảnh báo (mục 7) · Dashboard (mục 8) | 🔴 chưa có gì |
+| Nhật ký kiểm toán (`platform/audit`) | ✅ có, kèm ranh giới giao dịch |
+
+**Ưu tiên khi bắt tay vào:** metrics outbox trước tiên. Outbox tồn đọng là
+triệu chứng SỚM của gần như mọi sự cố ở kiến trúc này — worker chết, event
+kẹt, tồn kho không chuyển Reserved → Committed, và tiến trình dọn có thể
+nhả hàng của một đơn đã thanh toán. Hiện không có gì báo động chuyện đó.
+
+Việc theo dõi ở [backlog.md mục 2.13](../10-roadmap/backlog.md).
+
+---
+
 ## 1. Ba trụ cột và một bổ sung
 
 ```text

@@ -16,28 +16,45 @@
 
 ## 0. Tình hình hiện tại — con số thật
 
-Đếm từ code ngày 15/08/2026, không phải ước lượng:
+Đếm từ code ngày **20/08/2026**, không phải ước lượng:
 
 ```text
 Module MVP có logic nghiệp vụ    17/17
-Module có tầng HTTP               9/17   (catalog · product · identity ·
-                                        seller · payment · order ·
-                                        marketplace · cart · checkout)
-Operation trong OpenAPI          71
-Operation đã cài đặt             34      (48%)
-Operation MVP còn lại            21      (+1 mới: P1.8 lô giao cho khách)
-Operation hoãn (Phase 2/3)       16
+Module có tầng HTTP              12/17   (thiếu: analytics · notification ·
+                                         pricing · promotion · supplychain —
+                                         cả năm phục vụ module khác qua Go,
+                                         không cần đường HTTP riêng ở MVP)
+Thao tác trong OpenAPI           75
+Thao tác đã có route             51      (68%)
+Thao tác chưa cài                24      (20 thuộc Phase 2/3 — xem mục 6)
+
+Migration                        25
+Test Go                          740
+Test trình duyệt (Playwright)     5
+Test đơn vị TypeScript           10
 ```
 
-**Khoảng trống lớn nhất là tầng HTTP.** Domain, application, infrastructure,
-PostgreSQL, event bus, test đều đã có. Thứ thiếu là đường nối chúng ra
-ngoài:
+**Tầng HTTP KHÔNG còn là chỗ nghẽn.** Đó là tình hình của tháng 8 đầu; giờ
+mọi module thương mại đều có đường ra ngoài, ba giao diện đều gọi được, và
+bảy luồng nghiệm thu MVP đều chạy.
+
+### Đổi phase: từ "dựng commerce core" sang PRODUCTION HARDENING
+
+Commerce core đã dựng xong và có test. Việc còn lại **không phải thêm tính
+năng** mà là chứng minh những gì đã có chịu được điều kiện thật: đồng thời,
+lỗi, thử lại, và kẻ tấn công.
+
+Ưu tiên trong phase này, theo đúng thứ tự:
 
 ```text
-Application  →  HTTP Handler  →  OpenAPI  →  API thật  →  Next.js
-                     ▲
-              ĐÂY là chỗ nghẽn
+Correctness > Consistency > Security > Reliability > Performance > Feature velocity
 ```
+
+Danh sách việc ở **mục 2 (P0 — Production Hardening)**. Đánh số P1/P2/P3
+của các mục sau là LỊCH SỬ, giữ nguyên vì mã P3-18, P3-19… được chú thích
+trong code tham chiếu tới; đừng đánh số lại.
+
+**Không mở rộng miền trong phase này.** Danh sách cấm ở mục 6.
 
 ---
 
@@ -72,9 +89,231 @@ module "có logic" nhưng chỉ 48% API dùng được.
 
 ---
 
-## 2. P0 — Blocking
+## 2. P0 — Production Hardening `[PHASE HIỆN TẠI]`
 
-Việc mà không có nó thì mọi việc khác không làm được.
+Việc mà không có nó thì không được đưa lên production.
+
+**Điều kiện kết thúc phase** — chỉ chuyển phase khi chuỗi dưới đây chạy E2E
+ổn định trên PostgreSQL thật, với **cả sáu kịch bản**:
+
+```text
+Product → SKU → Offer → Seller/Own Brand → Inventory → Cart → Checkout
+        → Order → Payment → Fulfillment → Shipment → Event/Outbox
+        → Demand Signal
+
+kịch bản:  own brand · 1 seller · nhiều seller · đơn trộn
+           · thực hiện từng phần · lỗi + thử lại · thanh toán đồng thời
+```
+
+và mọi bất biến về **ownership, authorization, inventory, transaction,
+idempotency** đều có test hồi quy tự động.
+
+### 2.1 PH — Commerce Core Hardening
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | 🟡 1/10 kịch bản |
+| PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
+| PH-3 | Test tích hợp API cho các luồng quan trọng | ⬜ chưa có |
+| PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 5/7 luồng |
+
+### 2.2 PH — Reliability
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| PH-5 | **Chuẩn hóa idempotency** — bảng ở mục 2.7 | 🟡 2/5 có ràng buộc DB |
+| PH-6 | Chuẩn hóa retry / xử lý thất bại | 🟡 outbox có, phần còn lại chưa |
+| PH-7 | **Event versioning** — trường đã có, quy trình CHƯA | 🔴 xem 2.8 |
+| PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | 🟡 từng cặp có, chưa có test xuyên suốt |
+
+### 2.3 PH — Security
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| PH-9 | **Audit authorization toàn bộ resource** | 🟡 xem 2.9 |
+| PH-10 | Rà: xác thực · phân quyền · kiểm tra đầu vào · rate limit · CORS · lộ dữ liệu · nhật ký kiểm toán | 🟡 xem 2.9 |
+
+### 2.4 PH — API Contract
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| PH-11 | OpenAPI là nguồn sự thật DUY NHẤT | 🟢 `types:check` chặn ở CI |
+| PH-12 | Kiểm chuỗi: OpenAPI → TypeScript sinh ra → Go → giao diện | 🟡 xem 2.10 |
+| PH-13 | Giao diện KHÔNG tự cài lại quy tắc nghiệp vụ | 🟢 đã sửa `is_sellable` |
+| PH-14 | Tránh N+1 khi cửa hàng cần dữ liệu seller/product/offer | 🟢 tra theo lô |
+
+### 2.5 Ma trận E2E PostgreSQL (PH-1)
+
+`internal/e2e` hiện có **một** test. Đó là điểm yếu lớn nhất của phase này:
+loại lỗi nguy hiểm nhất nằm ở KHOẢNG GIỮA các module, và test từng module
+không thấy được — P3-18 đã chứng minh điều đó.
+
+| Kịch bản | Trạng thái |
+|---|---|
+| Own Brand + Marketplace trong CÙNG một đơn | ✅ `TestDonNhieuNhaBanDiHetChuoi` |
+| Nhiều seller trong cùng giỏ/đơn | ✅ cùng test trên |
+| Cô lập chủ sở hữu tồn kho | ✅ cùng test trên |
+| Thực hiện TỪNG PHẦN (một seller giao, một seller chưa) | ⬜ |
+| Giao hàng TỪNG PHẦN trong một đơn thực hiện | ⬜ |
+| Hủy đơn (trước và sau khi lấy hàng) | ⬜ |
+| Không đủ hàng giữa chừng | ⬜ |
+| Thử lại / gửi trùng request | ⬜ |
+| Giao dịch cuộn ngược (rollback) | ⬜ |
+| Thanh toán ĐỒNG THỜI trên cùng giỏ | ⬜ |
+
+Có sẵn để dựa vào: `TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc`
+(10 khách tranh 5 món, đúng 5 người giữ được) chứng minh KHÔNG OVERSELL ở
+tầng inventory. Việc còn lại là chứng minh điều đó vẫn đúng khi đi qua cả
+chuỗi checkout.
+
+### 2.6 Ma trận E2E giao diện (PH-4)
+
+| Luồng | Trạng thái |
+|---|---|
+| Khách mua hàng (chọn màu → size → nhà bán → giỏ) | ✅ |
+| Khách VÃNG LAI thanh toán | 🟡 mới tới bước giỏ |
+| Khách ĐÃ ĐĂNG KÝ mua hàng | ⬜ |
+| Đơn nhiều nhà bán | ⬜ |
+| Nhà bán tạo offer | ⬜ |
+| Nhà bán cập nhật tồn kho | ✅ |
+| Nhà bán thực hiện đơn (bàn giao vận chuyển) | ⬜ |
+
+### 2.7 Idempotency (PH-5)
+
+| Đường ghi | Khóa ở HTTP | Ràng buộc ở DB |
+|---|---|---|
+| checkout complete | ✅ | 🟡 chỉ khóa hoàn tất |
+| payment | ✅ | ✅ `UNIQUE` |
+| order place | ✅ | ✅ `UNIQUE` |
+| inventory reservation | ✅ | 🔴 KHÔNG có |
+| fulfillment / shipment | ✅ | 🔴 KHÔNG có |
+
+Middleware `RequireIdempotencyKey` bắt buộc header ở mọi đường ghi — nhưng
+**bắt buộc header không phải là idempotent**. Chỉ `payment` và `order` có
+ràng buộc `UNIQUE` ở database, tức là chỉ hai đường đó chịu được hai
+request song song cùng khóa. Kiểm tra trước-khi-ghi ở tầng ứng dụng vẫn
+lọt khi hai request chạy cùng lúc.
+
+### 2.8 Event versioning (PH-7)
+
+Trường đã có: `Event.Version` trong Go, cột `event_version` trong outbox,
+mặc định 1. Cái CHƯA có là mọi thứ khác:
+
+```text
+❌ không bên nhận nào ĐỌC Version — mọi handler unmarshal thẳng
+❌ không có quy tắc thay đổi payload nào là tương thích ngược
+❌ không có chiến lược triển khai khi payload đổi
+```
+
+Đã có sự cố thật (19/08): thêm địa chỉ giao vào `checkout.completed`, một
+tiến trình worker CŨ còn sống đã tiêu thụ event mới và **âm thầm bỏ qua**
+trường mới. Không lỗi, không log — chỉ là đơn thực hiện thiếu địa chỉ.
+
+Quy tắc tối thiểu cần chốt: bên nhận triển khai TRƯỚC bên phát; chỉ được
+THÊM trường, không đổi nghĩa và không xóa; và bên nhận phải chịu được
+trường lạ.
+
+### 2.8b ADR liên quan tới phase này
+
+| ADR | Vì sao liên quan |
+|---|---|
+| [0006](../adr/0006-internal-events.md) | Outbox và ranh giới giao dịch của event — nền của PH-7, PH-8 |
+| [0007](../adr/0007-marketplace-order-model.md) | Tách Order / FulfillmentOrder — nền của tách đơn nhiều nhà bán |
+| [0008](../adr/0008-financial-ledger.md) | Sổ cái bất biến — nền của idempotency thanh toán |
+| [0011](../adr/0011-audit-log.md) | Audit log cùng giao dịch với thao tác — PH-10 |
+| [0012](../adr/0012-inventory-ownership.md) | **Bất biến chủ sở hữu tồn kho** — trung tâm của PH-2 |
+
+### 2.9 Audit authorization (PH-9, PH-10)
+
+Đã có, kiểm ở tầng domain/application chứ không phải ở HTTP:
+
+```text
+✅ Order.ViewableBy        đơn ĐÃ CÓ CHỦ thì chỉ chủ mở được
+✅ Address.BelongsTo       địa chỉ của khách khác không đọc được
+✅ Wishlist.BelongsTo
+✅ FulfillmentOrder.BelongsTo   + WHERE seller_id ở SQL (phòng vệ hai lớp)
+✅ marketplace.OwnedOffer  trả ErrNotFound khi không sở hữu, không phải 403
+✅ inventory.FindOwnedItem lọc theo chủ sở hữu
+```
+
+Còn phải rà:
+
+```text
+⬜ một bảng liệt kê MỌI resource × MỌI vai trò, không phải rà theo trí nhớ
+⬜ rate limit mới áp cho ĐĂNG KÝ; đăng nhập, tra đơn vãng lai chưa có
+⬜ bộ đếm rate limit nằm trong bộ nhớ (P3-16) — N bản sao = N lần hạn mức
+⬜ chưa có test khẳng định response công khai KHÔNG chứa dữ liệu nội bộ,
+   trừ endpoint `/api/v1/sellers` (đã có, kiểm danh sách TRẮNG)
+```
+
+Nguyên tắc đã áp và cần giữ: **không suy quyền từ id hay số điện thoại**.
+`Order.ViewableBy` từng sai đúng chỗ này — đơn của khách đã đăng ký mở
+được bằng số điện thoại.
+
+### 2.10 Chuỗi hợp đồng API (PH-12)
+
+`npm run types:check` sinh lại TypeScript rồi `git diff --exit-code`, nên
+đặc tả và kiểu luôn khớp. Nhưng nó KHÔNG bắt được đặc tả lệch với Go —
+lớp lỗi đã xảy ra bốn lần và mỗi lần một cách:
+
+```text
+availability   đặc tả khai, Go không trả  → nút mua khóa vĩnh viễn
+seller/hex/size đặc tả khai object, Go trả chuỗi → chặn lúc biên dịch
+updateInventory đặc tả PATCH, Go đăng ký PUT     → client sinh ra ăn 405
+updated_at     đặc tả khai, Go không trả  → không ai phát hiện
+```
+
+Ba trong bốn lọt qua TypeScript vì trường không `required`. Cần một bước
+kiểm **đặc tả ↔ response THẬT** (contract test chạy với server thật), chứ
+không chỉ đặc tả ↔ kiểu.
+
+### 2.12 PH — Hiệu năng và đồng thời (SAU khi E2E ổn định)
+
+Xếp sau có chủ ý: đo hiệu năng của một hệ thống chưa chứng minh được tính
+đúng là đo sai thứ. Chi tiết chiến lược ở [scale.md](scale.md).
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| PH-15 | Load test đường thanh toán | ⬜ |
+| PH-16 | Giữ hàng đồng thời · đặt đơn đồng thời | 🟡 có test tranh chấp ở tầng inventory |
+| PH-17 | Nhà bán cập nhật tồn kho đồng thời | 🟡 có khóa lạc quan, chưa có load test |
+| PH-18 | Tranh chấp database · connection pool | ⬜ |
+| PH-19 | Thông lượng outbox · số worker chạy song song · bão thử lại | ⬜ |
+
+**Bất biến phải chứng minh được, không phải mong đợi:**
+
+```text
+available >= 0   luôn đúng
+KHÔNG oversell   dưới thanh toán đồng thời
+```
+
+Đã có một nửa: `TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc` chứng
+minh điều đó ở tầng inventory với hai giao dịch PostgreSQL thật chạy song
+song. Nửa còn lại là chứng minh nó vẫn đúng khi đi qua cả chuỗi checkout →
+order → outbox.
+
+### 2.13 PH — Observability (SAU khi E2E ổn định)
+
+Thiết kế đã có ở [observability.md](../09-operations/observability.md);
+đây là phần TRIỂN KHAI.
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| PH-20 | Log có cấu trúc | ✅ `slog` + `platform/logger` |
+| PH-21 | Request ID | ✅ có ở mọi request và mọi lỗi |
+| PH-22 | **Correlation ID xuyên tiến trình** | 🔴 `WithTrace` chỉ được gọi ở 2 chỗ, luôn rỗng ở phần còn lại |
+| PH-23 | **Metrics** | 🔴 KHÔNG có gì |
+| PH-24 | Độ trễ · tỷ lệ lỗi | 🔴 chưa đo |
+| PH-25 | Metrics database (pool, thời gian truy vấn) | 🔴 chưa đo |
+| PH-26 | Metrics outbox (tồn đọng, độ trễ, số lần thử lại) | 🔴 chưa đo |
+| PH-27 | Đếm thất bại: giữ hàng · thanh toán · trả tiền · thực hiện đơn | 🔴 chưa đo |
+
+**PH-26 và PH-27 quan trọng hơn vẻ ngoài của chúng.** Outbox tồn đọng là
+triệu chứng SỚM của gần như mọi sự cố ở kiến trúc này: worker chết, event
+kẹt, tồn kho không chuyển Reserved → Committed, và tiến trình dọn có thể
+nhả hàng của một đơn đã thanh toán. Hiện không có gì báo động chuyện đó.
+
+### 2.14 P0 cũ — đã xong, giữ lại làm lịch sử
 
 | # | Việc | Trạng thái |
 |---|---|---|
@@ -1125,8 +1364,26 @@ không bị quên.
 
 ## 6. FUTURE — không làm trong giai đoạn này
 
-15 operation đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
+20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
 nguyên; chỉ hoãn phần cài đặt.
+
+### Miền bị KHÓA trong phase Production Hardening
+
+Không triển khai, kể cả khi "chỉ mất một buổi":
+
+```text
+Creator · Content platform · Social commerce · Live commerce
+AI / advanced recommendation · Loyalty · Affiliate
+Advanced supply-chain intelligence · Demand forecasting
+```
+
+**Vì sao viết ra thành danh sách thay vì tin vào kỷ luật:** mỗi miền mới
+thêm một tập bất biến mới phải chứng minh, trong khi mục tiêu của phase
+này là chứng minh tập bất biến ĐANG CÓ. Thêm miền lúc này làm đích lùi ra
+xa đúng bằng tốc độ đang tiến tới nó.
+
+`demand_signal` là NGOẠI LỆ đã có và được giữ: nó chỉ GHI tín hiệu, không
+suy luận gì. Dự báo nhu cầu — phần suy luận — vẫn bị khóa.
 
 ### Phase 2 — Creator Commerce (12 operation)
 

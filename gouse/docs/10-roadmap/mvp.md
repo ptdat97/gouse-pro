@@ -203,6 +203,14 @@ Xem [../09-operations/deployment.md](../09-operations/deployment.md).
 
 ## 7. Tiêu chí hoàn thành MVP
 
+> **Đối chiếu thực tế 20/08/2026.** Phần CHỨC NĂNG đã đạt, trừ đối soát:
+> `getMySettlement` và `getMyBalance` mới có đặc tả, chưa có route. Phần
+> CHẤT LƯỢNG chưa đo được vì cần môi trường có tải thật — đó là một trong
+> các việc của phase Production Hardening
+> ([backlog mục 2.12](backlog.md)).
+>
+> Trạng thái từng phần kèm bằng chứng: [todo.md mục 12](todo.md).
+
 ### Chức năng
 
 ```text

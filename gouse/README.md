@@ -36,8 +36,18 @@ xanh nhưng KHÔNG kiểm chứng tầng kho lưu trữ. CI phải chạy nó.
 
 ## Trạng thái hiện tại
 
-Đang ở **Giai đoạn 7 — Hoàn thiện MVP** theo [lộ trình triển khai](docs/10-roadmap/deliverables.md#14-thứ-tự-triển-khai-đề-xuất).
-Việc còn lại và các lỗi đã biết nằm ở [backlog](docs/10-roadmap/backlog.md).
+Đang ở **Giai đoạn 8 — Production Hardening** theo [lộ trình triển khai](docs/10-roadmap/deliverables.md#14-thứ-tự-triển-khai-đề-xuất).
+
+Commerce core đã dựng xong và có test. Phase này **không thêm tính năng** —
+nó chứng minh những gì đã có chịu được điều kiện thật: đồng thời, lỗi, thử
+lại, và kẻ tấn công. Ưu tiên:
+
+```text
+Correctness > Consistency > Security > Reliability > Performance > Feature velocity
+```
+
+Việc chi tiết ở [backlog mục 2](docs/10-roadmap/backlog.md); trạng thái
+từng phần kèm bằng chứng ở [todo mục 12](docs/10-roadmap/todo.md).
 
 | Thành phần | Trạng thái |
 |---|---|
@@ -47,8 +57,10 @@ Việc còn lại và các lỗi đã biết nằm ở [backlog](docs/10-roadmap
 | `cmd/api`, `cmd/worker` | Xong |
 | 17 module nghiệp vụ | Xong |
 | 25 migration | Xong |
-| `internal/e2e` — luồng đi qua nhiều module | Xong |
 | Giao diện: quản trị · cửa hàng · trung tâm người bán | Xong (kho riêng) |
+| `internal/e2e` — luồng đi qua nhiều module | 1/10 kịch bản |
+| Idempotency có ràng buộc ở database | 2/5 đường ghi |
+| Event versioning — quy trình, không chỉ trường dữ liệu | Chưa |
 | Vận hành: metrics, tracing, chính sách lưu trữ audit | Chưa |
 
 **Bảy luồng nghiệm thu MVP đều chạy được**, kể cả luồng nhà bán đăng sản
@@ -164,7 +176,7 @@ make api-types     # sinh kiểu TypeScript cho frontend
 | [docs/README.md](docs/README.md) | Điều hướng toàn bộ tài liệu |
 | [docs/00-overview/principles.md](docs/00-overview/principles.md) | 16 nguyên tắc kiến trúc bắt buộc |
 | [docs/10-roadmap/deliverables.md](docs/10-roadmap/deliverables.md) | Tổng hợp bàn giao, rủi ro, thứ tự triển khai |
-| [docs/adr/](docs/adr/) | 12 quyết định kiến trúc kèm lý do |
+| [docs/adr/](docs/adr/) | 13 quyết định kiến trúc kèm lý do |
 
 ---
 
