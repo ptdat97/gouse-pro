@@ -86,6 +86,30 @@ const (
 //
 // Hủy chỉ được ở PENDING/ALLOCATED/CONFIRMED — từ PICKING trở đi đã tốn
 // công và vật tư, cần quy trình riêng có tính chi phí (quy tắc 8).
+// StockStillInWarehouse cho biết hàng CÒN NGUYÊN trong kho ở trạng thái
+// này hay không.
+//
+// Quyết định điều gì xảy ra với tồn kho khi hủy:
+//
+//	PENDING · ALLOCATED · CONFIRMED   hàng còn trong kho  → TRẢ VỀ khả dụng
+//	DELIVERY_FAILED                   hàng đang trên đường về → KHÔNG trả
+//
+// Với DELIVERY_FAILED, hàng đã rời kho và đang được chuyển trả. Trả về
+// khả dụng ngay nghĩa là bán một món chưa cầm trong tay: nếu nó hỏng,
+// thất lạc, hoặc không bao giờ tới, lỗi hiện ra ở KHÁCH THỨ HAI chứ không
+// phải khách đầu — và lúc đó không còn cách nào lần ra nguyên nhân.
+//
+// Hàng trả về được nhập lại bằng quy trình riêng có bước kiểm tra chất
+// lượng (ReceiveReturn → InspectionPassed/Failed ở module inventory).
+func (s FOStatus) StockStillInWarehouse() bool {
+	switch s {
+	case FOPending, FOAllocated, FOConfirmed:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s FOStatus) canTransitionTo(next FOStatus) bool {
 	switch s {
 	case FOPending:

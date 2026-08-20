@@ -42,6 +42,39 @@ const ReturnWindow = 7 * 24 * time.Hour
 // database. Ngữ cảnh truyền vào phải mang giao dịch của kho lưu trữ.
 type EventPublisher interface {
 	PublishProgress(ctx context.Context, e ProgressChanged) error
+
+	// PublishCancelled báo một đơn thực hiện đã bị hủy, kèm DÒNG HÀNG.
+	//
+	// Tách khỏi PublishProgress vì hai event trả lời hai câu khác nhau:
+	// progress nói "tiến độ đổi rồi, tính lại trạng thái đơn", còn cái
+	// này nói "những món cụ thể này không đi nữa, trả về kho".
+	PublishCancelled(ctx context.Context, e FulfillmentCancelled) error
+}
+
+// FulfillmentCancelled là sự thật "một đơn thực hiện đã bị hủy".
+type FulfillmentCancelled struct {
+	OrderID       ids.ID
+	FulfillmentID ids.ID
+	FONumber      string
+	SellerID      ids.ID
+
+	// StockLocationID là kho đang giữ hàng. Có thể rỗng với đơn cũ.
+	StockLocationID ids.ID
+
+	// ReleaseStock quyết định tồn kho có được trả về khả dụng không.
+	//
+	// FALSE khi hàng đã rời kho (hủy sau khi giao thất bại): lúc đó hàng
+	// đang trên đường về và phải nhập lại qua quy trình hàng trả, có bước
+	// kiểm tra chất lượng. Xem FOStatus.StockStillInWarehouse.
+	ReleaseStock bool
+
+	Lines []CancelledLine
+}
+
+// CancelledLine là một món không đi nữa.
+type CancelledLine struct {
+	SKUID    ids.ID
+	Quantity int
 }
 
 // ProgressChanged là sự thật "tiến độ một nguồn hàng đã đổi".
@@ -269,9 +302,62 @@ func (s *Service) Deliver(ctx context.Context, sellerID, foID ids.ID) error {
 // Cancel hủy phần của một seller, ví dụ vì hết hàng.
 //
 // Lý do BẮT BUỘC: khách cần lời giải thích khi nhận thông báo.
+// Cancel hủy một đơn thực hiện VÀ trả hàng về kho nếu hàng còn ở đó.
+//
+// Đọc trạng thái TRƯỚC khi hủy: sau khi hủy thì mọi đơn đều là CANCELLED,
+// và lúc đó không còn phân biệt được "hàng vẫn trong kho" với "hàng đang
+// trên đường trả về".
 func (s *Service) Cancel(ctx context.Context, sellerID, foID ids.ID, reason string) error {
-	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
-		return fo.Cancel(reason, now)
+	fo, err := s.loadOwned(ctx, sellerID, foID)
+	if err != nil {
+		return err
+	}
+
+	conHangTrongKho := fo.Status().StockStillInWarehouse()
+
+	now := s.clock.Now()
+	if err := fo.Cancel(reason, now); err != nil {
+		return err
+	}
+	if err := s.repo.Update(ctx, fo); err != nil {
+		return err
+	}
+
+	// Phát event HỦY trước, event tiến độ sau.
+	//
+	// Thứ tự này quan trọng khi có sự cố giữa chừng: thà tồn kho đúng mà
+	// trạng thái đơn hiển thị chậm, còn hơn đơn hiển thị "đã hủy" trong
+	// khi hàng vẫn bị khóa. Hàng bị khóa không bán được cho ai.
+	if err := s.publishCancelled(ctx, fo, conHangTrongKho); err != nil {
+		return err
+	}
+	return s.publishProgress(ctx, fo)
+}
+
+// publishCancelled phát event hủy kèm dòng hàng để inventory trả về kho.
+func (s *Service) publishCancelled(
+	ctx context.Context, fo *domain.FulfillmentOrder, releaseStock bool,
+) error {
+	if s.events == nil {
+		return nil
+	}
+
+	lines := make([]CancelledLine, 0, len(fo.Lines()))
+	for _, l := range fo.Lines() {
+		if l.SKUID.IsZero() || l.Quantity <= 0 {
+			continue
+		}
+		lines = append(lines, CancelledLine{SKUID: l.SKUID, Quantity: l.Quantity})
+	}
+
+	return s.events.PublishCancelled(ctx, FulfillmentCancelled{
+		OrderID:         fo.OrderID(),
+		FulfillmentID:   fo.ID(),
+		FONumber:        fo.FONumber(),
+		SellerID:        fo.SellerID(),
+		StockLocationID: fo.StockLocationID(),
+		ReleaseStock:    releaseStock,
+		Lines:           lines,
 	})
 }
 

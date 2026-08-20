@@ -175,6 +175,15 @@ const (
 	TypeOrderPaid      = "order.paid"
 	TypeOrderCancelled = "order.cancelled"
 
+	// TypeFulfillmentCancelled: một đơn thực hiện bị hủy.
+	//
+	// TÁCH khỏi fulfillment.progress có chủ ý. progress mang cờ tiến độ
+	// cho module order tính trạng thái tổng hợp; event này mang DÒNG HÀNG
+	// để inventory trả hàng về kho. Nhồi dòng hàng vào progress sẽ bắt ba
+	// bên nhận hiện có tải dữ liệu họ không dùng, và đổi payload đang chạy
+	// là việc cần triển khai bên nhận trước (xem domain-events.md mục 8.1).
+	TypeFulfillmentCancelled = "fulfillment.cancelled"
+
 	TypeCartItemAdded = "cart.item_added"
 
 	TypeCheckoutStarted   = "checkout.started"

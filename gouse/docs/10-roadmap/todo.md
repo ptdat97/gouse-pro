@@ -849,7 +849,7 @@ có lịch sử thật để dự báo.
 |---|---|
 | Bảy luồng nghiệm thu MVP chạy được | `[x]` cả 7 |
 | Luồng mua hàng chạy trên giao diện thật | `[x]` cửa hàng + trung tâm người bán, 5 test trình duyệt |
-| E2E xuyên module trên PostgreSQL | `[~]` 8/12 kịch bản — xem [backlog mục 2.5](backlog.md) |
+| E2E xuyên module trên PostgreSQL | `[~]` 9/12 kịch bản — xem [backlog mục 2.5](backlog.md) |
 | Không oversell dưới thanh toán đồng thời | `[x]` chứng minh ở TOÀN CHUỖI: 10 khách tranh 3 món qua `StartCheckout` thật → đúng 3 người thắng |
 | API p95 < 300ms · LCP < 2,5s | `[ ]` cần môi trường có tải thật — [backlog mục 2.12](backlog.md) |
 
@@ -1032,7 +1032,7 @@ có code VÀ test chứng minh.
 | Tách đơn nhiều nhà bán | `TestTachDonBaNguonHangQuaEvent` · hậu tố cơ số 26 |
 | Cô lập fulfillment giữa nhà bán | `TestSellerKhongThayDuocPhanCuaSellerKhac` · phòng vệ hai lớp |
 | **Phân giải chủ sở hữu tồn kho** | P3-18 · 3 test hồi quy, mỗi test xác nhận đỏ khi phá |
-| E2E thương mại trên PostgreSQL | `internal/e2e` · 6 test, 8/12 kịch bản |
+| E2E thương mại trên PostgreSQL | `internal/e2e` · 10 test, 9/12 kịch bản |
 | Own Brand + Marketplace trong CÙNG một đơn | cùng test trên: 2 đơn thực hiện, tiền và tồn kho đúng từng bên |
 | Đồng bộ tài liệu / README | 20/08 · mọi liên kết đã kiểm |
 
@@ -1048,7 +1048,6 @@ có code VÀ test chứng minh.
 | Rate limit chỉ áp cho đăng ký, và đếm trong bộ nhớ | Đăng nhập bị dò; N bản sao = N lần hạn mức |
 | Webhook thanh toán và vận chuyển chưa có route | Đơn không bao giờ rời `PENDING_PAYMENT` bằng đường thật |
 | `MarkOutOfStock` là code chết (P3-23) | Trạng thái offer trong database sai; mới vá ở tầng đọc |
-| **Hủy đơn không trả hàng về kho (PH-28)** | Mỗi đơn bị hủy ăn mất một phần kho, VĨNH VIỄN và im lặng |
 
 ### 12.3 Điều kiện kết thúc phase
 

@@ -119,3 +119,130 @@ func (h *CommitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event
 
 	return nil
 }
+
+// OwnerResolver đổi định danh NHÀ BÁN lấy định danh CHỦ SỞ HỮU tồn kho.
+//
+// Cổng do BÊN GỌI khai: module seller đứng TRÊN inventory trong đồ thị
+// phụ thuộc nên hỏi ngược lên là vi phạm ranh giới. cmd/worker nối hai
+// đầu, cùng mẫu với TokenVerifier và CustomerResolver.
+type OwnerResolver interface {
+	InventoryOwnerID(ctx context.Context, sellerID string) (string, error)
+}
+
+// ReleaseOnFulfillmentCancelled trả hàng về kho khi đơn thực hiện bị hủy.
+//
+// # Vì sao việc này KHÔNG được để thiếu
+//
+// Đường vào kho đã có (Reserved → Committed khi đặt hàng). Không có đường
+// ra thì mỗi đơn bị hủy ăn mất một phần kho VĨNH VIỄN: hàng có thật trên
+// kệ nhưng hệ thống mãi coi là đã cam kết cho một đơn không còn tồn tại.
+//
+// Kiểm chứng bằng đơn thật ngày 20/08 trước khi có handler này: đặt 5
+// món rồi hủy, tồn kho đứng nguyên 15 khả dụng / 5 cam kết. Không lỗi,
+// không log — chỉ phát hiện được khi kiểm kê tay thấy số thực nhiều hơn
+// số hệ thống.
+//
+// # Hai điều kiện, không phải một
+//
+//  1. `release_stock` — hàng còn trong kho hay đang trên đường trả về.
+//     Hủy sau khi giao thất bại thì hàng chưa cầm trong tay, và bán một
+//     món chưa về là để lỗi hiện ra ở khách THỨ HAI.
+//  2. Chủ sở hữu suy ra từ nhà bán qua OwnerForSeller (ADR-0012), không
+//     dùng thẳng seller_id — own brand là seller nội bộ nhưng hàng của
+//     nó thuộc nền tảng.
+type ReleaseOnFulfillmentCancelled struct {
+	module *Module
+	owner  OwnerResolver
+	log    *slog.Logger
+}
+
+// NewReleaseHandler tạo bên nhận trả hàng về kho khi hủy đơn thực hiện.
+//
+// owner có thể nil: khi đó chủ sở hữu được coi là CHÍNH nhà bán, đúng với
+// mọi nhà bán ngoài. Thà trả được hàng cho nhà bán ngoài còn hơn không ai
+// được trả.
+func NewReleaseHandler(
+	m *Module, owner OwnerResolver, log *slog.Logger,
+) *ReleaseOnFulfillmentCancelled {
+	return &ReleaseOnFulfillmentCancelled{module: m, owner: owner, log: log}
+}
+
+var _ eventbus.Handler = (*ReleaseOnFulfillmentCancelled)(nil)
+
+func (h *ReleaseOnFulfillmentCancelled) Name() string {
+	return "inventory.release_on_fulfillment_cancelled"
+}
+
+func (h *ReleaseOnFulfillmentCancelled) EventTypes() []string {
+	return []string{eventbus.TypeFulfillmentCancelled}
+}
+
+// fulfillmentCancelledPayload chỉ khai những trường handler này dùng.
+type fulfillmentCancelledPayload struct {
+	OrderID         string `json:"order_id"`
+	FulfillmentID   string `json:"fulfillment_id"`
+	SellerID        string `json:"seller_id"`
+	StockLocationID string `json:"stock_location_id"`
+	ReleaseStock    bool   `json:"release_stock"`
+
+	Lines []struct {
+		SKUID    string `json:"sku_id"`
+		Quantity int    `json:"quantity"`
+	} `json:"lines"`
+}
+
+func (h *ReleaseOnFulfillmentCancelled) Handle(
+	ctx context.Context, e eventbus.Event,
+) error {
+	var p fulfillmentCancelledPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("giải mã payload fulfillment.cancelled: %w", err)
+	}
+
+	// Hàng đã rời kho: KHÔNG trả về khả dụng ở đây. Nó quay lại qua quy
+	// trình hàng trả, có bước kiểm tra chất lượng.
+	if !p.ReleaseStock {
+		h.log.InfoContext(ctx, "hủy đơn thực hiện nhưng hàng đã rời kho — không trả về",
+			"fulfillment_id", p.FulfillmentID, "order_id", p.OrderID)
+		return nil
+	}
+	if len(p.Lines) == 0 {
+		return nil
+	}
+
+	ownerID := p.SellerID
+	if h.owner != nil {
+		resolved, err := h.owner.InventoryOwnerID(ctx, p.SellerID)
+		if err != nil {
+			return fmt.Errorf("tra chủ sở hữu tồn kho của %s: %w", p.SellerID, err)
+		}
+		ownerID = resolved
+	}
+
+	for _, l := range p.Lines {
+		err := h.module.ReleaseCommittedInEventTx(ctx, ReleaseCommittedRequest{
+			SKUID:       l.SKUID,
+			OwnerID:     ownerID,
+			LocationID:  p.StockLocationID,
+			Quantity:    l.Quantity,
+			Reason:      "Hủy đơn thực hiện " + p.FulfillmentID,
+			ReferenceID: p.FulfillmentID,
+			PerformedBy: p.SellerID,
+		})
+
+		// Không tìm thấy bản ghi tồn kho thì BỎ QUA món đó, không làm
+		// hỏng cả event. Trả lỗi ở đây khiến dispatcher thử lại mãi, và
+		// lần nào cũng hỏng như nhau — trong khi các món còn lại thì
+		// đáng ra trả về được.
+		if errors.Is(err, ErrNotFound) {
+			h.log.WarnContext(ctx, "không có bản ghi tồn kho để trả hàng về",
+				"sku_id", l.SKUID, "owner_id", ownerID,
+				"fulfillment_id", p.FulfillmentID)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("trả hàng về kho cho %s: %w", l.SKUID, err)
+		}
+	}
+	return nil
+}

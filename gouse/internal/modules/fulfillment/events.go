@@ -262,3 +262,72 @@ func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event)
 		"số_nguồn_hàng", len(fos))
 	return nil
 }
+
+// PublishCancelled phát event hủy đơn thực hiện, kèm DÒNG HÀNG.
+//
+// # Vì sao là event RIÊNG chứ không phải mở rộng fulfillment.progress
+//
+// Hai event trả lời hai câu khác nhau. `progress` nói "tiến độ đổi rồi,
+// tính lại trạng thái đơn" và có ba bên nghe (order, notification,
+// analytics). Event này nói "những món cụ thể này không đi nữa, trả về
+// kho" và chỉ inventory cần.
+//
+// Nhồi dòng hàng vào `progress` sẽ bắt ba bên kia tải dữ liệu họ không
+// dùng — và quan trọng hơn, ĐỔI một payload đang chạy đòi hỏi triển khai
+// bên nhận trước bên phát (domain-events.md mục 8.1). Ngày 19/08 đã có sự
+// cố đúng kiểu đó: worker cũ nuốt event mới rồi bỏ qua trường mới trong
+// im lặng. Thêm event MỚI thì bên nhận cũ không bị ảnh hưởng gì.
+func (p *eventPublisher) PublishCancelled(
+	ctx context.Context, in application.FulfillmentCancelled,
+) error {
+	type cancelledLine struct {
+		SKUID    string `json:"sku_id"`
+		Quantity int    `json:"quantity"`
+	}
+
+	lines := make([]cancelledLine, 0, len(in.Lines))
+	for _, l := range in.Lines {
+		lines = append(lines, cancelledLine{
+			SKUID:    l.SKUID.String(),
+			Quantity: l.Quantity,
+		})
+	}
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeFulfillmentCancelled,
+		eventbus.AggregateFulfillment,
+		in.FulfillmentID,
+		struct {
+			OrderID       string `json:"order_id"`
+			FulfillmentID string `json:"fulfillment_id"`
+			FONumber      string `json:"fo_number"`
+
+			// SellerID chứ KHÔNG phải inventory_owner_id.
+			//
+			// Chủ sở hữu tồn kho suy ra từ nhà bán, và quy tắc suy ra
+			// thuộc module inventory (ADR-0012). Tự tính ở đây là cài
+			// quy tắc lần thứ hai — đúng lỗi P3-18.
+			SellerID string `json:"seller_id"`
+
+			StockLocationID string `json:"stock_location_id,omitempty"`
+
+			// ReleaseStock: hàng còn trong kho hay đang trên đường trả về.
+			ReleaseStock bool `json:"release_stock"`
+
+			Lines []cancelledLine `json:"lines"`
+		}{
+			OrderID:         in.OrderID.String(),
+			FulfillmentID:   in.FulfillmentID.String(),
+			FONumber:        in.FONumber,
+			SellerID:        in.SellerID.String(),
+			StockLocationID: in.StockLocationID.String(),
+			ReleaseStock:    in.ReleaseStock,
+			Lines:           lines,
+		})
+	if err != nil {
+		return err
+	}
+
+	e = e.WithTrace(in.OrderID.String(), "")
+	return p.outbox.Publish(ctx, e)
+}

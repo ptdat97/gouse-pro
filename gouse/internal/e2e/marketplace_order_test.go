@@ -92,14 +92,18 @@ func newWorld(t *testing.T) *world {
 	}
 
 	bus := eventbus.NewDispatcher(db.Pool(), log)
-	bus.Subscribe(fulfillment.NewSplitHandler(fulModule, log))
-	bus.Subscribe(order.NewProgressHandler(ordModule, log))
-	bus.Subscribe(inventory.NewCommitHandler(invModule, log))
 
 	w := &world{
 		t: t, db: db, inv: invModule, ord: ordModule, ful: fulModule,
 		bus: bus, internal: map[ids.ID]bool{},
 	}
+
+	// Đăng ký bên nhận SAU khi có `w`: handler trả hàng cần đường tra chủ
+	// sở hữu tồn kho, và chính `w` cài cổng đó.
+	bus.Subscribe(fulfillment.NewSplitHandler(fulModule, log))
+	bus.Subscribe(order.NewProgressHandler(ordModule, log))
+	bus.Subscribe(inventory.NewCommitHandler(invModule, log))
+	bus.Subscribe(inventory.NewReleaseHandler(invModule, w, log))
 	w.cart = newStubCart()
 
 	w.checkout = checkoutapp.NewService(checkoutapp.Deps{
@@ -172,6 +176,24 @@ func (w *world) stock(skuID, owner ids.ID) (int, int) {
 		}
 	}
 	return available, committed
+}
+
+// InventoryOwnerID cài inventory.OwnerResolver cho thế giới test.
+//
+// Dùng CHÍNH quy tắc thật (`inventory.OwnerForSeller`) chứ không viết lại:
+// bản giả cư xử theo giả định của người viết test, và giả định sai thì
+// test xanh trong khi hệ thống hỏng.
+func (w *world) InventoryOwnerID(
+	_ context.Context, sellerID string,
+) (string, error) {
+	return inventory.OwnerForSeller(
+		sellerID, w.internal[ids.ID(sellerID)]), nil
+}
+
+// ownerOf trả chủ sở hữu tồn kho của một nhà bán trong thế giới test.
+func (w *world) ownerOf(sellerID ids.ID) ids.ID {
+	owner, _ := w.InventoryOwnerID(context.Background(), sellerID.String())
+	return ids.ID(owner)
 }
 
 // reserved đếm số đang GIỮ CHỖ của một chủ sở hữu.

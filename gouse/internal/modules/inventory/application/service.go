@@ -704,3 +704,99 @@ func (s *Service) withRetry(ctx context.Context, fn func(domain.Repos) error) er
 
 	return fmt.Errorf("%w: đã thử lại %d lần", lastErr, maxRetries)
 }
+
+// UncommitInput là yêu cầu trả hàng ĐÃ CAM KẾT về khả dụng.
+type UncommitInput struct {
+	SKUID   ids.ID
+	OwnerID ids.ID
+
+	// LocationID rỗng = kho ĐẦU TIÊN của chủ sở hữu này có SKU đó.
+	//
+	// Chấp nhận được vì đơn thực hiện chỉ giữ hàng ở một kho, và bên gọi
+	// biết kho nào thì nên nói ra.
+	LocationID ids.ID
+
+	Quantity    int
+	Reason      string
+	ReferenceID ids.ID
+	PerformedBy ids.ID
+}
+
+// UncommitInRepos trả hàng đã cam kết về khả dụng, bằng GIAO DỊCH CỦA BÊN
+// GỌI.
+//
+// # Vì sao dùng giao dịch của bên gọi
+//
+// Cùng lý do với CommitInRepos: dispatcher đã mở giao dịch để đánh dấu
+// event đã xử lý, và thay đổi tồn kho phải nằm trong CÙNG giao dịch. Tách
+// rời thì nhả hàng có thể thành công trong khi đánh dấu thất bại — lần
+// thử lại sẽ nhả LẦN THỨ HAI, và lần này là hàng không có thật.
+//
+// Không có cơ chế thử lại bên trong: việc đó do dispatcher làm, và thử
+// lại trong một giao dịch đã hỏng là vô nghĩa.
+//
+// # Vì sao Committed → Available chứ không phải → Reserved
+//
+// Phiên thanh toán đã kết thúc từ lâu, không còn ai giữ chỗ. Trả về
+// Reserved là tạo ra một lượng hàng bị khóa mà không reservation nào đứng
+// sau — tiến trình dọn sẽ không bao giờ tìm thấy nó.
+func (s *Service) UncommitInRepos(
+	ctx context.Context, r domain.Repos, in UncommitInput,
+) error {
+	if in.Quantity <= 0 {
+		return nil
+	}
+
+	item, err := s.findOwnedItemIn(ctx, r, in.SKUID, in.OwnerID, in.LocationID)
+	if err != nil {
+		return err
+	}
+
+	// Nhả nhiều hơn số đang cam kết là dấu hiệu event bị xử lý hai lần
+	// hoặc dữ liệu lệch. Cắt xuống thay vì để domain trả lỗi: bên nhận
+	// event mà lỗi thì bị thử lại mãi, và lần nào cũng lỗi như nhau.
+	//
+	// Cắt xuống KHÔNG che giấu vấn đề — nó được ghi vào nhật ký biến động
+	// với số lượng thật đã nhả, nên đối soát vẫn thấy.
+	qty := in.Quantity
+	if committed := item.Quantities().Committed(); qty > committed {
+		qty = committed
+	}
+	if qty == 0 {
+		return nil
+	}
+
+	var saved *domain.InventoryItem
+	return s.mutate(ctx, r, item, mutation{
+		apply: func(i *domain.InventoryItem, t time.Time) error {
+			return i.Uncommit(qty, t)
+		},
+		movement:    domain.MovementUncommit,
+		quantity:    qty,
+		reason:      in.Reason,
+		referenceID: in.ReferenceID,
+		performedBy: in.PerformedBy,
+		result:      &saved,
+	})
+}
+
+// findOwnedItemIn giống FindOwnedItem nhưng dùng repo của bên gọi.
+func (s *Service) findOwnedItemIn(
+	ctx context.Context, r domain.Repos, skuID, ownerID, locationID ids.ID,
+) (*domain.InventoryItem, error) {
+	if !locationID.IsZero() {
+		return r.Items.FindByKey(ctx, domain.ItemKey{
+			SKUID: skuID, LocationID: locationID, OwnerID: ownerID,
+		})
+	}
+	found, err := r.Items.FindBySKUs(ctx, []ids.ID{skuID}, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range found[skuID] {
+		if item.OwnerID() == ownerID {
+			return item, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}

@@ -431,3 +431,50 @@ func (m *Module) RegisterSellerRoutes(
 ) {
 	inventoryhttp.NewSellerHandler(m.svc, owner, log).Register(mux)
 }
+
+// ReleaseCommittedRequest là yêu cầu trả hàng đã cam kết về khả dụng.
+type ReleaseCommittedRequest struct {
+	SKUID   string
+	OwnerID string
+
+	// LocationID rỗng = kho đầu tiên của chủ sở hữu này có SKU đó.
+	LocationID string
+
+	Quantity    int
+	Reason      string
+	ReferenceID string
+	PerformedBy string
+}
+
+// ReleaseCommittedInEventTx trả hàng đã cam kết về khả dụng, bằng GIAO
+// DỊCH của dispatcher event.
+//
+// Ngữ cảnh PHẢI mang giao dịch do eventbus mở — cùng ràng buộc và cùng lý
+// do với CommitInEventTx: nhả hàng thành công mà đánh dấu event thất bại
+// thì lần thử lại nhả LẦN THỨ HAI, và lần đó là hàng không có thật.
+func (m *Module) ReleaseCommittedInEventTx(
+	ctx context.Context, req ReleaseCommittedRequest,
+) error {
+	skuID, err := ids.Parse(req.SKUID, ids.PrefixSKU)
+	if err != nil {
+		return ErrInvalidID
+	}
+	if req.OwnerID == "" {
+		return ErrInvalidID
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	return translateErr(m.svc.UncommitInRepos(ctx, inventorypg.ReposForTx(tx), application.UncommitInput{
+		SKUID:       skuID,
+		OwnerID:     ids.ID(req.OwnerID),
+		LocationID:  ids.ID(req.LocationID),
+		Quantity:    req.Quantity,
+		Reason:      req.Reason,
+		ReferenceID: ids.ID(req.ReferenceID),
+		PerformedBy: ids.ID(req.PerformedBy),
+	}))
+}

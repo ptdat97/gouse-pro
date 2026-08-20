@@ -272,6 +272,8 @@ func run() error {
 	// nghe mới chỉ sửa file này.
 	bus := eventbus.NewDispatcher(db.Pool(), log)
 	bus.Subscribe(inventory.NewCommitHandler(inventoryModule, log))
+	bus.Subscribe(inventory.NewReleaseHandler(
+		inventoryModule, &sellerOwner{sellers: sellerModule}, log))
 	bus.Subscribe(supplychain.NewSignalHandler(supplyModule))
 	bus.Subscribe(fulfillment.NewSplitHandler(fulfillmentModule, log))
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
@@ -572,4 +574,23 @@ func expireReservations(m *inventory.Module, log *slog.Logger) func(context.Cont
 		}
 		return nil
 	}
+}
+
+// sellerOwner đổi định danh nhà bán lấy chủ sở hữu tồn kho.
+//
+// Cùng quy tắc và cùng nguồn sự thật với cmd/api: `inventory.OwnerForSeller`
+// (ADR-0012). Hai tiến trình phải nhất trí — nếu không, đường ghi của API
+// tạo ra bản ghi mà bên nhận event của worker không tìm thấy.
+type sellerOwner struct{ sellers seller.API }
+
+var _ inventory.OwnerResolver = (*sellerOwner)(nil)
+
+func (s *sellerOwner) InventoryOwnerID(
+	ctx context.Context, sellerID string,
+) (string, error) {
+	v, err := s.sellers.GetSeller(ctx, sellerID)
+	if err != nil {
+		return "", err
+	}
+	return inventory.OwnerForSeller(v.ID, v.IsInternal), nil
 }

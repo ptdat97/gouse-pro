@@ -112,7 +112,7 @@ idempotency** đều có test hồi quy tự động.
 
 | # | Việc | Trạng thái |
 |---|---|---|
-| PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | 🟡 8/12 kịch bản |
+| PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | 🟡 9/12 kịch bản |
 | PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
 | PH-3 | Test tích hợp API cho các luồng quan trọng | ⬜ chưa có |
 | PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 5/7 luồng |
@@ -160,7 +160,7 @@ không thấy được — P3-18 đã chứng minh điều đó.
 | Một giỏ, nhiều tab — không giữ hàng nhiều lần | ✅ `TestHaiTabCungGioChiGiuHangMotLan` |
 | Thực hiện TỪNG PHẦN (một seller giao, một seller chưa) | ⬜ |
 | Giao hàng TỪNG PHẦN trong một đơn thực hiện | ⬜ |
-| Hủy đơn (trước và sau khi lấy hàng) | 🔴 **CHẶN — hủy đơn LÀM RÒ RỈ HÀNG**, xem PH-28 |
+| Hủy đơn (trước và sau khi lấy hàng) | ✅ 4 test — `TestHuyDonTraHangVeKho` và 3 test cùng nhóm |
 | Giao dịch cuộn ngược — event KHÔNG phát | ⬜ (có test ở tầng eventbus, chưa có ở toàn chuỗi) |
 
 **Bất biến không-oversell nay được chứng minh ở TOÀN CHUỖI**, không chỉ ở
@@ -175,48 +175,67 @@ lớp — chốt ở tầng ứng dụng, chỉ mục UNIQUE có điều kiện 
 Điều đó dễ dẫn tới kết luận sai theo cả hai chiều: tưởng test vô dụng,
 hoặc tưởng một lớp là đủ nên gỡ lớp kia.
 
-### 2.5b PH-28 — hủy đơn làm RÒ RỈ tồn kho `[NGHIÊM TRỌNG]`
+### 2.5b PH-28 — hủy đơn làm rò rỉ tồn kho `[ĐÃ SỬA 20/08]`
 
-Kiểm chứng bằng đơn thật ngày 20/08, không phải đọc code:
-
-```text
-đặt 5 món     →  15 khả dụng /  5 cam kết
-hủy đơn       →  15 khả dụng /  5 cam kết   ← không đổi
-```
-
-**Năm món kẹt vĩnh viễn ở trạng thái cam kết.** Hàng có thật trong kho
-nhưng hệ thống sẽ không bao giờ bán lại. Không lỗi, không log, không cảnh
-báo — mỗi đơn bị hủy ăn mất một phần kho, và chỉ phát hiện được khi kiểm
-kê tay thấy số thực nhiều hơn số hệ thống.
-
-**Nguyên nhân — hai đầu dây đều đứt:**
+**Lỗi.** Kiểm chứng bằng đơn thật trước khi sửa:
 
 ```text
-order.cancelled          định nghĩa trong eventbus, KHÔNG AI PHÁT
-fulfillment.progress     có phát, nhưng payload chỉ mang cờ boolean
-                         (cancelled/shipped/delivered) cho order tính
-                         trạng thái — KHÔNG có sku, số lượng, chủ sở hữu
-inventory                chỉ có MỘT handler: CommitOnCheckoutCompleted
+đặt 5 món  →  15 khả dụng / 5 cam kết
+hủy đơn    →  15 khả dụng / 5 cam kết   ← không đổi
 ```
 
-Nghĩa là đường vào kho có (`Reserved → Committed`), đường ra thì không.
+Năm món kẹt vĩnh viễn ở trạng thái cam kết. Đường vào kho có
+(Reserved → Committed khi đặt hàng), đường ra không: `order.cancelled`
+được định nghĩa nhưng chưa ai phát, `fulfillment.progress` chỉ mang cờ
+boolean, và inventory chỉ có một handler duy nhất là Commit.
 
-**Sửa cần một quyết định thiết kế, không phải một bản vá:**
+**Sửa: event MỚI `fulfillment.cancelled`**, không mở rộng payload đang có.
 
-1. Mở rộng payload `fulfillment.progress` để mang dòng hàng (sku, số
-   lượng, chủ sở hữu), rồi thêm handler `ReleaseOnCancelled` ở inventory
-   — cùng hình dạng với handler Commit đã có.
-2. Hoặc để module order phát `order.cancelled` — nhưng order hiện KHÔNG
-   có bộ phát event nào, nên đây là thay đổi cấu trúc module.
+Đây là lựa chọn có chủ ý. Mở rộng `fulfillment.progress` sẽ bắt ba bên
+nhận hiện có (order, notification, analytics) tải dữ liệu họ không dùng —
+và quan trọng hơn, ĐỔI payload đang chạy đòi hỏi triển khai bên nhận
+trước bên phát (PH-7, chưa có quy trình). Thêm event mới thì bên nhận cũ
+không bị ảnh hưởng gì, nên không phải chờ PH-7.
 
-Cách 1 nhỏ hơn và đi đúng đường đã có. Nhưng nó là **thay đổi payload
-event**, tức chạm đúng chỗ PH-7 nói chưa có quy trình: đổi payload đòi
-hỏi bên nhận triển khai trước, và ngày 19/08 đã có sự cố worker cũ nuốt
-event mới. Vì vậy PH-28 nên làm SAU hoặc CÙNG LÚC với PH-7.
+```text
+fulfillment.cancelled  (MỚI)
+  order_id · fulfillment_id · seller_id · stock_location_id
+  release_stock · lines[{sku_id, quantity}]
+        ↓
+  inventory.ReleaseOnFulfillmentCancelled   (handler MỚI)
+        ↓
+  Committed → Available
 
-Chú ý thêm: chủ sở hữu tồn kho phải suy ra từ nhà bán (ADR-0012), nên bên
-phát hoặc bên nhận cần đường tra `seller → owner`. Gửi thẳng `seller_id`
-rồi để inventory tự hiểu là lặp lại đúng lỗi P3-18.
+fulfillment.progress  (KHÔNG ĐỔI)
+```
+
+**Hai điều kiện, không phải một:**
+
+1. `release_stock` — hàng còn trong kho hay đang trên đường trả về. Quy
+   tắc ở domain: `FOStatus.StockStillInWarehouse()`, đúng với
+   PENDING/ALLOCATED/CONFIRMED. Hủy sau khi GIAO THẤT BẠI thì hàng đã rời
+   kho, KHÔNG trả về — bán một món chưa cầm trong tay là để lỗi hiện ra ở
+   khách THỨ HAI. Hàng đó nhập lại qua quy trình hàng trả có kiểm tra
+   chất lượng.
+2. Chủ sở hữu suy ra từ nhà bán qua `OwnerForSeller` (ADR-0012). Event
+   mang `seller_id` chứ KHÔNG mang `inventory_owner_id`: tự tính ở bên
+   phát là cài quy tắc lần thứ hai — đúng lỗi P3-18.
+
+**Kiểm chứng bằng cách phá** — bốn bản phá, bốn lần đỏ:
+
+```text
+bỏ phát event hủy          → "còn 15 khả dụng, cần 20 — hàng KHÔNG quay về kho"
+dùng thẳng seller_id       → "hàng nền tảng 26/4, cần 30/0"  (own brand)
+bỏ điều kiện release_stock → "tồn kho ĐỔI khi hàng đang trên đường về: 15/5 → 20/0"
+phát lại event 3 lần       → xanh (dispatcher đảm bảo xử lý đúng một lần)
+```
+
+Bản phá thứ ba ban đầu KHÔNG bị bắt: tôi cài quy tắc nhưng chưa có test
+nào đi qua đường DELIVERY_FAILED → CANCELLED. Đó là lý do phải phá — quy
+tắc không có test là quy tắc sẽ mất trong lần sửa sau.
+
+**Còn lại:** quy trình nhập lại hàng trả về (ReceiveReturn →
+InspectionPassed/Failed đã có ở domain inventory, chưa có đường nối).
 
 ### 2.6 Ma trận E2E giao diện (PH-4)
 
