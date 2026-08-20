@@ -47,8 +47,21 @@ function Offers() {
   const [error, setError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
+  /**
+   * load nạp lại danh sách.
+   *
+   * `dauTien` phân biệt LẦN ĐẦU với các lần làm mới sau đó, và đó không
+   * phải chuyện thẩm mỹ. Nếu mọi lần nạp đều bật cờ `loading`, cả danh
+   * sách bị thay bằng chữ "Đang tải…" — nghĩa là mọi thẻ offer bị THÁO
+   * khỏi cây React, kéo theo trạng thái cục bộ của chúng.
+   *
+   * Hệ quả: kiểm kê xong, thẻ gọi làm mới, và chính lần làm mới đó xóa
+   * mất thông báo "Tồn kho hiện tại: 77" vừa đặt. Người bán không thấy
+   * xác nhận nào cho một thao tác ĐÃ THÀNH CÔNG — trên mạng chậm họ sẽ
+   * bấm lại, và lần này họ đang đoán.
+   */
+  const load = React.useCallback(async (dauTien = false) => {
+    if (dauTien) setLoading(true);
     setError(null);
     try {
       const res = await listMyOffers(api);
@@ -56,12 +69,12 @@ function Offers() {
     } catch (e) {
       setError(isApiError(e) ? e.message : "Không tải được danh sách");
     } finally {
-      setLoading(false);
+      if (dauTien) setLoading(false);
     }
   }, [api]);
 
   React.useEffect(() => {
-    void load();
+    void load(true);
   }, [load]);
 
   if (loading) return <p>Đang tải…</p>;

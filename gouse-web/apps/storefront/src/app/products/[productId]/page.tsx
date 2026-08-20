@@ -92,8 +92,16 @@ export default function ProductPage({
   // `is_sellable` false vẫn HIỆN offer — khách cần biết sản phẩm CÓ tổ hợp
   // màu/size đó, chỉ là đang không mua được. Ẩn đi thì họ tưởng nền tảng
   // không bán và bỏ đi.
-  const canBuy = chosen?.availability === "IN_STOCK" ||
-    chosen?.availability === "LOW_STOCK";
+  //
+  // Dùng THẲNG `is_sellable`, không suy lại từ trường khác. Máy chủ đã tổng
+  // hợp cả tồn kho lẫn trạng thái nhà bán vào cờ này; suy lại ở đây là cài
+  // quy tắc lần thứ hai, và hai bản sẽ lệch.
+  //
+  // Trước đây chỗ này đọc `availability` — một trường đặc tả có khai nhưng
+  // endpoint KHÔNG BAO GIỜ trả. Vì nó không `required`, TypeScript vẫn cho
+  // qua, và hệ quả là nút "Thêm vào giỏ" khóa vĩnh viễn: cửa hàng không bán
+  // được gì. Không log máy chủ nào ghi lại chuyện đó.
+  const canBuy = chosen?.is_sellable === true;
 
   async function onAdd() {
     if (!selected) return;
@@ -147,17 +155,21 @@ export default function ProductPage({
                     <strong>{money(o.price)}</strong>
                     {o.is_buy_box && " · Đề xuất"}
                   </span>
-                  <span className="offer__seller">{o.seller?.name}</span>
+                  <span className="offer__seller">
+                    {o.condition === "NEW" ? "Hàng mới" : "Đã qua sử dụng"}
+                  </span>
                 </div>
 
+                {/*
+                  Chưa hiện TÊN nhà bán: chưa có endpoint công khai tra hồ
+                  sơ nhà bán, và endpoint offer chỉ trả `seller_id`. Hiện ô
+                  trống còn tệ hơn không hiện — khách tưởng giao diện hỏng.
+                  Xem P3-19 trong backlog.
+                */}
                 <div className="offer__seller">
-                  {o.availability === "IN_STOCK"
-                    ? "Còn hàng"
-                    : o.availability === "LOW_STOCK"
-                      ? "Sắp hết hàng"
-                      : "Hết hàng"}
-                  {o.estimated_delivery_days
-                    ? ` · Giao khoảng ${o.estimated_delivery_days} ngày`
+                  {o.is_sellable ? "Còn hàng" : "Hết hàng"}
+                  {o.handling_time_hours
+                    ? ` · Chuẩn bị ${o.handling_time_hours} giờ`
                     : ""}
                 </div>
               </label>

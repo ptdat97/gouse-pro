@@ -18,3 +18,9 @@ apps/*/CLAUDE.md
 .DS_Store
 .idea/
 .vscode/
+
+# Playwright: báo cáo và dấu vết của lần chạy gần nhất. Chúng nặng (ảnh
+# chụp màn hình, file trace) và chỉ có nghĩa với lần chạy sinh ra chúng.
+test-results/
+playwright-report/
+blob-report/

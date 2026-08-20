@@ -1875,37 +1875,43 @@ export interface components {
                 };
             }[];
         };
-        /** @description Thông tin seller hiển thị cho khách. Không chứa dữ liệu nội bộ. */
-        SellerRef: {
-            id: components["schemas"]["Id"];
-            name: string;
-            /** Format: float */
-            rating?: number;
-            response_time_hours?: number;
-            /** @description True với own brand (seller nội bộ) hoặc đối tác chính hãng. */
-            is_official?: boolean;
-        };
         /**
-         * @description Lời chào bán của **một seller** cho một SKU.
+         * @description Lời chào bán của **một seller** cho một SKU — đơn vị khách thực sự mua.
          *
-         *     Đây là đơn vị khách thực sự mua. Offer **không chứa số lượng tồn kho** —
-         *     nguồn sự thật là `InventoryItem`; `availability` là dữ liệu dẫn xuất
-         *     cập nhật qua event.
+         *     Offer **không chứa số lượng tồn kho**: nguồn sự thật là `InventoryItem`.
+         *     Câu hỏi giao diện cần trả lời không phải "còn mấy cái" mà là **mua được
+         *     hay không**, và câu đó là `is_sellable`.
+         *
+         *     Endpoint này **không** trả tên nhà bán, chỉ trả `seller_id`. Ghép dữ
+         *     liệu là việc của TRANG, không phải của ENDPOINT: trang so sánh nhà bán
+         *     tra tên theo lô cho cả danh sách, thay vì mỗi offer kéo theo một bản
+         *     sao hồ sơ nhà bán mà phần lớn lời gọi không dùng tới.
          */
         Offer: {
             id: components["schemas"]["Id"];
-            sku_id?: components["schemas"]["Id"];
-            seller: components["schemas"]["SellerRef"];
+            sku_id: components["schemas"]["Id"];
+            seller_id: components["schemas"]["Id"];
             price: components["schemas"]["Money"];
             compare_at_price?: components["schemas"]["Money"];
             /** @enum {string} */
-            condition?: "NEW" | "USED_LIKE_NEW" | "USED_GOOD";
-            estimated_delivery_days?: number;
-            shipping_fee?: components["schemas"]["Money"];
-            return_policy_days?: number;
+            condition: "NEW" | "USED_LIKE_NEW" | "USED_GOOD";
+            /** @description Thời gian nhà bán cần để chuẩn bị hàng. */
+            handling_time_hours: number;
+            /** @description Offer được chọn sẵn khi khách mở trang. */
+            is_buy_box: boolean;
+            /**
+             * @description Khách mua được offer này hay không — **cờ mà giao diện phải dùng**
+             *     để bật/tắt nút thêm giỏ.
+             *
+             *     KHÁC với việc offer có hiện ra hay không: offer hết hàng vẫn hiện
+             *     (để khách đăng ký nhận thông báo) nhưng `is_sellable: false`.
+             *
+             *     Đừng suy lại từ `status` ở giao diện: quy tắc còn phụ thuộc tồn kho
+             *     và trạng thái nhà bán, và suy ở hai nơi thì hai nơi sẽ lệch.
+             */
+            is_sellable: boolean;
             /** @enum {string} */
-            availability?: "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK";
-            is_buy_box?: boolean;
+            status: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" | "SUSPENDED" | "ARCHIVED";
         };
         /**
          * @description Chi tiết sản phẩm. Ba trường đặc thù thời trang —
@@ -2044,6 +2050,16 @@ export interface components {
             position_y?: number;
             /** @description Vị trí trong video (giây). */
             timestamp_second?: number;
+        };
+        /** @description Thông tin seller hiển thị cho khách. Không chứa dữ liệu nội bộ. */
+        SellerRef: {
+            id: components["schemas"]["Id"];
+            name: string;
+            /** Format: float */
+            rating?: number;
+            response_time_hours?: number;
+            /** @description True với own brand (seller nội bộ) hoặc đối tác chính hãng. */
+            is_official?: boolean;
         };
         /**
          * @description Số lượng. Không bao giờ âm.
