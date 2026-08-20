@@ -58,6 +58,34 @@ Seller tự giao:         owner=seller_A,  location=kho seller A
 Nền tảng giao hộ:       owner=seller_A,  location=kho nền tảng
 ```
 
+### Đổi seller_id lấy inventory_owner_id
+
+`inventory.OwnerForSeller(sellerID, isInternal)` là **nguồn sự thật duy
+nhất** cho phép đổi này. Quy tắc:
+
+```text
+seller INTERNAL (own brand)  → PLATFORM
+mọi seller khác              → chính seller_id đó
+```
+
+Bảng trên đã ngụ ý điều đó, nhưng ngụ ý là chưa đủ: own brand **có** bản
+ghi seller (own-brand.md mục 7 — nó là seller nội bộ để đi chung một luồng
+đơn hàng), nên `seller_id` của nó là một ULID thật, và dùng thẳng ULID đó
+làm chủ sở hữu là chuyện xảy ra rất tự nhiên khi viết code.
+
+Đã xảy ra thật, ba lần trong ba module khác nhau (P3-18): giữ hàng lúc
+thanh toán, nhập kho lúc tạo offer, và kiểm kê. Hậu quả không giống nhau
+nhưng đều im lặng — bản ghi tồn kho tạo ra ở một chủ mà không đường nào
+đọc tới, hoặc đơn của nhà bán này trừ hàng của nhà bán kia.
+
+**Ba đường đó nay dùng chung một hàm.** Module đứng DƯỚI seller trong đồ
+thị phụ thuộc thì không hỏi ngược lên được — dùng cổng do bên gọi khai
+(`OwnerResolver`), `cmd/api` nối. Xem dependency-rules.md mục 6.
+
+**Giữ hàng là điều kiện LOẠI TRỪ, không phải ưu tiên.** Nhà bán hết hàng
+thì đơn THẤT BẠI; không có đường lùi sang kho của chủ khác. "Mượn tạm cho
+đơn chạy được" chính là lỗi P3-18, chỉ khác là có chủ đích.
+
 Trường hợp thứ ba là lý do phải tách `owner` khỏi `location` — hàng nằm ở kho nền tảng nhưng **thuộc sở hữu seller**, không được ghi nhận là tài sản của nền tảng.
 
 ### 3.2 Aggregate: `Reservation`

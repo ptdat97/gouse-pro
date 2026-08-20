@@ -866,9 +866,9 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | Chặn P1.9: khách từng đặt hàng vãng lai chưa đăng ký được bằng email đó |
 | P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
 | P3-17 | SLA cho đơn thực hiện | Đặc tả khai báo `sla_deadline`; domain chưa có khái niệm này |
-| P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | Nghiêm trọng — kiểm chứng bằng đơn thật (19/08); xem ghi chú dưới bảng |
+| P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
 
-**P3-18 — giữ hàng chọn nhầm chủ sở hữu tồn kho (phát hiện 19/08, CHƯA sửa).**
+**P3-18 — giữ hàng chọn nhầm chủ sở hữu tồn kho (phát hiện và sửa 19/08).**
 
 Mua qua offer của MỘT nhà bán có thể trừ hàng của NGƯỜI KHÁC.
 
@@ -896,21 +896,32 @@ biên. Khi đó bán được cho B lại trừ kho của A: A hụt hàng vì n
 chưa bao giờ nhận, còn B giao hàng từ số tồn mà hệ thống tưởng vẫn còn
 nguyên. Không bên nào thấy lỗi — hai sổ sách cùng sai và cùng im lặng.
 
-Chưa sửa vì cách sửa là một QUYẾT ĐỊNH THIẾT KẾ, không phải một bản vá:
+**Câu trả lời nằm sẵn trong tài liệu.** own-brand.md mục 7 và seller.md mục
+3 đã khai own brand là seller NỘI BỘ với `inventory_owner: PLATFORM`. Tức
+là chủ sở hữu tồn kho là thuộc tính SUY RA TỪ nhà bán, không phải bằng nhà
+bán. Quy tắc nay nằm ở một chỗ duy nhất, `inventory.OwnerForSeller`, ngay
+cạnh hằng số nó trả về.
 
-  - Giữ hàng phải theo chủ sở hữu của offer đang mua. Việc này cần
-    `FindItemsForSKUs` trả cả `owner_id`, và checkout truyền chủ sở hữu
-    mong muốn xuống.
-  - Hàng KÝ GỬI làm mọi thứ phức tạp hơn: hàng của nhà bán nằm trong kho
-    nền tảng là hợp lệ và sẽ xảy ra. Mô hình đã tách `stock_location_id`
-    với `inventory_owner_id` cho đúng việc này, nên lời giải là lọc theo
-    CHỦ SỞ HỮU chứ không phải theo KHO.
-  - Còn phải quyết: offer của chính nền tảng thì lấy hàng `own_platform`,
-    nhưng nhà bán hết hàng có được mượn kho nền tảng không? Trả lời "có"
-    là mở đường cho đúng lỗi đang có, chỉ là có chủ đích.
+Hàng KÝ GỬI vẫn chạy đúng: hàng của nhà bán nằm trong kho nền tảng là hợp
+lệ và mô hình đã tách `stock_location_id` khỏi `inventory_owner_id` cho
+đúng việc đó. Lọc theo CHỦ SỞ HỮU, không theo KHO.
+
+Câu hỏi "nhà bán hết hàng có được mượn kho nền tảng không" — trả lời
+**không**. Chủ sở hữu là điều kiện loại trừ; đơn thất bại thay vì lặng lẽ
+trừ hàng của người không bán món đó.
+
+**Ba đường cùng lỗi, không phải một:** giữ hàng lúc thanh toán, nhập kho
+lúc tạo offer (`initial_inventory`), và kiểm kê. Hai đường sau tạo hoặc
+tìm bản ghi ở nhầm chủ, nên chúng im lặng theo kiểu khác: bản ghi tồn tại
+mà không đường nào đọc tới.
 
 Trung tâm người bán (P2-6) làm lỗi này lộ ra ngay: nhà bán nhìn số tồn của
 mình và thấy nó đứng yên dù đơn vẫn về.
+
+**Chốt lại bằng test đi hết chuỗi.** `internal/e2e` dựng đơn hai nhà bán
+cùng bán một SKU, đi qua giữ hàng → đặt đơn → event → tách đơn thực hiện.
+Đây là loại lỗi mà test từng module KHÔNG thể thấy: mỗi module dựng bản giả
+cho hàng xóm, và bản giả cư xử theo giả định của người viết test.
 
 **Lỗi phụ, cùng lượt kiểm chứng:** thiếu `guest_email` khi mở phiên thanh
 toán trả về `500 INTERNAL_ERROR` kèm câu "Đã có lỗi xảy ra, vui lòng thử

@@ -473,9 +473,24 @@ func translate(err error) error {
 		return apierror.New(apierror.CodeValidationFailed,
 			"Phương thức vận chuyển không hợp lệ")
 
-	case errors.Is(err, application.ErrEmptyCart):
+	case errors.Is(err, application.ErrEmptyCart),
+		errors.Is(err, domain.ErrNoLines):
 		return apierror.New(apierror.CodeValidationFailed,
 			"Giỏ hàng không có món nào mua được")
+
+	// Thiếu danh tính người mua là lỗi NHẬP LIỆU, không phải lỗi máy chủ.
+	//
+	// Trước đây nhánh này không tồn tại nên nó rơi xuống `default` và trả
+	// 500 kèm "Đã có lỗi xảy ra, vui lòng thử lại" — vừa giấu nguyên nhân,
+	// vừa bảo người dùng thử lại một việc không bao giờ thành công. Thông
+	// điệp phải nói RA thiếu gì.
+	case errors.Is(err, domain.ErrNoCustomer):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Cần email để gửi xác nhận đơn — đăng nhập hoặc điền email")
+
+	case errors.Is(err, domain.ErrMissingIdemKey):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Thiếu header Idempotency-Key")
 
 	case errors.Is(err, application.ErrOutOfStock):
 		return apierror.New(apierror.CodeInsufficientInventory,

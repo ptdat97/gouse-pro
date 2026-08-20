@@ -36,18 +36,23 @@ xanh nhưng KHÔNG kiểm chứng tầng kho lưu trữ. CI phải chạy nó.
 
 ## Trạng thái hiện tại
 
-Đang ở **Giai đoạn 1 — Nền tảng** theo [lộ trình triển khai](docs/10-roadmap/deliverables.md#14-thứ-tự-triển-khai-đề-xuất).
+Đang ở **Giai đoạn 7 — Hoàn thiện MVP** theo [lộ trình triển khai](docs/10-roadmap/deliverables.md#14-thứ-tự-triển-khai-đề-xuất).
+Việc còn lại và các lỗi đã biết nằm ở [backlog](docs/10-roadmap/backlog.md).
 
 | Thành phần | Trạng thái |
 |---|---|
 | `internal/kernel` — Money, ID, BasisPoints, Quantity | Xong |
 | `cmd/archcheck` — thực thi ranh giới module | Xong |
-| `internal/platform` — config, logger, apierror, httpserver | Xong |
-| `cmd/api`, `cmd/worker` — chạy được | Xong |
-| CI: ranh giới module, race detector, lint OpenAPI | Xong |
-| `internal/platform/database` + migration | Chưa |
-| `internal/platform/eventbus` + outbox | Chưa |
-| Module nghiệp vụ đầu tiên (`catalog`) | Chưa |
+| `internal/platform` — config, logger, apierror, httpserver, database, eventbus | Xong |
+| `cmd/api`, `cmd/worker` | Xong |
+| 17 module nghiệp vụ | Xong |
+| 25 migration | Xong |
+| `internal/e2e` — luồng đi qua nhiều module | Xong |
+| Giao diện: quản trị · cửa hàng · trung tâm người bán | Xong (kho riêng) |
+| Vận hành: metrics, tracing, chính sách lưu trữ audit | Chưa |
+
+**Bảy luồng nghiệm thu MVP đều chạy được**, kể cả luồng nhà bán đăng sản
+phẩm và luồng đơn hàng → giao hàng.
 
 ---
 
@@ -64,12 +69,28 @@ internal/
                   → rất nhỏ, thay đổi rất hiếm
   platform/       hạ tầng TRUNG LẬP với domain
                   → nếu nó nhắc tới "order" hay "seller" thì đặt sai chỗ
-  modules/        module nghiệp vụ (chưa có)
+  modules/        17 module nghiệp vụ, mỗi module một `public.go` duy nhất
+  e2e/            luồng đi QUA NHIỀU module, bằng module thật
+                  → bắt loại lỗi mà test dùng bản giả không thể thấy
 
 api/              đặc tả OpenAPI — nguồn sự thật duy nhất về hợp đồng API
-docs/             tài liệu kiến trúc (105 file)
-migrations/       file SQL migration
+docs/             tài liệu kiến trúc (128 file)
+migrations/       25 file SQL migration
 ```
+
+Giao diện nằm ở **kho riêng** (`../gouse-web`), một monorepo npm workspaces
+với ba ứng dụng Next.js. Tách kho có chủ ý: giao diện chỉ TRÌNH BÀY, và
+ranh giới giữa hai bên là `api/openapi.yaml` chứ không phải lời gọi hàm.
+
+| Ứng dụng | Cổng | Dành cho |
+|---|---|---|
+| `apps/admin` | 3000 | vận hành nội bộ |
+| `apps/storefront` | 3001 | khách mua hàng |
+| `apps/seller` | 3002 | nhà bán |
+
+Cả ba đều gọi API ở cổng 8080. Ở môi trường phát triển, ba origin này nằm
+sẵn trong danh sách trắng CORS — thiếu một cái thì lỗi CHỈ hiện ở console
+trình duyệt, log máy chủ hoàn toàn sạch.
 
 **Cấm tuyệt đối** các thư mục `common/`, `utils/`, `helpers/`, `services/` — chúng trở thành bãi rác phụ thuộc và phá hủy tính module một cách âm thầm. `archcheck` sẽ chặn.
 
@@ -77,7 +98,8 @@ migrations/       file SQL migration
 
 ## Ranh giới module
 
-Bảy quy tắc được **thực thi bằng công cụ**, không dựa vào kỷ luật con người:
+Bảy quy tắc được **thực thi bằng công cụ**, không dựa vào kỷ luật con người
+(R6 đã bỏ; đánh số giữ nguyên để tài liệu và ADR cũ không lệch):
 
 | Mã | Quy tắc |
 |---|---|
@@ -142,7 +164,7 @@ make api-types     # sinh kiểu TypeScript cho frontend
 | [docs/README.md](docs/README.md) | Điều hướng toàn bộ tài liệu |
 | [docs/00-overview/principles.md](docs/00-overview/principles.md) | 16 nguyên tắc kiến trúc bắt buộc |
 | [docs/10-roadmap/deliverables.md](docs/10-roadmap/deliverables.md) | Tổng hợp bàn giao, rủi ro, thứ tự triển khai |
-| [docs/adr/](docs/adr/) | 9 quyết định kiến trúc kèm lý do |
+| [docs/adr/](docs/adr/) | 12 quyết định kiến trúc kèm lý do |
 
 ---
 
@@ -150,7 +172,9 @@ make api-types     # sinh kiểu TypeScript cho frontend
 
 - Go 1.26+
 - Node.js 20+ (chỉ để kiểm tra đặc tả OpenAPI)
-- PostgreSQL 16+ (khi có module dùng database)
+- PostgreSQL 16+ — BẮT BUỘC: module `order`, `payment`, `checkout` và
+  `inventory` từ chối chạy nếu không có, vì bất biến của chúng cần ràng
+  buộc ở tầng database chứ không phải kiểm tra trước khi ghi
 
 Biến môi trường: xem [internal/platform/config/config.go](internal/platform/config/config.go). Ở `development` mọi biến đều có giá trị mặc định hợp lý; ở `production` thiếu `DATABASE_URL` là lỗi khởi động.
 
