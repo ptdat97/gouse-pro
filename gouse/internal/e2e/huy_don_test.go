@@ -135,11 +135,17 @@ func TestHuyDonCuaOwnBrandTraVeKhoNenTang(t *testing.T) {
 	}
 }
 
-// TestHuyLaiKhongTraHangHaiLan: event có thể được phát lại.
+// TestHuyLaiKhongTraHangHaiLan: chạy dispatcher thêm nhiều vòng không làm
+// hàng quay về hai lần.
 //
-// Dispatcher đảm bảo mỗi bên nhận xử lý một event đúng một lần, nhưng bài
-// này khẳng định điều đó ở mức TOÀN CHUỖI — vì hậu quả của việc trả hai
-// lần là hàng không có thật xuất hiện trong kho, và nó sẽ được bán.
+// Hậu quả của việc trả hai lần là hàng KHÔNG CÓ THẬT xuất hiện trong kho,
+// và nó sẽ được bán cho ai đó.
+//
+// Bài này kiểm KẾT QUẢ ở mức toàn chuỗi. Nó không tách được lớp nào tạo
+// ra kết quả — event đã phát xong thì dispatcher không lấy lại, và ngay
+// cả khi lấy lại thì `event_processed` cùng trạng thái domain đều chặn.
+// Cơ chế "đúng một lần" của dispatcher có test riêng ở
+// internal/platform/eventbus.
 func TestHuyLaiKhongTraHangHaiLan(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()

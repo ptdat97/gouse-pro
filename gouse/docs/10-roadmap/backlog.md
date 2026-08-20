@@ -112,7 +112,7 @@ idempotency** đều có test hồi quy tự động.
 
 | # | Việc | Trạng thái |
 |---|---|---|
-| PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | 🟡 9/12 kịch bản |
+| PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | ✅ 12/12 kịch bản, 14 test |
 | PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
 | PH-3 | Test tích hợp API cho các luồng quan trọng | ⬜ chưa có |
 | PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 5/7 luồng |
@@ -158,16 +158,38 @@ không thấy được — P3-18 đã chứng minh điều đó.
 | Thử lại / gửi trùng request | ✅ `TestHoanTatHaiLanCungKhoaChiRaMotDon` |
 | **Thanh toán ĐỒNG THỜI — không oversell** | ✅ `TestMuoiKhachTranhBaMonKhongAiMuaQua` |
 | Một giỏ, nhiều tab — không giữ hàng nhiều lần | ✅ `TestHaiTabCungGioChiGiuHangMotLan` |
-| Thực hiện TỪNG PHẦN (một seller giao, một seller chưa) | ⬜ |
-| Giao hàng TỪNG PHẦN trong một đơn thực hiện | ⬜ |
+| Thực hiện TỪNG PHẦN (một seller giao, một seller chưa) | ✅ `TestGiaoDuTungPhanRoiDuHet` |
+| Giao hàng TỪNG PHẦN (một nguồn đã xuất, nguồn kia chưa) | ✅ `TestGiaoTungPhan` · `TestHuyMotPhanDonVanConHieuLuc` |
 | Hủy đơn (trước và sau khi lấy hàng) | ✅ 4 test — `TestHuyDonTraHangVeKho` và 3 test cùng nhóm |
-| Giao dịch cuộn ngược — event KHÔNG phát | ⬜ (có test ở tầng eventbus, chưa có ở toàn chuỗi) |
+| Giao dịch cuộn ngược khi bên nhận lỗi | ✅ `TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo` |
 
 **Bất biến không-oversell nay được chứng minh ở TOÀN CHUỖI**, không chỉ ở
 tầng inventory: 10 khách tranh 3 món qua `StartCheckout` thật (đọc giỏ →
 tra chủ sở hữu → chọn kho → giữ hàng → ghi phiên) cho đúng 3 người thắng,
 `available` về 0 và không bao giờ âm. Bỏ khóa lạc quan → **cả 10 người đều
 giữ được hàng**, đỏ 3/3 lần chạy.
+
+**Giao TỪNG PHẦN khóa cả hai phía.** Một nửa thì phải là "một phần", đủ
+cả thì phải chuyển sang trạng thái cuối. Chỉ kiểm một phía thì một cài đặt
+luôn trả `PARTIALLY_DELIVERED` vẫn xanh. Kèm ca dễ sai theo hướng tai hại:
+một nhà bán hủy KHÔNG được làm cả đơn thành đã hủy — khách sẽ mất phần
+hàng còn lại mà không ai báo.
+
+**Cuộn ngược kiểm ở đúng chỗ nó quan trọng.** Dispatcher chạy mỗi bên nhận
+trong một savepoint riêng bao cả phần ghi LẪN việc đánh dấu đã xử lý. Bên
+nhận dùng trong test GHI DỮ LIỆU rồi mới lỗi — một bên nhận chỉ trả lỗi
+mà không ghi gì thì không kiểm chứng được gì. Bỏ `sp.Rollback` → "còn 1
+dòng của bên nhận đã lỗi, cần 0".
+
+Ghép chung một giao dịch cho mọi bên nhận thì một bên phụ (gửi email) hỏng
+sẽ cuộn ngược cả việc chuyển tồn kho Reserved → Committed — và khi đó tiến
+trình dọn có thể nhả hàng của một đơn ĐÃ THANH TOÁN.
+
+**Giới hạn đã biết của hai bài "phát lại":** chúng kiểm KẾT QUẢ (hàng không
+quay về hai lần) chứ không tách được lớp nào tạo ra kết quả. Bỏ riêng
+`ON CONFLICT DO NOTHING` ở dispatcher KHÔNG làm chúng đỏ, vì trạng thái
+domain cũng chặn. Cơ chế "đúng một lần" của dispatcher có test riêng ở
+`internal/platform/eventbus`. Ghi lại để không ai đọc nhầm mức bảo đảm.
 
 **Một phát hiện đáng ghi:** bất biến "một giỏ một phiên" có phòng vệ BA
 lớp — chốt ở tầng ứng dụng, chỉ mục UNIQUE có điều kiện ở database, và
