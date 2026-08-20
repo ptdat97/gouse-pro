@@ -683,6 +683,29 @@ type SplitLine struct {
 	CommissionAmount money.Money
 }
 
+// foSuffix sinh hậu tố phân biệt các đơn thực hiện của cùng một đơn hàng:
+// A, B, … Z, AA, AB, …
+//
+// # Vì sao không phải string(rune('A'+i))
+//
+// Cách đó đúng tới nhà bán thứ 26 rồi lặng lẽ tràn sang ký tự khác: đơn
+// thứ 27 nhận hậu tố "[", thứ 28 nhận "\". Không có lỗi nào được báo —
+// chỉ là mã đơn thực hiện chứa ký tự thoát, đi vào URL, log và mã vạch.
+//
+// 27 nhà bán trong một đơn nghe như chuyện không xảy ra, cho tới khi có
+// một giỏ hàng lớn. Chi phí để đúng ở đây là bảy dòng.
+func foSuffix(i int) string {
+	const letters = 26
+	out := ""
+	for {
+		out = string(rune('A'+i%letters)) + out
+		i = i/letters - 1
+		if i < 0 {
+			return out
+		}
+	}
+}
+
 func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrder, error) {
 	lines := in.Lines
 	if len(lines) == 0 {
@@ -730,7 +753,7 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 	for i, g := range groups {
 		fo, err := NewFulfillmentOrder(NewFulfillmentOrderParams{
 			OrderID:          in.OrderID,
-			FONumber:         in.OrderNumber + "-" + string(rune('A'+i)),
+			FONumber:         in.OrderNumber + "-" + foSuffix(i),
 			SellerID:         g.sellerID,
 			LineIDs:          g.lineIDs,
 			Lines:            g.lines,

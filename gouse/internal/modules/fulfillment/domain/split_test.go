@@ -365,3 +365,37 @@ func TestIsShippedDungChoMoiTrangThaiSauKhiRoiKho(t *testing.T) {
 		}
 	}
 }
+
+// TestHauToDonThucHienKhongTranKyTu khóa việc đánh hậu tố cho đơn tách.
+//
+// Cách cũ — string(rune('A'+i)) — đúng tới nhà bán thứ 26 rồi lặng lẽ
+// tràn: đơn thứ 27 nhận "[", thứ 28 nhận "\". Mã đơn có ký tự thoát đi
+// thẳng vào URL, log và mã vạch mà không lỗi ở đâu cả.
+func TestHauToDonThucHienKhongTranKyTu(t *testing.T) {
+	tests := []struct {
+		i    int
+		want string
+	}{
+		{0, "A"},
+		{1, "B"},
+		{25, "Z"},
+		{26, "AA"},
+		{27, "AB"},
+		{51, "AZ"},
+		{52, "BA"},
+	}
+	for _, tc := range tests {
+		if got := domain.ExportedFOSuffix(tc.i); got != tc.want {
+			t.Errorf("hậu tố thứ %d = %q, cần %q", tc.i, got, tc.want)
+		}
+	}
+
+	// Không hậu tố nào được chứa ký tự ngoài A–Z.
+	for i := 0; i < 200; i++ {
+		for _, r := range domain.ExportedFOSuffix(i) {
+			if r < 'A' || r > 'Z' {
+				t.Fatalf("hậu tố thứ %d chứa ký tự %q", i, r)
+			}
+		}
+	}
+}
