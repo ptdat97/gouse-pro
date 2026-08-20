@@ -868,7 +868,9 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-17 | SLA cho đơn thực hiện | Đặc tả khai báo `sla_deadline`; domain chưa có khái niệm này |
 | P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
 | P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | ✅ xong (20/08) — `GET /api/v1/sellers?ids=` |
-| P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | Nghiêm trọng với hàng thời trang — xem ghi chú dưới bảng |
+| P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | ✅ xong (20/08) — xem ghi chú dưới bảng |
+| P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
+| P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | `MarkOutOfStock` là code chết — event `inventory.depleted` chưa ai phát |
 | P3-20 | `SKU.buy_box_offer` trong đặc tả không bao giờ được trả | Cùng lớp với lỗi `availability` đã sửa: trường không `required` nên không ai phát hiện |
 
 **P3-19 — đã xong (20/08).** `GET /api/v1/sellers?ids=` tra hồ sơ nhà bán
@@ -890,7 +892,7 @@ Test kiểm danh sách TRẮNG (chỉ ba trường được phép) chứ không 
 sách đen, và quét cả thân response tìm giá trị nhạy cảm. Xác nhận đỏ khi
 cố tình thêm `email` và `commission_rate_bp`.
 
-**P3-21 — trang sản phẩm chưa cho chọn màu/size (20/08).**
+**P3-21 — đã xong (20/08).**
 
 Phát hiện khi xem kết quả render thật sau khi nối tên nhà bán. Trang liệt
 kê offer của MỌI SKU thuộc sản phẩm, lẫn lộn, không nói offer nào ứng với
@@ -911,6 +913,63 @@ thắng. Nhãn đúng ở tầng dữ liệu, vô nghĩa ở tầng hiển thị
 
 Cần: chọn màu → chọn size → mới lọc offer theo SKU đã chọn. Dữ liệu đã có
 sẵn (`product.variants[].skus[]` và `offer.sku_id`); thiếu là ở giao diện.
+
+**Đã dựng lại thành ba bước, đúng thứ tự khách nghĩ: màu → size → nhà bán.**
+Màu và size xác định MÓN HÀNG (một SKU); nhà bán chỉ là mua món đó của ai.
+
+Việc gom biến thể phẳng thành cây màu → size nằm ở `lib/chon-hang.ts` dưới
+dạng hàm THUẦN, có test riêng chạy không cần trình duyệt (10 test). Giao
+diện chỉ còn hiển thị và nối sự kiện.
+
+Ba quyết định đáng ghi lại:
+
+1. **Hết hàng thì HIỆN, không ẩn.** Ẩn size hết hàng làm khách kết luận
+   thương hiệu không làm size của mình rồi rời đi, thay vì biết là tạm hết.
+2. **Đổi màu thì GIỮ NGUYÊN size** nếu màu mới có size đó. Khách nghĩ "tôi
+   mặc M, cho tôi xem M màu xanh". Đây cũng là chỗ dễ sinh lỗi im lặng
+   nhất: giữ nguyên `sku_id` cũ thì khách tưởng đang xem màu xanh nhưng
+   mua đúng chiếc áo trắng.
+3. **Chọn sẵn tổ hợp MUA ĐƯỢC**, không phải cái đầu tiên. Mở trang ra mà
+   mặc định đã hết hàng là bắt khách làm thêm một bước chỉ để về trạng
+   thái dùng được.
+
+**P3-22 — `Color` và `Size` mới là chuỗi (20/08).**
+
+Đặc tả từng khai chúng là object — `Color {name, hex_code, color_family}`
+và `Size {value, system, label}` — nhưng domain giữ thuộc tính biến thể
+trong một map `{color, size, ...}` và không có chỗ cho những trường đó.
+Đặc tả đã sửa về đúng sự thật; đây là việc còn thiếu, không phải lỗi.
+
+Cái mất là thật, và lý do nằm ngay trong chính đặc tả cũ:
+
+- `hex_code` — "khách chọn theo màu nhìn thấy, không theo tên". Bộ chọn
+  màu hiện là chữ; ô màu thật dễ dùng hơn hẳn với hàng thời trang.
+- `system` — "M của thương hiệu A khác M của thương hiệu B, và 38 giày
+  khác 38 quần". Không có hệ size thì bảng quy đổi không dựng được, và
+  đó là một nguyên nhân hoàn hàng.
+
+Cần thêm trường ở domain + migration + chỗ nhập ở admin, nên không gộp
+vào việc dựng lại luồng chọn hàng.
+
+**P3-23 — offer không bao giờ tự chuyển `OUT_OF_STOCK` (20/08).**
+
+`Offer.MarkOutOfStock` tồn tại, có chú thích ghi rõ "do module inventory
+phát event `inventory.depleted`". Nhưng event đó chưa từng được phát và
+không ai đăng ký nghe — cả hai đầu dây đều chỉ có trong chú thích. Hàm là
+code chết.
+
+Hậu quả đã kiểm chứng bằng đơn thật TRƯỚC khi vá: đưa tồn kho về 0, cửa
+hàng vẫn ghi "Còn hàng" và nút "Thêm vào giỏ" vẫn bấm được; khách chỉ phát
+hiện ở bước thanh toán. Dấu hiệu nội tại rất rõ: nhãn "Đề xuất" BIẾN MẤT
+trong khi nút mua vẫn sáng — buy box đã loại offer hết hàng còn
+`is_sellable` thì không. Hai câu trả lời khác nhau cho cùng một câu hỏi,
+trong cùng một response.
+
+Đã vá ở tầng đọc: `ListProductOffers` nay tính `is_sellable` = offer đang
+bán VÀ còn hàng, cùng nguồn dữ liệu buy box đang dùng. Nhưng đó là vá
+TRIỆU CHỨNG — trạng thái offer trong database vẫn sai, nên mọi đường đọc
+khác vẫn thấy `ACTIVE`. Sửa gốc là nối event, và đó là việc còn lại.
+
 
 **P3-18 — giữ hàng chọn nhầm chủ sở hữu tồn kho (phát hiện và sửa 19/08).**
 

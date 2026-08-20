@@ -500,10 +500,24 @@ func (s *Service) GetOffersBySKU(ctx context.Context, skuID ids.ID) ([]*domain.O
 	return s.offers.FindBySKU(ctx, skuID)
 }
 
-// ProductOffer là một offer kèm cờ thắng buy box.
+// ProductOffer là một offer kèm hai câu trả lời mà bản thân offer không
+// tự trả lời được.
 type ProductOffer struct {
 	Offer    *domain.Offer
 	IsBuyBox bool
+
+	// IsSellable: khách BẤM MUA ĐƯỢC không.
+	//
+	// KHÁC `Offer.IsSellable()`, và khác một cách quan trọng: hàm kia chỉ
+	// nhìn trạng thái offer, không biết gì về tồn kho — offer vẫn ACTIVE
+	// khi kho đã sạch, vì chưa có gì chuyển nó sang OUT_OF_STOCK (event
+	// `inventory.depleted` mới chỉ có trong chú thích).
+	//
+	// Cờ này là quy tắc ĐẦY ĐỦ: offer đang bán VÀ còn hàng. Cùng điều
+	// kiện buy box đã dùng để loại người thắng khi hết hàng — hai chỗ
+	// trong cùng một response mà trả lời khác nhau là chuyện đã xảy ra:
+	// nhãn "Đề xuất" biến mất trong khi nút "Thêm vào giỏ" vẫn sáng.
+	IsSellable bool
 }
 
 // ListProductOffers trả các offer của một sản phẩm, đánh dấu offer thắng
@@ -534,6 +548,32 @@ func (s *Service) ListProductOffers(
 		return nil, err
 	}
 
+	// Buy box tính RIÊNG cho từng SKU — mỗi tổ hợp màu/size có người thắng
+	// của nó — nhưng tra MỘT LẦN cho cả danh sách.
+	//
+	// Trước đây chỗ này gọi GetBuyBox bên trong vòng lặp SKU, và mỗi lần
+	// gọi lại tra tồn kho cùng trạng thái nhà bán từ đầu: một sản phẩm 12
+	// tổ hợp màu/size là 12 lượt đi-về cho dữ liệu lấy được bằng một lượt.
+	// Bản theo lô đã có sẵn, chỉ là chưa dùng.
+	boxes, err := s.GetBuyBoxes(ctx, skuIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Tồn kho theo lô, cùng nguồn với buy box.
+	//
+	// Bắt buộc phải hỏi ở đây chứ không suy từ `boxes`: SKU hết hàng thì
+	// KHÔNG có bản ghi buy box nào, mà "không có người thắng" còn xảy ra
+	// vì lý do khác (mọi nhà bán bị đình chỉ). Suy ngược từ chỗ vắng mặt
+	// là đoán.
+	available := map[ids.ID]int{}
+	if s.inventory != nil {
+		available, err = s.inventory.AvailableForSKUs(ctx, skuIDs)
+		if err != nil {
+			return nil, fmt.Errorf("tra tồn kho: %w", err)
+		}
+	}
+
 	var out []ProductOffer
 	for _, sku := range skuIDs {
 		offers := bySKU[sku]
@@ -541,22 +581,23 @@ func (s *Service) ListProductOffers(
 			continue
 		}
 
-		// Buy box tính RIÊNG cho từng SKU: mỗi tổ hợp màu/size có người
-		// thắng của nó, vì giá và tồn kho khác nhau.
-		box, err := s.GetBuyBox(ctx, sku)
-		if err != nil {
-			return nil, err
-		}
+		box := boxes[sku]
+		coHang := s.inventory == nil || available[sku] > 0
 
 		for _, o := range offers {
 			// KHÔNG lộ offer đã lưu trữ hay bị đình chỉ: khách thấy một
 			// mức giá không đặt được là trải nghiệm tệ hơn không thấy gì.
+			//
+			// Offer HẾT HÀNG thì vẫn hiện — khác hẳn hai trường hợp trên.
+			// Khách cần biết nhà bán này CÓ bán món đó để quyết định chờ
+			// hay mua của người khác.
 			if !o.IsVisibleToCustomer() {
 				continue
 			}
 			out = append(out, ProductOffer{
-				Offer:    o,
-				IsBuyBox: box.Winner != nil && box.Winner.ID() == o.ID(),
+				Offer:      o,
+				IsBuyBox:   box.Winner != nil && box.Winner.ID() == o.ID(),
+				IsSellable: o.IsSellable() && coHang,
 			})
 		}
 	}

@@ -475,3 +475,65 @@ func TestChuOfferVanSuaDuocOfferCuaMinh(t *testing.T) {
 		t.Errorf("giá = %d, mong 450000", updated.Price().Amount())
 	}
 }
+
+// TestHetHangThiOfferKhongConBanDuoc khóa quy tắc mà cả trang sản phẩm
+// dựa vào để bật/tắt nút mua.
+//
+// # Vì sao `Offer.IsSellable()` một mình là KHÔNG đủ
+//
+// Nó chỉ nhìn trạng thái offer. Offer vẫn ACTIVE khi kho đã sạch, vì chưa
+// có gì chuyển nó sang OUT_OF_STOCK — event `inventory.depleted` mới chỉ
+// tồn tại trong chú thích, không ai phát và không ai nghe.
+//
+// Hậu quả đã kiểm chứng trên hệ thống thật trước khi sửa: đưa tồn kho về
+// 0, cửa hàng vẫn ghi "Còn hàng" và nút "Thêm vào giỏ" vẫn bấm được. Khách
+// chỉ phát hiện ở bước thanh toán.
+//
+// Dấu hiệu nội tại của lỗi: nhãn "Đề xuất" BIẾN MẤT trong khi nút mua vẫn
+// sáng — buy box đã loại offer hết hàng, `is_sellable` thì không. Hai câu
+// trả lời khác nhau cho cùng một câu hỏi, trong cùng một response.
+func TestHetHangThiOfferKhongConBanDuoc(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	productID := ids.MustNew(ids.PrefixProduct)
+	skuID := ids.MustNew(ids.PrefixSKU)
+	h.product.skus = []ids.ID{skuID}
+
+	h.createOffer(t, skuID, ids.MustNew(ids.PrefixSeller), 100000)
+
+	// Còn hàng: mua được, và thắng buy box.
+	h.inv.available[skuID] = 5
+	list, err := h.svc.ListProductOffers(ctx, productID, ids.ID(""))
+	if err != nil {
+		t.Fatalf("ListProductOffers: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("số offer = %d, cần 1", len(list))
+	}
+	if !list[0].IsSellable {
+		t.Error("còn hàng mà không mua được")
+	}
+	if !list[0].IsBuyBox {
+		t.Error("còn hàng mà không thắng buy box")
+	}
+
+	// Hết hàng: offer VẪN HIỆN (khách cần biết nhà bán này có bán món đó)
+	// nhưng KHÔNG mua được.
+	h.inv.available[skuID] = 0
+	list, err = h.svc.ListProductOffers(ctx, productID, ids.ID(""))
+	if err != nil {
+		t.Fatalf("ListProductOffers: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("offer bị ẩn khi hết hàng: số offer = %d, cần 1", len(list))
+	}
+	if list[0].IsSellable {
+		t.Error("hết hàng mà vẫn báo mua được — đúng lỗi đã gặp trên cửa hàng")
+	}
+
+	// Và hai cờ phải NHẤT QUÁN: không được cái này bảo hết, cái kia bảo còn.
+	if list[0].IsBuyBox {
+		t.Error("hết hàng mà vẫn thắng buy box")
+	}
+}

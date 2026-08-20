@@ -87,8 +87,9 @@ ProductSummary:
           type: integer
     available_colors:
       type: array
+      description: Tên các màu có trong danh mục. Chuỗi, xem `Variant.color`.
       items:
-        $ref: './common.yaml#/schemas/Color'
+        type: string
     available_sizes:
       type: array
       description: |
@@ -178,7 +179,19 @@ Variant:
     id:
       $ref: './common.yaml#/schemas/Id'
     color:
-      $ref: './common.yaml#/schemas/Color'
+      type: string
+      description: |
+        Tên màu, ví dụ "Trắng" hoặc "Xanh navy".
+
+        **Là CHUỖI, không phải object `Color`.** Domain lưu thuộc tính biến
+        thể trong một map `{color, size, ...}` — dùng map vì mỗi loại hàng
+        có thuộc tính khác nhau (áo có độ dài tay, quần có kiểu ống) — nên
+        chưa có chỗ cho mã màu hex hay nhóm màu.
+
+        Ô màu thật (`hex_code`) và lọc theo nhóm màu là việc riêng, xem
+        P3-22 trong backlog: chúng cần thêm trường ở domain chứ không chỉ
+        đổi hình dạng JSON.
+      examples: ['Trắng']
     images:
       type: array
       items:
@@ -193,7 +206,7 @@ SKUSummary:
   description: |
     Đơn vị lưu kho. **Định danh hàng hóa chung**, không thuộc seller nào —
     đây là cái cho phép biết "ba seller đang bán cùng một món hàng".
-  required: [id, size, available]
+  required: [id, size]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
@@ -201,12 +214,29 @@ SKUSummary:
       type: string
       examples: ['SM-LIN-OXF-WHT-M']
     size:
-      $ref: './common.yaml#/schemas/Size'
-    available:
-      type: boolean
+      type: string
       description: |
-        Còn hàng hay không. Size hết hàng vẫn được trả về (để hiển thị
-        gạch chéo + cho phép đăng ký nhận thông báo), không ẩn đi.
+        Kích cỡ, ví dụ "M" hoặc "38".
+
+        **Là CHUỖI, không phải object `Size`.** Cùng lý do với
+        `Variant.color`: domain giữ thuộc tính biến thể trong một map, nên
+        chưa có chỗ cho HỆ SIZE (ALPHA/EU/US...).
+
+        Đó là thiếu sót có hậu quả thật — "M" của thương hiệu này khác "M"
+        của thương hiệu kia, và "38" giày khác "38" quần — nhưng sửa nó
+        cần thêm trường ở domain. Xem P3-22.
+      examples: ['M']
+    # KHÔNG có `available` ở đây, có chủ ý.
+    #
+    # "Size này mua được không" là câu hỏi về LỜI CHÀO BÁN, không phải về
+    # số hàng trong kho: SKU còn 100 cái mà không nhà bán nào đang chào
+    # bán thì khách vẫn không mua được. Câu trả lời nằm ở `is_sellable`
+    # của offer — máy chủ đã tổng hợp sẵn tồn kho + trạng thái nhà bán +
+    # trạng thái offer vào đó.
+    #
+    # Thêm một trường thứ hai trả lời cùng câu hỏi là cài quy tắc ở hai
+    # nơi, và hai nơi sẽ lệch. Size hết hàng VẪN được trả về ở đây (để
+    # hiển thị gạch chéo), chỉ là "hết hàng" do offer quyết định.
 
 Image:
   type: object

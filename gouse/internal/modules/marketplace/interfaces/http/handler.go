@@ -104,7 +104,7 @@ func (h *Handler) listProductOffers(w http.ResponseWriter, r *http.Request) {
 			Condition:         string(o.Condition()),
 			HandlingTimeHours: o.HandlingTimeHours(),
 			IsBuyBox:          po.IsBuyBox,
-			IsSellable:        o.IsSellable(),
+			IsSellable:        po.IsSellable,
 			Status:            string(o.Status()),
 		}
 
