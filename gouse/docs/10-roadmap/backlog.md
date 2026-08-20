@@ -112,7 +112,7 @@ idempotency** đều có test hồi quy tự động.
 
 | # | Việc | Trạng thái |
 |---|---|---|
-| PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | 🟡 1/10 kịch bản |
+| PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | 🟡 8/12 kịch bản |
 | PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
 | PH-3 | Test tích hợp API cho các luồng quan trọng | ⬜ chưa có |
 | PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 5/7 luồng |
@@ -153,18 +153,27 @@ không thấy được — P3-18 đã chứng minh điều đó.
 | Own Brand + Marketplace trong CÙNG một đơn | ✅ `TestDonNhieuNhaBanDiHetChuoi` |
 | Nhiều seller trong cùng giỏ/đơn | ✅ cùng test trên |
 | Cô lập chủ sở hữu tồn kho | ✅ cùng test trên |
+| Không đủ hàng giữa chừng — và NHẢ lại hàng đã giữ | ✅ `TestMotMonHetHangThiNhaHetHangDaGiu` |
+| Không mượn kho người khác khi hết hàng (toàn chuỗi) | ✅ `TestOwnBrandVaNhaBanKhongDungChungKhoKhiHetHang` |
+| Thử lại / gửi trùng request | ✅ `TestHoanTatHaiLanCungKhoaChiRaMotDon` |
+| **Thanh toán ĐỒNG THỜI — không oversell** | ✅ `TestMuoiKhachTranhBaMonKhongAiMuaQua` |
+| Một giỏ, nhiều tab — không giữ hàng nhiều lần | ✅ `TestHaiTabCungGioChiGiuHangMotLan` |
 | Thực hiện TỪNG PHẦN (một seller giao, một seller chưa) | ⬜ |
 | Giao hàng TỪNG PHẦN trong một đơn thực hiện | ⬜ |
 | Hủy đơn (trước và sau khi lấy hàng) | ⬜ |
-| Không đủ hàng giữa chừng | ⬜ |
-| Thử lại / gửi trùng request | ⬜ |
-| Giao dịch cuộn ngược (rollback) | ⬜ |
-| Thanh toán ĐỒNG THỜI trên cùng giỏ | ⬜ |
+| Giao dịch cuộn ngược — event KHÔNG phát | ⬜ (có test ở tầng eventbus, chưa có ở toàn chuỗi) |
 
-Có sẵn để dựa vào: `TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc`
-(10 khách tranh 5 món, đúng 5 người giữ được) chứng minh KHÔNG OVERSELL ở
-tầng inventory. Việc còn lại là chứng minh điều đó vẫn đúng khi đi qua cả
-chuỗi checkout.
+**Bất biến không-oversell nay được chứng minh ở TOÀN CHUỖI**, không chỉ ở
+tầng inventory: 10 khách tranh 3 món qua `StartCheckout` thật (đọc giỏ →
+tra chủ sở hữu → chọn kho → giữ hàng → ghi phiên) cho đúng 3 người thắng,
+`available` về 0 và không bao giờ âm. Bỏ khóa lạc quan → **cả 10 người đều
+giữ được hàng**, đỏ 3/3 lần chạy.
+
+**Một phát hiện đáng ghi:** bất biến "một giỏ một phiên" có phòng vệ BA
+lớp — chốt ở tầng ứng dụng, chỉ mục UNIQUE có điều kiện ở database, và
+đường nhả hàng khi `Save` thất bại. Bỏ RIÊNG lớp đầu thì test vẫn xanh.
+Điều đó dễ dẫn tới kết luận sai theo cả hai chiều: tưởng test vô dụng,
+hoặc tưởng một lớp là đủ nên gỡ lớp kia.
 
 ### 2.6 Ma trận E2E giao diện (PH-4)
 

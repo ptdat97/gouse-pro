@@ -849,8 +849,8 @@ có lịch sử thật để dự báo.
 |---|---|
 | Bảy luồng nghiệm thu MVP chạy được | `[x]` cả 7 |
 | Luồng mua hàng chạy trên giao diện thật | `[x]` cửa hàng + trung tâm người bán, 5 test trình duyệt |
-| E2E xuyên module trên PostgreSQL | `[~]` 1/10 kịch bản — xem [backlog mục 2.5](backlog.md) |
-| Không oversell dưới thanh toán đồng thời | `[~]` chứng minh ở tầng inventory (10 khách tranh 5 món); chưa chứng minh xuyên chuỗi checkout |
+| E2E xuyên module trên PostgreSQL | `[~]` 8/12 kịch bản — xem [backlog mục 2.5](backlog.md) |
+| Không oversell dưới thanh toán đồng thời | `[x]` chứng minh ở TOÀN CHUỖI: 10 khách tranh 3 món qua `StartCheckout` thật → đúng 3 người thắng |
 | API p95 < 300ms · LCP < 2,5s | `[ ]` cần môi trường có tải thật — [backlog mục 2.12](backlog.md) |
 
 **Hai dòng `[~]` là điều kiện chặn của phase Production Hardening**, không
@@ -1032,7 +1032,7 @@ có code VÀ test chứng minh.
 | Tách đơn nhiều nhà bán | `TestTachDonBaNguonHangQuaEvent` · hậu tố cơ số 26 |
 | Cô lập fulfillment giữa nhà bán | `TestSellerKhongThayDuocPhanCuaSellerKhac` · phòng vệ hai lớp |
 | **Phân giải chủ sở hữu tồn kho** | P3-18 · 3 test hồi quy, mỗi test xác nhận đỏ khi phá |
-| E2E thương mại trên PostgreSQL | `internal/e2e` · `TestDonNhieuNhaBanDiHetChuoi` |
+| E2E thương mại trên PostgreSQL | `internal/e2e` · 6 test, 8/12 kịch bản |
 | Own Brand + Marketplace trong CÙNG một đơn | cùng test trên: 2 đơn thực hiện, tiền và tồn kho đúng từng bên |
 | Đồng bộ tài liệu / README | 20/08 · mọi liên kết đã kiểm |
 
@@ -1040,7 +1040,7 @@ có code VÀ test chứng minh.
 
 | Khoảng trống | Hậu quả nếu bỏ qua |
 |---|---|
-| E2E mới phủ 1/10 kịch bản | Lỗi ở KHOẢNG GIỮA module không ai thấy — P3-18 đã chứng minh |
+| E2E còn thiếu thực hiện/giao hàng từng phần, hủy đơn, rollback toàn chuỗi | Lỗi ở KHOẢNG GIỮA module không ai thấy — P3-18 đã chứng minh |
 | Idempotency thiếu ràng buộc DB ở inventory và fulfillment | Hai request song song cùng khóa vẫn lọt |
 | Event versioning chỉ có TRƯỜNG, chưa có quy trình | Đã xảy ra: worker cũ nuốt event mới, bỏ trường mới, không lỗi |
 | Không có metrics, không có tracing | Sự cố production chỉ biết khi khách báo |

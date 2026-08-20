@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -99,7 +100,7 @@ func newWorld(t *testing.T) *world {
 		t: t, db: db, inv: invModule, ord: ordModule, ful: fulModule,
 		bus: bus, internal: map[ids.ID]bool{},
 	}
-	w.cart = &stubCart{}
+	w.cart = newStubCart()
 
 	w.checkout = checkoutapp.NewService(checkoutapp.Deps{
 		Checkouts:   checkoutpg.NewCheckoutStore(db.Pool()),
@@ -171,6 +172,28 @@ func (w *world) stock(skuID, owner ids.ID) (int, int) {
 		}
 	}
 	return available, committed
+}
+
+// reserved đếm số đang GIỮ CHỖ của một chủ sở hữu.
+//
+// Tách khỏi `stock` vì nó trả lời một câu khác: không phải "còn bán được
+// bao nhiêu" mà "còn bao nhiêu đang bị khóa". Sau một phiên THẤT BẠI, con
+// số này phải bằng 0 — hàng bị khóa mà không có đơn nào đứng sau là hàng
+// mất đi trong 15 phút, im lặng.
+func (w *world) reserved(skuID, owner ids.ID) int {
+	w.t.Helper()
+	items, err := w.inv.GetItemsBySKUs(
+		context.Background(), []string{skuID.String()}, "")
+	if err != nil {
+		w.t.Fatalf("đọc tồn kho: %v", err)
+	}
+	total := 0
+	for _, it := range items[skuID.String()] {
+		if it.OwnerID == owner.String() {
+			total += it.Reserved
+		}
+	}
+	return total
 }
 
 // ---------------------------------------------------------------- Cổng ra
@@ -283,19 +306,45 @@ func (p *orderPort) PlaceOrder(
 	}, nil
 }
 
-// stubCart cung cấp ảnh chụp giỏ.
-type stubCart struct{ snap checkoutapp.CartSnapshot }
+// stubCart cung cấp ảnh chụp giỏ, theo TỪNG giỏ.
+//
+// Giữ nhiều giỏ chứ không phải một: kịch bản thanh toán đồng thời cần N
+// khách khác nhau cùng tranh một lượng hàng, và mỗi khách phải có giỏ
+// riêng — hai người dùng chung một giỏ là tình huống khác hẳn.
+type stubCart struct {
+	mu    sync.RWMutex
+	snaps map[ids.ID]checkoutapp.CartSnapshot
+}
+
+func newStubCart() *stubCart {
+	return &stubCart{snaps: map[ids.ID]checkoutapp.CartSnapshot{}}
+}
+
+func (c *stubCart) put(snap checkoutapp.CartSnapshot) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.snaps[snap.CartID] = snap
+}
 
 func (c *stubCart) LoadPurchasable(
-	context.Context, ids.ID,
+	_ context.Context, cartID ids.ID,
 ) (checkoutapp.CartSnapshot, error) {
-	return c.snap, nil
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.snaps[cartID], nil
 }
 
 func (c *stubCart) MarkConverted(context.Context, ids.ID) error { return nil }
 
-func (c *stubCart) ActiveCartID(context.Context, string, string) (ids.ID, error) {
-	return c.snap.CartID, nil
+func (c *stubCart) ActiveCartID(
+	_ context.Context, _, _ string,
+) (ids.ID, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for id := range c.snaps {
+		return id, nil
+	}
+	return "", nil
 }
 
 func vnd(n int64) money.Money {
@@ -342,7 +391,7 @@ func TestDonNhieuNhaBanDiHetChuoi(t *testing.T) {
 	w.stockFor(only, shop, 30)
 
 	cartID := ids.MustNew(ids.PrefixCart)
-	w.cart.snap = checkoutapp.CartSnapshot{
+	w.cart.put(checkoutapp.CartSnapshot{
 		CartID:     cartID,
 		CustomerID: ids.MustNew(ids.PrefixCustomer),
 		GuestEmail: "khach@example.com",
@@ -356,7 +405,7 @@ func TestDonNhieuNhaBanDiHetChuoi(t *testing.T) {
 			// Món 3: nhà bán ngoài, SKU riêng.
 			line(shop, only, 150_000, 1),
 		},
-	}
+	})
 
 	// ---- Bước 1: mở phiên → giữ hàng
 	c, err := w.checkout.StartCheckout(ctx, checkoutapp.StartCheckoutInput{
