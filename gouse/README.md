@@ -19,6 +19,14 @@ Với `MODULES_STORAGE=postgres`, lần khởi động đầu nạp dữ liệu 
 danh ghi ra log lúc khởi động (ULID sinh mới mỗi lần nạp nên không đoán được).
 
 ```bash
+go run ./cmd/taotaikhoan   # tạo tài khoản để THỬ GIAO DIỆN (chỉ development)
+```
+
+Tạo `khach@` · `admin@` · `vanhanh@gouse.test`, mật khẩu `Gouse@Test2026`.
+Chạy lại nhiều lần không sao — nó nhận ra tài khoản đã có và xác minh mật
+khẩu vẫn đúng. Từ chối chạy khi `APP_ENV` khác `development`.
+
+```bash
 make test-db          # MỘT LẦN: tạo database khuôn cho test
 make check            # chạy toàn bộ kiểm tra như CI
 make help             # xem tất cả lệnh
