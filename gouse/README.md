@@ -60,8 +60,9 @@ từng phần kèm bằng chứng ở [todo mục 12](docs/10-roadmap/todo.md).
 | Giao diện: quản trị · cửa hàng · trung tâm người bán | Xong (kho riêng) |
 | `internal/e2e` — luồng đi qua nhiều module | 12/12 kịch bản |
 | Idempotency có ràng buộc ở database | 5/5 đường ghi |
-| Event versioning — quy trình, không chỉ trường dữ liệu | Chưa |
-| Vận hành: metrics, tracing, chính sách lưu trữ audit | Chưa |
+| Event versioning — quy tắc + test tương thích | Xong |
+| Vận hành: metrics (Prometheus) | Xong — `/metrics` ở API và worker |
+| Vận hành: tracing, chính sách lưu trữ audit | Chưa |
 
 **Bảy luồng nghiệm thu MVP đều chạy được**, kể cả luồng nhà bán đăng sản
 phẩm và luồng đơn hàng → giao hàng.

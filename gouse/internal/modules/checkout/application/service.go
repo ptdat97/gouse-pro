@@ -19,6 +19,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/checkout/domain"
+	"github.com/fashion-commerce/platform/internal/platform/metrics"
 )
 
 // Clock cho phép test kiểm soát thời gian.
@@ -429,6 +430,11 @@ func (s *Service) StartCheckout(
 
 	lines, reservations, err := s.reserveAll(ctx, checkoutID, snap, ttl, now)
 	if err != nil {
+		// Đếm ở đây chứ không ở tầng HTTP: tầng HTTP chỉ thấy "500" hoặc
+		// "409", còn chỗ này biết bước nào hỏng và vì sao. Một hệ thống có
+		// thể trả 200 cho mọi request trong khi không ai đặt được đơn.
+		metrics.RecordFailure(metrics.StageReservation, lyDoThatBai(err))
+
 		// Nhả MỌI thứ đã giữ được. Đây là nhánh dễ bỏ quên nhất của cả
 		// module, và bỏ quên nó nghĩa là mỗi lần một món hết hàng thì các
 		// món khác trong giỏ bị khóa vô ích 15 phút.
@@ -852,7 +858,15 @@ type CompleteResult struct {
 // hủy ngay là trải nghiệm tệ và làm mất đơn hàng.
 func (s *Service) CompleteCheckout(
 	ctx context.Context, id ids.ID, idempotencyKey string,
-) (*CompleteResult, error) {
+) (_ *CompleteResult, ketQua error) {
+	// Bọc để mọi đường THOÁT SỚM đều được đếm. Rải lời gọi ở từng nhánh
+	// `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh bị sót
+	// thường là nhánh hiếm — tức là nhánh đáng quan tâm nhất.
+	defer func() {
+		if ketQua != nil {
+			metrics.RecordFailure(metrics.StageCheckout, lyDoThatBai(ketQua))
+		}
+	}()
 	if idempotencyKey == "" {
 		return nil, domain.ErrMissingIdemKey
 	}
@@ -1045,4 +1059,21 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 // Chỉ báo giám sát: con số tăng dần nghĩa là tiến trình dọn đã ngừng chạy.
 func (s *Service) CountExpiredPending(ctx context.Context) (int, error) {
 	return s.checkouts.CountExpiredPending(ctx, s.clock.Now())
+}
+
+// lyDoThatBai phân loại lỗi thành một nhãn có tập giá trị ĐÓNG.
+//
+// Không truyền thông điệp lỗi thô vào nhãn: nó chứa tên sản phẩm và số
+// lượng, nên mỗi lần lỗi là một chuỗi thời gian mới.
+func lyDoThatBai(err error) string {
+	switch {
+	case errors.Is(err, ErrOutOfStock):
+		return "out_of_stock"
+	case errors.Is(err, ErrEmptyCart):
+		return "empty_cart"
+	case errors.Is(err, domain.ErrNotFound):
+		return "not_found"
+	default:
+		return "internal"
+	}
 }

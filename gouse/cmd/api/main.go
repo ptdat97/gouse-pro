@@ -42,7 +42,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
+	"github.com/fashion-commerce/platform/internal/platform/metrics"
 	"github.com/fashion-commerce/platform/internal/platform/token"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // version được đặt lúc build qua -ldflags.
@@ -726,6 +728,19 @@ func registerRoutes(
 	live, ready := httpserver.Health(checks)
 	mux.Handle("GET /health/live", live)
 	mux.Handle("GET /health/ready", ready)
+
+	// Chỉ số cho Prometheus.
+	//
+	// KHÔNG nằm dưới /api/v1: đây không phải API của sản phẩm mà là cửa
+	// vận hành. Ở production nó phải được chặn khỏi internet — chỉ số phơi
+	// ra số đơn, số lỗi, và hình dạng lưu lượng của cả hệ thống.
+	mux.Handle("GET /metrics", promhttp.HandlerFor(
+		metrics.Registry, promhttp.HandlerOpts{
+			// Lỗi khi thu thập thì GHI LOG rồi trả phần còn lại, không
+			// trả 500: mất một chỉ số không đáng để mất toàn bộ bảng theo
+			// dõi, nhất là lúc đang có sự cố.
+			ErrorHandling: promhttp.ContinueOnError,
+		}))
 
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
 		_ = apierror.WriteJSON(w, http.StatusOK, map[string]string{

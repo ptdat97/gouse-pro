@@ -27,9 +27,10 @@ type Server struct {
 //  1. RequestID  — phải đầu tiên, để mọi thứ sau đó có request_id
 //  2. Recover    — bắt panic từ mọi tầng bên trong
 //  3. Logging    — ghi log kể cả request bị panic (đã được Recover xử lý)
-//  4. Security   — header bảo mật
-//  5. CORS       — cho phép giao diện ở origin khác gọi API
-//  6. MaxBytes   — giới hạn body
+//  4. Metrics    — đo cả request bị panic, vì panic cũng là độ trễ
+//  5. Security   — header bảo mật
+//  6. CORS       — cho phép giao diện ở origin khác gọi API
+//  7. MaxBytes   — giới hạn body
 func New(
 	cfg config.HTTPConfig, log *slog.Logger, handler http.Handler,
 	allowedOrigins []string,
@@ -38,6 +39,12 @@ func New(
 		RequestID(),
 		Recover(log),
 		Logging(log),
+
+		// Metrics SAU Recover: request bị panic vẫn phải vào biểu đồ. Một
+		// đường đang panic 100% mà biến mất khỏi biểu đồ trông giống hệt
+		// một đường không ai gọi.
+		Metrics(),
+
 		SecurityHeaders(),
 		// CORS SAU SecurityHeaders và TRƯỚC MaxBytes: preflight không có
 		// body nên không cần qua MaxBytes, và nó phải trả lời sớm thay vì

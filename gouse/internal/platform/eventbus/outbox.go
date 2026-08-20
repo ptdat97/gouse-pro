@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/fashion-commerce/platform/internal/platform/logger"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -65,6 +66,29 @@ func (o *Outbox) PublishTx(ctx context.Context, tx Tx, e Event) error {
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
 	}
+
+	// CorrelationID rỗng thì LẤY TỪ NGỮ CẢNH, không để trống.
+	//
+	// # Vì sao mặc định ở đây chứ không bắt mỗi bên phát tự điền
+	//
+	// Bắt từng bên phát nhớ gọi `WithTrace` là cách chắc chắn để có một
+	// nửa số event thiếu nó — và trước ngày 20/08 thì đúng như vậy: chỉ 2
+	// trong số các chỗ phát có gọi, phần còn lại luôn rỗng.
+	//
+	// Một trường truy vết chỉ có giá trị khi nó CÓ MẶT ở mọi mắt xích.
+	// Thiếu một mắt là chuỗi đứt, và chuỗi đứt thì không lần được gì.
+	//
+	// Thứ tự ưu tiên: giá trị bên phát tự đặt (thường là mã đơn — có ý
+	// nghĩa nghiệp vụ) đứng trước; sau đó tới correlation kế thừa từ event
+	// đang được xử lý; cuối cùng là mã request HTTP đã sinh ra hành động.
+	correlationID := e.CorrelationID
+	if correlationID == "" {
+		correlationID = CorrelationFrom(ctx)
+	}
+	if correlationID == "" {
+		correlationID = logger.RequestIDFromContext(ctx)
+	}
+	e.CorrelationID = correlationID
 
 	_, err := tx.Exec(ctx, `
 		INSERT INTO event_outbox (

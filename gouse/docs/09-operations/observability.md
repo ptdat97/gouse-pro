@@ -9,19 +9,57 @@ còn lại với hiểu biết đó.
 |---|---|
 | Log có cấu trúc (`slog`, `platform/logger`) | ✅ dùng ở mọi module |
 | Request ID trong log và trong mọi response lỗi | ✅ |
-| Correlation ID xuyên tiến trình | 🔴 trường có (`Event.WithTrace`), nhưng chỉ 2 chỗ gọi — phần còn lại luôn rỗng |
-| Metrics kỹ thuật (mục 3) | 🔴 chưa có gì |
-| Metrics nghiệp vụ (mục 4) | 🔴 chưa có gì |
-| Distributed tracing (mục 5) | 🔴 chưa có gì |
-| Cảnh báo (mục 7) · Dashboard (mục 8) | 🔴 chưa có gì |
+| **Correlation ID xuyên tiến trình** | ✅ mặc định ở outbox, kế thừa qua bên nhận |
+| **Metrics kỹ thuật** (mục 3) | ✅ Prometheus — độ trễ HTTP, request đang xử lý, goroutine, bộ nhớ |
+| **Metrics outbox** | ✅ tồn đọng · dead letter · tuổi event cũ nhất |
+| **Metrics nghiệp vụ** (mục 4) | 🟡 thất bại theo bước (reservation, checkout); payment và fulfillment chưa nối |
+| Distributed tracing (mục 5) | ⬜ hoãn có chủ ý — xem dưới |
+| Cảnh báo (mục 7) · Dashboard (mục 8) | ⬜ chưa dựng |
 | Nhật ký kiểm toán (`platform/audit`) | ✅ có, kèm ranh giới giao dịch |
 
-**Ưu tiên khi bắt tay vào:** metrics outbox trước tiên. Outbox tồn đọng là
-triệu chứng SỚM của gần như mọi sự cố ở kiến trúc này — worker chết, event
-kẹt, tồn kho không chuyển Reserved → Committed, và tiến trình dọn có thể
-nhả hàng của một đơn đã thanh toán. Hiện không có gì báo động chuyện đó.
+### Endpoint
 
-Việc theo dõi ở [backlog.md mục 2.13](../10-roadmap/backlog.md).
+```text
+API     http://localhost:8080/metrics
+worker  http://localhost:9091/metrics   (WORKER_METRICS_PORT)
+```
+
+Hai tiến trình, hai đích thu thập. Chỉ số là của TIẾN TRÌNH: các gauge về
+outbox được đặt ở worker và API không biết chúng. Gộp vào một endpoint
+nghĩa là hoặc mất số liệu, hoặc phải đẩy qua lại giữa hai tiến trình.
+
+**Ở production, `/metrics` phải chặn khỏi internet.** Nó phơi ra số đơn,
+số lỗi và hình dạng lưu lượng của cả hệ thống.
+
+### Ba quyết định đáng ghi
+
+**Nhãn `route` là MẪU đường dẫn, không phải đường dẫn thật.**
+`/api/v1/orders/ord_01ABC…` và `/api/v1/orders/ord_01XYZ…` là hai giá trị
+nhãn khác nhau, nên mỗi đơn hàng sẽ sinh một chuỗi thời gian riêng —
+Prometheus ngốn hết bộ nhớ trong vài giờ và biểu đồ vô nghĩa vì mỗi đường
+chỉ có một điểm. Request không khớp route nào gộp thành `unknown`: một
+máy quét dò đường là cách để kẻ tấn công làm sập chính hệ thống theo dõi.
+
+**Lý do thất bại được CẮT về một tập đóng.** `RecordFailure` không tin vào
+bên gọi — thông điệp lỗi thường chứa tên sản phẩm hoặc mã đơn, và một nhãn
+sai ở chỗ hiếm gặp sẽ không ai phát hiện cho tới khi hệ thống theo dõi sập.
+Có test khẳng định lý do lạ bị cắt về `other`.
+
+**Correlation ID mặc định ở OUTBOX, không bắt từng bên phát nhớ.** Trước
+20/08 chỉ 2 trong 4 nơi phát có gọi `WithTrace`; `cart` và `product` thì
+không. Một trường truy vết chỉ có giá trị khi nó có mặt ở MỌI mắt xích —
+thiếu một mắt là chuỗi đứt, và chuỗi đứt thì không lần được gì. Thứ tự ưu
+tiên: giá trị bên phát tự đặt (thường là mã đơn, có ý nghĩa nghiệp vụ) →
+correlation kế thừa từ event đang xử lý → mã request HTTP.
+
+### Vì sao hoãn distributed tracing
+
+Gouse là một monolith một tiến trình cộng một worker. Span đầy đủ cần chạy
+collector và backend lưu trữ — hạ tầng cho một bài toán chưa xuất hiện.
+Correlation ID đã trả lời được câu hỏi thực tế đang cần: "đơn này đã đi
+qua những đâu". Dựng tracing khi có sự cố độ trễ mà correlation không đủ.
+
+Việc còn lại ở [backlog.md mục 2.13](../10-roadmap/backlog.md).
 
 ---
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/fashion-commerce/platform/internal/platform/metrics"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -166,8 +167,9 @@ func (d *Dispatcher) runHandler(ctx context.Context, tx pgx.Tx, h Handler, e Eve
 		return nil
 	}
 
-	if err := h.Handle(withTx(ctx, sp), e); err != nil {
+	if err := h.Handle(withCorrelation(withTx(ctx, sp), e.CorrelationID), e); err != nil {
 		_ = sp.Rollback(ctx)
+		metrics.HandlerFailures.WithLabelValues(h.Name(), e.Type).Inc()
 		return fmt.Errorf("%s: %w", h.Name(), err)
 	}
 
@@ -208,4 +210,25 @@ func MustTxFrom(ctx context.Context) (pgx.Tx, error) {
 		return nil, ErrNoTx
 	}
 	return tx, nil
+}
+
+// correlationKey mang correlation id của event ĐANG được xử lý.
+type correlationKey struct{}
+
+// withCorrelation gắn correlation id vào ngữ cảnh chạy của bên nhận.
+//
+// Nhờ vậy event mà bên nhận phát ra trong lúc xử lý sẽ KẾ THỪA cùng một
+// chuỗi truy vết: một hành động của khách sinh ra cả cây event, và cả cây
+// đó phải mang chung một mã để lần lại được.
+func withCorrelation(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, correlationKey{}, id)
+}
+
+// CorrelationFrom đọc correlation id của chuỗi đang chạy.
+func CorrelationFrom(ctx context.Context) string {
+	id, _ := ctx.Value(correlationKey{}).(string)
+	return id
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
+	"github.com/fashion-commerce/platform/internal/platform/logger"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
@@ -391,5 +392,86 @@ func TestChiSoGiamSat(t *testing.T) {
 	after, _ := bus.Outbox().Stats(ctx)
 	if after.Pending != 0 {
 		t.Errorf("sau khi phát: số chờ = %d, mong 0", after.Pending)
+	}
+}
+
+// TestCorrelationLayTuNguCanhKhiBenPhatKhongDat — PH-22.
+//
+// # Vì sao mặc định ở outbox chứ không bắt mỗi bên phát tự nhớ
+//
+// Bắt từng bên phát gọi `WithTrace` là cách chắc chắn để có một nửa số
+// event thiếu nó. Trước 20/08 đúng như vậy: chỉ 2 trong 4 nơi phát có gọi,
+// `cart` và `product` thì không.
+//
+// Một trường truy vết chỉ có giá trị khi nó CÓ MẶT ở mọi mắt xích. Thiếu
+// một mắt là chuỗi đứt, và chuỗi đứt thì không lần được gì — kể cả những
+// mắt còn nguyên.
+func TestCorrelationLayTuNguCanhKhiBenPhatKhongDat(t *testing.T) {
+	_, pool := newBus(t)
+	outbox := eventbus.NewOutbox(pool)
+
+	const requestID = "req_01J9XABC123DEF456GHJKMNPQR"
+	ctx := logger.WithRequestID(context.Background(), requestID)
+
+	// Bên phát KHÔNG gọi WithTrace — đúng như cart và product đang làm.
+	e, err := eventbus.NewEvent(
+		"cart.item_added", eventbus.AggregateCart,
+		ids.MustNew(ids.PrefixCart), map[string]any{"sku_id": "sku_x"})
+	if err != nil {
+		t.Fatalf("dựng event: %v", err)
+	}
+	if e.CorrelationID != "" {
+		t.Fatalf("dựng sai: event đã có correlation %q", e.CorrelationID)
+	}
+
+	if err := outbox.Publish(ctx, e); err != nil {
+		t.Fatalf("phát event: %v", err)
+	}
+
+	var corr string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT coalesce(correlation_id, '') FROM event_outbox WHERE event_id = $1`,
+		e.ID.String()).Scan(&corr); err != nil {
+		t.Fatalf("đọc outbox: %v", err)
+	}
+
+	if corr != requestID {
+		t.Errorf("correlation_id = %q, cần %q — chuỗi truy vết bị đứt ngay "+
+			"tại bên phát không tự đặt", corr, requestID)
+	}
+}
+
+// TestBenPhatTuDatThiGiuNguyen: giá trị bên phát đặt có Ý NGHĨA NGHIỆP VỤ
+// (thường là mã đơn), nên nó phải thắng mã request.
+//
+// Mã đơn nối được cả những việc xảy ra nhiều ngày sau — lúc request HTTP
+// ban đầu đã kết thúc từ lâu.
+func TestBenPhatTuDatThiGiuNguyen(t *testing.T) {
+	_, pool := newBus(t)
+	outbox := eventbus.NewOutbox(pool)
+
+	ctx := logger.WithRequestID(context.Background(), "req_khac")
+
+	orderID := ids.MustNew(ids.PrefixOrder).String()
+	e, err := eventbus.NewEvent(
+		"checkout.completed", eventbus.AggregateCheckout,
+		ids.MustNew(ids.PrefixCheckout), map[string]any{"order_id": orderID})
+	if err != nil {
+		t.Fatalf("dựng event: %v", err)
+	}
+	e = e.WithTrace(orderID, "")
+
+	if err := outbox.Publish(ctx, e); err != nil {
+		t.Fatalf("phát event: %v", err)
+	}
+
+	var corr string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT coalesce(correlation_id, '') FROM event_outbox WHERE event_id = $1`,
+		e.ID.String()).Scan(&corr); err != nil {
+		t.Fatalf("đọc outbox: %v", err)
+	}
+	if corr != orderID {
+		t.Errorf("correlation_id = %q, cần mã đơn %q", corr, orderID)
 	}
 }

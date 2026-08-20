@@ -16,9 +16,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -38,6 +41,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
+	"github.com/fashion-commerce/platform/internal/platform/metrics"
 )
 
 var version = "dev"
@@ -308,7 +312,64 @@ func run() error {
 		},
 	}
 
+	// Worker phơi /metrics của RIÊNG nó.
+	//
+	// # Vì sao không dùng chung endpoint với API
+	//
+	// Đây là hai TIẾN TRÌNH khác nhau, và chỉ số là của tiến trình. Các
+	// gauge về outbox được ĐẶT ở đây — API không biết chúng. Gộp vào một
+	// endpoint nghĩa là hoặc mất số liệu, hoặc phải đẩy qua lại giữa hai
+	// tiến trình, và cả hai đều tệ hơn việc thu thập từ hai đích.
+	//
+	// Cổng riêng, và ở production phải chặn khỏi internet.
+	go serveMetrics(ctx, metricsPort(), log)
+
 	return runJobs(ctx, log, jobs)
+}
+
+// metricsPort đọc cổng chỉ số của worker.
+//
+// Đọc thẳng biến môi trường thay vì thêm trường vào `config.Config`: đây
+// là núm vặn VẬN HÀNH của riêng tiến trình này, không phải cấu hình dùng
+// chung. Nhét vào Config sẽ bắt cả API mang theo một trường nó không dùng.
+func metricsPort() int {
+	if raw := os.Getenv("WORKER_METRICS_PORT"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n < 65536 {
+			return n
+		}
+	}
+	return 9091
+}
+
+// serveMetrics chạy máy chủ chỉ số của worker.
+//
+// Lỗi ở đây KHÔNG làm dừng worker: mất bảng theo dõi là chuyện đáng lo,
+// còn dừng tiến trình xử lý event vì không mở được cổng theo dõi thì biến
+// một sự cố nhỏ thành sự cố lớn.
+func serveMetrics(ctx context.Context, port int, log *slog.Logger) {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", promhttp.HandlerFor(
+		metrics.Registry, promhttp.HandlerOpts{
+			ErrorHandling: promhttp.ContinueOnError,
+		}))
+
+	srv := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+
+	log.Info("máy chủ chỉ số của worker đang chạy", "addr", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Error("máy chủ chỉ số dừng", "error", err)
+	}
 }
 
 // dispatchEvents phát domain event từ outbox tới các bên nhận.
@@ -329,6 +390,15 @@ func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Con
 		if err != nil {
 			return fmt.Errorf("đọc chỉ số outbox: %w", err)
 		}
+
+		// Đưa lên bảng theo dõi, không chỉ vào log.
+		//
+		// Log nói được "lúc 3h07 có 42 event tồn đọng"; nó KHÔNG nói được
+		// "tồn đọng đã tăng đều suốt 40 phút". Cảnh báo hữu ích nằm ở ĐỘ
+		// TĂNG, và độ tăng chỉ đọc được từ chuỗi thời gian.
+		metrics.OutboxPending.Set(float64(stats.Pending))
+		metrics.OutboxDeadLettered.Set(float64(stats.DeadLettered))
+		metrics.OutboxOldestAgeSeconds.Set(stats.OldestPendingAge.Seconds())
 
 		// Dead letter là sự cố NGHIÊM TRỌNG: có sự thật nghiệp vụ không
 		// tới được bên nhận. Đơn đã đặt mà tồn kho chưa cập nhật, hoặc

@@ -123,7 +123,7 @@ idempotency** đều có test hồi quy tự động.
 |---|---|---|
 | PH-5 | **Chuẩn hóa idempotency** — bảng ở mục 2.7 | ✅ 5/5 có ràng buộc ở tầng dữ liệu |
 | PH-6 | Chuẩn hóa retry / xử lý thất bại | 🟡 outbox có, phần còn lại chưa |
-| PH-7 | **Event versioning** — trường đã có, quy trình CHƯA | 🔴 xem 2.8 |
+| PH-7 | **Event versioning** — quy tắc + test tự động | ✅ 3 test tương thích, xem 2.8 |
 | PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | 🟡 từng cặp có, chưa có test xuyên suốt |
 
 ### 2.3 PH — Security
@@ -427,12 +427,12 @@ Thiết kế đã có ở [observability.md](../09-operations/observability.md);
 |---|---|---|
 | PH-20 | Log có cấu trúc | ✅ `slog` + `platform/logger` |
 | PH-21 | Request ID | ✅ có ở mọi request và mọi lỗi |
-| PH-22 | **Correlation ID xuyên tiến trình** | 🔴 `WithTrace` chỉ được gọi ở 2 chỗ, luôn rỗng ở phần còn lại |
-| PH-23 | **Metrics** | 🔴 KHÔNG có gì |
-| PH-24 | Độ trễ · tỷ lệ lỗi | 🔴 chưa đo |
-| PH-25 | Metrics database (pool, thời gian truy vấn) | 🔴 chưa đo |
-| PH-26 | Metrics outbox (tồn đọng, độ trễ, số lần thử lại) | 🔴 chưa đo |
-| PH-27 | Đếm thất bại: giữ hàng · thanh toán · trả tiền · thực hiện đơn | 🔴 chưa đo |
+| PH-22 | **Correlation ID xuyên tiến trình** | ✅ mặc định ở outbox + kế thừa qua bên nhận |
+| PH-23 | **Metrics** | ✅ Prometheus, `/metrics` ở cả API và worker |
+| PH-24 | Độ trễ · tỷ lệ lỗi | ✅ histogram theo mẫu route và mã trạng thái |
+| PH-25 | Metrics database (pool, thời gian truy vấn) | ⬜ chưa đo |
+| PH-26 | Metrics outbox (tồn đọng, độ trễ, số lần thử lại) | ✅ 3 gauge + đếm thất bại theo bên nhận |
+| PH-27 | Đếm thất bại nghiệp vụ | 🟡 giữ hàng và checkout xong; payment, fulfillment chưa nối |
 
 **PH-26 và PH-27 quan trọng hơn vẻ ngoài của chúng.** Outbox tồn đọng là
 triệu chứng SỚM của gần như mọi sự cố ở kiến trúc này: worker chết, event
