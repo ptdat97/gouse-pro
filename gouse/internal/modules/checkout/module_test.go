@@ -91,6 +91,28 @@ func (f *fakeClock) advance(d time.Duration) {
 }
 
 // fakeCommission trả tỷ lệ hoa hồng cố định.
+// sellerA là nhà bán mặc định của mọi test trong gói.
+//
+// CỐ ĐỊNH chứ không sinh ngẫu nhiên mỗi lần gọi: từ P3-18, tồn kho phải
+// thuộc về ĐÚNG nhà bán đứng tên offer, nên hai bên buộc phải nói cùng một
+// định danh. Trước đây `item()` sinh seller mới mỗi lần và hàng thì nhập
+// cho nền tảng — một tổ hợp không tồn tại được ngoài đời.
+var sellerA = ids.MustNew(ids.PrefixSeller)
+
+// fakeSellerOwner cài quy tắc "hàng của nhà bán này thuộc về ai".
+//
+// Mặc định: chủ sở hữu LÀ chính nhà bán — đúng với mọi nhà bán ngoài.
+// `internal` liệt kê những nhà bán NỘI BỘ (own brand), hàng của họ thuộc
+// về nền tảng.
+type fakeSellerOwner struct{ internal map[ids.ID]bool }
+
+func (f *fakeSellerOwner) InventoryOwnerID(
+	_ context.Context, sellerID ids.ID,
+) (ids.ID, error) {
+	return ids.ID(inventory.OwnerForSeller(
+		sellerID.String(), f.internal[sellerID])), nil
+}
+
 type fakeCommission struct{ rate int32 }
 
 func (f *fakeCommission) RateForSeller(
@@ -121,7 +143,9 @@ func (r *realInventory) FindItemsForSKUs(
 	for skuID, items := range found {
 		for _, it := range items {
 			out[ids.ID(skuID)] = append(out[ids.ID(skuID)], application.StockItem{
-				ItemID: ids.ID(it.ID), Available: it.Available,
+				ItemID:    ids.ID(it.ID),
+				Available: it.Available,
+				OwnerID:   ids.ID(it.OwnerID),
 			})
 		}
 	}
@@ -201,12 +225,13 @@ func (r *realOrder) PlaceOrder(
 // ---------------------------------------------------------------- Bối cảnh
 
 type harness struct {
-	svc   *application.Service
-	cart  *fakeCart
-	inv   inventory.API
-	ord   order.API
-	db    *database.DB
-	clock *fakeClock
+	svc    *application.Service
+	cart   *fakeCart
+	owners *fakeSellerOwner
+	inv    inventory.API
+	ord    order.API
+	db     *database.DB
+	clock  *fakeClock
 }
 
 func newHarness(t *testing.T) *harness {
@@ -246,18 +271,20 @@ func newHarness(t *testing.T) *harness {
 
 	fc := &fakeCart{}
 	clock := &fakeClock{now: time.Now().UTC()}
+	owners := &fakeSellerOwner{internal: map[ids.ID]bool{}}
 	svc := application.NewService(application.Deps{
 		Checkouts:   checkoutpg.NewCheckoutStore(db.Pool()),
 		Carts:       fc,
 		Inventory:   &realInventory{api: invModule},
 		Commissions: &fakeCommission{rate: 1000},
+		Sellers:     owners,
 		Orders:      &realOrder{api: ordModule},
 		Clock:       clock,
 	})
 
 	return &harness{
 		svc: svc, cart: fc, inv: invModule, ord: ordModule,
-		db: db, clock: clock,
+		db: db, clock: clock, owners: owners,
 	}
 }
 
@@ -266,6 +293,15 @@ func newHarness(t *testing.T) *harness {
 // Dùng inventory thật chứ không phải bản giả: điều cần kiểm chứng là hàng
 // có bị khóa và nhả đúng không, mà cơ chế đó là khóa lạc quan ở database.
 func (h *harness) stockSKU(t *testing.T, qty int) ids.ID {
+	t.Helper()
+	return h.stockSKUFor(t, qty, sellerA)
+}
+
+// stockSKUFor nhập hàng thuộc về MỘT chủ sở hữu cụ thể.
+//
+// Tách khỏi stockSKU để test dựng được tình huống nhiều chủ cùng một SKU —
+// tình huống thường của một cái chợ, và là nơi P3-18 từng sai.
+func (h *harness) stockSKUFor(t *testing.T, qty int, owner ids.ID) ids.ID {
 	t.Helper()
 	ctx := context.Background()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -282,6 +318,7 @@ func (h *harness) stockSKU(t *testing.T, qty int) ids.ID {
 	_, err = h.inv.Receive(ctx, inventory.ReceiveRequest{
 		SKUID:       skuID.String(),
 		LocationID:  locID.String(),
+		OwnerID:     owner.String(),
 		Quantity:    qty,
 		PerformedBy: "test",
 	})
@@ -289,6 +326,57 @@ func (h *harness) stockSKU(t *testing.T, qty int) ids.ID {
 		t.Fatalf("nhập kho: %v", err)
 	}
 	return skuID
+}
+
+// receiveFor nhập thêm hàng CÙNG MỘT SKU cho một chủ sở hữu khác.
+//
+// Tách khỏi stockSKUFor vì nó KHÔNG tạo SKU mới: điều cần dựng là một SKU
+// có tồn kho của nhiều chủ, thứ không dựng được nếu mỗi lần gọi lại sinh
+// mã hàng mới.
+func (h *harness) receiveFor(
+	t *testing.T, skuID ids.ID, qty int, owner ids.ID,
+) {
+	t.Helper()
+	ctx := context.Background()
+	locID := ids.MustNew(ids.PrefixStockLocation)
+
+	_, err := h.db.Pool().Exec(ctx, `
+		INSERT INTO stock_location (id, name, code, kind, created_at, updated_at)
+		VALUES ($1, 'Kho nhà bán', $2, 'SELLER', now(), now())`,
+		locID.String(), "KHO-"+string(locID[len(locID)-6:]))
+	if err != nil {
+		t.Fatalf("tạo địa điểm kho: %v", err)
+	}
+
+	if _, err := h.inv.Receive(ctx, inventory.ReceiveRequest{
+		SKUID:       skuID.String(),
+		LocationID:  locID.String(),
+		OwnerID:     owner.String(),
+		Quantity:    qty,
+		PerformedBy: "test",
+	}); err != nil {
+		t.Fatalf("nhập kho cho %s: %v", owner, err)
+	}
+}
+
+// availableFor đếm số khả dụng của MỘT chủ sở hữu.
+//
+// Cộng gộp mọi kho của chủ đó: câu hỏi là "người này còn bao nhiêu hàng",
+// không phải "kho nào còn bao nhiêu".
+func (h *harness) availableFor(t *testing.T, skuID, owner ids.ID) int {
+	t.Helper()
+	items, err := h.inv.GetItemsBySKUs(
+		context.Background(), []string{skuID.String()}, "")
+	if err != nil {
+		t.Fatalf("đọc tồn kho: %v", err)
+	}
+	total := 0
+	for _, it := range items[skuID.String()] {
+		if it.OwnerID == owner.String() {
+			total += it.Available
+		}
+	}
+	return total
 }
 
 // setCart khai báo nội dung giỏ mà checkout sẽ đọc.
@@ -303,11 +391,18 @@ func (h *harness) setCart(items ...application.CartItemSnapshot) {
 }
 
 func item(skuID ids.ID, price int64, qty int) application.CartItemSnapshot {
+	return itemFrom(sellerA, skuID, price, qty)
+}
+
+// itemFrom dựng món hàng của MỘT nhà bán cụ thể.
+func itemFrom(
+	sellerID, skuID ids.ID, price int64, qty int,
+) application.CartItemSnapshot {
 	return application.CartItemSnapshot{
 		CartItemID:  ids.MustNew(ids.PrefixCartItem),
 		OfferID:     ids.MustNew(ids.PrefixOffer),
 		SKUID:       skuID,
-		SellerID:    ids.MustNew(ids.PrefixSeller),
+		SellerID:    sellerID,
 		ProductName: "Áo sơ mi linen Oxford",
 		UnitPrice:   vnd(price),
 		Quantity:    qty,
@@ -717,6 +812,7 @@ func TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc(t *testing.T) {
 				Carts:       cart,
 				Inventory:   &realInventory{api: h.inv},
 				Commissions: &fakeCommission{rate: 1000},
+				Sellers:     &fakeSellerOwner{},
 				Orders:      &realOrder{api: h.ord},
 			})
 
@@ -838,5 +934,118 @@ func TestTaoDonThatBaiThiGiuNguyenPhienChoKhachThuLai(t *testing.T) {
 	}
 	if _, err := h.svc.CompleteCheckout(ctx, c.ID(), "thu-lai-thanh-cong"); err != nil {
 		t.Errorf("thử lại phải thành công: %v", err)
+	}
+}
+
+// TestGiuHangDungChuSoHuu là test hồi quy cho P3-18.
+//
+// # Tình huống
+//
+// Hai nhà bán cùng chào một SKU — trường hợp THƯỜNG của một cái chợ, vì
+// đó chính là lý do cái chợ tồn tại. Mỗi bên có hàng riêng.
+//
+// Khách mua qua offer của B. Hàng phải trừ vào kho của B.
+//
+// # Lỗi mà nó chặn
+//
+// Trước bản sửa, `pickStockItem` lấy bản ghi tồn kho ĐẦU TIÊN còn đủ hàng
+// bất kể của ai. Bán được cho B lại trừ kho của A: A hụt hàng vì những đơn
+// chưa bao giờ nhận, còn B giao hàng từ số tồn hệ thống tưởng vẫn nguyên.
+// Không bên nào thấy lỗi — hai sổ sách cùng sai và cùng im lặng.
+func TestGiuHangDungChuSoHuu(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerB := ids.MustNew(ids.PrefixSeller)
+
+	// CÙNG một SKU, hai chủ sở hữu. Đây là điểm mấu chốt: nếu mỗi nhà bán
+	// một SKU riêng thì không có gì để chọn nhầm.
+	skuID := h.stockSKUFor(t, 10, sellerA)
+	h.receiveFor(t, skuID, 10, sellerB)
+
+	beforeA := h.availableFor(t, skuID, sellerA)
+	beforeB := h.availableFor(t, skuID, sellerB)
+	if beforeA != 10 || beforeB != 10 {
+		t.Fatalf("dựng sai: A=%d B=%d, cần 10/10", beforeA, beforeB)
+	}
+
+	// Mua 3 cái QUA OFFER CỦA B.
+	h.setCart(itemFrom(sellerB, skuID, 299000, 3))
+
+	if _, err := h.svc.StartCheckout(ctx, application.StartCheckoutInput{
+		CartID: ids.MustNew(ids.PrefixCart),
+	}); err != nil {
+		t.Fatalf("mở phiên thanh toán: %v", err)
+	}
+
+	afterA := h.availableFor(t, skuID, sellerA)
+	afterB := h.availableFor(t, skuID, sellerB)
+
+	if afterA != beforeA {
+		t.Errorf("hàng của nhà bán A bị trừ cho đơn của B: %d → %d",
+			beforeA, afterA)
+	}
+	if want := beforeB - 3; afterB != want {
+		t.Errorf("hàng của nhà bán B: được %d, cần %d", afterB, want)
+	}
+}
+
+// TestKhongMuonKhoNguoiKhacKhiHetHang khóa chặt quy tắc KHÔNG có đường lùi.
+//
+// Nhà bán B hết hàng nhưng A còn. Đơn của B phải THẤT BẠI, không được lặng
+// lẽ lấy hàng của A. "Mượn tạm cho đơn chạy được" là đúng lỗi P3-18, chỉ
+// khác là có chủ đích — và nó vẫn trừ hàng của người không bán món đó.
+func TestKhongMuonKhoNguoiKhacKhiHetHang(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	sellerB := ids.MustNew(ids.PrefixSeller)
+
+	skuID := h.stockSKUFor(t, 50, sellerA)
+	h.receiveFor(t, skuID, 1, sellerB)
+
+	// B chỉ có 1 cái, khách cần 5. A có thừa 50.
+	h.setCart(itemFrom(sellerB, skuID, 299000, 5))
+
+	_, err := h.svc.StartCheckout(ctx, application.StartCheckoutInput{
+		CartID: ids.MustNew(ids.PrefixCart),
+	})
+	if err == nil {
+		t.Fatal("mở phiên thành công — hàng của nhà bán khác đã bị mượn")
+	}
+	if !errors.Is(err, application.ErrOutOfStock) {
+		t.Fatalf("lỗi sai loại: %v (cần ErrOutOfStock)", err)
+	}
+
+	if got := h.availableFor(t, skuID, sellerA); got != 50 {
+		t.Errorf("hàng của nhà bán A bị đụng tới: còn %d, cần 50", got)
+	}
+}
+
+// TestOwnBrandLayHangCuaNenTang: own brand là seller NỘI BỘ, và hàng của
+// nó là tài sản NỀN TẢNG (own-brand.md mục 7).
+//
+// Nếu quy tắc chủ sở hữu chỉ đơn giản là "chủ = seller", đơn own brand sẽ
+// không bao giờ tìm thấy hàng — toàn bộ hàng 1P nằm dưới `own_platform`.
+func TestOwnBrandLayHangCuaNenTang(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	ownBrand := ids.MustNew(ids.PrefixSeller)
+	h.owners.internal[ownBrand] = true
+
+	// Hàng nhập cho NỀN TẢNG, không phải cho bản ghi seller nội bộ.
+	skuID := h.stockSKUFor(t, 20, ids.ID(inventory.PlatformOwnerID))
+
+	h.setCart(itemFrom(ownBrand, skuID, 299000, 4))
+
+	if _, err := h.svc.StartCheckout(ctx, application.StartCheckoutInput{
+		CartID: ids.MustNew(ids.PrefixCart),
+	}); err != nil {
+		t.Fatalf("own brand không mua được hàng của chính nền tảng: %v", err)
+	}
+
+	if got := h.availableFor(t, skuID, ids.ID(inventory.PlatformOwnerID)); got != 16 {
+		t.Errorf("hàng nền tảng còn %d, cần 16", got)
 	}
 }

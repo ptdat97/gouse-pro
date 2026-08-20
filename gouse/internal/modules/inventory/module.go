@@ -423,6 +423,11 @@ func translateErr(err error) error {
 // RegisterSellerRoutes gắn endpoint cập nhật tồn kho của NHÀ BÁN.
 //
 // Bên gọi PHẢI bọc Auth và RequireRole("SELLER_OWNER", "SELLER_STAFF").
-func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
-	inventoryhttp.NewSellerHandler(m.svc, log).Register(mux)
+//
+// owner đổi định danh nhà bán lấy chủ sở hữu tồn kho; nil thì coi hai thứ
+// là một, đúng với mọi nhà bán trừ own brand.
+func (m *Module) RegisterSellerRoutes(
+	mux *http.ServeMux, owner inventoryhttp.OwnerResolver, log *slog.Logger,
+) {
+	inventoryhttp.NewSellerHandler(m.svc, owner, log).Register(mux)
 }

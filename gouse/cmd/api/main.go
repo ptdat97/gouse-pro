@@ -27,6 +27,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
+	inventoryhttp "github.com/fashion-commerce/platform/internal/modules/inventory/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	markethttp "github.com/fashion-commerce/platform/internal/modules/marketplace/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/order"
@@ -335,6 +336,7 @@ func run() error {
 			Inventory:   inventoryModule,
 			Marketplace: marketplaceModule,
 			Order:       orderModule,
+			Seller:      sellerModule,
 			Events:      eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
@@ -653,14 +655,22 @@ func registerRoutes(
 		if m.marketplace != nil || m.inventory != nil {
 			sellerMux := http.NewServeMux()
 			if m.marketplace != nil {
+				// Cần CẢ HAI: inventory để nhập kho, seller để biết
+				// hàng đó thuộc về ai. Thiếu seller thì thà không nhận
+				// `initial_inventory` còn hơn nhập vào nhầm chủ — bản ghi
+				// sai chủ không bán được và cũng không ai thấy nó sai.
 				var stock markethttp.StockPort
-				if m.inventory != nil {
-					stock = &sellerStock{inv: m.inventory}
+				if m.inventory != nil && m.seller != nil {
+					stock = &sellerStock{inv: m.inventory, sellers: m.seller}
 				}
 				m.marketplace.RegisterSellerRoutes(sellerMux, stock, log)
 			}
 			if m.inventory != nil {
-				m.inventory.RegisterSellerRoutes(sellerMux, log)
+				var owner inventoryhttp.OwnerResolver
+				if m.seller != nil {
+					owner = &sellerOwner{sellers: m.seller}
+				}
+				m.inventory.RegisterSellerRoutes(sellerMux, owner, log)
 			}
 
 			authed := httpserver.Chain(

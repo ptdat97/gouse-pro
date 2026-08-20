@@ -19,6 +19,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
+	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
@@ -48,6 +49,12 @@ type Config struct {
 	Inventory   inventory.API
 	Marketplace marketplace.API
 	Order       order.API
+
+	// Seller cho biết CHỦ SỞ HỮU tồn kho của mỗi nhà bán.
+	//
+	// Bắt buộc: thiếu nó thì không giữ hàng đúng chủ được, mà giữ nhầm
+	// chủ là trừ hàng của người khác — im lặng, ở cả hai sổ sách.
+	Seller seller.API
 
 	// Promotion cho phép áp mã giảm giá. Có thể nil: phiên vẫn chạy,
 	// chỉ là khách không dùng được mã.
@@ -82,6 +89,7 @@ func New(cfg Config) (*Module, error) {
 		{"inventory", cfg.Inventory != nil},
 		{"marketplace", cfg.Marketplace != nil},
 		{"order", cfg.Order != nil},
+		{"seller", cfg.Seller != nil},
 	} {
 		if !dep.ok {
 			return nil, errors.New("checkout: bắt buộc phải có module " + dep.name)
@@ -93,6 +101,7 @@ func New(cfg Config) (*Module, error) {
 		Carts:       &cartAdapter{api: cfg.Cart},
 		Inventory:   &inventoryAdapter{api: cfg.Inventory},
 		Commissions: &commissionAdapter{api: cfg.Marketplace},
+		Sellers:     &sellerAdapter{api: cfg.Seller},
 		Orders:      &orderAdapter{api: cfg.Order},
 		Clock:       cfg.Clock,
 	}

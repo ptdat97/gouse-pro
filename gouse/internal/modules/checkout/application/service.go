@@ -114,6 +114,26 @@ type InventoryPort interface {
 type StockItem struct {
 	ItemID    ids.ID
 	Available int
+
+	// OwnerID là CHỦ SỞ HỮU số hàng này — không phải kho chứa nó.
+	//
+	// Bắt buộc để giữ hàng đúng: một SKU có thể có tồn kho của nhiều chủ
+	// (đó chính là điều làm nên cái chợ), và giữ nhầm chủ là trừ hàng của
+	// người không bán được món đó.
+	OwnerID ids.ID
+}
+
+// SellerPort trả những gì checkout cần biết về nhà bán ngoài hoa hồng.
+//
+// Tách khỏi CommissionPort vì đây là câu hỏi khác: hoa hồng là TIỀN, chủ
+// sở hữu tồn kho là TÀI SẢN. Gộp hai thứ vào một cổng khiến cái tên không
+// còn nói đúng nó làm gì.
+type SellerPort interface {
+	// InventoryOwnerID trả chủ sở hữu tồn kho của nhà bán này.
+	//
+	// Với nhà bán ngoài là chính họ; với own brand (seller NỘI BỘ) là nền
+	// tảng. Quy tắc nằm ở inventory.OwnerForSeller.
+	InventoryOwnerID(ctx context.Context, sellerID ids.ID) (ids.ID, error)
 }
 
 // CommissionPort trả tỷ lệ hoa hồng của seller.
@@ -275,6 +295,7 @@ type Service struct {
 	carts       CartPort
 	inventory   InventoryPort
 	commissions CommissionPort
+	sellers     SellerPort
 	orders      OrderPort
 	promotions  PromotionPort
 	clock       Clock
@@ -302,6 +323,7 @@ type Deps struct {
 	Carts       CartPort
 	Inventory   InventoryPort
 	Commissions CommissionPort
+	Sellers     SellerPort
 	Orders      OrderPort
 	Clock       Clock
 
@@ -326,6 +348,7 @@ func NewService(d Deps) *Service {
 		carts:       d.Carts,
 		inventory:   d.Inventory,
 		commissions: d.Commissions,
+		sellers:     d.Sellers,
 		orders:      d.Orders,
 		promotions:  d.Promotions,
 		clock:       clock,
@@ -459,8 +482,22 @@ func (s *Service) reserveAll(
 		reservations []ids.ID
 	)
 
+	// Chủ sở hữu tồn kho của từng seller, tra một lần cho mỗi seller chứ
+	// không phải mỗi món: giỏ 10 món của cùng một nhà bán chỉ cần 1 lượt.
+	owners := make(map[ids.ID]ids.ID, 4)
+
 	for _, it := range snap.Items {
-		itemID, ok := pickStockItem(stock[it.SKUID], it.Quantity)
+		owner, ok := owners[it.SellerID]
+		if !ok {
+			resolved, err := s.sellers.InventoryOwnerID(ctx, it.SellerID)
+			if err != nil {
+				return nil, reservations, err
+			}
+			owners[it.SellerID] = resolved
+			owner = resolved
+		}
+
+		itemID, ok := pickStockItem(stock[it.SKUID], it.Quantity, owner)
 		if !ok {
 			return nil, reservations, fmt.Errorf("%w: %s (cần %d)",
 				ErrOutOfStock, it.ProductName, it.Quantity)
@@ -508,13 +545,33 @@ func (s *Service) reserveAll(
 
 // pickStockItem chọn kho để lấy hàng.
 //
-// Quy tắc hiện tại: kho ĐẦU TIÊN còn đủ hàng. Đơn giản và đủ cho MVP.
+// # Chủ sở hữu là điều kiện LOẠI TRỪ, không phải thứ tự ưu tiên
 //
-// Chọn kho gần khách nhất sẽ giảm phí ship và thời gian giao, nhưng cần
-// biết địa chỉ — thứ khách chưa nhập tại thời điểm này. Đổi sang tiêu chí
-// đó là việc của giai đoạn sau, và nó chỉ ảnh hưởng hàm này.
-func pickStockItem(items []StockItem, need int) (ids.ID, bool) {
+// Khách mua offer của một nhà bán cụ thể, nên hàng phải lấy từ số hàng
+// CỦA CHÍNH nhà bán đó. Bản ghi tồn kho của chủ khác không phải "lựa chọn
+// kém hơn" — nó không phải lựa chọn.
+//
+// Đây từng là lỗi thật (P3-18, sửa 19/08): hàm này lấy bản ghi đầu tiên
+// còn đủ hàng bất kể của ai, nên mua qua offer của nhà bán A lại trừ kho
+// của nhà bán B. Chợ tồn tại để NHIỀU nhà bán chào cùng một SKU, nên đó
+// là trường hợp thường chứ không phải trường hợp biên. Không bên nào thấy
+// lỗi: A giao hàng từ số tồn hệ thống tưởng còn nguyên, B hụt hàng vì
+// những đơn chưa bao giờ nhận.
+//
+// KHÔNG có đường lùi về kho của chủ khác khi hết hàng. "Mượn tạm" là đúng
+// cái lỗi vừa sửa, chỉ khác là có chủ đích.
+//
+// # Trong số hàng của đúng chủ: kho ĐẦU TIÊN còn đủ
+//
+// Đơn giản và đủ cho MVP. Chọn kho gần khách nhất sẽ giảm phí ship và
+// thời gian giao, nhưng cần biết địa chỉ — thứ khách chưa nhập tại thời
+// điểm này. Đổi sang tiêu chí đó là việc của giai đoạn sau, và nó chỉ
+// ảnh hưởng hàm này.
+func pickStockItem(items []StockItem, need int, owner ids.ID) (ids.ID, bool) {
 	for _, it := range items {
+		if it.OwnerID != owner {
+			continue
+		}
 		if it.Available >= need {
 			return it.ItemID, true
 		}

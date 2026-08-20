@@ -246,3 +246,32 @@ const (
 
 // PlatformOwnerID là định danh chủ sở hữu cho hàng của nền tảng.
 const PlatformOwnerID = "own_platform"
+
+// OwnerForSeller trả CHỦ SỞ HỮU tồn kho ứng với một nhà bán.
+//
+// # Vì sao không phải lúc nào cũng là chính nhà bán đó
+//
+// Own brand của nền tảng là một seller NỘI BỘ (own-brand.md mục 7,
+// seller.md mục 3): nó có bản ghi seller, có offer, đi chung một luồng đơn
+// hàng với nhà bán ngoài. Nhưng hàng thì KHÔNG phải của nó — hàng là tài
+// sản của NỀN TẢNG. Bản ghi seller nội bộ khai đúng điều đó bằng
+// `inventory_owner: PLATFORM`.
+//
+// Nhầm chỗ này là ghi sai tài sản trên sổ sách theo cả hai chiều: hàng
+// nền tảng biến thành hàng ký gửi của một seller không sở hữu nó, hoặc
+// hàng seller bị tính thành tài sản nền tảng (fulfillment.md mục 2.3).
+//
+// # Vì sao là hàm chứ không phải trường trên SellerView
+//
+// Hằng số `own_platform` thuộc về module này. Để module seller tự sinh ra
+// nó nghĩa là cùng một chuỗi được định nghĩa ở hai nơi, và hai nơi sẽ
+// lệch. Bên gọi ghép hai mảnh: `IsInternal` từ seller, định danh từ đây.
+//
+// Hàm THUẦN, không chạm database: bên gọi thường đã có SellerView trong
+// tay rồi.
+func OwnerForSeller(sellerID string, isInternal bool) string {
+	if isInternal {
+		return PlatformOwnerID
+	}
+	return sellerID
+}

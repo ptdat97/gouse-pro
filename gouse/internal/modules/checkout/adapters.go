@@ -12,6 +12,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/seller"
 )
 
 // Các adapter dưới đây nối cổng ra của tầng application với API công khai
@@ -129,6 +130,7 @@ func (a *inventoryAdapter) FindItemsForSKUs(
 			list = append(list, application.StockItem{
 				ItemID:    ids.ID(it.ID),
 				Available: it.Available,
+				OwnerID:   ids.ID(it.OwnerID),
 			})
 		}
 		out[ids.ID(skuID)] = list
@@ -159,6 +161,27 @@ func (a *inventoryAdapter) Extend(
 	ctx context.Context, reservationID ids.ID, d time.Duration,
 ) error {
 	return a.api.ExtendReservation(ctx, reservationID.String(), d)
+}
+
+// sellerAdapter nối tới module seller.
+//
+// Nó ghép hai mảnh mà không module nào tự có đủ: `IsInternal` là câu trả
+// lời của module seller, còn định danh chủ sở hữu nền tảng là hằng số của
+// module inventory. Quy tắc ghép nằm ở inventory.OwnerForSeller — một chỗ
+// duy nhất, để hai module không tự định nghĩa lại chuỗi "own_platform"
+// rồi lệch nhau.
+type sellerAdapter struct{ api seller.API }
+
+var _ application.SellerPort = (*sellerAdapter)(nil)
+
+func (a *sellerAdapter) InventoryOwnerID(
+	ctx context.Context, sellerID ids.ID,
+) (ids.ID, error) {
+	v, err := a.api.GetSeller(ctx, sellerID.String())
+	if err != nil {
+		return "", err
+	}
+	return ids.ID(inventory.OwnerForSeller(v.ID, v.IsInternal)), nil
 }
 
 // commissionAdapter nối tới module marketplace.

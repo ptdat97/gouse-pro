@@ -2,6 +2,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -17,14 +18,49 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
+// OwnerResolver đổi định danh NHÀ BÁN lấy định danh CHỦ SỞ HỮU tồn kho.
+//
+// # Vì sao là cổng do bên gọi khai, không phải lời gọi thẳng
+//
+// Hai thứ này KHÔNG luôn bằng nhau: own brand là seller nội bộ nhưng hàng
+// của nó là tài sản nền tảng. Câu trả lời nằm ở module seller — mà module
+// seller đứng TRÊN inventory trong đồ thị phụ thuộc, nên gọi ngược lên là
+// vi phạm ranh giới (và tạo chu trình).
+//
+// cmd/api là điểm nối duy nhất biết cả hai, cùng mẫu với TokenVerifier và
+// CustomerResolver.
+type OwnerResolver interface {
+	InventoryOwnerID(ctx context.Context, sellerID string) (string, error)
+}
+
 // SellerHandler phục vụ endpoint cập nhật tồn kho của nhà bán.
 type SellerHandler struct {
 	svc *application.Service
 	log *slog.Logger
+
+	// owner có thể nil: khi đó chủ sở hữu được coi là CHÍNH nhà bán đó.
+	//
+	// Đúng với mọi nhà bán ngoài, tức là mọi trường hợp trừ own brand.
+	// Thà kiểm kê chạy cho nhà bán ngoài còn hơn không ai kiểm kê được.
+	owner OwnerResolver
 }
 
-func NewSellerHandler(svc *application.Service, log *slog.Logger) *SellerHandler {
-	return &SellerHandler{svc: svc, log: log}
+func NewSellerHandler(
+	svc *application.Service, owner OwnerResolver, log *slog.Logger,
+) *SellerHandler {
+	return &SellerHandler{svc: svc, owner: owner, log: log}
+}
+
+// ownerID trả chủ sở hữu tồn kho ứng với nhà bán đang gọi.
+func (h *SellerHandler) ownerID(r *http.Request, sellerID ids.ID) (ids.ID, error) {
+	if h.owner == nil {
+		return sellerID, nil
+	}
+	resolved, err := h.owner.InventoryOwnerID(r.Context(), sellerID.String())
+	if err != nil {
+		return "", err
+	}
+	return ids.ID(resolved), nil
 }
 
 // Register gắn route vào mux.
@@ -105,6 +141,12 @@ func (h *SellerHandler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ownerID, err := h.ownerID(r, sellerID)
+	if err != nil {
+		h.fail(w, r, translateInventory(err))
+		return
+	}
+
 	skuID := ids.ID(r.PathValue("sku_id"))
 
 	// Tìm bản ghi tồn kho CỦA CHÍNH seller này.
@@ -112,7 +154,7 @@ func (h *SellerHandler) update(w http.ResponseWriter, r *http.Request) {
 	// Cùng một SKU có thể có tồn kho của nhiều chủ sở hữu (hàng seller gửi
 	// ở kho nền tảng vẫn thuộc seller). Không lọc theo chủ sở hữu nghĩa là
 	// seller sửa được tồn kho hàng của người khác.
-	item, err := h.svc.FindOwnedItem(r.Context(), skuID, sellerID,
+	item, err := h.svc.FindOwnedItem(r.Context(), skuID, ownerID,
 		ids.ID(req.StockLocationID))
 	if err != nil {
 		h.fail(w, r, translateInventory(err))
@@ -131,7 +173,7 @@ func (h *SellerHandler) update(w http.ResponseWriter, r *http.Request) {
 
 	// Đọc lại: con số cuối cùng có thể khác con số vừa gửi nếu có đơn
 	// hàng chen vào giữa, và giao diện phải hiện con số THẬT.
-	updated, err := h.svc.FindOwnedItem(r.Context(), skuID, sellerID,
+	updated, err := h.svc.FindOwnedItem(r.Context(), skuID, ownerID,
 		ids.ID(req.StockLocationID))
 	if err != nil {
 		h.fail(w, r, translateInventory(err))

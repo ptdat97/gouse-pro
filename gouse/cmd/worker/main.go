@@ -258,6 +258,7 @@ func run() error {
 		Inventory:   inventoryModule,
 		Marketplace: marketplaceModule,
 		Order:       orderModule,
+		Seller:      sellerModule,
 		Events:      eventbus.NewOutbox(db.Pool()),
 	})
 	if err != nil {
