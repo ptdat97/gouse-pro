@@ -184,6 +184,71 @@ a:hover { text-decoration: underline; }
   object-fit: cover;
 }
 
+/* Bộ chọn màu và size.
+ *
+ * `chip--het` làm mờ chứ KHÔNG ẩn: khách phải thấy size của mình có tồn
+ * tại, chỉ là đang hết. Ẩn đi thì họ kết luận thương hiệu không làm size
+ * đó và rời đi.
+ */
+.chon {
+  margin: var(--space-6) 0;
+}
+
+.chon__nhan {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 48px;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  margin: 0 var(--space-2) var(--space-2) 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--color-text-muted);
+}
+
+.chip--chon {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+  font-weight: 600;
+}
+
+/* Hết hàng: mờ và gạch chéo, vẫn đọc được. */
+.chip--het {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  background: var(--color-bg-subtle);
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+}
+
+.chip__ghi {
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.offer--het {
+  opacity: 0.6;
+}
+
 .offer {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);

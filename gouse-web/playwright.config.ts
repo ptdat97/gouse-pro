@@ -30,7 +30,6 @@ import { defineConfig, devices } from "@playwright/test";
  * định trạng thái sẵn có — trừ danh mục sản phẩm.
  */
 export default defineConfig({
-  testDir: "./e2e",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -45,8 +44,23 @@ export default defineConfig({
   },
 
   projects: [
+    /**
+     * Test ĐƠN VỊ cho logic thuần, không mở trình duyệt.
+     *
+     * Dùng chung bộ chạy với test đầu-cuối thay vì thêm một phụ thuộc
+     * nữa: Playwright chạy TypeScript sẵn, và một bộ chạy ít hơn là một
+     * cấu hình ít hơn để lệch nhau.
+     *
+     * Ranh giới rõ ràng: `unit/` KHÔNG được chạm `page`, và không cần
+     * máy chủ nào đang chạy.
+     */
+    {
+      name: "unit",
+      testDir: "./unit",
+    },
     {
       name: "chromium",
+      testDir: "./e2e",
       use: { ...devices["Desktop Chrome"] },
     },
   ],

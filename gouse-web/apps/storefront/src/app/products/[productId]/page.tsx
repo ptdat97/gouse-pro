@@ -13,25 +13,39 @@ import { Alert, Button, Input } from "@fc/ui";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
+import { chonBanDau, doiMau, gomTheoMau } from "@/lib/chon-hang";
 import { money } from "@/lib/format";
 import { useShop } from "@/lib/shop";
 
 type Offer = NonNullable<ProductOffers["data"]>[number];
 
 /**
- * Trang chi tiết sản phẩm.
+ * Chi tiết sản phẩm — nơi khách quyết định mua gì.
  *
- * # Hai lời gọi, không phải một
+ * # Ba lựa chọn, theo đúng thứ tự khách nghĩ
  *
- * `getProduct` trả thứ ỔN ĐỊNH (tên, mô tả, ảnh); `listProductOffers` trả
- * thứ ĐỔI LIÊN TỤC (ai bán, giá bao nhiêu, còn hàng không). Gộp lại thì
- * hoặc phải bỏ cache cả trang mỗi lần một nhà bán đổi giá, hoặc hiện giá cũ.
+ *   màu → size → nhà bán
  *
- * # Khách chọn OFFER, không chọn sản phẩm
+ * Không phải thứ tự tùy ý. Màu và size xác định MÓN HÀNG (một SKU); nhà
+ * bán chỉ là chọn mua món đó của ai. Đảo thứ tự — bắt chọn nhà bán trước —
+ * là hỏi "mua của ai" khi còn chưa biết "mua cái gì".
  *
- * Nút "Thêm vào giỏ" gửi `offer_id`. Cùng một chiếc áo có thể do ba nhà bán
- * chào với ba giá và ba thời gian giao khác nhau — khách phải thấy mình
- * đang mua của ai.
+ * Bản trước của trang này bỏ hẳn hai bước đầu: nó đổ toàn bộ offer của mọi
+ * SKU vào một danh sách. Khách chọn theo giá mà không biết mình đang mua
+ * size nào — với thời trang thì đó không phải chi tiết phụ. Ba dòng cùng
+ * gắn nhãn "Đề xuất" cũng vì vậy: buy box tính theo TỪNG SKU, nên gộp ba
+ * SKU lại thì cả ba cùng thắng.
+ *
+ * # Hết hàng thì HIỆN, không ẩn
+ *
+ * Size và màu không mua được vẫn nằm nguyên trong danh sách, chỉ bị vô
+ * hiệu hóa. Ẩn đi thì khách kết luận thương hiệu không làm size của mình
+ * và rời đi — thay vì biết là tạm hết.
+ *
+ * # Việc gom dữ liệu nằm ở lib/chon-hang.ts
+ *
+ * Đó là logic thuần, có test riêng chạy không cần trình duyệt. Ở đây chỉ
+ * còn việc hiển thị và nối sự kiện.
  */
 export default function ProductPage({
   params,
@@ -44,12 +58,12 @@ export default function ProductPage({
 
   const [product, setProduct] = React.useState<ProductDetail | null>(null);
   const [offers, setOffers] = React.useState<Offer[]>([]);
-
-  // Tên nhà bán tra RIÊNG: endpoint offer chỉ trả `seller_id`.
-  //
-  // Một lượt gọi cho cả danh sách, không phải một lượt mỗi offer.
   const [sellers, setSellers] = React.useState<Record<string, SellerRef>>({});
-  const [selected, setSelected] = React.useState<string | null>(null);
+
+  const [skuID, setSkuID] = React.useState<string | null>(null);
+  const [mauDangChon, setMauDangChon] = React.useState<string | null>(null);
+  const [offerID, setOfferID] = React.useState<string | null>(null);
+
   const [quantity, setQuantity] = React.useState(1);
   const [error, setError] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
@@ -63,19 +77,19 @@ export default function ProductPage({
           listProductOffers(api, productId),
         ]);
         if (cancelled) return;
-        setProduct(p);
 
         const list = o.data ?? [];
+        setProduct(p);
         setOffers(list);
 
-        // Chọn sẵn offer thắng buy box: đó là lựa chọn nền tảng khuyến
-        // nghị, và bắt khách tự chọn khi chỉ có một nhà bán là thừa.
-        const best = list.find((x) => x.is_buy_box) ?? list[0];
-        setSelected(best?.id ?? null);
+        const banDau = chonBanDau(gomTheoMau(p.variants, list));
+        if (banDau) {
+          setMauDangChon(banDau.mau);
+          setSkuID(banDau.skuId);
+        }
 
-        // Tra tên nhà bán SAU khi đã hiện offer, không phải trong cùng
-        // Promise.all: giá và nút mua không được chờ một thông tin chỉ
-        // dùng để hiển thị. Thiếu tên thì offer vẫn mua được.
+        // Tên nhà bán tra SAU, không nằm trong Promise.all: giá và nút mua
+        // không được chờ một thông tin chỉ dùng để hiển thị.
         const ids = [...new Set(list.map((x) => x.seller_id))];
         const found = await listSellersByIds(api, ids);
         if (cancelled) return;
@@ -91,39 +105,57 @@ export default function ProductPage({
     };
   }, [api, productId]);
 
+  const mauList = React.useMemo(
+    () => gomTheoMau(product?.variants, offers),
+    [product, offers],
+  );
+
+  const mau = mauList.find((m) => m.mau === mauDangChon) ?? mauList[0];
+  const sizeDangChon =
+    mau?.sizes.find((s) => s.skuId === skuID)?.size ?? null;
+
+  // Offer của ĐÚNG món hàng đang chọn. Đây là điều làm nhãn "Đề xuất" có
+  // nghĩa trở lại: trong phạm vi một SKU, buy box chỉ có một người thắng.
+  const offerCuaSku = React.useMemo(
+    () => offers.filter((o) => o.sku_id === skuID),
+    [offers, skuID],
+  );
+
+  // Chọn sẵn offer thắng buy box mỗi khi món hàng đổi.
+  React.useEffect(() => {
+    const banDuoc = offerCuaSku.filter((o) => o.is_sellable);
+    const best =
+      banDuoc.find((o) => o.is_buy_box) ?? banDuoc[0] ?? offerCuaSku[0];
+    setOfferID(best?.id ?? null);
+  }, [offerCuaSku]);
+
   if (error) return <Alert tone="danger">{error}</Alert>;
   if (!product) return <p className="muted">Đang tải…</p>;
 
   const p = product;
-
-  // Ảnh đầu tiên là ảnh chính. Đặc tả có `order` nhưng không hứa mảng đã
-  // sắp xếp, nên sắp lại ở đây thay vì tin vào thứ tự trả về.
-  const cover = [...(p.images ?? [])].sort(
-    (a, b) => (a.order ?? 0) - (b.order ?? 0),
-  )[0];
-
-  const chosen = offers.find((o) => o.id === selected);
-
-  // `is_sellable` false vẫn HIỆN offer — khách cần biết sản phẩm CÓ tổ hợp
-  // màu/size đó, chỉ là đang không mua được. Ẩn đi thì họ tưởng nền tảng
-  // không bán và bỏ đi.
-  //
-  // Dùng THẲNG `is_sellable`, không suy lại từ trường khác. Máy chủ đã tổng
-  // hợp cả tồn kho lẫn trạng thái nhà bán vào cờ này; suy lại ở đây là cài
-  // quy tắc lần thứ hai, và hai bản sẽ lệch.
-  //
-  // Trước đây chỗ này đọc `availability` — một trường đặc tả có khai nhưng
-  // endpoint KHÔNG BAO GIỜ trả. Vì nó không `required`, TypeScript vẫn cho
-  // qua, và hệ quả là nút "Thêm vào giỏ" khóa vĩnh viễn: cửa hàng không bán
-  // được gì. Không log máy chủ nào ghi lại chuyện đó.
+  const chosen = offerCuaSku.find((o) => o.id === offerID);
   const canBuy = chosen?.is_sellable === true;
 
+  // Ảnh theo MÀU đang chọn. Khách chọn màu xanh phải thấy áo xanh — ảnh
+  // sai màu là một nguyên nhân hoàn hàng.
+  const anhSanPham = [...(p.images ?? [])].sort(
+    (a, b) => (a.order ?? 0) - (b.order ?? 0),
+  )[0]?.url;
+  const anh = mau?.anh ?? anhSanPham;
+
+  function chonMau(ten: string) {
+    const moi = mauList.find((m) => m.mau === ten);
+    if (!moi) return;
+    setMauDangChon(ten);
+    setSkuID(doiMau(moi, sizeDangChon));
+  }
+
   async function onAdd() {
-    if (!selected) return;
+    if (!offerID) return;
     setAdding(true);
     setError(null);
     try {
-      await addItem(selected, quantity);
+      await addItem(offerID, quantity);
       router.push("/cart");
     } catch (e) {
       setError(isApiError(e) ? e.message : "Không thêm được vào giỏ");
@@ -135,61 +167,36 @@ export default function ProductPage({
   return (
     <div className="product">
       <div className="product__media">
-        {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={cover.url} alt={cover.alt ?? p.name} />
-        ) : null}
+        {anh ? <img src={anh} alt={p.name} /> : null}
       </div>
 
       <div>
-        <p className="muted">{p.brand?.name}</p>
         <h1>{p.name}</h1>
-        {p.description && <p className="muted">{p.description}</p>}
+        {p.description ? <p className="muted">{p.description}</p> : null}
 
-        <h2>Chọn nhà bán</h2>
-        {offers.length === 0 ? (
-          <Alert tone="warning">
-            Sản phẩm này hiện chưa có nhà bán nào chào bán.
-          </Alert>
+        {mauList.length === 0 ? (
+          <Alert tone="warning">Sản phẩm này chưa có phiên bản nào để bán.</Alert>
         ) : (
-          <div role="radiogroup" aria-label="Nhà bán">
-            {offers.map((o) => (
-              <label
-                key={o.id}
-                className={`offer${o.id === selected ? " offer--selected" : ""}`}
-              >
-                <div className="offer__row">
-                  <span>
-                    <input
-                      type="radio"
-                      name="offer"
-                      value={o.id}
-                      checked={o.id === selected}
-                      onChange={() => setSelected(o.id)}
-                    />{" "}
-                    <strong>{money(o.price)}</strong>
-                    {o.is_buy_box && " · Đề xuất"}
-                  </span>
-                  <span className="offer__seller">
-                    {o.condition === "NEW" ? "Hàng mới" : "Đã qua sử dụng"}
-                  </span>
-                </div>
-
-                <div className="offer__seller">
-                  {sellers[o.seller_id]?.name ?? "Đang tra nhà bán…"}
-                  {sellers[o.seller_id]?.is_official && " · Chính hãng"}
-                </div>
-
-                <div className="offer__seller">
-                  {o.is_sellable ? "Còn hàng" : "Hết hàng"}
-                  {o.handling_time_hours
-                    ? ` · Chuẩn bị ${o.handling_time_hours} giờ`
-                    : ""}
-                </div>
-              </label>
-            ))}
-          </div>
+          <>
+            <ChonMau
+              mauList={mauList}
+              dangChon={mau?.mau ?? null}
+              onChon={chonMau}
+            />
+            <ChonSize
+              mau={mau}
+              skuDangChon={skuID}
+              onChon={setSkuID}
+            />
+          </>
         )}
+
+        <ChonNhaBan
+          offers={offerCuaSku}
+          sellers={sellers}
+          dangChon={offerID}
+          onChon={setOfferID}
+        />
 
         <div className="line__qty">
           <label htmlFor="qty">Số lượng</label>
@@ -203,11 +210,16 @@ export default function ProductPage({
         </div>
 
         <div className="actions">
-          <Button onClick={onAdd} disabled={!selected || !canBuy || adding}>
+          <Button onClick={onAdd} disabled={!offerID || !canBuy || adding}>
             {adding ? "Đang thêm…" : "Thêm vào giỏ"}
           </Button>
         </div>
 
+        {mauList.length > 0 && offerCuaSku.length === 0 && (
+          <p className="muted">
+            Chưa có nhà bán nào chào bán phiên bản này.
+          </p>
+        )}
         {chosen && !canBuy && (
           <p className="muted">
             Nhà bán này đang hết hàng. Chọn nhà bán khác nếu có.
@@ -215,5 +227,163 @@ export default function ProductPage({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * ChonMau — bước 1.
+ *
+ * Màu hết sạch hàng vẫn hiện, chỉ mờ đi và ghi rõ. Bấm vào vẫn được: khách
+ * có quyền xem ảnh màu đó rồi tự quyết định chờ hay đổi màu. Chặn hẳn là
+ * giấu thông tin chứ không bảo vệ ai.
+ */
+function ChonMau({
+  mauList,
+  dangChon,
+  onChon,
+}: {
+  mauList: ReturnType<typeof gomTheoMau>;
+  dangChon: string | null;
+  onChon: (mau: string) => void;
+}) {
+  if (mauList.length <= 1) return null;
+
+  return (
+    <section className="chon">
+      <h2 className="chon__nhan">Màu</h2>
+      <div role="radiogroup" aria-label="Màu">
+        {mauList.map((m) => (
+          <button
+            key={m.mau}
+            type="button"
+            role="radio"
+            aria-checked={m.mau === dangChon}
+            className={`chip${m.mau === dangChon ? " chip--chon" : ""}${
+              m.coHang ? "" : " chip--het"
+            }`}
+            onClick={() => onChon(m.mau)}
+          >
+            {m.mau}
+            {!m.coHang && <span className="chip__ghi"> · hết hàng</span>}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * ChonSize — bước 2.
+ *
+ * Size hết hàng bị VÔ HIỆU HÓA chứ không ẩn, và khác với màu: chọn một
+ * size không mua được thì phần dưới trống rỗng, không nói thêm được gì.
+ * Còn màu thì ít nhất đổi được ảnh.
+ *
+ * Ẩn size hết hàng là sai lầm phổ biến và tốn kém: khách kết luận thương
+ * hiệu không làm size của họ và rời đi, thay vì biết là tạm hết.
+ */
+function ChonSize({
+  mau,
+  skuDangChon,
+  onChon,
+}: {
+  mau: ReturnType<typeof gomTheoMau>[number] | undefined;
+  skuDangChon: string | null;
+  onChon: (skuId: string) => void;
+}) {
+  if (!mau || mau.sizes.length === 0) return null;
+
+  return (
+    <section className="chon">
+      <h2 className="chon__nhan">Size</h2>
+      <div role="radiogroup" aria-label="Size">
+        {mau.sizes.map((s) => (
+          <button
+            key={s.skuId}
+            type="button"
+            role="radio"
+            aria-checked={s.skuId === skuDangChon}
+            disabled={!s.coHang}
+            title={s.coHang ? undefined : "Tạm hết hàng"}
+            className={`chip${s.skuId === skuDangChon ? " chip--chon" : ""}${
+              s.coHang ? "" : " chip--het"
+            }`}
+            onClick={() => onChon(s.skuId)}
+          >
+            {s.size}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * ChonNhaBan — bước 3.
+ *
+ * Chỉ hiện offer của ĐÚNG món hàng đã chọn ở hai bước trên. Nhờ vậy nhãn
+ * "Đề xuất" có nghĩa trở lại: buy box tính theo từng SKU, nên trong phạm
+ * vi này chỉ có một người thắng.
+ *
+ * Offer không bán được vẫn hiện (mờ đi): khách cần biết nhà bán đó CÓ bán
+ * món này, chỉ là đang hết — đó là thông tin để quyết định chờ hay mua của
+ * người khác.
+ */
+function ChonNhaBan({
+  offers,
+  sellers,
+  dangChon,
+  onChon,
+}: {
+  offers: Offer[];
+  sellers: Record<string, SellerRef>;
+  dangChon: string | null;
+  onChon: (offerId: string) => void;
+}) {
+  if (offers.length === 0) return null;
+
+  return (
+    <section className="chon">
+      <h2 className="chon__nhan">Nhà bán</h2>
+      <div role="radiogroup" aria-label="Nhà bán">
+        {offers.map((o) => (
+          <label
+            key={o.id}
+            className={`offer${o.id === dangChon ? " offer--selected" : ""}${
+              o.is_sellable ? "" : " offer--het"
+            }`}
+          >
+            <div className="offer__row">
+              <span>
+                <input
+                  type="radio"
+                  name="offer"
+                  value={o.id}
+                  checked={o.id === dangChon}
+                  onChange={() => onChon(o.id)}
+                />{" "}
+                <strong>{money(o.price)}</strong>
+                {o.is_buy_box && o.is_sellable && " · Đề xuất"}
+              </span>
+              <span className="offer__seller">
+                {o.condition === "NEW" ? "Hàng mới" : "Đã qua sử dụng"}
+              </span>
+            </div>
+
+            <div className="offer__seller">
+              {sellers[o.seller_id]?.name ?? "Đang tra nhà bán…"}
+              {sellers[o.seller_id]?.is_official && " · Chính hãng"}
+            </div>
+
+            <div className="offer__seller">
+              {o.is_sellable ? "Còn hàng" : "Hết hàng"}
+              {o.handling_time_hours
+                ? ` · Chuẩn bị ${o.handling_time_hours} giờ`
+                : ""}
+            </div>
+          </label>
+        ))}
+      </div>
+    </section>
   );
 }

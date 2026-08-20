@@ -29,7 +29,14 @@ test("khách vãng lai mua được: chọn nhà bán → thêm giỏ → giỏ 
   await expect(card).toBeVisible({ timeout: 15_000 });
   await card.click();
 
-  await expect(page.getByRole("heading", { name: "Chọn nhà bán" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nhà bán" })).toBeVisible();
+
+  // Ba bước, theo đúng thứ tự khách nghĩ: màu → size → nhà bán.
+  //
+  // Màu và size xác định MÓN HÀNG (một SKU); nhà bán chỉ là mua món đó của
+  // ai. Trang phải chọn sẵn một tổ hợp mua được, nếu không thì mở ra đã
+  // phải bấm thêm một bước chỉ để về trạng thái dùng được.
+  await expect(page.getByRole("radiogroup", { name: "Size" })).toBeVisible();
 
   const offer = page.locator('input[name="offer"]').first();
   await expect(offer).toBeVisible();
@@ -73,6 +80,52 @@ test("trang tra cứu đơn gọi được API kèm header tùy chỉnh", async 
 
   await page.goto("/orders");
   await expect(page.getByRole("heading", { name: /Đơn hàng|Tra cứu/ })).toBeVisible();
+
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
+});
+
+/**
+ * Đổi màu phải đổi ĐÚNG món hàng đằng sau.
+ *
+ * Đây là chỗ dễ sinh lỗi im lặng nhất của luồng chọn hàng: giữ nguyên
+ * `sku_id` cũ khi đổi màu thì khách tưởng đang xem màu xanh nhưng lại mua
+ * đúng chiếc áo trắng. Giá là bằng chứng quan sát được — mỗi SKU một
+ * offer, một giá.
+ */
+test("đổi màu và size thì đổi đúng món hàng", async ({ page }) => {
+  const loi = watchApi(page);
+
+  await page.goto("/");
+  await page.locator("a.card__link").first().click();
+  await expect(page.getByRole("heading", { name: "Nhà bán" })).toBeVisible();
+
+  const giaHienTai = async () =>
+    (await page.locator(".offer strong").allInnerTexts()).join("|");
+
+  const nhomMau = page.getByRole("radiogroup", { name: "Màu" });
+  const nhomSize = page.getByRole("radiogroup", { name: "Size" });
+
+  const banDau = await giaHienTai();
+  expect(banDau, "phải có ít nhất một nhà bán cho món đang chọn").not.toBe("");
+
+  // Đổi sang size khác trong cùng màu → phải sang một món hàng khác.
+  const sizes = nhomSize.getByRole("radio");
+  if ((await sizes.count()) > 1) {
+    await sizes.nth(1).click();
+    await expect
+      .poll(giaHienTai, { message: "đổi size mà offer không đổi" })
+      .not.toBe(banDau);
+  }
+
+  // Đổi màu → cũng phải sang món khác.
+  const maus = nhomMau.getByRole("radio");
+  if ((await maus.count()) > 1) {
+    const truoc = await giaHienTai();
+    await maus.nth(1).click();
+    await expect
+      .poll(giaHienTai, { message: "đổi màu mà offer không đổi" })
+      .not.toBe(truoc);
+  }
 
   expect(loi.map((l) => l.mo_ta)).toEqual([]);
 });

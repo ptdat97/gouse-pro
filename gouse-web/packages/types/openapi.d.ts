@@ -1757,20 +1757,6 @@ export interface components {
              */
             currency: string;
         };
-        Color: {
-            /** @example Trắng ngà */
-            name: string;
-            /**
-             * @description Để hiển thị ô màu thật — khách chọn theo màu nhìn thấy, không theo tên.
-             * @example #F5F5DC
-             */
-            hex_code?: string;
-            /**
-             * @description Nhóm màu để lọc. Khách lọc "màu xanh", không lọc "Xanh navy đậm".
-             * @enum {string}
-             */
-            color_family: "WHITE" | "BLACK" | "GRAY" | "BEIGE" | "BROWN" | "RED" | "PINK" | "ORANGE" | "YELLOW" | "GREEN" | "BLUE" | "PURPLE" | "MULTI";
-        };
         /** @description Sản phẩm trong danh sách. Nhẹ hơn `ProductDetail`. */
         ProductSummary: {
             id: components["schemas"]["Id"];
@@ -1787,7 +1773,8 @@ export interface components {
                 average?: number;
                 count?: number;
             };
-            available_colors?: components["schemas"]["Color"][];
+            /** @description Tên các màu có trong danh mục. Chuỗi, xem `Variant.color`. */
+            available_colors?: string[];
             /**
              * @description **Chỉ liệt kê size CÒN HÀNG.** Hiển thị size đã hết trong danh sách
              *     là trải nghiệm tệ — khách chọn rồi mới biết không mua được.
@@ -1834,18 +1821,6 @@ export interface components {
             order?: number;
         };
         /**
-         * @description Kích cỡ. **Không phải chuỗi đơn thuần** — "M" của thương hiệu A khác
-         *     "M" của thương hiệu B, và "38" giày khác "38" quần.
-         */
-        Size: {
-            /** @example M */
-            value: string;
-            /** @enum {string} */
-            system: "ALPHA" | "NUMERIC" | "EU" | "US" | "UK" | "JP" | "FREE";
-            /** @description Nhãn hiển thị cho khách. */
-            label?: string;
-        };
-        /**
          * @description Đơn vị lưu kho. **Định danh hàng hóa chung**, không thuộc seller nào —
          *     đây là cái cho phép biết "ba seller đang bán cùng một món hàng".
          */
@@ -1853,17 +1828,37 @@ export interface components {
             id: components["schemas"]["Id"];
             /** @example SM-LIN-OXF-WHT-M */
             sku_code?: string;
-            size: components["schemas"]["Size"];
             /**
-             * @description Còn hàng hay không. Size hết hàng vẫn được trả về (để hiển thị
-             *     gạch chéo + cho phép đăng ký nhận thông báo), không ẩn đi.
+             * @description Kích cỡ, ví dụ "M" hoặc "38".
+             *
+             *     **Là CHUỖI, không phải object `Size`.** Cùng lý do với
+             *     `Variant.color`: domain giữ thuộc tính biến thể trong một map, nên
+             *     chưa có chỗ cho HỆ SIZE (ALPHA/EU/US...).
+             *
+             *     Đó là thiếu sót có hậu quả thật — "M" của thương hiệu này khác "M"
+             *     của thương hiệu kia, và "38" giày khác "38" quần — nhưng sửa nó
+             *     cần thêm trường ở domain. Xem P3-22.
+             * @example M
              */
-            available: boolean;
+            size: string;
         };
         /** @description Tổ hợp thuộc tính (màu + size). Ảnh thay đổi theo màu, không theo size. */
         Variant: {
             id: components["schemas"]["Id"];
-            color: components["schemas"]["Color"];
+            /**
+             * @description Tên màu, ví dụ "Trắng" hoặc "Xanh navy".
+             *
+             *     **Là CHUỖI, không phải object `Color`.** Domain lưu thuộc tính biến
+             *     thể trong một map `{color, size, ...}` — dùng map vì mỗi loại hàng
+             *     có thuộc tính khác nhau (áo có độ dài tay, quần có kiểu ống) — nên
+             *     chưa có chỗ cho mã màu hex hay nhóm màu.
+             *
+             *     Ô màu thật (`hex_code`) và lọc theo nhóm màu là việc riêng, xem
+             *     P3-22 trong backlog: chúng cần thêm trường ở domain chứ không chỉ
+             *     đổi hình dạng JSON.
+             * @example Trắng
+             */
+            color: string;
             images?: components["schemas"]["Image"][];
             skus: components["schemas"]["SKUSummary"][];
         };
