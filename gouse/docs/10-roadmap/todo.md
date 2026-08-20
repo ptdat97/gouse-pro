@@ -1048,6 +1048,7 @@ có code VÀ test chứng minh.
 | Rate limit chỉ áp cho đăng ký, và đếm trong bộ nhớ | Đăng nhập bị dò; N bản sao = N lần hạn mức |
 | Webhook thanh toán và vận chuyển chưa có route | Đơn không bao giờ rời `PENDING_PAYMENT` bằng đường thật |
 | `MarkOutOfStock` là code chết (P3-23) | Trạng thái offer trong database sai; mới vá ở tầng đọc |
+| **Hủy đơn không trả hàng về kho (PH-28)** | Mỗi đơn bị hủy ăn mất một phần kho, VĨNH VIỄN và im lặng |
 
 ### 12.3 Điều kiện kết thúc phase
 

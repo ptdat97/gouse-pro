@@ -160,7 +160,7 @@ không thấy được — P3-18 đã chứng minh điều đó.
 | Một giỏ, nhiều tab — không giữ hàng nhiều lần | ✅ `TestHaiTabCungGioChiGiuHangMotLan` |
 | Thực hiện TỪNG PHẦN (một seller giao, một seller chưa) | ⬜ |
 | Giao hàng TỪNG PHẦN trong một đơn thực hiện | ⬜ |
-| Hủy đơn (trước và sau khi lấy hàng) | ⬜ |
+| Hủy đơn (trước và sau khi lấy hàng) | 🔴 **CHẶN — hủy đơn LÀM RÒ RỈ HÀNG**, xem PH-28 |
 | Giao dịch cuộn ngược — event KHÔNG phát | ⬜ (có test ở tầng eventbus, chưa có ở toàn chuỗi) |
 
 **Bất biến không-oversell nay được chứng minh ở TOÀN CHUỖI**, không chỉ ở
@@ -174,6 +174,49 @@ lớp — chốt ở tầng ứng dụng, chỉ mục UNIQUE có điều kiện 
 đường nhả hàng khi `Save` thất bại. Bỏ RIÊNG lớp đầu thì test vẫn xanh.
 Điều đó dễ dẫn tới kết luận sai theo cả hai chiều: tưởng test vô dụng,
 hoặc tưởng một lớp là đủ nên gỡ lớp kia.
+
+### 2.5b PH-28 — hủy đơn làm RÒ RỈ tồn kho `[NGHIÊM TRỌNG]`
+
+Kiểm chứng bằng đơn thật ngày 20/08, không phải đọc code:
+
+```text
+đặt 5 món     →  15 khả dụng /  5 cam kết
+hủy đơn       →  15 khả dụng /  5 cam kết   ← không đổi
+```
+
+**Năm món kẹt vĩnh viễn ở trạng thái cam kết.** Hàng có thật trong kho
+nhưng hệ thống sẽ không bao giờ bán lại. Không lỗi, không log, không cảnh
+báo — mỗi đơn bị hủy ăn mất một phần kho, và chỉ phát hiện được khi kiểm
+kê tay thấy số thực nhiều hơn số hệ thống.
+
+**Nguyên nhân — hai đầu dây đều đứt:**
+
+```text
+order.cancelled          định nghĩa trong eventbus, KHÔNG AI PHÁT
+fulfillment.progress     có phát, nhưng payload chỉ mang cờ boolean
+                         (cancelled/shipped/delivered) cho order tính
+                         trạng thái — KHÔNG có sku, số lượng, chủ sở hữu
+inventory                chỉ có MỘT handler: CommitOnCheckoutCompleted
+```
+
+Nghĩa là đường vào kho có (`Reserved → Committed`), đường ra thì không.
+
+**Sửa cần một quyết định thiết kế, không phải một bản vá:**
+
+1. Mở rộng payload `fulfillment.progress` để mang dòng hàng (sku, số
+   lượng, chủ sở hữu), rồi thêm handler `ReleaseOnCancelled` ở inventory
+   — cùng hình dạng với handler Commit đã có.
+2. Hoặc để module order phát `order.cancelled` — nhưng order hiện KHÔNG
+   có bộ phát event nào, nên đây là thay đổi cấu trúc module.
+
+Cách 1 nhỏ hơn và đi đúng đường đã có. Nhưng nó là **thay đổi payload
+event**, tức chạm đúng chỗ PH-7 nói chưa có quy trình: đổi payload đòi
+hỏi bên nhận triển khai trước, và ngày 19/08 đã có sự cố worker cũ nuốt
+event mới. Vì vậy PH-28 nên làm SAU hoặc CÙNG LÚC với PH-7.
+
+Chú ý thêm: chủ sở hữu tồn kho phải suy ra từ nhà bán (ADR-0012), nên bên
+phát hoặc bên nhận cần đường tra `seller → owner`. Gửi thẳng `seller_id`
+rồi để inventory tự hiểu là lặp lại đúng lỗi P3-18.
 
 ### 2.6 Ma trận E2E giao diện (PH-4)
 
