@@ -840,7 +840,7 @@ có lịch sử thật để dự báo.
 | Không có thư mục `common/` `utils/` `helpers/` `services/` | `[x]` archcheck R7 |
 | Kiểm tra ranh giới module trong CI đều xanh | `[x]` job `architecture` chạy đầu tiên, thất bại = chặn merge |
 | Không có JOIN vượt ranh giới module | `[x]` không bảng nào có `REFERENCES` vượt module — `order_line.offer_id` chỉ giữ định danh |
-| Mọi lệnh ghi API đều idempotent | `[~]` header BẮT BUỘC ở mọi đường ghi, nhưng chỉ `order` và `payment` có ràng buộc `UNIQUE` ở database — chi tiết ở [backlog mục 2.7](backlog.md) |
+| Mọi lệnh ghi API đều idempotent | `[x]` cả 5 đường ghi đều có ràng buộc ở tầng dữ liệu — chi tiết ở [backlog mục 2.7](backlog.md) |
 | Outbox hoạt động, không có event kẹt | `[x]` `platform/eventbus`: rollback thì KHÔNG phát, phát lại xử lý đúng một lần, event hỏng vào dead letter sau 5 lần |
 
 ### Chức năng · Chất lượng
@@ -1041,7 +1041,6 @@ có code VÀ test chứng minh.
 | Khoảng trống | Hậu quả nếu bỏ qua |
 |---|---|
 
-| Idempotency thiếu ràng buộc DB ở inventory và fulfillment | Hai request song song cùng khóa vẫn lọt |
 | Event versioning chỉ có TRƯỜNG, chưa có quy trình | Đã xảy ra: worker cũ nuốt event mới, bỏ trường mới, không lỗi |
 | Không có metrics, không có tracing | Sự cố production chỉ biết khi khách báo |
 | Correlation ID gần như luôn rỗng | Không lần được một đơn qua nhiều tiến trình |

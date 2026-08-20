@@ -56,10 +56,10 @@ từng phần kèm bằng chứng ở [todo mục 12](docs/10-roadmap/todo.md).
 | `internal/platform` — config, logger, apierror, httpserver, database, eventbus | Xong |
 | `cmd/api`, `cmd/worker` | Xong |
 | 17 module nghiệp vụ | Xong |
-| 25 migration | Xong |
+| 27 migration | Xong |
 | Giao diện: quản trị · cửa hàng · trung tâm người bán | Xong (kho riêng) |
 | `internal/e2e` — luồng đi qua nhiều module | 12/12 kịch bản |
-| Idempotency có ràng buộc ở database | 2/5 đường ghi |
+| Idempotency có ràng buộc ở database | 5/5 đường ghi |
 | Event versioning — quy trình, không chỉ trường dữ liệu | Chưa |
 | Vận hành: metrics, tracing, chính sách lưu trữ audit | Chưa |
 

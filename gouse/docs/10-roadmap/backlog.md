@@ -121,7 +121,7 @@ idempotency** đều có test hồi quy tự động.
 
 | # | Việc | Trạng thái |
 |---|---|---|
-| PH-5 | **Chuẩn hóa idempotency** — bảng ở mục 2.7 | 🟡 2/5 có ràng buộc DB |
+| PH-5 | **Chuẩn hóa idempotency** — bảng ở mục 2.7 | ✅ 5/5 có ràng buộc ở tầng dữ liệu |
 | PH-6 | Chuẩn hóa retry / xử lý thất bại | 🟡 outbox có, phần còn lại chưa |
 | PH-7 | **Event versioning** — trường đã có, quy trình CHƯA | 🔴 xem 2.8 |
 | PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | 🟡 từng cặp có, chưa có test xuyên suốt |
@@ -271,21 +271,54 @@ InspectionPassed/Failed đã có ở domain inventory, chưa có đường nối
 | Nhà bán cập nhật tồn kho | ✅ |
 | Nhà bán thực hiện đơn (bàn giao vận chuyển) | ⬜ |
 
-### 2.7 Idempotency (PH-5)
+### 2.7 Idempotency (PH-5) `[XONG 20/08]`
 
-| Đường ghi | Khóa ở HTTP | Ràng buộc ở DB |
+| Đường ghi | Khóa ở HTTP | Ràng buộc ở tầng dữ liệu |
 |---|---|---|
-| checkout complete | ✅ | 🟡 chỉ khóa hoàn tất |
-| payment | ✅ | ✅ `UNIQUE` |
-| order place | ✅ | ✅ `UNIQUE` |
-| inventory reservation | ✅ | 🔴 KHÔNG có |
-| fulfillment / shipment | ✅ | 🔴 KHÔNG có |
+| checkout complete | ✅ | ✅ `UNIQUE` khóa hoàn tất + `UNIQUE` một phiên mỗi giỏ |
+| inventory reservation | ✅ | ✅ `UNIQUE (checkout_id, inventory_item_id) WHERE ACTIVE` |
+| order place | ✅ | ✅ `UNIQUE (idempotency_key)` |
+| payment | ✅ | ✅ `UNIQUE (idempotency_key)` |
+| fulfillment / shipment | ✅ | ✅ khóa lạc quan `version` |
 
-Middleware `RequireIdempotencyKey` bắt buộc header ở mọi đường ghi — nhưng
-**bắt buộc header không phải là idempotent**. Chỉ `payment` và `order` có
-ràng buộc `UNIQUE` ở database, tức là chỉ hai đường đó chịu được hai
-request song song cùng khóa. Kiểm tra trước-khi-ghi ở tầng ứng dụng vẫn
-lọt khi hai request chạy cùng lúc.
+**Bắt buộc header KHÔNG phải là idempotent.** Middleware
+`RequireIdempotencyKey` chỉ đảm bảo client GỬI khóa; nó không làm gì với
+hai request mang cùng khóa chạy song song. Thứ duy nhất không có khe hở
+giữa lúc kiểm và lúc ghi là ràng buộc ở database.
+
+**Hai lỗi thật, tìm bằng test tranh chấp chứ không bằng đọc code:**
+
+*Bàn giao vận chuyển hai lần.* 8 lệnh song song → 2–3 lệnh cùng thành
+công. `fulfillment_order` không có khóa lạc quan, nên hai request cùng đọc
+`PACKED`, cùng thấy hợp lệ, cùng ghi. Hậu quả không chỉ là một dòng thừa:
+mỗi lần ghi phát một event tiến độ, nên khách nhận HAI email "đơn đã gửi",
+analytics đếm hai lần, và mã vận đơn ghi sau đè lên mã ghi trước — hai
+request mang hai mã khác nhau thì mã thật bị mất.
+
+*Giữ hàng hai lần cho cùng một phiên.* Gọi `Reserve` lần thứ hai với cùng
+`checkout_id` và cùng bản ghi tồn kho thì THÀNH CÔNG, khóa gấp đôi số hàng
+khách cần. Số thừa treo tới khi hết hạn — với hàng bán chạy, đó là cách tự
+tạo ra tình trạng hết hàng giả.
+
+Chỉ mục UNIQUE của reservation CÓ ĐIỀU KIỆN trên `status = 'ACTIVE'`: phiên
+hết hạn rồi mở lại, hoặc giữ hàng bị nhả rồi giữ lại, đều hợp lệ. Và loại
+trừ `checkout_id` rỗng vì nhập kho, điều chỉnh thủ công không thuộc phiên
+nào.
+
+**Một bài học về `Restore`.** Thêm cột `version` xong thì mọi bước chuyển
+trạng thái TUẦN TỰ đều báo xung đột. Nguyên nhân: `withLineIDs` dựng lại
+thực thể từ đầu và tôi quên chép `Version` — nên phiên bản bị xóa trắng ở
+mỗi lần đọc. Chú thích ngay trên hàm đó đã cảnh báo đúng điều này: "trường
+nào quên là trường đó bị XÓA TRẮNG khi đọc, và lỗi chỉ lộ ra ở test đọc
+lại sau khi ghi".
+
+**Kiểm chứng bằng cách phá:**
+
+```text
+bỏ `AND version = $17`        → "2 lệnh bàn giao cùng thành công, cần 1"
+                                 kèm "2 event fulfillment.progress, cần 1"
+DROP INDEX reservation_active_uniq → "giữ hàng lần 2 THÀNH CÔNG"
+```
 
 ### 2.8 Event versioning (PH-7)
 

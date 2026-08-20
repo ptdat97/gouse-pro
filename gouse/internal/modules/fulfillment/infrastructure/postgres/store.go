@@ -150,8 +150,8 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		       shipping_provider = $7, tracking_number = $8,
 		       confirmed_at = $9, packed_at = $10, shipped_at = $11,
 		       delivered_at = $12, cancelled_at = $13, completed_at = $14,
-		       updated_at = $15
-		 WHERE id = $1 AND seller_id = $16`,
+		       updated_at = $15, version = version + 1
+		 WHERE id = $1 AND seller_id = $16 AND version = $17`,
 		fo.ID().String(), string(fo.Status()), fo.CancelReason(),
 		fo.FailureReason(), fo.StockLocationID().String(),
 		fo.ShippingMethod(), fo.ShippingProvider(), fo.TrackingNumber(),
@@ -160,11 +160,30 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		nullTime(fo.CancelledAt()), nullTime(fo.CompletedAt()), fo.UpdatedAt(),
 		// seller_id nằm trong WHERE dù đã biết id: nếu một lỗi ở tầng trên
 		// đưa nhầm đơn của seller khác xuống đây, câu lệnh không ghi được.
-		fo.SellerID().String())
+		fo.SellerID().String(),
+		// version trong WHERE là KHÓA LẠC QUAN: bước chuyển trạng thái là
+		// đọc-kiểm-ghi và ba việc đó không nguyên tử. Thiếu điều kiện này
+		// thì hai lệnh song song cùng đọc PACKED, cùng thấy hợp lệ, cùng
+		// ghi — và mỗi lần ghi phát một event tiến độ, nên khách nhận hai
+		// email "đơn đã gửi".
+		fo.Version())
 	if err != nil {
 		return fmt.Errorf("order: cập nhật đơn thực hiện: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
+		// KHÔNG phân biệt được "không tồn tại" với "đã bị sửa" chỉ từ số
+		// dòng. Hỏi lại database để trả đúng lỗi: bên gọi xử lý hai
+		// trường hợp này khác nhau — một cái là thử lại, một cái là dừng.
+		var ton bool
+		if err := s.pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM fulfillment_order
+			                WHERE id = $1 AND seller_id = $2)`,
+			fo.ID().String(), fo.SellerID().String()).Scan(&ton); err != nil {
+			return fmt.Errorf("order: kiểm tra đơn thực hiện: %w", err)
+		}
+		if ton {
+			return domain.ErrVersionConflict
+		}
 		return domain.ErrNotFound
 	}
 	return nil
@@ -179,7 +198,7 @@ const foCols = `
 	stock_location_id, fulfillment_type, shipping_method, shipping_provider,
 	tracking_number, estimated_delivery_date,
 	confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
-	completed_at, created_at, updated_at`
+	completed_at, created_at, updated_at, version`
 
 func (s *FulfillmentStore) FindByID(
 	ctx context.Context, id, sellerID ids.ID,
@@ -337,6 +356,7 @@ func (s *FulfillmentStore) withLineIDs(
 		CustomerID:        fo.CustomerID(),
 		NotifyEmail:       fo.NotifyEmail(),
 		NotifyPhone:       fo.NotifyPhone(),
+		Version:           fo.Version(),
 		ShippingAddress:   fo.ShippingAddress(),
 		StockLocationID:   fo.StockLocationID(),
 		Type:              fo.Type(),
@@ -379,7 +399,7 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 		&addr.Ward, &addr.District, &addr.Province, &addr.CountryCode,
 		&locationID, &foType, &method, &provider, &tracking, &estimatedDelivery,
 		&confirmed, &packed, &shipped, &delivered, &cancelled,
-		&completed, &p.CreatedAt, &p.UpdatedAt,
+		&completed, &p.CreatedAt, &p.UpdatedAt, &p.Version,
 	); err != nil {
 		return nil, err
 	}

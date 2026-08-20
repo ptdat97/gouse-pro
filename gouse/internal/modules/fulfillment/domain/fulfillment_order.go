@@ -17,9 +17,14 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("fulfillment: không tìm thấy")
-	ErrInvalidStatus = errors.New("fulfillment: chuyển trạng thái không hợp lệ")
-	ErrNoLines       = errors.New("fulfillment: phải có ít nhất một dòng hàng")
+	ErrNotFound = errors.New("fulfillment: không tìm thấy")
+
+	// ErrVersionConflict: bản ghi đã bị một tiến trình khác sửa giữa lúc
+	// đọc và lúc ghi. Bên gọi thử lại từ đầu, hoặc từ chối nếu bước
+	// chuyển trạng thái không còn hợp lệ nữa.
+	ErrVersionConflict = errors.New("fulfillment: bản ghi đã bị sửa bởi tiến trình khác")
+	ErrInvalidStatus   = errors.New("fulfillment: chuyển trạng thái không hợp lệ")
+	ErrNoLines         = errors.New("fulfillment: phải có ít nhất một dòng hàng")
 )
 
 // FulfillmentType là mô hình thực hiện đơn (fulfillment.md mục 4).
@@ -267,6 +272,14 @@ type FulfillmentOrder struct {
 
 	createdAt time.Time
 	updatedAt time.Time
+
+	// version cho khóa lạc quan.
+	//
+	// Bước chuyển trạng thái là đọc-kiểm-ghi, và ba việc đó không nguyên
+	// tử. Không có cột này thì hai request song song cùng đọc PACKED, cả
+	// hai cùng thấy hợp lệ, cả hai cùng ghi — và mỗi lần ghi phát một
+	// event tiến độ.
+	version int64
 }
 
 // ShippingAddress là nơi hàng phải đến.
@@ -419,6 +432,9 @@ type RestoreFOParams struct {
 	CancelledAt       time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+
+	// Version dùng cho khóa lạc quan.
+	Version int64
 }
 
 // RestoreFulfillmentOrder dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
@@ -451,6 +467,7 @@ func RestoreFulfillmentOrder(p RestoreFOParams) *FulfillmentOrder {
 		shippedAt:         p.ShippedAt,
 		deliveredAt:       p.DeliveredAt,
 		cancelledAt:       p.CancelledAt,
+		version:           p.Version,
 		createdAt:         p.CreatedAt,
 		updatedAt:         p.UpdatedAt,
 	}
@@ -487,7 +504,14 @@ func (f *FulfillmentOrder) ShippedAt() time.Time         { return f.shippedAt }
 func (f *FulfillmentOrder) DeliveredAt() time.Time       { return f.deliveredAt }
 func (f *FulfillmentOrder) CancelledAt() time.Time       { return f.cancelledAt }
 func (f *FulfillmentOrder) CreatedAt() time.Time         { return f.createdAt }
-func (f *FulfillmentOrder) UpdatedAt() time.Time         { return f.updatedAt }
+
+// Version là phiên bản dùng cho khóa lạc quan.
+//
+// Kho lưu trữ ghi với điều kiện `WHERE version = $này` rồi tăng lên. Bản
+// ghi đã bị người khác sửa thì câu lệnh khớp 0 dòng và bên gọi nhận
+// ErrVersionConflict.
+func (f *FulfillmentOrder) Version() int64       { return f.version }
+func (f *FulfillmentOrder) UpdatedAt() time.Time { return f.updatedAt }
 
 // Lines trả bản sao ảnh chụp thông tin nhặt hàng.
 //
