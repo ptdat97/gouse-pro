@@ -86,6 +86,12 @@ func New(cfg Config) (*Module, error) {
 // Vì sao không lộ Service() ra ngoài: nếu cmd/api cầm được *application.Service,
 // nó gọi thẳng use case và nhận về domain object, vòng qua API công khai.
 // Ranh giới module sẽ chỉ còn là quy ước chứ không phải điều kiện biên dịch.
+// Service trả về tầng application cho tầng interfaces của CHÍNH module này.
+//
+// Không xuất khẩu ra ngoài package catalog — module khác chỉ dùng API.
+// Cùng mẫu với product, seller và marketplace.
+func (m *Module) Service() *application.Service { return m.svc }
+
 func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
 	cataloghttp.NewHandler(m.svc, log).Register(mux)
 }

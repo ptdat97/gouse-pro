@@ -115,7 +115,7 @@ idempotency** đều có test hồi quy tự động.
 | PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | ✅ 12/12 kịch bản, 14 test |
 | PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
 | PH-3 | Test tích hợp API qua HTTP thật | ✅ 6 test, xem 2.4b |
-| PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 6/7 luồng · 20 test |
+| PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | ✅ 7/7 luồng · 21 test |
 
 ### 2.2 PH — Reliability
 
@@ -310,7 +310,7 @@ InspectionPassed/Failed đã có ở domain inventory, chưa có đường nối
 | Khách mua hàng (chọn màu → size → nhà bán → giỏ) | ✅ |
 | Khách VÃNG LAI thanh toán | ✅ tới tận mã đơn |
 | Khách ĐÃ ĐĂNG KÝ mua hàng | ✅ tới tận mã đơn |
-| Đơn nhiều nhà bán | ⬜ |
+| Đơn nhiều nhà bán | ✅ giỏ nhóm theo nhà bán → 2 gói giao |
 | Nhà bán tạo offer | ✅ kèm tồn kho ban đầu |
 | Nhà bán cập nhật tồn kho | ✅ |
 | Nhà bán thực hiện đơn (bàn giao vận chuyển) | ✅ tự đặt đơn rồi bàn giao |
@@ -347,6 +347,38 @@ Sửa cần một quyết định: `GET /cart` có nên ghi không, và nếu c�
 
 Test E2E liệt kê ĐÍCH DANH lỗi này để bỏ qua, thay vì nới lỏng khẳng định
 — nới lỏng sẽ giấu luôn những lỗi khác chưa ai biết.
+
+### 2.6b Dựng nhà bán thứ hai (`cmd/taonhaban`)
+
+Luồng "đơn nhiều nhà bán" bị chặn bởi DỮ LIỆU, không phải bởi code: dữ
+liệu mẫu chỉ có MỘT nhà bán — Lumière, loại INTERNAL. Với một nhà bán thì
+không có gì để tách, nên phần lõi của kiến trúc chợ chưa bao giờ được thử
+qua giao diện.
+
+Công cụ đưa nhà bán qua ĐỦ vòng đời, không tắt bước nào:
+
+```text
+nộp hồ sơ → duyệt → xác minh ngân hàng → kích hoạt
+```
+
+Ghi thẳng `ACTIVE` vào database sẽ tạo ra một nhà bán không bao giờ tồn
+tại được ngoài đời, và test dựa trên nó sẽ nói dối.
+
+**Hai rào cản gặp phải, cả hai đều là quy tắc ĐÚNG:**
+
+1. Thương hiệu Lumière ở mức `RESTRICTED` — chỉ chủ thương hiệu được bán.
+   Nhà bán ngoài cần hàng của thương hiệu `OPEN`, nên công cụ tạo một sản
+   phẩm mới dưới Basics Co.
+2. Sản phẩm thời trang bắt buộc có BẢNG SIZE, và bảng phải thuộc chính
+   thương hiệu đó — "M" của thương hiệu này không phải "M" của thương hiệu
+   kia, đúng lý do bảng size tồn tại.
+
+Vai trò `SELLER_OWNER` được gán kèm PHẠM VI là gian hàng. Phạm vi là thứ
+quyết định: vai trò không phạm vi nghĩa là người này làm chủ MỌI gian
+hàng — đúng lỗ hổng mà cách ly giữa các nhà bán tồn tại để chặn.
+
+Kèm một sửa nhỏ cho nhất quán: `catalog` là module duy nhất thiếu
+`Service()`, trong khi product, seller và marketplace đều có.
 
 ### 2.6c Hai bài học về test giao diện
 
