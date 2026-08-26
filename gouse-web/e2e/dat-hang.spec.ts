@@ -144,3 +144,118 @@ test("khách đã đăng nhập đặt được đơn, không phải nhập lạ
     .filter((m) => !m.includes("500 GET http://localhost:8080/api/v1/cart"));
   expect(conLai).toEqual([]);
 });
+
+/**
+ * Đơn NHIỀU NHÀ BÁN — lý do cả kiến trúc này tồn tại.
+ *
+ * Khách bỏ vào giỏ hàng của hai nhà bán khác nhau rồi đặt MỘT đơn. Hệ
+ * thống phải:
+ *
+ *   – nhóm giỏ theo nhà bán (khách hiểu hàng đến từ đâu)
+ *   – tạo MỘT đơn hàng, với HAI đơn thực hiện
+ *   – giữ hàng từ kho của ĐÚNG từng chủ sở hữu
+ *
+ * Cho tới 26/08 không test giao diện nào chạm tới đây: dữ liệu mẫu chỉ có
+ * một nhà bán, và một nhà bán thì không có gì để tách. Nhà bán thứ hai
+ * được dựng bằng `cmd/taonhaban`.
+ */
+test("đơn trộn hàng của hai nhà bán tách thành hai đơn thực hiện", async ({
+  page,
+}) => {
+  const loi = watchApi(page);
+  const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
+  // Thêm vào giỏ một món của MỖI nhà bán, qua giao diện.
+  const ds = await page.request.get(`${api}/api/v1/products?limit=10`);
+  const products = (await ds.json()).data ?? [];
+  expect(products.length, "cần ít nhất hai sản phẩm").toBeGreaterThanOrEqual(2);
+
+  const nhaBanDaThay = new Set<string>();
+  for (const p of products) {
+    await page.goto(`/products/${p.id}`);
+
+    // CHỜ offer nạp xong.
+    //
+    // Danh sách nhà bán được tra bằng lời gọi RIÊNG sau khi hiện sản
+    // phẩm, nên kiểm ngay sau `goto` là kiểm một trang chưa có gì — và
+    // bài test sẽ bỏ qua sản phẩm một cách im lặng.
+    const nhom = page.getByRole("radiogroup", { name: "Nhà bán" });
+    await expect(nhom).toBeVisible({ timeout: 10_000 });
+
+    await page.locator('input[name="offer"]').first().check();
+
+    // Tên nhà bán là dòng có chữ, KHÔNG phải dòng tình trạng hàng.
+    //
+    // Một offer có ba dòng cùng lớp `.offer__seller`: tình trạng hàng
+    // ("Hàng mới"), TÊN nhà bán, và tình trạng kho. Lấy `.first()` sẽ
+    // trúng dòng đầu và gom nhầm "Hàng mới" thành tên nhà bán.
+    const ten = await page
+      .locator(".offer--selected .offer__seller, .offer .offer__seller")
+      .nth(1)
+      .innerText();
+    nhaBanDaThay.add(ten.split("·")[0]!.trim());
+
+    await page.getByRole("button", { name: "Thêm vào giỏ" }).click();
+    await page.waitForURL("**/cart");
+  }
+
+  expect(
+    nhaBanDaThay.size,
+    `giỏ chỉ có hàng của ${[...nhaBanDaThay]} — cần hai nhà bán khác nhau`,
+  ).toBeGreaterThanOrEqual(2);
+
+  // Giỏ NHÓM THEO NHÀ BÁN: khách phải thấy hàng đến từ đâu.
+  await page.goto("/cart");
+  const nhomGio = page.locator(".group");
+  await expect(nhomGio).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Tiến hành thanh toán" }).click();
+  await page.waitForURL("**/checkout");
+
+  await page.getByLabel("Email").fill("tron@example.com");
+  await page.getByLabel("Số điện thoại").fill("0900777666");
+  await page.getByRole("button", { name: "Tiếp tục" }).click();
+
+  await page.getByLabel("Người nhận").fill("Khách Trộn Đơn");
+  await page.getByLabel("Số điện thoại").last().fill("0900777666");
+  await page.getByLabel("Địa chỉ").fill("9 Hai Bà Trưng");
+  await page.getByLabel("Phường/Xã").fill("Đa Kao");
+  await page.getByLabel("Quận/Huyện").fill("Quận 1");
+  await page.getByLabel("Tỉnh/Thành phố").fill("TP.HCM");
+  await page.getByRole("button", { name: "Lưu địa chỉ" }).click();
+
+  await page.getByLabel("Hình thức").selectOption("STANDARD");
+  const datHang = page.getByRole("button", { name: "Đặt hàng" });
+  await expect(datHang).toBeEnabled({ timeout: 10_000 });
+  await datHang.click();
+
+  await page.waitForURL("**/orders/**", { timeout: 15_000 });
+  await expect(page.getByText(/FC-\d{4}-\d{2}-\d+/).first()).toBeVisible();
+
+  // MỘT đơn hàng, HAI gói giao — tách theo nguồn hàng.
+  //
+  // Tách xảy ra BẤT ĐỒNG BỘ qua worker, nên phải chờ.
+  await expect
+    .poll(
+      async () => {
+        await page.reload();
+        return page.locator(".group").count();
+      },
+      {
+        message: "đơn không tách thành hai gói theo nhà bán",
+        timeout: 30_000,
+        intervals: [1000, 2000, 3000],
+      },
+    )
+    .toBe(2);
+
+  // ĐÚNG hai, không phải "ít nhất hai": tách sai thành ba gói cũng là lỗi.
+  await expect(
+    page.getByText("Đơn chưa được tách thành gói giao"),
+  ).toHaveCount(0);
+
+  const conLai = loi
+    .map((l) => l.mo_ta)
+    .filter((m) => !m.includes("500 GET http://localhost:8080/api/v1/cart"));
+  expect(conLai).toEqual([]);
+});
