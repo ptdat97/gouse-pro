@@ -95,6 +95,8 @@ paths:
     $ref: './paths/storefront.yaml#/product_detail'
   /api/v1/products/{product_id}/offers:
     $ref: './paths/storefront.yaml#/product_offers'
+  /api/v1/offers/buy-box:
+    $ref: './paths/storefront.yaml#/buy_box_prices'
   /api/v1/products/{product_id}/reviews:
     $ref: './paths/storefront.yaml#/product_reviews'
   /api/v1/categories:

@@ -152,6 +152,30 @@ func (a *productAdapter) IsSKUSellable(ctx context.Context, skuID ids.ID) (bool,
 	return sellable, nil
 }
 
+func (a *productAdapter) SKUsOfProducts(
+	ctx context.Context, productIDs []ids.ID,
+) (map[ids.ID][]ids.ID, error) {
+	raw := make([]string, 0, len(productIDs))
+	for _, id := range productIDs {
+		raw = append(raw, id.String())
+	}
+
+	found, err := a.api.GetSKUsByProducts(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[ids.ID][]ids.ID, len(found))
+	for pid, skus := range found {
+		list := make([]ids.ID, 0, len(skus))
+		for _, s := range skus {
+			list = append(list, ids.ID(s.ID))
+		}
+		out[ids.ID(pid)] = list
+	}
+	return out, nil
+}
+
 func (a *productAdapter) SKUsOfProduct(
 	ctx context.Context, productID ids.ID,
 ) ([]ids.ID, error) {

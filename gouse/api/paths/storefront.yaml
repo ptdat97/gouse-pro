@@ -585,3 +585,58 @@ outfit_detail:
                 currency: VND
       '404':
         $ref: '../components/common.yaml#/responses/NotFound'
+
+buy_box_prices:
+  get:
+    tags: [Catalog]
+    summary: Giá buy box của nhiều sản phẩm
+    description: |
+      Trả giá **thấp nhất mua được** của từng sản phẩm, tra theo LÔ.
+
+      **Vì sao là endpoint riêng, không nằm trong `ProductSummary`.** Giá
+      thuộc về OFFER, và module `product` cùng tầng với `marketplace` nên
+      không gọi được. Nhồi giá vào danh mục sẽ bắt mọi lời gọi sản phẩm kéo
+      theo truy vấn giá, kể cả nơi không hiển thị giá bán.
+
+      **Vì sao lấy từ BUY BOX, không phải min của mọi offer.** Buy box đã
+      loại offer hết hàng và nhà bán bị đình chỉ, nên con số này là giá
+      khách THẬT SỰ mua được. Lấy min trên mọi offer là quảng cáo một mức
+      giá không đặt được.
+
+      Sản phẩm không có offer nào bán được thì **vắng mặt** trong kết quả —
+      không trả giá 0, vì 0 hiển thị ra là "miễn phí". Thứ tự kết quả giữ
+      đúng thứ tự hỏi.
+    operationId: listBuyBoxPrices
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: product_ids
+        in: query
+        required: true
+        description: Danh sách mã sản phẩm, ngăn cách bằng dấu phẩy. Tối đa 100.
+        schema:
+          type: string
+    responses:
+      '200':
+        description: Giá của các sản phẩm có offer bán được
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    required: [product_id, price_from]
+                    properties:
+                      product_id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      price_from:
+                        $ref: '../components/common.yaml#/schemas/Money'
+                      compare_at_price:
+                        $ref: '../components/common.yaml#/schemas/Money'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'

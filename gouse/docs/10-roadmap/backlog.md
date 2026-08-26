@@ -114,7 +114,7 @@ idempotency** đều có test hồi quy tự động.
 |---|---|---|
 | PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | ✅ 12/12 kịch bản, 14 test |
 | PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
-| PH-3 | Test tích hợp API cho các luồng quan trọng | ⬜ chưa có |
+| PH-3 | Test tích hợp API qua HTTP thật | ✅ 6 test, xem 2.4b |
 | PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 5/7 luồng |
 
 ### 2.2 PH — Reliability
@@ -138,9 +138,53 @@ idempotency** đều có test hồi quy tự động.
 | # | Việc | Trạng thái |
 |---|---|---|
 | PH-11 | OpenAPI là nguồn sự thật DUY NHẤT | 🟢 `types:check` chặn ở CI |
-| PH-12 | Kiểm chuỗi: OpenAPI → TypeScript sinh ra → Go → giao diện | 🟡 xem 2.10 |
+| PH-12 | Kiểm chuỗi: OpenAPI → TypeScript sinh ra → Go → giao diện | ✅ test hợp đồng gọi API thật, xem 2.10 |
 | PH-13 | Giao diện KHÔNG tự cài lại quy tắc nghiệp vụ | 🟢 đã sửa `is_sellable` |
 | PH-14 | Tránh N+1 khi cửa hàng cần dữ liệu seller/product/offer | 🟢 tra theo lô |
+
+### 2.4b Test tích hợp API (PH-3) `[XONG 26/08]`
+
+`internal/app` dựng TOÀN BỘ ứng dụng — module thật, route thật, middleware
+thật, PostgreSQL thật — rồi gọi qua HTTP.
+
+**Vì sao cần lớp này khi đã có test module và test đầu-cuối.** Cả hai lớp
+kia đều BỎ QUA tầng HTTP: chúng gọi thẳng service Go. Bốn loại lỗi chỉ
+sống ở ranh giới HTTP và không lớp nào khác nhìn thấy:
+
+```text
+quên bọc RequireRole            → ai cũng gọi được đường quản trị
+quên bọc RequireIdempotencyKey  → mất chống trùng, không báo gì
+handler đúng nhưng SAI mã trạng thái
+tên/kiểu trường JSON lệch đặc tả
+```
+
+Ba loại đầu là lỗi NỐI DÂY: bản thân module đúng, chỉ chỗ ráp sai.
+
+**Một test chống bỏ sót.** `TestMoiDuongCanQuyenDeuDuocKiem` quét mã nguồn
+tìm mọi route dưới `/api/v1/admin/` và `/api/v1/seller/`, rồi đối chiếu với
+danh sách được kiểm phân quyền. Thêm route mới mà quên khai là ĐỎ, kèm tên
+đường. Nó biến "phải nhớ" thành "test sẽ báo".
+
+Nó phá vỡ ranh giới thường thấy giữa test và cài đặt — đánh đổi có ý thức:
+cái giá của việc quên bọc `RequireRole` là mở toang một đường quản trị.
+
+**Kiểm chứng bằng cách phá:**
+
+```text
+bỏ RequireRole của admin/sellers → token CUSTOMER nhận HTTP 200 kèm
+                                    danh sách nhà bán VÀ tỷ lệ hoa hồng
+thêm route admin mới, quên khai  → "1 đường cần quyền KHÔNG có trong
+                                    danh sách kiểm phân quyền"
+```
+
+**Một ngoại lệ được ghi thành test.** `/api/v1/admin/me` nằm dưới tiền tố
+`admin` nhưng CỐ Ý chỉ cần đăng nhập: Trung tâm người bán dùng chính nó để
+khôi phục phiên. Ngoại lệ không có test là ngoại lệ sẽ bị ai đó "sửa" cho
+nhất quán.
+
+**Và chuỗi middleware trong test đã từng lệch production** — bản đầu bỏ
+quên `Logging` nên `logger.FromContext` rơi về logger mặc định. Đầu ra
+nhiễu chỉ là triệu chứng; vấn đề thật là test đang kiểm một hệ thống khác.
 
 ### 2.5 Ma trận E2E PostgreSQL (PH-1)
 

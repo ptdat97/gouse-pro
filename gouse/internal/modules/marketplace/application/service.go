@@ -52,6 +52,9 @@ type ProductPort interface {
 	// Cần cho trang sản phẩm: khách xem một PRODUCT, nhưng offer gắn với
 	// SKU (một tổ hợp màu/size cụ thể).
 	SKUsOfProduct(ctx context.Context, productID ids.ID) ([]ids.ID, error)
+
+	// SKUsOfProducts là bản THEO LÔ, cho trang danh sách.
+	SKUsOfProducts(ctx context.Context, productIDs []ids.ID) (map[ids.ID][]ids.ID, error)
 }
 
 // SellerPort là những gì marketplace CẦN từ seller.
@@ -679,4 +682,81 @@ func (s *Service) recordPrice(
 		return err
 	}
 	return s.history.Append(ctx, point)
+}
+
+// PriceRange là khoảng giá MUA ĐƯỢC của một sản phẩm.
+type PriceRange struct {
+	// From là giá THẤP NHẤT trong các offer đang thắng buy box.
+	//
+	// Lấy từ buy box chứ không phải từ mọi offer: buy box đã loại offer
+	// hết hàng và nhà bán bị đình chỉ, nên con số này là giá khách THẬT SỰ
+	// mua được. Lấy min trên mọi offer sẽ quảng cáo một mức giá không đặt
+	// được — đúng thứ đặc tả gọi là hứa suông.
+	From money.Money
+
+	// CompareAt là giá gạch ngang, chỉ có khi offer rẻ nhất đang giảm giá.
+	CompareAt money.Money
+}
+
+// GetPriceRanges trả khoảng giá của NHIỀU sản phẩm trong một lượt.
+//
+// # Vì sao đây là việc của marketplace chứ không phải của product
+//
+// Giá thuộc về OFFER, và offer là khái niệm của module này. Module product
+// nằm cùng tầng nên không gọi được marketplace, và nhồi giá vào
+// `ProductSummary` sẽ bắt mọi lời gọi danh mục kéo theo truy vấn giá kể cả
+// khi không hiển thị.
+//
+// Trang tự ghép hai nguồn — cùng mẫu với việc tra tên nhà bán.
+//
+// Sản phẩm không có offer nào bán được thì VẮNG MẶT trong kết quả, không
+// phải trả giá 0: giá 0 hiển thị ra là "miễn phí".
+func (s *Service) GetPriceRanges(
+	ctx context.Context, productIDs []ids.ID,
+) (map[ids.ID]PriceRange, error) {
+	out := make(map[ids.ID]PriceRange, len(productIDs))
+	if len(productIDs) == 0 {
+		return out, nil
+	}
+
+	skusByProduct, err := s.product.SKUsOfProducts(ctx, productIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Gom MỌI sku của MỌI sản phẩm rồi hỏi buy box một lượt.
+	var allSKUs []ids.ID
+	for _, skus := range skusByProduct {
+		allSKUs = append(allSKUs, skus...)
+	}
+	if len(allSKUs) == 0 {
+		return out, nil
+	}
+
+	boxes, err := s.GetBuyBoxes(ctx, allSKUs)
+	if err != nil {
+		return nil, err
+	}
+
+	for productID, skus := range skusByProduct {
+		var reHon *domain.Offer
+		for _, sku := range skus {
+			box, ok := boxes[sku]
+			if !ok || box.Winner == nil {
+				continue
+			}
+			if reHon == nil || box.Winner.Price().LessThan(reHon.Price()) {
+				reHon = box.Winner
+			}
+		}
+		if reHon == nil {
+			continue
+		}
+		pr := PriceRange{From: reHon.Price()}
+		if reHon.HasDiscount() {
+			pr.CompareAt = reHon.CompareAt()
+		}
+		out[productID] = pr
+	}
+	return out, nil
 }

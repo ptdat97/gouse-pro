@@ -43,6 +43,12 @@ type API interface {
 	// Module inventory dùng để biết cần theo dõi tồn kho những mã nào.
 	GetSKUsByProduct(ctx context.Context, productID string) ([]SKUView, error)
 
+	// GetSKUsByProducts là bản THEO LÔ của hàm trên.
+	//
+	// Trang danh sách cần SKU của mọi sản phẩm để hỏi giá; gọi từng cái là
+	// N+1. Sản phẩm không tồn tại thì vắng mặt trong kết quả.
+	GetSKUsByProducts(ctx context.Context, productIDs []string) (map[string][]SKUView, error)
+
 	// GetProductsBySKUIDs tra ngược từ SKU về sản phẩm.
 	//
 	// Module cart và order chỉ giữ sku_id; khi hiển thị chúng cần tên và

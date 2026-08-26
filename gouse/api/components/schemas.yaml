@@ -57,8 +57,21 @@ SellerRef:
 
 ProductSummary:
   type: object
-  description: Sản phẩm trong danh sách. Nhẹ hơn `ProductDetail`.
-  required: [id, name, brand, price_from]
+  description: |
+    Sản phẩm trong danh sách. Nhẹ hơn `ProductDetail`.
+
+    **KHÔNG chứa giá.** Giá thuộc về OFFER, và module `product` nằm cùng
+    tầng với `marketplace` nên không gọi được. Nhồi giá vào đây sẽ bắt MỌI
+    lời gọi danh mục kéo theo truy vấn giá — kể cả trang quản trị, nơi
+    không hiển thị giá bán.
+
+    Trang tự ghép: gọi `listBuyBoxPrices` một lượt cho cả danh sách. Cùng
+    mẫu với `lookupSellers`.
+
+    Trước 26/08 schema này khai `price_from` là BẮT BUỘC trong khi API chưa
+    bao giờ trả nó. Hậu quả nhìn thấy được: cửa hàng hiện dấu gạch thay cho
+    giá, và TypeScript không báo gì vì nó tin đặc tả.
+  required: [id, name, brand]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
@@ -71,12 +84,6 @@ ProductSummary:
     primary_image_url:
       type: string
       format: uri
-    price_from:
-      allOf:
-        - $ref: './common.yaml#/schemas/Money'
-      description: Giá **thấp nhất** trong các offer — vì có thể có nhiều nhà bán.
-    compare_at_price:
-      $ref: './common.yaml#/schemas/Money'
     rating:
       type: object
       properties:

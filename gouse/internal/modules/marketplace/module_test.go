@@ -53,6 +53,21 @@ func (f *fakeProduct) SKUsOfProduct(context.Context, ids.ID) ([]ids.ID, error) {
 	return f.skus, nil
 }
 
+// SKUsOfProducts trả CÙNG danh sách sku cho mọi sản phẩm được hỏi.
+//
+// Đủ cho test hiện có: chúng chỉ dựng một sản phẩm. Test nào cần nhiều
+// sản phẩm với sku khác nhau thì dựng bản giả riêng — bản giả càng thông
+// minh càng dễ cư xử khác bản thật.
+func (f *fakeProduct) SKUsOfProducts(
+	_ context.Context, productIDs []ids.ID,
+) (map[ids.ID][]ids.ID, error) {
+	out := make(map[ids.ID][]ids.ID, len(productIDs))
+	for _, id := range productIDs {
+		out[id] = f.skus
+	}
+	return out, nil
+}
+
 type fakeSeller struct {
 	active bool
 	rate   int32

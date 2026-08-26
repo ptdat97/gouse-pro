@@ -243,6 +243,45 @@ func (m *Module) GetSKUsByProduct(ctx context.Context, productID string) ([]SKUV
 	return toSKUViews(p.SKUs()), nil
 }
 
+// GetSKUsByProducts tra SKU của NHIỀU sản phẩm trong một lượt.
+//
+// # Vì sao cần bản theo lô
+//
+// Trang danh sách 24 sản phẩm cần biết SKU của từng cái để hỏi giá. Gọi
+// `GetSKUsByProduct` cho từng sản phẩm là 24 lượt truy vấn cho dữ liệu
+// lấy được bằng một — đúng vấn đề N+1 mà module cart đã tránh bằng bốn
+// lượt gọi cố định.
+//
+// Sản phẩm không tồn tại thì VẮNG MẶT trong kết quả, không phải lỗi: bên
+// gọi thường đang hiển thị một danh sách, và một mã hỏng không đáng để cả
+// danh sách trống.
+func (m *Module) GetSKUsByProducts(
+	ctx context.Context, productIDs []string,
+) (map[string][]SKUView, error) {
+	parsed := make([]ids.ID, 0, len(productIDs))
+	for _, raw := range productIDs {
+		id, err := ids.Parse(raw, ids.PrefixProduct)
+		if err != nil {
+			continue
+		}
+		parsed = append(parsed, id)
+	}
+	if len(parsed) == 0 {
+		return map[string][]SKUView{}, nil
+	}
+
+	found, err := m.svc.GetProductsByIDs(ctx, parsed)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	out := make(map[string][]SKUView, len(found))
+	for id, p := range found {
+		out[id.String()] = toSKUViews(p.SKUs())
+	}
+	return out, nil
+}
+
 func (m *Module) IsSellable(ctx context.Context, skuID string) (bool, error) {
 	id, err := ids.Parse(skuID, ids.PrefixSKU)
 	if err != nil {
