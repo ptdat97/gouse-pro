@@ -247,12 +247,13 @@ func (a *orderAdapter) PlaceOrder(
 			Province:      in.ShippingAddress.Province,
 			CountryCode:   in.ShippingAddress.CountryCode,
 		},
-		Currency:       string(in.Currency),
-		ShippingFee:    toOrderAmount(in.ShippingFee),
-		DiscountAmount: toOrderAmount(in.DiscountAmount),
-		TaxAmount:      toOrderAmount(in.TaxAmount),
-		Lines:          lines,
-		IdempotencyKey: in.IdempotencyKey,
+		SourceCheckoutID: in.SourceCheckoutID.String(),
+		Currency:         string(in.Currency),
+		ShippingFee:      toOrderAmount(in.ShippingFee),
+		DiscountAmount:   toOrderAmount(in.DiscountAmount),
+		TaxAmount:        toOrderAmount(in.TaxAmount),
+		Lines:            lines,
+		IdempotencyKey:   in.IdempotencyKey,
 	})
 	if err != nil {
 		return application.PlacedOrder{}, err

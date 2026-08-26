@@ -26,6 +26,20 @@ type Repository interface {
 	// không tạo ngược được.
 	SaveWithEvents(ctx context.Context, c *Cart, fn TxFunc) error
 
+	// MutateWithEvents đọc-sửa-ghi một giỏ trong MỘT giao dịch, có khóa dòng.
+	//
+	// Dùng cho MỌI thao tác đổi nội dung giỏ. Cặp FindByID + Save cắt phép
+	// đọc-rồi-ghi làm hai giao dịch, và vì cách ghi món là xóa hết rồi ghi
+	// lại, hai lượt chồng nhau sẽ ghi đè lẫn nhau — cả hai cùng báo thành
+	// công trong khi một lượt biến mất.
+	//
+	// apply nhận bản giỏ vừa đọc TRONG giao dịch. Mọi lệnh gọi ra module
+	// khác phải xong TRƯỚC khi gọi hàm này: bên trong đang giữ khóa dòng.
+	MutateWithEvents(
+		ctx context.Context, cartID ids.ID,
+		apply func(*Cart) error, fn TxFunc,
+	) (*Cart, error)
+
 	FindByID(ctx context.Context, id ids.ID) (*Cart, error)
 
 	// FindActiveByCustomer tìm giỏ ĐANG DÙNG của một khách.

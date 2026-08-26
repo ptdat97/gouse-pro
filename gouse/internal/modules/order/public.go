@@ -232,6 +232,15 @@ type PlaceOrderRequest struct {
 	// IdempotencyKey là BẮT BUỘC. Không có nó thì hai lần bấm nút thành
 	// hai đơn, và khách bị trừ tiền hai lần.
 	IdempotencyKey string
+
+	// SourceCheckoutID là phiên thanh toán sinh ra đơn.
+	//
+	// Khóa idempotency chỉ chống được việc CÙNG một lần bấm bị gửi lặp.
+	// Hai tab cùng hoàn tất một phiên là hai khóa KHÁC NHAU — trường này
+	// là thứ chặn ca đó, qua chỉ mục UNIQUE ở migrations/000029.
+	//
+	// Rỗng với đơn không đến từ phiên nào.
+	SourceCheckoutID string
 }
 
 // PlaceOrderResult là kết quả đặt hàng.

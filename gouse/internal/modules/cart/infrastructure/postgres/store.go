@@ -16,6 +16,17 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/cart/domain"
 )
 
+// querier là thứ chạy được câu lệnh: pool HOẶC giao dịch.
+//
+// Cần nó vì cùng một câu đọc phải chạy được cả ngoài giao dịch (đường đọc
+// thường) lẫn TRONG giao dịch đang giữ khóa dòng (đường đọc-sửa-ghi). Hai
+// bản sao của cùng câu lệnh sẽ trôi xa nhau.
+type querier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
 // CartStore lưu và đọc giỏ hàng.
 type CartStore struct {
 	pool *pgxpool.Pool
@@ -54,7 +65,28 @@ func (s *CartStore) SaveWithEvents(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	_, err = tx.Exec(ctx, `
+	if err := s.ghi(ctx, tx, c); err != nil {
+		return err
+	}
+
+	if fn != nil {
+		if err := fn(withTx(ctx, tx)); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("cart: xác nhận giao dịch: %w", err)
+	}
+	return nil
+}
+
+// ghi ghi giỏ và toàn bộ món bằng querier bên gọi đưa vào.
+//
+// KHÔNG tự mở giao dịch: bên gọi quyết định ranh giới giao dịch, vì chỉ
+// bên gọi biết còn thao tác nào phải cùng thành công hay không.
+func (s *CartStore) ghi(ctx context.Context, tx querier, c *domain.Cart) error {
+	_, err := tx.Exec(ctx, `
 		INSERT INTO cart (
 			id, customer_id, session_id, currency, status,
 			expires_at, created_at, updated_at
@@ -115,16 +147,74 @@ func (s *CartStore) SaveWithEvents(
 		}
 	}
 
+	return nil
+}
+
+// MutateWithEvents đọc-sửa-ghi một giỏ TRONG MỘT giao dịch, có khóa dòng.
+//
+// # Vì sao phải có hàm này
+//
+// Đường cũ là: `FindByID` ở một giao dịch, sửa trong bộ nhớ, rồi `Save` ở
+// một giao dịch KHÁC. Hai lượt thêm hàng chạy chồng nhau sẽ cùng đọc "giỏ
+// đang có 1", cùng tính "thành 2", cùng ghi 2 — và vì cách ghi là XÓA HẾT
+// RỒI GHI LẠI, lượt sau ghi đè trọn vẹn lượt trước. Cả hai đều trả 200.
+// Khách bấm sáu lần, giỏ tăng ba.
+//
+// Đó KHÔNG phải lỗi thiếu khóa mà là RANH GIỚI GIAO DỊCH đặt sai: phép
+// đọc-rồi-ghi bị cắt làm đôi. Chỗ đúng để sửa là gộp nó lại, chứ không
+// phải thêm mutex ở tầng ứng dụng hay thử lại cho tới khi trúng.
+//
+// `FOR UPDATE` trên dòng giỏ khiến các lượt cùng giỏ xếp hàng — đúng thứ
+// ta muốn ở đây: xung đột là chuyện THƯỜNG XUYÊN (một khách, một giỏ, hai
+// tab), và cửa sổ giữ khóa chỉ gồm vài câu lệnh trên chính database này.
+// Khóa lạc quan hợp với chỗ xung đột HIẾM, như tồn kho.
+//
+// Mọi lệnh gọi ra ngoài — tra offer, tra giá — phải nằm TRƯỚC khi vào đây.
+func (s *CartStore) MutateWithEvents(
+	ctx context.Context, cartID ids.ID,
+	apply func(*domain.Cart) error, fn domain.TxFunc,
+) (*domain.Cart, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("cart: mở giao dịch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Khóa TRƯỚC khi đọc. Đọc rồi mới khóa là để lại đúng cái cửa sổ
+	// đang muốn đóng.
+	var khoa string
+	err = tx.QueryRow(ctx,
+		`SELECT id FROM cart WHERE id = $1 FOR UPDATE`, cartID.String()).Scan(&khoa)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cart: khóa giỏ hàng: %w", err)
+	}
+
+	c, err := s.findOneVoi(ctx, tx, `WHERE id = $1`, cartID.String())
+	if err != nil {
+		return nil, err
+	}
+
+	if err := apply(c); err != nil {
+		return nil, err
+	}
+
+	if err := s.ghi(ctx, tx, c); err != nil {
+		return nil, err
+	}
+
 	if fn != nil {
 		if err := fn(withTx(ctx, tx)); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("cart: xác nhận giao dịch: %w", err)
+		return nil, fmt.Errorf("cart: xác nhận giao dịch: %w", err)
 	}
-	return nil
+	return c, nil
 }
 
 // txKey gắn giao dịch vào ngữ cảnh cho TxFunc.
@@ -165,7 +255,13 @@ func (s *CartStore) FindActiveBySession(
 func (s *CartStore) findOne(
 	ctx context.Context, where string, args ...any,
 ) (*domain.Cart, error) {
-	row := s.pool.QueryRow(ctx, `SELECT`+cartCols+` FROM cart `+where, args...)
+	return s.findOneVoi(ctx, s.pool, where, args...)
+}
+
+func (s *CartStore) findOneVoi(
+	ctx context.Context, q querier, where string, args ...any,
+) (*domain.Cart, error) {
+	row := q.QueryRow(ctx, `SELECT`+cartCols+` FROM cart `+where, args...)
 
 	var (
 		id, customerID, sessionID string
@@ -182,7 +278,7 @@ func (s *CartStore) findOne(
 		return nil, fmt.Errorf("cart: đọc giỏ hàng: %w", err)
 	}
 
-	items, err := s.loadItems(ctx, ids.ID(id))
+	items, err := s.loadItems(ctx, q, ids.ID(id))
 	if err != nil {
 		return nil, err
 	}
@@ -200,8 +296,10 @@ func (s *CartStore) findOne(
 	}), nil
 }
 
-func (s *CartStore) loadItems(ctx context.Context, cartID ids.ID) ([]*domain.Item, error) {
-	rows, err := s.pool.Query(ctx, `
+func (s *CartStore) loadItems(
+	ctx context.Context, q querier, cartID ids.ID,
+) ([]*domain.Item, error) {
+	rows, err := q.Query(ctx, `
 		SELECT id, offer_id, sku_id, seller_id,
 		       product_name, variant_description, image_url, seller_name,
 		       unit_price, currency, quantity,

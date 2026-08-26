@@ -38,6 +38,11 @@ type Repository interface {
 	// đúng của idempotent: gọi nhiều lần cho cùng một kết quả.
 	FindByIdempotencyKey(ctx context.Context, key string) (*Order, error)
 
+	// FindBySourceCheckout tìm đơn sinh ra từ một phiên thanh toán.
+	//
+	// Trả ErrNotFound khi phiên chưa sinh đơn nào, và với id rỗng.
+	FindBySourceCheckout(ctx context.Context, checkoutID ids.ID) (*Order, error)
+
 	// ListByCustomer trả lịch sử đơn của một khách.
 	ListByCustomer(ctx context.Context, customerID ids.ID, limit, offset int) ([]*Order, error)
 

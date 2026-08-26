@@ -58,6 +58,10 @@ func (r *fakeRepo) FindByIdempotencyKey(_ context.Context, _ string) (*domain.Or
 	return nil, domain.ErrNotFound
 }
 
+func (r *fakeRepo) FindBySourceCheckout(_ context.Context, _ ids.ID) (*domain.Order, error) {
+	return nil, domain.ErrNotFound
+}
+
 func (r *fakeRepo) ListByCustomer(
 	_ context.Context, customerID ids.ID, limit, offset int,
 ) ([]*domain.Order, error) {

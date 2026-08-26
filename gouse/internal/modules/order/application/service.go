@@ -152,6 +152,13 @@ type PlaceOrderInput struct {
 
 	// IdempotencyKey là BẮT BUỘC (quy tắc 5).
 	IdempotencyKey string
+
+	// SourceCheckoutID là phiên thanh toán sinh ra đơn.
+	//
+	// Rỗng với đơn KHÔNG đến từ phiên nào — đơn tạo bằng đường quản trị.
+	// Khi có giá trị, nó cưỡng chế bất biến "một phiên sinh tối đa một
+	// đơn" qua chỉ mục UNIQUE — xem migrations/000029.
+	SourceCheckoutID ids.ID
 }
 
 // PlaceOrderResult là kết quả đặt hàng.
@@ -192,6 +199,19 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 		return nil, err
 	}
 
+	// Phiên thanh toán này đã sinh đơn rồi thì trả lại chính đơn đó, dù
+	// khóa idempotency lần này khác. Cửa kiểm SỚM cho đường tuần tự; cuộc
+	// đua thật sự do chỉ mục UNIQUE bên dưới chặn.
+	if !in.SourceCheckoutID.IsZero() {
+		existing, err := s.orders.FindBySourceCheckout(ctx, in.SourceCheckoutID)
+		if err == nil {
+			return s.replay(ctx, existing)
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+	}
+
 	now := s.clock.Now()
 
 	lines := make([]*domain.Line, 0, len(in.Lines))
@@ -226,19 +246,20 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 	}
 
 	o, err := domain.NewOrder(domain.NewOrderParams{
-		OrderNumber:     number,
-		CustomerID:      in.CustomerID,
-		GuestEmail:      in.GuestEmail,
-		GuestPhone:      in.GuestPhone,
-		ShippingAddress: in.ShippingAddress,
-		BillingAddress:  in.BillingAddress,
-		Currency:        in.Currency,
-		ShippingFee:     in.ShippingFee,
-		DiscountAmount:  in.DiscountAmount,
-		TaxAmount:       in.TaxAmount,
-		Lines:           lines,
-		IdempotencyKey:  in.IdempotencyKey,
-		Now:             now,
+		OrderNumber:      number,
+		CustomerID:       in.CustomerID,
+		GuestEmail:       in.GuestEmail,
+		GuestPhone:       in.GuestPhone,
+		ShippingAddress:  in.ShippingAddress,
+		BillingAddress:   in.BillingAddress,
+		Currency:         in.Currency,
+		ShippingFee:      in.ShippingFee,
+		DiscountAmount:   in.DiscountAmount,
+		TaxAmount:        in.TaxAmount,
+		Lines:            lines,
+		IdempotencyKey:   in.IdempotencyKey,
+		SourceCheckoutID: in.SourceCheckoutID,
+		Now:              now,
 	})
 	if err != nil {
 		return nil, err
@@ -255,6 +276,16 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 		// khách — khách đã đặt hàng thành công.
 		if errors.Is(err, domain.ErrDuplicateOrder) {
 			existing, findErr := s.orders.FindByIdempotencyKey(ctx, in.IdempotencyKey)
+			if findErr != nil {
+				return nil, err
+			}
+			return s.replay(ctx, existing)
+		}
+
+		// Thua cuộc đua "một phiên một đơn". Khách KHÔNG được thấy lỗi:
+		// đơn đã tồn tại và đó chính là đơn của họ.
+		if errors.Is(err, domain.ErrCheckoutAlreadyOrdered) {
+			existing, findErr := s.orders.FindBySourceCheckout(ctx, in.SourceCheckoutID)
 			if findErr != nil {
 				return nil, err
 			}

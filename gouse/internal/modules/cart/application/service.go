@@ -261,11 +261,6 @@ type AddItemInput struct {
 // truyền xuống. Lý do: ở đó giá đã được chốt qua một bước khách nhìn thấy
 // và đồng ý; ở đây chưa có bước nào như vậy.
 func (s *Service) AddItem(ctx context.Context, in AddItemInput) (*domain.Cart, error) {
-	c, err := s.carts.FindByID(ctx, in.CartID)
-	if err != nil {
-		return nil, err
-	}
-
 	if s.offers == nil {
 		return nil, errors.New("cart: không tra được dữ liệu offer")
 	}
@@ -278,38 +273,40 @@ func (s *Service) AddItem(ctx context.Context, in AddItemInput) (*domain.Cart, e
 		return nil, domain.ErrNotFound
 	}
 
-	if _, err := c.AddItem(domain.NewItemParams{
-		OfferID:            in.OfferID,
-		SKUID:              d.SKUID,
-		SellerID:           d.SellerID,
-		ProductName:        d.ProductName,
-		VariantDescription: d.VariantDescription,
-		ImageURL:           d.ImageURL,
-		SellerName:         d.SellerName,
-		UnitPrice:          d.UnitPrice,
-		Quantity:           in.Quantity,
-		MinOrderQuantity:   d.MinOrderQuantity,
-		MaxOrderQuantity:   d.MaxOrderQuantity,
-		SourceContentID:    in.SourceContentID,
-		SourceCreatorID:    in.SourceCreatorID,
-		Now:                s.clock.Now(),
-	}); err != nil {
-		return nil, err
-	}
+	// Đọc-sửa-ghi trong MỘT giao dịch có khóa dòng. Tra offer đã xong ở
+	// trên, nên bên trong đây chỉ còn câu lệnh trên chính database này.
+	c, err := s.carts.MutateWithEvents(ctx, in.CartID, func(c *domain.Cart) error {
+		if _, err := c.AddItem(domain.NewItemParams{
+			OfferID:            in.OfferID,
+			SKUID:              d.SKUID,
+			SellerID:           d.SellerID,
+			ProductName:        d.ProductName,
+			VariantDescription: d.VariantDescription,
+			ImageURL:           d.ImageURL,
+			SellerName:         d.SellerName,
+			UnitPrice:          d.UnitPrice,
+			Quantity:           in.Quantity,
+			MinOrderQuantity:   d.MinOrderQuantity,
+			MaxOrderQuantity:   d.MaxOrderQuantity,
+			SourceContentID:    in.SourceContentID,
+			SourceCreatorID:    in.SourceCreatorID,
+			Now:                s.clock.Now(),
+		}); err != nil {
+			return err
+		}
 
-	// Gia hạn giỏ: khách còn tương tác thì giỏ còn sống.
-	c.Touch(s.clock.Now(), domain.DefaultTTL)
-
-	// Ghi giỏ VÀ phát tín hiệu nhu cầu trong CÙNG một giao dịch.
-	//
-	// Món vào giỏ mà tín hiệu không được ghi nghĩa là mất một quan sát về
-	// nhu cầu — và dữ liệu lịch sử không tạo ngược được.
-	if err := s.carts.SaveWithEvents(ctx, c, func(txCtx context.Context) error {
+		// Gia hạn giỏ: khách còn tương tác thì giỏ còn sống.
+		c.Touch(s.clock.Now(), domain.DefaultTTL)
+		return nil
+	}, func(txCtx context.Context) error {
+		// Phát tín hiệu nhu cầu trong CÙNG giao dịch: món vào giỏ mà tín
+		// hiệu không ghi được là mất một quan sát về nhu cầu, và dữ liệu
+		// lịch sử không tạo ngược được.
 		if s.events == nil {
 			return nil
 		}
 		return s.events.PublishItemAdded(txCtx, ItemAdded{
-			CartID:          c.ID(),
+			CartID:          in.CartID,
 			OfferID:         in.OfferID,
 			SKUID:           d.SKUID,
 			SellerID:        d.SellerID,
@@ -317,41 +314,44 @@ func (s *Service) AddItem(ctx context.Context, in AddItemInput) (*domain.Cart, e
 			SourceContentID: in.SourceContentID,
 			SourceCreatorID: in.SourceCreatorID,
 		})
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
-	return c, s.Sync(ctx, c)
+
+	// SyncView chứ KHÔNG phải Sync: Sync ghi thêm một lượt nữa, và lượt ấy
+	// nằm NGOÀI giao dịch vừa commit. Nó mang bản giỏ trong bộ nhớ ghi đè
+	// lên thứ mà một request chồng lấn có thể vừa ghi xong — đúng cái lỗi
+	// mất cập nhật mà khóa dòng ở trên vừa đóng lại, mở ra lần thứ hai.
+	//
+	// Không ghi cũng KHÔNG mất gì: giá và tình trạng hàng trong bảng chỉ
+	// là bộ đệm hiển thị, và từ PH-29 mọi đường đọc đều tự làm tươi trong
+	// bộ nhớ. Thứ database cần giữ là món khách đã thêm, không phải giá
+	// tại thời điểm nào đó trong quá khứ.
+	return c, s.SyncView(ctx, c)
 }
 
 // UpdateQuantity đổi số lượng một món.
 func (s *Service) UpdateQuantity(
 	ctx context.Context, cartID, itemID ids.ID, quantity int,
 ) (*domain.Cart, error) {
-	c, err := s.carts.FindByID(ctx, cartID)
+	c, err := s.carts.MutateWithEvents(ctx, cartID, func(c *domain.Cart) error {
+		return c.UpdateQuantity(itemID, quantity, s.clock.Now())
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.UpdateQuantity(itemID, quantity, s.clock.Now()); err != nil {
-		return nil, err
-	}
-	if err := s.carts.Save(ctx, c); err != nil {
-		return nil, err
-	}
-	return c, s.Sync(ctx, c)
+	return c, s.SyncView(ctx, c)
 }
 
 // RemoveItem xóa một món khỏi giỏ.
 func (s *Service) RemoveItem(
 	ctx context.Context, cartID, itemID ids.ID,
 ) (*domain.Cart, error) {
-	c, err := s.carts.FindByID(ctx, cartID)
+	c, err := s.carts.MutateWithEvents(ctx, cartID, func(c *domain.Cart) error {
+		return c.RemoveItem(itemID, s.clock.Now())
+	}, nil)
 	if err != nil {
-		return nil, err
-	}
-	if err := c.RemoveItem(itemID, s.clock.Now()); err != nil {
-		return nil, err
-	}
-	if err := s.carts.Save(ctx, c); err != nil {
 		return nil, err
 	}
 	return c, nil
@@ -359,14 +359,10 @@ func (s *Service) RemoveItem(
 
 // ClearCart xóa toàn bộ món trong giỏ.
 func (s *Service) ClearCart(ctx context.Context, cartID ids.ID) error {
-	c, err := s.carts.FindByID(ctx, cartID)
-	if err != nil {
-		return err
-	}
-	if err := c.Clear(s.clock.Now()); err != nil {
-		return err
-	}
-	return s.carts.Save(ctx, c)
+	_, err := s.carts.MutateWithEvents(ctx, cartID, func(c *domain.Cart) error {
+		return c.Clear(s.clock.Now())
+	}, nil)
+	return err
 }
 
 // ---------------------------------------------------------------- Gộp giỏ

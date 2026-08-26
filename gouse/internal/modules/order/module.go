@@ -177,6 +177,14 @@ func (m *Module) PlaceOrder(
 		IdempotencyKey:  strings.TrimSpace(req.IdempotencyKey),
 	}
 
+	if req.SourceCheckoutID != "" {
+		id, err := ids.Parse(req.SourceCheckoutID, ids.PrefixCheckout)
+		if err != nil {
+			return nil, ErrInvalidID
+		}
+		in.SourceCheckoutID = id
+	}
+
 	if req.CustomerID != "" {
 		id, err := ids.Parse(req.CustomerID, ids.PrefixCustomer)
 		if err != nil {

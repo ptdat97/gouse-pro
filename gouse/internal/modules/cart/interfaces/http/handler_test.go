@@ -50,6 +50,34 @@ func (r *fakeRepo) SaveWithEvents(ctx context.Context, c *domain.Cart, fn domain
 	return fn(ctx)
 }
 
+// MutateWithEvents chạy tuần tự trong bộ nhớ.
+//
+// Bản giả này KHÔNG mô phỏng khóa dòng và KHÔNG chứng minh gì về tranh
+// chấp — nó chỉ giữ cho test tầng HTTP chạy được. Bất biến "hai lượt chồng
+// nhau không ghi đè lẫn nhau" được kiểm ở internal/app/api_idempotency_test.go
+// với PostgreSQL thật, vì đó là chỗ duy nhất kiểm được.
+func (r *fakeRepo) MutateWithEvents(
+	ctx context.Context, cartID ids.ID,
+	apply func(*domain.Cart) error, fn domain.TxFunc,
+) (*domain.Cart, error) {
+	c, err := r.FindByID(ctx, cartID)
+	if err != nil {
+		return nil, err
+	}
+	if err := apply(c); err != nil {
+		return nil, err
+	}
+	if err := r.Save(ctx, c); err != nil {
+		return nil, err
+	}
+	if fn != nil {
+		if err := fn(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
 func (r *fakeRepo) FindByID(_ context.Context, id ids.ID) (*domain.Cart, error) {
 	c, ok := r.carts[id]
 	if !ok {

@@ -269,9 +269,50 @@ Trường hợp 3 (đồng thời) là dễ bỏ sót nhất và cũng dễ gây
 
 ---
 
-## 11. Tài liệu liên quan
+## 11. Giới hạn của khóa idempotency
+
+Khóa idempotency bảo vệ **một ý định của người dùng khỏi bị gửi lặp**. Nó
+KHÔNG bảo vệ được gì trước **hai ý định thật trên cùng một đối tượng**.
+
+Khác biệt ấy nghe nhỏ, nhưng nó đúng bằng khoảng cách giữa "khách có một
+đơn" và "khách có năm đơn".
+
+```text
+Khóa idempotency BẮT được:
+    một lần bấm → mạng lỗi → tự thử lại → cùng key
+    → một đơn
+
+Khóa idempotency KHÔNG bắt được:
+    tab 1 bấm "Đặt hàng"  → key A ─┐ cùng một giỏ
+    tab 2 bấm "Đặt hàng"  → key B ─┘ cùng một phiên
+    → hai key khác nhau, đúng theo định nghĩa ở mục 7
+    → HAI ĐƠN
+```
+
+Đo thật trên hệ thống này: 8 request `POST /checkout/{id}/complete` chạy
+song song với 8 khóa khác nhau tạo ra **3–7 đơn hàng** cho một giỏ.
+
+### Quy tắc rút ra
+
+Với mỗi thao tác ghi, phải trả lời được hai câu hỏi RIÊNG BIỆT:
+
+| Câu hỏi | Công cụ |
+|---------|---------|
+| Cùng một ý định gửi nhiều lần thì sao? | Khóa idempotency |
+| Cùng một đối tượng nhận nhiều ý định thì sao? | Ràng buộc trên chính đối tượng |
+
+Câu thứ hai thường bị bỏ quên vì câu thứ nhất đã được trả lời, và người
+viết code tưởng là đã xong.
+
+Với việc hoàn tất thanh toán, câu trả lời cho câu thứ hai là chỉ mục
+`order_one_per_checkout` — xem [ADR-0013](../adr/0013-write-transaction-boundary.md).
+
+---
+
+## 12. Tài liệu liên quan
 
 - [consistency.md](consistency.md) — vì sao at-least-once cần idempotency
 - [../02-domain/domain-events.md](../02-domain/domain-events.md) mục 6
 - [../06-api/api-guidelines.md](../06-api/api-guidelines.md) — giao thức API
 - [../04-modules/payment.md](../04-modules/payment.md) — thao tác tài chính
+- [../adr/0013-write-transaction-boundary.md](../adr/0013-write-transaction-boundary.md) — ranh giới giao dịch của phép đọc-rồi-ghi

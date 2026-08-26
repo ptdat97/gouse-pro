@@ -194,3 +194,68 @@ func canCo(t *testing.T, obj map[string]any, truong ...string) {
 		}
 	}
 }
+
+// TestKhongCoOfferBanDuocThiVANG_MAT, không phải giá 0.
+//
+// # Vì sao đây là bất biến chứ không phải chi tiết hiển thị
+//
+// `price_from = 0` hiện ra màn hình là "miễn phí". Một sản phẩm không ai
+// bán được mà hiện giá 0 sẽ được bấm vào, thêm vào giỏ, và thất bại ở bước
+// thanh toán — hoặc tệ hơn, bán được với giá 0 nếu có đường nào đó tin vào
+// con số ấy.
+//
+// Trạng thái "không có ai bán" phải được nói RÕ bằng sự vắng mặt, để bên
+// gọi buộc phải xử lý nó thay vì vô tình hiển thị một con số sai.
+func TestKhongCoOfferBanDuocThiVangMat(t *testing.T) {
+	a := newAPITest(t)
+
+	// Sản phẩm vừa tạo, CHƯA ai chào bán.
+	skuID := dungSkuThuongHieuMo(t, a)
+
+	res := a.call(http.MethodGet, "/api/v1/products?limit=50", nil, nil)
+	ds, _ := res.body["data"].([]any)
+
+	var maSP string
+	for _, x := range ds {
+		p, _ := x.(map[string]any)
+		id, _ := p["id"].(string)
+		ct := a.call(http.MethodGet, "/api/v1/products/"+id, nil, nil)
+		bt, _ := ct.body["variants"].([]any)
+		for _, v := range bt {
+			vm, _ := v.(map[string]any)
+			skus, _ := vm["skus"].([]any)
+			for _, s := range skus {
+				sm, _ := s.(map[string]any)
+				if sid, _ := sm["id"].(string); sid == skuID {
+					maSP = id
+				}
+			}
+		}
+	}
+	if maSP == "" {
+		t.Skip("không tìm được sản phẩm vừa tạo trong danh mục")
+	}
+
+	got := a.call(http.MethodGet, "/api/v1/offers/buy-box?product_ids="+maSP, nil, nil)
+	if got.code != http.StatusOK {
+		t.Fatalf("HTTP %d — %s", got.code, got.raw)
+	}
+
+	rows, _ := got.body["data"].([]any)
+	for _, r := range rows {
+		m, _ := r.(map[string]any)
+		if id, _ := m["product_id"].(string); id != maSP {
+			continue
+		}
+		gia, _ := m["price_from"].(map[string]any)
+		amount, _ := gia["amount"].(float64)
+		t.Errorf("sản phẩm KHÔNG có offer bán được vẫn có giá %v — "+
+			"phải VẮNG MẶT khỏi kết quả", amount)
+	}
+
+	// `data` là mảng RỖNG, không phải null: bên gọi không nên phải kiểm
+	// null trước mỗi vòng lặp.
+	if rows == nil {
+		t.Error("`data` là null, cần mảng rỗng")
+	}
+}

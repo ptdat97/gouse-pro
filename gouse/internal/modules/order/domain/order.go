@@ -29,6 +29,13 @@ var (
 	ErrTotalMismatch   = errors.New("order: tổng tiền không khớp với các dòng hàng")
 	ErrNotFound        = errors.New("order: không tìm thấy")
 	ErrDuplicateOrder  = errors.New("order: đơn với khóa idempotency này đã tồn tại")
+
+	// ErrCheckoutAlreadyOrdered: phiên thanh toán này đã sinh ra một đơn.
+	//
+	// KHÁC ErrDuplicateOrder: đó là "cùng một lần bấm gửi lặp", còn đây là
+	// "hai lần bấm thật trên cùng một giỏ". Bên gọi xử lý giống nhau — đọc
+	// lại đơn cũ — nhưng phân biệt để log nói đúng chuyện đã xảy ra.
+	ErrCheckoutAlreadyOrdered = errors.New("order: phiên thanh toán này đã có đơn")
 )
 
 // Status là trạng thái tổng hợp của đơn hàng.
@@ -108,6 +115,10 @@ type Order struct {
 	// không được tạo hai đơn.
 	idempotencyKey string
 
+	// sourceCheckoutID là phiên thanh toán sinh ra đơn. Rỗng với đơn tạo
+	// bằng đường quản trị.
+	sourceCheckoutID ids.ID
+
 	// cancellationReason là lý do khách chọn khi tự hủy đơn.
 	//
 	// Rỗng với đơn chưa hủy, và cũng rỗng với đơn bị quản trị viên hủy —
@@ -152,7 +163,15 @@ type NewOrderParams struct {
 
 	Lines          []*Line
 	IdempotencyKey string
-	Now            time.Time
+
+	// SourceCheckoutID là phiên thanh toán sinh ra đơn này.
+	//
+	// Rỗng với đơn KHÔNG đến từ phiên nào — đơn tạo bằng đường quản trị.
+	// Khi có giá trị, chỉ mục UNIQUE có điều kiện `order_one_per_checkout`
+	// bảo đảm một phiên chỉ sinh được một đơn.
+	SourceCheckoutID ids.ID
+
+	Now time.Time
 }
 
 // NewOrder tạo đơn hàng ở trạng thái PENDING_PAYMENT.
@@ -196,23 +215,24 @@ func NewOrder(p NewOrderParams) (*Order, error) {
 	}
 
 	o := &Order{
-		id:              id,
-		orderNumber:     strings.TrimSpace(p.OrderNumber),
-		customerID:      p.CustomerID,
-		guestEmail:      strings.TrimSpace(p.GuestEmail),
-		guestPhone:      strings.TrimSpace(p.GuestPhone),
-		shippingAddress: p.ShippingAddress,
-		billingAddress:  p.BillingAddress,
-		currency:        currency,
-		shippingFee:     zeroIfEmpty(p.ShippingFee, currency),
-		discountAmount:  zeroIfEmpty(p.DiscountAmount, currency),
-		taxAmount:       zeroIfEmpty(p.TaxAmount, currency),
-		status:          StatusPendingPayment,
-		lines:           append([]*Line(nil), p.Lines...),
-		idempotencyKey:  strings.TrimSpace(p.IdempotencyKey),
-		placedAt:        now,
-		createdAt:       now,
-		updatedAt:       now,
+		id:               id,
+		orderNumber:      strings.TrimSpace(p.OrderNumber),
+		customerID:       p.CustomerID,
+		guestEmail:       strings.TrimSpace(p.GuestEmail),
+		guestPhone:       strings.TrimSpace(p.GuestPhone),
+		shippingAddress:  p.ShippingAddress,
+		billingAddress:   p.BillingAddress,
+		currency:         currency,
+		shippingFee:      zeroIfEmpty(p.ShippingFee, currency),
+		discountAmount:   zeroIfEmpty(p.DiscountAmount, currency),
+		taxAmount:        zeroIfEmpty(p.TaxAmount, currency),
+		status:           StatusPendingPayment,
+		lines:            append([]*Line(nil), p.Lines...),
+		idempotencyKey:   strings.TrimSpace(p.IdempotencyKey),
+		sourceCheckoutID: p.SourceCheckoutID,
+		placedAt:         now,
+		createdAt:        now,
+		updatedAt:        now,
 	}
 	return o, nil
 }
@@ -226,20 +246,21 @@ func zeroIfEmpty(m money.Money, c money.Currency) money.Money {
 
 // RestoreOrderParams dựng lại từ kho lưu trữ.
 type RestoreOrderParams struct {
-	ID              ids.ID
-	OrderNumber     string
-	CustomerID      ids.ID
-	GuestEmail      string
-	GuestPhone      string
-	ShippingAddress Address
-	BillingAddress  Address
-	Currency        money.Currency
-	ShippingFee     money.Money
-	DiscountAmount  money.Money
-	TaxAmount       money.Money
-	Status          Status
-	Lines           []*Line
-	IdempotencyKey  string
+	ID               ids.ID
+	OrderNumber      string
+	CustomerID       ids.ID
+	GuestEmail       string
+	GuestPhone       string
+	ShippingAddress  Address
+	BillingAddress   Address
+	Currency         money.Currency
+	ShippingFee      money.Money
+	DiscountAmount   money.Money
+	TaxAmount        money.Money
+	Status           Status
+	Lines            []*Line
+	IdempotencyKey   string
+	SourceCheckoutID ids.ID
 
 	// CancellationReason rỗng với đơn chưa hủy.
 	CancellationReason string
@@ -267,6 +288,7 @@ func RestoreOrder(p RestoreOrderParams) *Order {
 		status:             p.Status,
 		lines:              p.Lines,
 		idempotencyKey:     p.IdempotencyKey,
+		sourceCheckoutID:   p.SourceCheckoutID,
 		cancellationReason: p.CancellationReason,
 		placedAt:           p.PlacedAt,
 		completedAt:        p.CompletedAt,
@@ -288,6 +310,7 @@ func (o *Order) DiscountAmount() money.Money { return o.discountAmount }
 func (o *Order) TaxAmount() money.Money      { return o.taxAmount }
 func (o *Order) Status() Status              { return o.status }
 func (o *Order) IdempotencyKey() string      { return o.idempotencyKey }
+func (o *Order) SourceCheckoutID() ids.ID    { return o.sourceCheckoutID }
 
 // CancellationReason là lý do khách chọn khi tự hủy. Rỗng nếu đơn chưa
 // hủy, hoặc nếu quản trị viên hủy (lý do đó nằm ở nhật ký thao tác).

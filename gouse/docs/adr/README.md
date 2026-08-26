@@ -43,6 +43,7 @@ Deprecated — không còn áp dụng
 | [0010](0010-database-layer.md) | PostgreSQL + sqlc cho tầng dữ liệu | Accepted | Toàn hệ thống |
 | [0011](0011-audit-log.md) | Audit log là năng lực platform | Accepted | Toàn hệ thống |
 | [0012](0012-inventory-ownership.md) | Chủ sở hữu tồn kho suy ra từ nhà bán | Accepted | Commerce, Marketplace, Inventory |
+| [0013](0013-write-transaction-boundary.md) | Ranh giới giao dịch bao trọn phép đọc-rồi-ghi | Accepted | Cart, Checkout, Order |
 
 ## Quy trình thêm ADR mới
 

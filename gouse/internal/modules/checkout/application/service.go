@@ -264,6 +264,11 @@ type PlaceOrderInput struct {
 
 	Lines          []PlaceOrderLine
 	IdempotencyKey string
+
+	// SourceCheckoutID là phiên thanh toán này. Xem migrations/000029:
+	// nó cưỡng chế "một phiên sinh tối đa một đơn" ở tầng database, thứ
+	// mà ba lớp kiểm ở tầng ứng dụng đều không giữ nổi khi chạy song song.
+	SourceCheckoutID ids.ID
 }
 
 // PlaceOrderLine là một dòng hàng với con số đã đóng băng.
@@ -923,16 +928,17 @@ func (s *Service) CompleteCheckout(
 
 	// Lớp 2: order.PlaceOrder idempotent theo cùng khóa.
 	placed, err := s.orders.PlaceOrder(ctx, PlaceOrderInput{
-		CustomerID:      c.CustomerID(),
-		GuestEmail:      c.GuestEmail(),
-		GuestPhone:      c.GuestPhone(),
-		ShippingAddress: c.ShippingAddress(),
-		Currency:        c.Currency(),
-		ShippingFee:     c.ShippingFee(),
-		DiscountAmount:  c.DiscountAmount(),
-		TaxAmount:       c.TaxAmount(),
-		Lines:           lines,
-		IdempotencyKey:  idempotencyKey,
+		CustomerID:       c.CustomerID(),
+		GuestEmail:       c.GuestEmail(),
+		GuestPhone:       c.GuestPhone(),
+		ShippingAddress:  c.ShippingAddress(),
+		Currency:         c.Currency(),
+		ShippingFee:      c.ShippingFee(),
+		DiscountAmount:   c.DiscountAmount(),
+		TaxAmount:        c.TaxAmount(),
+		Lines:            lines,
+		IdempotencyKey:   idempotencyKey,
+		SourceCheckoutID: c.ID(),
 	})
 	if err != nil {
 		// Tạo đơn thất bại: KHÔNG hủy phiên, KHÔNG nhả hàng. Khách thử

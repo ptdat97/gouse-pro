@@ -59,14 +59,15 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 			bill_recipient_name, bill_phone, bill_street, bill_ward,
 			bill_district, bill_province, bill_country_code,
 			currency, shipping_fee, discount_amount, tax_amount,
-			status, idempotency_key, placed_at, completed_at,
+			status, idempotency_key, source_checkout_id,
+			placed_at, completed_at,
 			created_at, updated_at
 		) VALUES (
 			$1,$2,$3,$4,$5,
 			$6,$7,$8,$9,$10,$11,$12,
 			$13,$14,$15,$16,$17,$18,$19,
 			$20,$21,$22,$23,
-			$24,$25,$26,$27,$28,$29
+			$24,$25,$26,$27,$28,$29,$30
 		)`,
 		o.ID().String(), o.OrderNumber(), o.CustomerID().String(),
 		o.GuestEmail(), o.GuestPhone(),
@@ -76,7 +77,8 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 		bill.District, bill.Province, bill.CountryCode,
 		string(o.Currency()), o.ShippingFee().Amount(),
 		o.DiscountAmount().Amount(), o.TaxAmount().Amount(),
-		string(o.Status()), o.IdempotencyKey(), o.PlacedAt(),
+		string(o.Status()), o.IdempotencyKey(), o.SourceCheckoutID().String(),
+		o.PlacedAt(),
 		nullTime(o.CompletedAt()), o.CreatedAt(), o.UpdatedAt())
 	if err != nil {
 		// Khóa idempotency trùng nghĩa là đơn này ĐÃ được tạo — quy tắc 5.
@@ -84,6 +86,12 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 		// đã đặt hàng thành công, chỉ là request thứ hai đến muộn.
 		if isUnique(err, "order_idempotency_key_key") {
 			return domain.ErrDuplicateOrder
+		}
+		// Một phiên thanh toán chỉ được sinh MỘT đơn. Hai tab cùng bấm
+		// "Đặt hàng" với hai khóa idempotency khác nhau đều qua được mọi
+		// cửa kiểm ở tầng ứng dụng; chỉ mục này là thứ chặn cái thứ hai.
+		if isUnique(err, "order_one_per_checkout") {
+			return domain.ErrCheckoutAlreadyOrdered
 		}
 		return fmt.Errorf("order: ghi đơn hàng: %w", err)
 	}
@@ -320,7 +328,7 @@ const orderCols = `
 	bill_recipient_name, bill_phone, bill_street, bill_ward,
 	bill_district, bill_province, bill_country_code,
 	currency, shipping_fee, discount_amount, tax_amount,
-	status, idempotency_key, cancellation_reason,
+	status, idempotency_key, source_checkout_id, cancellation_reason,
 	placed_at, completed_at, created_at, updated_at`
 
 func (s *OrderStore) FindByID(ctx context.Context, id ids.ID) (*domain.Order, error) {
@@ -333,6 +341,19 @@ func (s *OrderStore) FindByOrderNumber(ctx context.Context, number string) (*dom
 
 func (s *OrderStore) FindByIdempotencyKey(ctx context.Context, key string) (*domain.Order, error) {
 	return s.findOne(ctx, `WHERE idempotency_key = $1`, key)
+}
+
+// FindBySourceCheckout tìm đơn đã sinh ra từ một phiên thanh toán.
+//
+// Cần cho đường phát lại: request thua cuộc trong cuộc đua phải trả về
+// ĐÚNG đơn mà request thắng đã tạo, không phải một lỗi.
+func (s *OrderStore) FindBySourceCheckout(
+	ctx context.Context, checkoutID ids.ID,
+) (*domain.Order, error) {
+	if checkoutID.IsZero() {
+		return nil, domain.ErrNotFound
+	}
+	return s.findOne(ctx, `WHERE source_checkout_id = $1`, checkoutID.String())
 }
 
 func (s *OrderStore) findOne(ctx context.Context, where string, args ...any) (*domain.Order, error) {
@@ -521,6 +542,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		customerID, email, phone   string
 		ship, bill                 domain.Address
 		currency, status, idemKey  string
+		srcCheckout                string
 		cancelReason               string
 		shippingFee, discount, tax int64
 		completedAt                *time.Time
@@ -532,7 +554,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		&bill.RecipientName, &bill.Phone, &bill.StreetAddress, &bill.Ward,
 		&bill.District, &bill.Province, &bill.CountryCode,
 		&currency, &shippingFee, &discount, &tax,
-		&status, &idemKey, &cancelReason,
+		&status, &idemKey, &srcCheckout, &cancelReason,
 		&p.PlacedAt, &completedAt, &p.CreatedAt, &p.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -552,6 +574,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 	p.TaxAmount = mustMoney(tax, cur)
 	p.Status = domain.Status(status)
 	p.IdempotencyKey = idemKey
+	p.SourceCheckoutID = ids.ID(srcCheckout)
 	p.CancellationReason = cancelReason
 	p.CompletedAt = deref(completedAt)
 
