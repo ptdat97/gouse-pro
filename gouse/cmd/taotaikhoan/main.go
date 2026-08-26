@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/fashion-commerce/platform/internal/modules/customer"
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/token"
@@ -22,6 +23,16 @@ type taiKhoan struct {
 	matKhau string
 	vaiTro  []string
 	moTa    string
+
+	// muaHang: tài khoản này có MUA HÀNG không.
+	//
+	// Khách mua hàng cần CẢ HAI: tài khoản đăng nhập (identity) và hồ sơ
+	// mua hàng (customer). Chỉ tạo tài khoản đăng nhập thì đăng nhập được
+	// nhưng KHÔNG gộp được giỏ và không đặt được đơn — hệ thống coi họ là
+	// khách vãng lai dù đã đăng nhập.
+	//
+	// Nhân viên vận hành KHÔNG cần hồ sơ mua hàng.
+	muaHang bool
 }
 
 func main() {
@@ -67,16 +78,51 @@ func main() {
 		panic(err)
 	}
 
+	kh, err := customer.New(customer.Config{
+		Storage: "postgres", DB: db, Identity: m,
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	const matKhau = "Gouse@Test2026"
 
 	danhSach := []taiKhoan{
-		{"khach@gouse.test", matKhau, nil, "khách hàng thường"},
-		{"admin@gouse.test", matKhau, []string{"ADMIN"}, "quản trị"},
-		{"vanhanh@gouse.test", matKhau,
-			[]string{"OPS_MERCHANDISING", "OPS_FINANCE"}, "vận hành"},
+		{email: "khach@gouse.test", matKhau: matKhau,
+			moTa: "khách hàng thường", muaHang: true},
+		{email: "admin@gouse.test", matKhau: matKhau,
+			vaiTro: []string{"ADMIN"}, moTa: "quản trị"},
+		{email: "vanhanh@gouse.test", matKhau: matKhau,
+			vaiTro: []string{"OPS_MERCHANDISING", "OPS_FINANCE"},
+			moTa:   "vận hành"},
 	}
 
 	for _, tk := range danhSach {
+		// Khách mua hàng đăng ký qua module CUSTOMER, không phải identity.
+		//
+		// Đó là đường mà `POST /api/v1/auth/register` dùng, và nó tạo CẢ
+		// hồ sơ mua hàng. Gọi thẳng identity chỉ tạo tài khoản đăng nhập —
+		// đăng nhập được nhưng không đặt được đơn, và triệu chứng hiện ra
+		// tận bước gộp giỏ với thông điệp "Cần đăng nhập" khó hiểu.
+		if tk.muaHang {
+			res, err := kh.RegisterShopper(ctx, customer.RegisterRequest{
+				Email:    tk.email,
+				Password: tk.matKhau,
+			})
+			switch {
+			case err == nil:
+				fmt.Printf("đã tạo   %-22s %s (kèm hồ sơ mua hàng)\n",
+					tk.email, tk.moTa)
+			case errors.Is(err, customer.ErrDuplicateEmail),
+				errors.Is(err, identity.ErrDuplicateEmail):
+				fmt.Printf("đã có    %-22s %s\n", tk.email, tk.moTa)
+			default:
+				fmt.Printf("LỖI tạo %s: %v\n", tk.email, err)
+			}
+			_ = res
+			continue
+		}
+
 		v, err := m.Register(ctx, identity.RegisterRequest{
 			Email:    tk.email,
 			Password: tk.matKhau,

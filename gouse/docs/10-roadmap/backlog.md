@@ -115,7 +115,7 @@ idempotency** đều có test hồi quy tự động.
 | PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | ✅ 12/12 kịch bản, 14 test |
 | PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
 | PH-3 | Test tích hợp API qua HTTP thật | ✅ 6 test, xem 2.4b |
-| PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 5/7 luồng |
+| PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 4/7 luồng, hai luồng mua hàng đã trọn vẹn |
 
 ### 2.2 PH — Reliability
 
@@ -308,12 +308,45 @@ InspectionPassed/Failed đã có ở domain inventory, chưa có đường nối
 | Luồng | Trạng thái |
 |---|---|
 | Khách mua hàng (chọn màu → size → nhà bán → giỏ) | ✅ |
-| Khách VÃNG LAI thanh toán | 🟡 mới tới bước giỏ |
-| Khách ĐÃ ĐĂNG KÝ mua hàng | ⬜ |
+| Khách VÃNG LAI thanh toán | ✅ tới tận mã đơn |
+| Khách ĐÃ ĐĂNG KÝ mua hàng | ✅ tới tận mã đơn |
 | Đơn nhiều nhà bán | ⬜ |
 | Nhà bán tạo offer | ⬜ |
 | Nhà bán cập nhật tồn kho | ✅ |
 | Nhà bán thực hiện đơn (bàn giao vận chuyển) | ⬜ |
+
+### 2.6b PH-29 — `GET /api/v1/cart` trả 500 sau khi đặt hàng `[CHƯA SỬA]`
+
+Tìm được khi dựng E2E luồng khách đã đăng nhập. Đỏ khoảng MỘT NỬA số lần
+chạy, luôn ở cùng một chỗ:
+
+```text
+đặt hàng xong → refreshCart() → GET /api/v1/cart → 500
+error: "cart: không tìm thấy"
+```
+
+Đơn hàng KHÔNG bị ảnh hưởng — đơn đã tạo, trang chi tiết hiển thị đúng.
+Nhưng mỗi lần mua hàng thành công đều kèm một lỗi 500.
+
+**Chẩn đoán.** Ngay sau `completeCheckout`, giỏ đã chuyển thành đơn nên
+`findActive` không thấy giỏ nào. `GetOrCreateCart` tạo giỏ mới; hai request
+song song cùng làm vậy; database chặn cái thứ hai bằng ràng buộc chủ sở
+hữu; nhánh xử lý đọc lại bằng `findActive` — và ở đúng khoảnh khắc đó nó
+có thể lại không thấy gì, trả `ErrNotFound` lên tầng trên thành 500.
+
+**Có hai vấn đề, không phải một:**
+
+1. `GET /api/v1/cart` GHI dữ liệu (`Sync` kết thúc bằng `Save`). Hai lượt
+   đọc song song vì thế tranh chấp nhau — điều không ai chờ đợi ở một
+   endpoint đọc.
+2. "Không có giỏ" bị đối xử như lỗi máy chủ. Khách vừa mua xong thì không
+   có giỏ là trạng thái BÌNH THƯỜNG, đáng ra trả giỏ rỗng.
+
+Sửa cần một quyết định: `GET /cart` có nên ghi không, và nếu có thì xung
+đột phiên bản xử lý thế nào. Chưa làm vì đó là thiết kế, không phải vá.
+
+Test E2E liệt kê ĐÍCH DANH lỗi này để bỏ qua, thay vì nới lỏng khẳng định
+— nới lỏng sẽ giấu luôn những lỗi khác chưa ai biết.
 
 ### 2.7 Idempotency (PH-5) `[XONG 20/08]`
 
