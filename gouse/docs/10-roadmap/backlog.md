@@ -449,7 +449,7 @@ nhả hàng của một đơn đã thanh toán. Hiện không có gì báo độ
 | P0-4 | Endpoint đăng nhập/làm mới/đăng xuất + `/admin/me` | ✅ xong |
 | P0-5 | Audit log (`platform/audit`) + endpoint đọc | ✅ xong |
 | P0-6 | **Ranh giới giao dịch cho thao tác ghi + audit** | ✅ xong |
-| P0-7 | Tách wiring khỏi `cmd/api/main.go` | ⬜ chưa làm — xem điều kiện dưới |
+| P0-7 | Tách wiring khỏi `cmd/api/main.go` | ✅ xong (26/08) — sang `internal/app`, KHÔNG phải `platform/bootstrap` |
 
 ### P0-6 — đã xong, và mô tả ban đầu đã SAI
 
@@ -489,7 +489,36 @@ audit **vẫn rỗng**. Không có trạng thái nửa vời.
 
 Chỉ còn P0-7, và nó có điều kiện.
 
-### P0-7 — tách wiring, nếu và chỉ nếu cần
+### P0-7 — tách wiring: ĐÃ LÀM (26/08), và đích đến KHÁC bản ghi ban đầu
+
+Chỗ vướng thật đã xuất hiện: PH-3 cần test đi qua HTTP, mà bộ route nằm
+trong `package main` nên không có cách nào dựng lại trong test.
+
+**Đích đến ghi ban đầu là `internal/platform/bootstrap`. KHÔNG dùng được:**
+quy tắc R3 của archcheck cấm mọi thứ dưới `platform/` import module nghiệp
+vụ, và một gốc lắp ghép thì buộc phải import tất cả. Đó là ràng buộc đúng
+chứ không phải chỗ cần lách — platform là tầng nền dùng chung; nó biết tới
+`order` hay `seller` là thôi trung lập.
+
+Gốc lắp ghép thuộc tầng TRÊN module, nên đích đúng là **`internal/app`**:
+không phải platform, không phải module, archcheck không áp ràng buộc nào —
+đúng như một gốc lắp ghép cần.
+
+```text
+cmd/api/main.go   760 → 87 dòng
+internal/app      Build() dựng module · RegisterRoutes() nối route
+                  + shopper.go, stock.go (adapter cầu nối) chuyển sang
+```
+
+main giờ chỉ còn: đọc cấu hình, mở log, mở database, bắt tín hiệu dừng,
+chạy server. Ba ràng buộc của P0-7 giữ nguyên — không DI framework, không
+trừu tượng hóa thừa, vẫn `New(Config)` tường minh.
+
+Kiểm chứng trên server thật sau khi tách: mọi lớp đường dẫn hành xử y hệt
+— công khai 200, admin có token 200, admin không token 401, thiếu
+`Idempotency-Key` 400.
+
+### Bản ghi gốc — giữ lại để đối chiếu
 
 Số đo hiện tại (15/08/2026):
 

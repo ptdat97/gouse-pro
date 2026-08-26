@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -67,7 +67,7 @@ const (
 // OptionalAuth chứ không phải Auth là điểm quyết định: khách VÃNG LAI phải
 // mua được (mvp.md mục 4). Dùng Auth ở đây là chặn mọi khách chưa đăng ký
 // khỏi việc thêm hàng vào giỏ.
-func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m modules) {
+func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 	if m.cart == nil && m.checkout == nil && m.order == nil && m.customer == nil {
 		return
 	}

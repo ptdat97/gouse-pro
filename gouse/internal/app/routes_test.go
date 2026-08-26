@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -60,10 +60,10 @@ func newTestHandler(t *testing.T) http.Handler {
 	// giống hệt điều xảy ra khi chạy thật với MODULES_STORAGE=memory.
 	// auditRecorder = nil: audit log cũng chỉ chạy với PostgreSQL, vì nó
 	// dựa vào trigger chặn UPDATE/DELETE ở tầng database.
-	registerRoutes(mux, cfg, log, nil, modules{
+	RegisterRoutes(mux, cfg, log, nil, Modules{
 		catalog: catalogModule,
 		product: productModule,
-	})
+	}, "test")
 
 	// Nối cùng middleware với httpserver.New để test đúng hành vi thật.
 	return httpserver.Chain(mux,
