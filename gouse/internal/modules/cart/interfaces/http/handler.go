@@ -115,24 +115,84 @@ type cartResponse struct {
 
 // getCart phục vụ GET /api/v1/cart (operationId: getCart).
 //
-// Tạo giỏ nếu chưa có: khách mở trang giỏ hàng lần đầu phải thấy giỏ rỗng,
-// không phải lỗi 404.
+// # CHỈ ĐỌC — không tạo giỏ, không ghi gì
+//
+// Chưa có giỏ thì trả giỏ RỖNG, không phải 404 và cũng không phải "vừa
+// tạo cho bạn một giỏ". Giỏ được tạo ở lần THÊM MÓN đầu tiên, tức ở một
+// đường ghi, đúng chỗ của nó.
+//
+// # Vì sao đổi (PH-29)
+//
+// Trước 26/08 đường này gọi `GetOrCreateCart` rồi `Sync` — và `Sync` kết
+// thúc bằng `Save`. Hai hệ quả:
+//
+//  1. Hai lượt ĐỌC song song tranh chấp nhau. Thứ không ai chờ đợi ở một
+//     endpoint đọc, nên cũng không ai đi tìm khi có lỗi.
+//  2. Ngay sau khi đặt hàng, giỏ vừa chuyển thành đơn nên không còn giỏ
+//     hoạt động; đường này tạo giỏ mới, hai request cùng tạo, database
+//     chặn cái thứ hai, và nhánh đọc lại trả về lỗi → HTTP 500 sau MỖI
+//     lần mua hàng thành công.
+//
+// Đồng bộ vẫn giữ, chỉ là KHÔNG ghi: giá và tình trạng hàng hiển thị phải
+// là của hiện tại, nhưng lưu chúng xuống không làm chúng đúng lâu hơn —
+// lần đọc sau lại đồng bộ lại từ đầu. Giỏ không hứa gì với khách; cam kết
+// chỉ có ở checkout.
 func (h *Handler) getCart(w http.ResponseWriter, r *http.Request) {
-	c, err := h.cartFor(r)
-	if err != nil {
-		h.fail(w, r, err)
+	s, ok := httpserver.ShopperFrom(r.Context())
+	if !ok {
+		h.log.ErrorContext(r.Context(),
+			"cart chạy không qua ResolveShopper — kiểm tra nối dây")
+		h.fail(w, r, apierror.ErrInternal)
+		return
+	}
+	if s.CustomerID == "" && s.SessionID == "" {
+		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+			"Không xác định được phiên mua hàng"))
 		return
 	}
 
-	// ĐỒNG BỘ trước khi trả: giá và tình trạng hàng phải là của HIỆN TẠI.
+	c, err := h.svc.FindActiveCart(r.Context(), application.GetOrCreateInput{
+		CustomerID: parseID(s.CustomerID),
+		SessionID:  s.SessionID,
+		Currency:   money.VND,
+	})
+	if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrNoOwner) {
+		h.okEmpty(w, r)
+		return
+	}
+	if err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+
+	// Đồng bộ TRONG BỘ NHỚ: giá và tình trạng hàng phải là của HIỆN TẠI.
 	// Bỏ bước này thì khách thấy giá cũ ở giỏ rồi bị tính giá khác ở bước
 	// thanh toán — đúng thứ module này hứa sẽ không xảy ra.
-	if err := h.svc.Sync(r.Context(), c); err != nil {
+	if err := h.svc.SyncView(r.Context(), c); err != nil {
 		h.fail(w, r, translate(err))
 		return
 	}
 
 	h.ok(w, r, c)
+}
+
+// okEmpty trả một giỏ RỖNG cho khách chưa từng thêm món nào.
+//
+// Trả 200 kèm giỏ rỗng chứ không phải 404: "chưa có giỏ" là trạng thái
+// bình thường của mọi khách mới, và giao diện không nên phải xử lý một mã
+// lỗi cho tình huống thường gặp nhất.
+func (h *Handler) okEmpty(w http.ResponseWriter, r *http.Request) {
+	// KHÔNG có `id`: giỏ chưa tồn tại, và bịa một mã ra sẽ khiến giao
+	// diện tưởng nó gọi được các đường sửa giỏ bằng mã đó.
+	body := cartResponse{Cart: cartJSON{
+		Groups:   []groupJSON{},
+		Subtotal: moneyJSON{Amount: 0, Currency: string(money.VND)},
+		Total:    moneyJSON{Amount: 0, Currency: string(money.VND)},
+	}}
+	if err := apierror.WriteJSON(w, http.StatusOK, body); err != nil {
+		h.log.ErrorContext(r.Context(), "không ghi được response",
+			"error", err, "path", r.URL.Path)
+	}
 }
 
 type attributionJSON struct {

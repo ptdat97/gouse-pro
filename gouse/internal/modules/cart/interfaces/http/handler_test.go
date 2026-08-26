@@ -195,8 +195,14 @@ func TestGuestGetsEmptyCart(t *testing.T) {
 	if !ok {
 		t.Fatalf("response không có khóa `cart`: %v", body)
 	}
-	if cart["id"] == "" || cart["id"] == nil {
-		t.Error("giỏ không có định danh")
+
+	// KHÔNG có `id`: từ 26/08 đường đọc không tạo giỏ nữa (PH-29), nên
+	// khách chưa thêm món nào thì chưa có giỏ nào để đặt tên.
+	//
+	// Bịa một mã ra sẽ khiến giao diện tưởng nó gọi được các đường sửa
+	// giỏ bằng mã đó, và nhận 404 ở lần thử đầu tiên.
+	if id, co := cart["id"]; co && id != "" && id != nil {
+		t.Errorf("giỏ chưa tồn tại mà có định danh %v", id)
 	}
 
 	// `groups` là trường BẮT BUỘC của đặc tả. Trả null thay vì mảng rỗng
@@ -215,23 +221,41 @@ func TestGuestGetsEmptyCart(t *testing.T) {
 // Hai khách vãng lai khác nhau phải nhận hai giỏ khác nhau. Nếu không,
 // người này thấy hàng người kia đã thêm.
 func TestCartIsBoundToSession(t *testing.T) {
-	h, _ := newHandler(t)
+	h, lookup := newHandler(t)
+	offerA := lookup.offer(ids.MustNew(ids.PrefixSeller), "Cửa hàng ABC", 299_000)
 
-	first, bodyA := call(t, h, "GET", "/api/v1/cart", "", nil)
+	// Giỏ chỉ tồn tại sau khi THÊM MÓN — đường đọc không tạo gì (PH-29).
+	// Nên bài này dựng giỏ bằng đúng cách khách dựng ra nó.
+	first, addA := call(t, h, "POST", "/api/v1/cart/items",
+		`{"offer_id":"`+offerA.String()+`","quantity":1}`, nil)
 	cookie := session(t, first)
-
-	// Cùng cookie → cùng giỏ.
-	_, bodyB := call(t, h, "GET", "/api/v1/cart", "", cookie)
-	idA := bodyA["cart"].(map[string]any)["id"]
-	idB := bodyB["cart"].(map[string]any)["id"]
-	if idA != idB {
-		t.Errorf("cùng phiên nhận hai giỏ khác nhau: %v và %v", idA, idB)
+	idA := addA["cart"].(map[string]any)["id"]
+	if idA == nil || idA == "" {
+		t.Fatalf("thêm món không trả giỏ: %v", addA)
 	}
 
-	// Không cookie → giỏ khác.
+	// Cùng cookie → cùng giỏ, và THẤY món vừa thêm.
+	_, bodyB := call(t, h, "GET", "/api/v1/cart", "", cookie)
+	cartB := bodyB["cart"].(map[string]any)
+	if cartB["id"] != idA {
+		t.Errorf("cùng phiên nhận hai giỏ khác nhau: %v và %v", idA, cartB["id"])
+	}
+	if n := len(cartB["groups"].([]any)); n == 0 {
+		t.Error("cùng phiên mà không thấy món vừa thêm")
+	}
+
+	// Phiên KHÁC → không thấy gì của phiên trước.
+	//
+	// Đây mới là điều bài test này bảo vệ: người này KHÔNG được thấy hàng
+	// người kia đã thêm. Trước đây nó kiểm gián tiếp bằng cách so hai mã
+	// giỏ; nay kiểm thẳng vào thứ đáng lo.
 	_, bodyC := call(t, h, "GET", "/api/v1/cart", "", nil)
-	if idC := bodyC["cart"].(map[string]any)["id"]; idC == idA {
+	cartC := bodyC["cart"].(map[string]any)
+	if cartC["id"] == idA {
 		t.Error("hai phiên khác nhau dùng chung một giỏ")
+	}
+	if n := len(cartC["groups"].([]any)); n != 0 {
+		t.Errorf("phiên mới thấy %d nhóm hàng của phiên khác", n)
 	}
 }
 

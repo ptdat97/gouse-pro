@@ -146,6 +146,19 @@ func (s *Service) findActive(
 	return nil, domain.ErrNoOwner
 }
 
+// FindActiveCart tìm giỏ đang dùng — KHÔNG tạo nếu chưa có.
+//
+// Khác GetOrCreateCart ở đúng một điểm, và điểm đó là toàn bộ lý do nó
+// tồn tại: đường ĐỌC không được tạo dữ liệu. Khách chưa có giỏ thì câu
+// trả lời đúng là "giỏ rỗng", không phải "vừa tạo cho bạn một giỏ".
+//
+// Trả domain.ErrNotFound khi chưa có; bên gọi dựng giỏ rỗng để hiển thị.
+func (s *Service) FindActiveCart(
+	ctx context.Context, in GetOrCreateInput,
+) (*domain.Cart, error) {
+	return s.findActive(ctx, in)
+}
+
 // GetCart đọc giỏ theo định danh, ĐÃ ĐỒNG BỘ với dữ liệu hiện tại.
 func (s *Service) GetCart(ctx context.Context, id ids.ID) (*domain.Cart, error) {
 	c, err := s.carts.FindByID(ctx, id)
@@ -170,6 +183,35 @@ func (s *Service) GetCart(ctx context.Context, id ids.ID) (*domain.Cart, error) 
 // đợi lần thao tác tiếp theo mới thấy giá mới được lưu, và hai thiết bị
 // của cùng một khách sẽ hiện hai con số khác nhau.
 func (s *Service) Sync(ctx context.Context, c *domain.Cart) error {
+	if err := s.SyncView(ctx, c); err != nil {
+		return err
+	}
+	if s.offers == nil || c.ItemCount() == 0 {
+		return nil
+	}
+	return s.carts.Save(ctx, c)
+}
+
+// SyncView đồng bộ giá và tình trạng hàng NGAY TRONG BỘ NHỚ, không ghi.
+//
+// # Vì sao tách khỏi Sync
+//
+// Đường ĐỌC giỏ (`GET /api/v1/cart`) không được ghi. Trước 26/08 nó ghi,
+// và hệ quả là hai lượt ĐỌC song song tranh chấp nhau — thứ không ai chờ
+// đợi ở một endpoint đọc. Triệu chứng: ngay sau khi đặt hàng, giao diện
+// làm mới giỏ và nhận 500 khoảng một nửa số lần (PH-29).
+//
+// # Vì sao KHÔNG ghi mà vẫn đúng
+//
+// Giỏ hàng KHÔNG hứa gì với khách: giá và tình trạng hàng ở giỏ là thông
+// tin tham khảo, cam kết chỉ có ở checkout. Con số đã đồng bộ chỉ cần
+// đúng TẠI THỜI ĐIỂM hiển thị — lưu nó xuống không làm nó đúng lâu hơn,
+// vì lần đọc sau lại đồng bộ lại từ đầu.
+//
+// Ghi ở đường đọc còn có hại: nó biến mỗi lần khách mở giỏ thành một lần
+// ghi database, và ở trang có nhiều tab thì thành nhiều lần ghi tranh
+// nhau cho cùng một dữ liệu.
+func (s *Service) SyncView(ctx context.Context, c *domain.Cart) error {
 	if s.offers == nil || c.ItemCount() == 0 {
 		return nil
 	}
@@ -195,8 +237,7 @@ func (s *Service) Sync(ctx context.Context, c *domain.Cart) error {
 		}
 		it.Sync(d, now)
 	}
-
-	return s.carts.Save(ctx, c)
+	return nil
 }
 
 // ---------------------------------------------------------------- Sửa giỏ

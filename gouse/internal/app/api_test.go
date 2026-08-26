@@ -39,6 +39,14 @@ type apiTest struct {
 	t       *testing.T
 	handler http.Handler
 	mods    Modules
+
+	// cookies giữ phiên giữa các request.
+	//
+	// `httptest` KHÔNG tự quản cookie như trình duyệt, nên thiếu chỗ này
+	// thì mỗi lời gọi là một khách vãng lai KHÁC — và luồng mua hàng của
+	// khách vãng lai (thêm giỏ → thanh toán) đứt ngay ở bước thứ hai với
+	// "Giỏ hàng này không thuộc về bạn".
+	cookies map[string]string
 }
 
 func newAPITest(t *testing.T) *apiTest {
@@ -83,7 +91,7 @@ func newAPITest(t *testing.T) *apiTest {
 		httpserver.CORS([]string{"http://localhost:3001"}),
 		httpserver.MaxBytes(cfg.HTTP.MaxRequestBytes),
 	)
-	return &apiTest{t: t, handler: h, mods: mods}
+	return &apiTest{t: t, handler: h, mods: mods, cookies: map[string]string{}}
 }
 
 type reply struct {
@@ -114,9 +122,21 @@ func (a *apiTest) call(
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	for name, val := range a.cookies {
+		req.AddCookie(&http.Cookie{Name: name, Value: val})
+	}
 
 	rec := httptest.NewRecorder()
 	a.handler.ServeHTTP(rec, req)
+
+	// Nhớ cookie máy chủ vừa cấp, giống trình duyệt.
+	for _, c := range rec.Result().Cookies() {
+		if c.MaxAge < 0 || c.Value == "" {
+			delete(a.cookies, c.Name)
+			continue
+		}
+		a.cookies[c.Name] = c.Value
+	}
 
 	out := reply{code: rec.Code, raw: rec.Body.String()}
 	if rec.Body.Len() > 0 {

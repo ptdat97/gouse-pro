@@ -597,11 +597,26 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 // thể thành công.
 func runOnce(ctx context.Context, log *slog.Logger, j job) {
 	start := time.Now()
-	if err := j.run(ctx); err != nil {
+	err := j.run(ctx)
+	metrics.WorkerJobDuration.WithLabelValues(j.name).
+		Observe(time.Since(start).Seconds())
+
+	// NHỊP TIM đập sau MỌI lượt chạy, kể cả lượt thất bại.
+	//
+	// Nhịp tim trả lời "worker còn sống không", không phải "worker có
+	// khỏe không". Chỉ đập khi thành công sẽ trộn hai câu hỏi vào một
+	// con số: một job liên tục lỗi trông y hệt một worker đã chết, và
+	// người trực sự cố mất thời gian tìm nhầm chỗ.
+	//
+	// Tỷ lệ lỗi có chỉ số riêng: `gouse_worker_job_failures_total`.
+	metrics.WorkerHeartbeat.SetToCurrentTime()
+
+	if err != nil {
 		// Ngữ cảnh bị hủy là chuyện bình thường khi đang tắt.
 		if errors.Is(err, context.Canceled) {
 			return
 		}
+		metrics.WorkerJobFailures.WithLabelValues(j.name).Inc()
 		log.Error("job thất bại", "error", err, "thời_gian", time.Since(start).String())
 		return
 	}

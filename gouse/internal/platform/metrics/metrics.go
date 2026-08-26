@@ -92,6 +92,52 @@ var (
 		Help: "Tuổi của event chưa phát cũ nhất, tính bằng giây.",
 	})
 
+	// WorkerHeartbeat là DẤU THỜI GIAN lần cuối worker chạy xong một vòng.
+	//
+	// # Vì sao gauge tồn đọng KHÔNG đủ
+	//
+	// `OutboxPending` do CHÍNH worker đặt. Worker chết thì con số đứng yên
+	// ở giá trị cuối cùng — và "0 event tồn đọng" của một worker đã chết
+	// trông y hệt "0 event tồn đọng" của một worker khỏe mạnh.
+	//
+	// Chuyện này đã xảy ra thật (26/08): worker chết cùng lúc PostgreSQL
+	// tắt, để lại 67 event tồn đọng suốt nhiều giờ. Không đơn thực hiện
+	// nào được tạo, không email nào được gửi, và không có gì kêu.
+	//
+	// # Cách dùng
+	//
+	// Cảnh báo trên ĐỘ TƯƠI, không phải trên giá trị:
+	//
+	//	time() - gouse_worker_heartbeat_timestamp_seconds > 60
+	//
+	// Kết hợp với `up{job="gouse-worker"} == 0` của Prometheus thì phủ
+	// được cả hai kiểu chết: tiến trình biến mất (up = 0) và tiến trình
+	// còn sống nhưng vòng lặp treo (nhịp tim cũ dần).
+	//
+	// Đơn vị là GIÂY UNIX chứ không phải "số giây kể từ lần cuối": một
+	// dấu thời gian tuyệt đối vẫn đúng khi Prometheus thu thập trễ, còn
+	// một khoảng thời gian tự tính thì không.
+	WorkerHeartbeat = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "gouse_worker_heartbeat_timestamp_seconds",
+		Help: "Dấu thời gian Unix lần cuối worker hoàn tất một vòng chạy.",
+	})
+
+	// WorkerJobDuration đo thời gian mỗi job của worker.
+	//
+	// Bổ sung cho nhịp tim: nhịp tim nói "còn sống", cái này nói "còn kịp".
+	// Một job chậm dần là dấu hiệu sớm của tồn đọng sắp tới.
+	WorkerJobDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "gouse_worker_job_duration_seconds",
+		Help:    "Thời gian chạy một lượt của từng job nền.",
+		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 15, 60},
+	}, []string{"job"})
+
+	// WorkerJobFailures đếm lượt chạy thất bại theo job.
+	WorkerJobFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "gouse_worker_job_failures_total",
+		Help: "Số lượt chạy thất bại của từng job nền.",
+	}, []string{"job"})
+
 	// HandlerFailures đếm lần xử lý event thất bại, theo bên nhận.
 	HandlerFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "gouse_event_handler_failures_total",
@@ -121,6 +167,7 @@ func init() {
 	Registry.MustRegister(
 		HTTPDuration, HTTPInFlight,
 		OutboxPending, OutboxDeadLettered, OutboxOldestAgeSeconds,
+		WorkerHeartbeat, WorkerJobDuration, WorkerJobFailures,
 		HandlerFailures, BusinessFailures,
 
 		// Chỉ số của chính tiến trình Go: số goroutine, bộ nhớ, GC.

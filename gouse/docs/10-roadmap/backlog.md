@@ -315,7 +315,7 @@ InspectionPassed/Failed đã có ở domain inventory, chưa có đường nối
 | Nhà bán cập nhật tồn kho | ✅ |
 | Nhà bán thực hiện đơn (bàn giao vận chuyển) | ✅ tự đặt đơn rồi bàn giao |
 
-### 2.6b PH-29 — `GET /api/v1/cart` trả 500 sau khi đặt hàng `[CHƯA SỬA]`
+### 2.6b PH-29 — `GET /api/v1/cart` nay CHỈ ĐỌC `[XONG 26/08]`
 
 Tìm được khi dựng E2E luồng khách đã đăng nhập. Đỏ khoảng MỘT NỬA số lần
 chạy, luôn ở cùng một chỗ:
@@ -342,11 +342,31 @@ có thể lại không thấy gì, trả `ErrNotFound` lên tầng trên thành 
 2. "Không có giỏ" bị đối xử như lỗi máy chủ. Khách vừa mua xong thì không
    có giỏ là trạng thái BÌNH THƯỜNG, đáng ra trả giỏ rỗng.
 
-Sửa cần một quyết định: `GET /cart` có nên ghi không, và nếu có thì xung
-đột phiên bản xử lý thế nào. Chưa làm vì đó là thiết kế, không phải vá.
+**Đã sửa: đường đọc không ghi gì nữa.**
 
-Test E2E liệt kê ĐÍCH DANH lỗi này để bỏ qua, thay vì nới lỏng khẳng định
-— nới lỏng sẽ giấu luôn những lỗi khác chưa ai biết.
+```text
+GetOrCreateCart + Sync(ghi)  →  FindActiveCart + SyncView(chỉ tính)
+chưa có giỏ                  →  trả giỏ RỖNG, không tạo
+```
+
+Giỏ được tạo ở lần THÊM MÓN đầu tiên — một đường ghi, đúng chỗ của nó.
+
+**Vì sao không ghi mà vẫn đúng:** giỏ KHÔNG hứa gì với khách. Giá và tình
+trạng hàng ở giỏ là thông tin tham khảo; cam kết chỉ có ở checkout. Con số
+đã đồng bộ chỉ cần đúng TẠI THỜI ĐIỂM hiển thị — lưu xuống không làm nó
+đúng lâu hơn, vì lần đọc sau lại đồng bộ lại từ đầu.
+
+Ghi ở đường đọc còn có hại: mỗi lần khách mở giỏ là một lần ghi database,
+và ở trang nhiều tab thì thành nhiều lần ghi tranh nhau cho cùng dữ liệu.
+
+**Hai test cũ phải đổi** vì chúng mã hóa hợp đồng cũ. Bài kiểm cách ly
+phiên nay dựng giỏ bằng cách THÊM MÓN — đúng cách khách dựng ra nó — và
+kiểm thẳng điều đáng lo: phiên này không được thấy hàng của phiên kia.
+
+**Giới hạn đã biết:** bài test đồng thời KHÔNG tái hiện được lỗi gốc (phá
+bản sửa thì nó vẫn xanh) — thời điểm gây lỗi quá hẹp. Bài chứng minh bản
+sửa là `TestDocGioKhongTaoGio`, kiểm thẳng nguyên nhân thay vì triệu
+chứng. Ghi ra để không ai đọc nhầm mức bảo đảm.
 
 ### 2.6b Dựng nhà bán thứ hai (`cmd/taonhaban`)
 
@@ -400,6 +420,48 @@ Cũng chính lúc dựng bài này mới lộ ra worker đã CHẾT từ lúc Po
 để lại **67 event tồn đọng** mà không ai biết. Đó đúng là thứ
 `gouse_outbox_pending_events` sinh ra để báo — nhưng chỉ số do CHÍNH worker
 đặt, nên worker chết thì con số đứng yên thay vì kêu. Ghi thành PH-30.
+
+### 2.6d PH-30 — nhịp tim của worker `[XONG 26/08]`
+
+`OutboxPending` do CHÍNH worker đặt, nên worker chết thì con số đứng yên ở
+giá trị cuối — và "0 event tồn đọng" của một worker đã chết trông y hệt "0
+event tồn đọng" của một worker khỏe.
+
+Đã xảy ra thật (26/08): worker chết cùng lúc PostgreSQL tắt, để lại 67
+event tồn đọng suốt nhiều giờ. Không đơn thực hiện nào được tạo, không
+email nào được gửi, và không có gì kêu.
+
+```text
+gouse_worker_heartbeat_timestamp_seconds   dấu thời gian lần cuối chạy xong
+gouse_worker_job_duration_seconds          độ trễ từng job
+gouse_worker_job_failures_total            đếm lượt thất bại theo job
+```
+
+**Cảnh báo trên ĐỘ TƯƠI, không phải trên giá trị:**
+
+```promql
+time() - gouse_worker_heartbeat_timestamp_seconds > 60
+```
+
+Kết hợp `up{job="gouse-worker"} == 0` thì phủ được CẢ HAI kiểu chết:
+
+| Kiểu chết | Bắt bằng |
+|---|---|
+| Tiến trình biến mất | `up == 0` — `/metrics` không trả lời |
+| Tiến trình sống, vòng lặp treo | nhịp tim cũ dần |
+
+Ba quyết định nhỏ:
+
+- **Đơn vị là GIÂY UNIX tuyệt đối**, không phải "số giây kể từ lần cuối":
+  dấu thời gian vẫn đúng khi Prometheus thu thập trễ, còn khoảng thời gian
+  tự tính thì không.
+- **Nhịp tim đập sau MỌI lượt chạy, kể cả lượt thất bại.** Nó trả lời
+  "còn sống", không phải "còn khỏe". Chỉ đập khi thành công sẽ khiến một
+  job liên tục lỗi trông y hệt một worker đã chết.
+- **Độ trễ job** bổ sung: nhịp tim nói "còn sống", độ trễ nói "còn kịp".
+
+Kiểm chứng: nhịp tim ĐẬP LẠI sau 10 giây (không phải đặt một lần lúc khởi
+động), và khi giết worker thì `/metrics` ngừng trả lời đúng như mong đợi.
 
 ### 2.7 Idempotency (PH-5) `[XONG 20/08]`
 
@@ -587,7 +649,7 @@ Thiết kế đã có ở [observability.md](../09-operations/observability.md);
 | PH-24 | Độ trễ · tỷ lệ lỗi | ✅ histogram theo mẫu route và mã trạng thái |
 | PH-25 | Metrics database (pool, thời gian truy vấn) | ⬜ chưa đo |
 | PH-26 | Metrics outbox (tồn đọng, độ trễ, số lần thử lại) | ✅ 3 gauge + đếm thất bại theo bên nhận |
-| PH-30 | **Worker chết thì chỉ số outbox đứng yên, không kêu** | Gauge do chính worker đặt — cần cảnh báo theo độ TƯƠI của số liệu |
+| PH-30 | **Worker chết thì chỉ số outbox đứng yên** | ✅ nhịp tim + độ trễ job + đếm lỗi job |
 | PH-27 | Đếm thất bại nghiệp vụ | 🟡 giữ hàng và checkout xong; payment, fulfillment chưa nối |
 
 **PH-26 và PH-27 quan trọng hơn vẻ ngoài của chúng.** Outbox tồn đọng là
