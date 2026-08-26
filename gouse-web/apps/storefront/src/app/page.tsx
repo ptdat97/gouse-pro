@@ -1,6 +1,12 @@
 "use client";
 
-import { isApiError, listProducts, type ProductList } from "@fc/api-client";
+import {
+  isApiError,
+  listBuyBoxPrices,
+  listProducts,
+  type BuyBoxPrice,
+  type ProductList,
+} from "@fc/api-client";
 import { Alert } from "@fc/ui";
 import Link from "next/link";
 import * as React from "react";
@@ -11,15 +17,38 @@ import { useShop } from "@/lib/shop";
 /**
  * Trang chủ — danh sách sản phẩm.
  *
+ * # Giá tra RIÊNG, không nằm trong danh mục
+ *
+ * Giá thuộc về OFFER, và module `product` cùng tầng với `marketplace` nên
+ * không gọi được. Nhồi giá vào danh mục sẽ bắt mọi lời gọi sản phẩm kéo
+ * theo truy vấn giá, kể cả trang quản trị nơi không hiển thị giá bán.
+ *
+ * Trang gọi thêm MỘT lượt cho cả danh sách — cùng mẫu với việc tra tên
+ * nhà bán ở trang chi tiết.
+ *
  * # `price_from`, không phải "giá"
  *
  * Một sản phẩm có thể có nhiều nhà bán với giá khác nhau. Con số ở đây là
- * giá THẤP NHẤT; giá thật khách trả phụ thuộc offer họ chọn ở trang chi
- * tiết. Hiển thị nó như "giá" là hứa một con số có thể không mua được.
+ * giá THẤP NHẤT trong các offer ĐANG THẮNG BUY BOX — tức giá khách thật sự
+ * mua được, đã loại offer hết hàng. Giá thật khách trả phụ thuộc offer họ
+ * chọn ở trang chi tiết.
+ *
+ * # Trước 26/08 chỗ này hiện dấu gạch
+ *
+ * Đặc tả khai `price_from` là bắt buộc trên `ProductSummary` trong khi API
+ * chưa bao giờ trả nó. TypeScript tin đặc tả nên không báo gì, và cửa hàng
+ * liệt kê sản phẩm không có giá suốt nhiều tuần.
  */
 export default function HomePage() {
   const { api } = useShop();
   const [data, setData] = React.useState<ProductList | null>(null);
+
+  // Giá tra RIÊNG: danh mục cố ý không chứa giá.
+  //
+  // Một lượt gọi cho cả danh sách, và gọi SAU khi đã hiện sản phẩm — tên
+  // và ảnh không phải chờ giá. Sản phẩm không có offer bán được thì vắng
+  // mặt ở đây, và thẻ hiện dấu gạch thay vì một con số sai.
+  const [gia, setGia] = React.useState<Record<string, BuyBoxPrice>>({});
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -27,7 +56,13 @@ export default function HomePage() {
     void (async () => {
       try {
         const res = await listProducts(api, { limit: 24 });
-        if (!cancelled) setData(res);
+        if (cancelled) return;
+        setData(res);
+
+        const ids = (res.data ?? []).map((p) => p.id);
+        const prices = await listBuyBoxPrices(api, ids);
+        if (cancelled) return;
+        setGia(Object.fromEntries(prices.map((x) => [x.product_id, x])));
       } catch (e) {
         if (!cancelled) {
           setError(isApiError(e) ? e.message : "Không tải được danh sách sản phẩm");
@@ -75,10 +110,10 @@ export default function HomePage() {
                 <p className="card__brand">{p.brand?.name}</p>
                 <h2 className="card__name">{p.name}</h2>
                 <p className="card__price">
-                  {money(p.price_from)}
-                  {p.compare_at_price && (
+                  {gia[p.id] ? money(gia[p.id]!.price_from) : "—"}
+                  {gia[p.id]?.compare_at_price && (
                     <span className="card__compare">
-                      {money(p.compare_at_price)}
+                      {money(gia[p.id]!.compare_at_price)}
                     </span>
                   )}
                 </p>

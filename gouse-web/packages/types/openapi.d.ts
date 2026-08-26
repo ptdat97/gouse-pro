@@ -156,6 +156,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/offers/buy-box": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Giá buy box của nhiều sản phẩm
+         * @description Trả giá **thấp nhất mua được** của từng sản phẩm, tra theo LÔ.
+         *
+         *     **Vì sao là endpoint riêng, không nằm trong `ProductSummary`.** Giá
+         *     thuộc về OFFER, và module `product` cùng tầng với `marketplace` nên
+         *     không gọi được. Nhồi giá vào danh mục sẽ bắt mọi lời gọi sản phẩm kéo
+         *     theo truy vấn giá, kể cả nơi không hiển thị giá bán.
+         *
+         *     **Vì sao lấy từ BUY BOX, không phải min của mọi offer.** Buy box đã
+         *     loại offer hết hàng và nhà bán bị đình chỉ, nên con số này là giá
+         *     khách THẬT SỰ mua được. Lấy min trên mọi offer là quảng cáo một mức
+         *     giá không đặt được.
+         *
+         *     Sản phẩm không có offer nào bán được thì **vắng mặt** trong kết quả —
+         *     không trả giá 0, vì 0 hiển thị ra là "miễn phí". Thứ tự kết quả giữ
+         *     đúng thứ tự hỏi.
+         */
+        get: operations["listBuyBoxPrices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products/{product_id}/reviews": {
         parameters: {
             query?: never;
@@ -1735,29 +1769,20 @@ export interface components {
             logo_url?: string;
         };
         /**
-         * @description Số tiền. **Luôn kèm đơn vị tiền tệ** — không bao giờ trả về số trần.
+         * @description Sản phẩm trong danh sách. Nhẹ hơn `ProductDetail`.
          *
-         *     `amount` là **số nguyên** theo đơn vị nhỏ nhất của tiền tệ:
-         *     - VND: đồng (299000 = 299.000đ)
-         *     - USD: cent (29900 = $299.00)
+         *     **KHÔNG chứa giá.** Giá thuộc về OFFER, và module `product` nằm cùng
+         *     tầng với `marketplace` nên không gọi được. Nhồi giá vào đây sẽ bắt MỌI
+         *     lời gọi danh mục kéo theo truy vấn giá — kể cả trang quản trị, nơi
+         *     không hiển thị giá bán.
          *
-         *     Không dùng số thực để tránh sai số tích lũy — độ lệch đối soát
-         *     phải bằng 0.
+         *     Trang tự ghép: gọi `listBuyBoxPrices` một lượt cho cả danh sách. Cùng
+         *     mẫu với `lookupSellers`.
+         *
+         *     Trước 26/08 schema này khai `price_from` là BẮT BUỘC trong khi API chưa
+         *     bao giờ trả nó. Hậu quả nhìn thấy được: cửa hàng hiện dấu gạch thay cho
+         *     giá, và TypeScript không báo gì vì nó tin đặc tả.
          */
-        Money: {
-            /**
-             * Format: int64
-             * @description Số tiền theo đơn vị nhỏ nhất. Có thể âm (bút toán điều chỉnh).
-             * @example 299000
-             */
-            amount: number;
-            /**
-             * @description Mã tiền tệ ISO 4217.
-             * @example VND
-             */
-            currency: string;
-        };
-        /** @description Sản phẩm trong danh sách. Nhẹ hơn `ProductDetail`. */
         ProductSummary: {
             id: components["schemas"]["Id"];
             name: string;
@@ -1765,9 +1790,6 @@ export interface components {
             brand: components["schemas"]["BrandRef"];
             /** Format: uri */
             primary_image_url?: string;
-            /** @description Giá **thấp nhất** trong các offer — vì có thể có nhiều nhà bán. */
-            price_from: components["schemas"]["Money"];
-            compare_at_price?: components["schemas"]["Money"];
             rating?: {
                 /** Format: float */
                 average?: number;
@@ -1886,6 +1908,29 @@ export interface components {
                     [key: string]: string;
                 };
             }[];
+        };
+        /**
+         * @description Số tiền. **Luôn kèm đơn vị tiền tệ** — không bao giờ trả về số trần.
+         *
+         *     `amount` là **số nguyên** theo đơn vị nhỏ nhất của tiền tệ:
+         *     - VND: đồng (299000 = 299.000đ)
+         *     - USD: cent (29900 = $299.00)
+         *
+         *     Không dùng số thực để tránh sai số tích lũy — độ lệch đối soát
+         *     phải bằng 0.
+         */
+        Money: {
+            /**
+             * Format: int64
+             * @description Số tiền theo đơn vị nhỏ nhất. Có thể âm (bút toán điều chỉnh).
+             * @example 299000
+             */
+            amount: number;
+            /**
+             * @description Mã tiền tệ ISO 4217.
+             * @example VND
+             */
+            currency: string;
         };
         /**
          * @description Lời chào bán của **một seller** cho một SKU — đơn vị khách thực sự mua.
@@ -3087,6 +3132,36 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listBuyBoxPrices: {
+        parameters: {
+            query: {
+                /** @description Danh sách mã sản phẩm, ngăn cách bằng dấu phẩy. Tối đa 100. */
+                product_ids: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Giá của các sản phẩm có offer bán được */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            product_id: components["schemas"]["Id"];
+                            price_from: components["schemas"]["Money"];
+                            compare_at_price?: components["schemas"]["Money"];
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
         };
     };
     listProductReviews: {

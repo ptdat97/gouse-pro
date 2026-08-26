@@ -100,6 +100,33 @@ export function listSellersByIds(
     .then((res) => res.data ?? []);
 }
 
+type BuyBoxList = Ok<operations["listBuyBoxPrices"]>;
+export type BuyBoxPrice = NonNullable<BuyBoxList["data"]>[number];
+
+/**
+ * Tra giá buy box của NHIỀU sản phẩm.
+ *
+ * Danh mục cố ý KHÔNG chứa giá: giá thuộc về offer, và module `product`
+ * cùng tầng với `marketplace` nên không gọi được. Trang tự ghép hai nguồn
+ * — cùng mẫu với `listSellersByIds`.
+ *
+ * Giá lấy từ BUY BOX, tức giá khách thật sự mua được: offer hết hàng và
+ * nhà bán bị đình chỉ đã bị loại. Sản phẩm không có offer nào bán được thì
+ * VẮNG MẶT, nên bên gọi phải chịu được việc thiếu giá.
+ */
+export function listBuyBoxPrices(
+  api: ApiClient,
+  productIds: string[],
+): Promise<BuyBoxPrice[]> {
+  if (productIds.length === 0) return Promise.resolve([]);
+
+  return api
+    .get<BuyBoxList>("/api/v1/offers/buy-box", {
+      product_ids: productIds.join(","),
+    })
+    .then((res) => res.data ?? []);
+}
+
 export function getProduct(api: ApiClient, productId: string): Promise<ProductDetail> {
   return api.get<ProductDetail>(`/api/v1/products/${productId}`);
 }

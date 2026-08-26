@@ -129,3 +129,34 @@ test("đổi màu và size thì đổi đúng món hàng", async ({ page }) => {
 
   expect(loi.map((l) => l.mo_ta)).toEqual([]);
 });
+
+/**
+ * Danh sách sản phẩm phải hiện GIÁ.
+ *
+ * Trước 26/08 chỗ này hiện dấu gạch suốt nhiều tuần: đặc tả khai
+ * `price_from` là bắt buộc trên `ProductSummary` trong khi API chưa bao
+ * giờ trả nó, nên TypeScript tin đặc tả và không báo gì.
+ *
+ * Không lỗi, không cảnh báo — chỉ là một cửa hàng không nói giá. Bài này
+ * khẳng định thẻ sản phẩm có một con số tiền thật, không phải dấu gạch.
+ */
+test("danh sách sản phẩm hiện giá, không phải dấu gạch", async ({ page }) => {
+  const loi = watchApi(page);
+
+  await page.goto("/");
+  const the = page.locator(".card").first();
+  await expect(the).toBeVisible();
+
+  const gia = the.locator(".card__price");
+  await expect(gia).toBeVisible();
+
+  // Chờ giá về: nó được tra bằng một lượt gọi RIÊNG sau danh sách.
+  await expect
+    .poll(async () => (await gia.innerText()).trim(), {
+      message: "thẻ sản phẩm không bao giờ hiện giá",
+      timeout: 10_000,
+    })
+    .toMatch(/\d/);
+
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
+});
