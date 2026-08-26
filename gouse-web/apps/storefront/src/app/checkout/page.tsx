@@ -9,6 +9,7 @@ import {
   type Checkout,
 } from "@fc/api-client";
 import { Alert, Button, Field, Input, Select } from "@fc/ui";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
@@ -36,13 +37,25 @@ import { useShop } from "@/lib/shop";
  * lại không được tạo hai đơn.
  */
 export default function CheckoutPage() {
-  const { api, cart, cartLoading, refreshCart } = useShop();
+  const { api, cart, cartLoading, refreshCart, me } = useShop();
   const router = useRouter();
 
   const [checkout, setCheckout] = React.useState<Checkout | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [now, setNow] = React.useState(() => Date.now());
+
+  // Liên hệ của khách VÃNG LAI.
+  //
+  // Backend từ chối mở phiên khi không có danh tính người mua: không có
+  // email thì không gửi được xác nhận đơn, và khách không có gì trong tay
+  // để biết đơn đã đặt xong.
+  //
+  // Số điện thoại KHÔNG phải tùy chọn cho có: trang tra cứu đơn nhận mã
+  // đơn + SỐ ĐIỆN THOẠI. Khách vãng lai không để lại số thì sau này không
+  // có đường nào xem lại đơn của chính mình.
+  const [lienHe, setLienHe] = React.useState({ email: "", phone: "" });
+  const laVangLai = !me;
 
   const cartId = cart?.cart?.id;
 
@@ -51,20 +64,31 @@ export default function CheckoutPage() {
   // hàng bị giữ gấp đôi.
   const started = React.useRef<string | null>(null);
 
+  // Mở phiên cho khách ĐÃ ĐĂNG NHẬP ngay khi vào trang.
+  //
+  // Khách vãng lai thì CHỜ họ điền liên hệ đã: mở phiên là giữ tồn kho 15
+  // phút, và giữ hàng cho một người chưa chắc mua được là khóa hàng của
+  // người khác vô ích.
   React.useEffect(() => {
-    if (!cartId || started.current === cartId) return;
+    if (!cartId || laVangLai || started.current === cartId) return;
     started.current = cartId;
+    void moPhien();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, cartId, laVangLai]);
 
-    void (async () => {
-      try {
-        setCheckout(await startCheckout(api, cartId));
-      } catch (e) {
-        setError(
-          isApiError(e) ? e.message : "Không mở được phiên thanh toán",
-        );
-      }
-    })();
-  }, [api, cartId]);
+  async function moPhien(guest?: { email: string; phone: string }) {
+    setBusy(true);
+    setError(null);
+    try {
+      setCheckout(await startCheckout(api, cartId!, guest));
+    } catch (e) {
+      // Mở phiên hỏng thì cho thử LẠI: xóa dấu để lần bấm sau chạy tiếp.
+      started.current = null;
+      setError(isApiError(e) ? e.message : "Không mở được phiên thanh toán");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // Nhịp đồng hồ đếm ngược.
   React.useEffect(() => {
@@ -84,6 +108,71 @@ export default function CheckoutPage() {
   }
 
   if (error && !checkout) return <Alert tone="danger">{error}</Alert>;
+  // Khách VÃNG LAI: hỏi liên hệ TRƯỚC khi giữ hàng.
+  //
+  // Đây là bước duy nhất trong luồng mua hàng bắt khách nhập gì đó trước
+  // khi thấy tiến triển, và nó đáng: mở phiên là khóa tồn kho 15 phút.
+  if (!checkout && laVangLai) {
+    return (
+      <div>
+        <h1>Thanh toán</h1>
+        {error && <Alert tone="danger">{error}</Alert>}
+
+        <section className="panel">
+          <h2>Thông tin liên hệ</h2>
+          <p className="muted">
+            Chúng tôi gửi xác nhận đơn qua email. Số điện thoại dùng để bạn{" "}
+            <strong>tra cứu đơn</strong> về sau — không có nó thì sau này
+            không xem lại được đơn của mình.
+          </p>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void moPhien(lienHe);
+            }}
+          >
+            <Field label="Email" htmlFor="guest_email">
+              <Input
+                id="guest_email"
+                name="guest_email"
+                type="email"
+                required
+                value={lienHe.email}
+                onChange={(e) =>
+                  setLienHe((v) => ({ ...v, email: e.target.value }))
+                }
+              />
+            </Field>
+
+            <Field label="Số điện thoại" htmlFor="guest_phone">
+              <Input
+                id="guest_phone"
+                name="guest_phone"
+                required
+                value={lienHe.phone}
+                onChange={(e) =>
+                  setLienHe((v) => ({ ...v, phone: e.target.value }))
+                }
+              />
+            </Field>
+
+            <div className="actions">
+              <Button type="submit" variant="primary" disabled={busy}>
+                {busy ? "Đang giữ hàng…" : "Tiếp tục"}
+              </Button>
+            </div>
+          </form>
+
+          <p className="muted">
+            Đã có tài khoản? <Link href="/dang-nhap">Đăng nhập</Link> để không
+            phải nhập lại.
+          </p>
+        </section>
+      </div>
+    );
+  }
+
   if (!checkout) return <p className="muted">Đang giữ hàng cho bạn…</p>;
 
   const msLeft = new Date(checkout.expires_at).getTime() - now;
@@ -125,7 +214,21 @@ export default function CheckoutPage() {
       // Làm mới giỏ TRƯỚC khi rời trang: giỏ đã thành đơn, để lại số cũ
       // trên biểu tượng là nói dối khách.
       await refreshCart();
-      router.push(`/orders/${res.order?.order_number ?? ""}?placed=1`);
+      // Kèm số điện thoại cho khách VÃNG LAI.
+      //
+      // Trang chi tiết đơn nhận danh tính qua header `X-Guest-Phone`, lấy
+      // từ query — cùng đường mà trang tra cứu đơn dùng. Thiếu nó thì
+      // khách vừa đặt hàng xong đã thấy ngay "Không tìm thấy đơn hàng",
+      // và đó là kết thúc tệ nhất có thể cho đường đi của tiền.
+      //
+      // Khách đã đăng nhập không cần: token của họ đã nói họ là ai.
+      const q = new URLSearchParams({ placed: "1" });
+      if (laVangLai && lienHe.phone) {
+        q.set("phone", lienHe.phone);
+      }
+      router.push(
+        `/orders/${res.order?.order_number ?? ""}?${q.toString()}`,
+      );
     } catch (e) {
       setError(isApiError(e) ? e.message : "Không đặt được đơn hàng");
       setBusy(false);
