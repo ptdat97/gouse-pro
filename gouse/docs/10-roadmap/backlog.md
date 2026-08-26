@@ -433,9 +433,34 @@ updateInventory đặc tả PATCH, Go đăng ký PUT     → client sinh ra ăn 
 updated_at     đặc tả khai, Go không trả  → không ai phát hiện
 ```
 
-Ba trong bốn lọt qua TypeScript vì trường không `required`. Cần một bước
-kiểm **đặc tả ↔ response THẬT** (contract test chạy với server thật), chứ
-không chỉ đặc tả ↔ kiểu.
+Ba trong bốn lọt qua TypeScript vì trường không `required`.
+
+**Đã có bước kiểm đặc tả ↔ response THẬT** (`api_contract_test.go`), và nó
+tìm ra ngay lỗi thứ NĂM — lỗi nặng nhất trong nhóm:
+
+```text
+price_from   đặc tả khai BẮT BUỘC trên ProductSummary
+             API chưa bao giờ trả
+             → cửa hàng hiện dấu gạch thay cho giá, nhiều tuần
+```
+
+Lần này TypeScript không những không bắt được mà còn CHE ĐI: vì đặc tả khai
+`required`, kiểu sinh ra là non-optional, nên `money(p.price_from)` biên
+dịch sạch. Trang render `—` và không ai thấy gì bất thường.
+
+**Cách sửa là một quyết định thiết kế, không phải thêm trường.** Giá thuộc
+về OFFER, và `product` cùng tầng với `marketplace` nên không gọi được.
+Nhồi giá vào danh mục sẽ bắt mọi lời gọi sản phẩm kéo theo truy vấn giá,
+kể cả trang quản trị nơi không hiển thị giá bán.
+
+Thêm `GET /api/v1/offers/buy-box?product_ids=` — tra theo LÔ, lấy từ BUY
+BOX nên là giá khách THẬT SỰ mua được (offer hết hàng và nhà bán bị đình
+chỉ đã bị loại). Sản phẩm không có offer bán được thì VẮNG MẶT, không trả
+giá 0 vì 0 hiển thị ra là "miễn phí".
+
+`price_from` và `compare_at_price` bị GỠ HẲN khỏi `ProductSummary` chứ
+không chỉ bỏ `required`: để nguyên dưới dạng tùy chọn là giữ lại lời hứa
+mà API không giữ, chỉ nhỏ hơn. Gỡ xong TypeScript báo đúng ba chỗ dùng.
 
 ### 2.12 PH — Hiệu năng và đồng thời (SAU khi E2E ổn định)
 
