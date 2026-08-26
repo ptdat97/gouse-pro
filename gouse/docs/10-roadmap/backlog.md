@@ -506,9 +506,35 @@ quan có ở `inventory_item`, không có ở `reservation`.
   được: khóa lạc quan của bản ghi tồn kho buộc thử lại, và lượt thử lại
   đọc thấy trạng thái đã đổi rồi từ chối đúng.
 
+**Đã tìm ra ĐƯỜNG, chưa tìm ra CƠ CHẾ.** Hai job dọn hạn độc lập cùng
+nhắm vào một reservation:
+
+```text
+inventory.ExpireReservations   mỗi 30 giây — nhả theo RESERVATION
+checkout.ExpireStale           mỗi 60 giây — nhả theo PHIÊN (releaseAll)
+```
+
+Phiên hết hạn thì reservation của nó hết hạn CÙNG LÚC, nên hai job nhắm
+đúng một bản ghi, ở hai goroutine trong cùng một worker. Đó giải thích
+được hai lượt nhả cách 1,5ms trong một tiến trình.
+
+Nhưng KHÔNG giải thích được vì sao cả hai THÀNH CÔNG. Đã loại trừ bằng
+cách đọc code:
+
+```text
+✓ uow.Do cuộn ngược đúng khi fn trả lỗi
+✓ mutate ghi item VÀ nhật ký qua CÙNG giao dịch, không qua pool
+✓ Release và Expire đều từ chối khi trạng thái đã là cuối (IsFinal)
+✓ ExpireReservations duyệt tuần tự, có bỏ qua ErrReservationNotActive
+```
+
+Và không tái hiện được: 8 lượt nhả song song, hai job dọn song song, mỗi
+kịch bản chạy CÓ và KHÔNG có khóa lạc quan — tám lần đều xanh.
+
 Nghĩa là cột `version` đóng khoảng trống ở tầng dữ liệu nhưng CHƯA chứng
-minh được nó chặn đúng cơ chế đã xảy ra. Cần thêm dấu vết ở đường nhả
-(ghi lại ai gọi, từ tiến trình nào) trước khi kết luận.
+minh được nó chặn đúng cơ chế đã xảy ra. **Bước tiếp theo:** ghi dấu vết ở
+`releaseWith` (mã reservation, tiến trình, job gọi tới, số lần thử lại)
+rồi chờ nó xảy ra lại, thay vì đoán thêm.
 
 Bản ghi kẹt đã được đánh dấu `EXPIRED` bằng tay; sau đó cả 5 job đều thành
 công và bộ đếm lỗi về 0.

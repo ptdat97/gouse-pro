@@ -37,9 +37,14 @@ type world struct {
 
 	db  *database.DB
 	inv inventory.API
-	ord order.API
-	ful *fulfillment.Module
-	bus *eventbus.Dispatcher
+
+	// invMod là module CỤ THỂ, cần cho các job nền không nằm trong API
+	// công khai (dọn giữ hàng quá hạn chẳng hạn — chỉ tiến trình worker
+	// gọi tới, nên nó không thuộc hợp đồng giữa các module).
+	invMod *inventory.Module
+	ord    order.API
+	ful    *fulfillment.Module
+	bus    *eventbus.Dispatcher
 
 	checkout *checkoutapp.Service
 	cart     *stubCart
@@ -94,7 +99,7 @@ func newWorld(t *testing.T) *world {
 	bus := eventbus.NewDispatcher(db.Pool(), log)
 
 	w := &world{
-		t: t, db: db, inv: invModule, ord: ordModule, ful: fulModule,
+		t: t, db: db, inv: invModule, invMod: invModule, ord: ordModule, ful: fulModule,
 		bus: bus, internal: map[ids.ID]bool{},
 	}
 
