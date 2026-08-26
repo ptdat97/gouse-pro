@@ -115,7 +115,7 @@ idempotency** đều có test hồi quy tự động.
 | PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | ✅ 12/12 kịch bản, 14 test |
 | PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
 | PH-3 | Test tích hợp API qua HTTP thật | ✅ 6 test, xem 2.4b |
-| PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 4/7 luồng, hai luồng mua hàng đã trọn vẹn |
+| PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | 🟡 6/7 luồng · 20 test |
 
 ### 2.2 PH — Reliability
 
@@ -311,9 +311,9 @@ InspectionPassed/Failed đã có ở domain inventory, chưa có đường nối
 | Khách VÃNG LAI thanh toán | ✅ tới tận mã đơn |
 | Khách ĐÃ ĐĂNG KÝ mua hàng | ✅ tới tận mã đơn |
 | Đơn nhiều nhà bán | ⬜ |
-| Nhà bán tạo offer | ⬜ |
+| Nhà bán tạo offer | ✅ kèm tồn kho ban đầu |
 | Nhà bán cập nhật tồn kho | ✅ |
-| Nhà bán thực hiện đơn (bàn giao vận chuyển) | ⬜ |
+| Nhà bán thực hiện đơn (bàn giao vận chuyển) | ✅ tự đặt đơn rồi bàn giao |
 
 ### 2.6b PH-29 — `GET /api/v1/cart` trả 500 sau khi đặt hàng `[CHƯA SỬA]`
 
@@ -347,6 +347,27 @@ Sửa cần một quyết định: `GET /cart` có nên ghi không, và nếu c�
 
 Test E2E liệt kê ĐÍCH DANH lỗi này để bỏ qua, thay vì nới lỏng khẳng định
 — nới lỏng sẽ giấu luôn những lỗi khác chưa ai biết.
+
+### 2.6c Hai bài học về test giao diện
+
+**Test TIÊU THỤ dữ liệu của chính nó thì chỉ xanh một lần.** Bài bàn giao
+vận chuyển lấy một đơn đang chờ rồi bàn giao — lần chạy sau không còn đơn
+nào, và nó tự bỏ qua. Một bài test bị bỏ qua trông y hệt một bài đã chạy,
+nên nó âm thầm ngừng bảo vệ.
+
+Sửa: bài test TỰ ĐẶT một đơn qua API trước khi làm việc của mình. Và
+KHÔNG dùng `test.skip` khi chưa thấy dữ liệu — chờ có thời hạn rồi
+`expect` thất bại, để im lặng không bị nhầm với thành công.
+
+**Đơn thực hiện xuất hiện BẤT ĐỒNG BỘ.** `checkout.completed` vào outbox,
+worker đọc theo nhịp rồi mới tách đơn. Nhìn ngay sau khi đặt là nhìn quá
+sớm — hành vi đúng của kiến trúc event, không phải chỗ cần sửa. Test chờ
+bằng `expect.poll`.
+
+Cũng chính lúc dựng bài này mới lộ ra worker đã CHẾT từ lúc Postgres tắt,
+để lại **67 event tồn đọng** mà không ai biết. Đó đúng là thứ
+`gouse_outbox_pending_events` sinh ra để báo — nhưng chỉ số do CHÍNH worker
+đặt, nên worker chết thì con số đứng yên thay vì kêu. Ghi thành PH-30.
 
 ### 2.7 Idempotency (PH-5) `[XONG 20/08]`
 
@@ -534,6 +555,7 @@ Thiết kế đã có ở [observability.md](../09-operations/observability.md);
 | PH-24 | Độ trễ · tỷ lệ lỗi | ✅ histogram theo mẫu route và mã trạng thái |
 | PH-25 | Metrics database (pool, thời gian truy vấn) | ⬜ chưa đo |
 | PH-26 | Metrics outbox (tồn đọng, độ trễ, số lần thử lại) | ✅ 3 gauge + đếm thất bại theo bên nhận |
+| PH-30 | **Worker chết thì chỉ số outbox đứng yên, không kêu** | Gauge do chính worker đặt — cần cảnh báo theo độ TƯƠI của số liệu |
 | PH-27 | Đếm thất bại nghiệp vụ | 🟡 giữ hàng và checkout xong; payment, fulfillment chưa nối |
 
 **PH-26 và PH-27 quan trọng hơn vẻ ngoài của chúng.** Outbox tồn đọng là
