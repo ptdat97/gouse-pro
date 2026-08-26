@@ -463,6 +463,56 @@ Ba quyết định nhỏ:
 Kiểm chứng: nhịp tim ĐẬP LẠI sau 10 giây (không phải đặt một lần lúc khởi
 động), và khi giết worker thì `/metrics` ngừng trả lời đúng như mong đợi.
 
+### 2.6e PH-31 — nhả giữ hàng HAI LẦN sinh ra hàng từ không khí `[CHƯA GIẢI THÍCH ĐƯỢC]`
+
+Phát hiện nhờ chính chỉ số vừa thêm ở PH-30 — đúng loại sự cố mà nó sinh
+ra để bắt.
+
+**Triệu chứng.** Job "dọn giữ hàng quá hạn" thất bại MỌI lượt suốt nhiều
+giờ: `inventory: không đủ hàng: reserved có 0, cần 1`. Nhịp tim toàn cục
+vẫn tươi vì bốn job kia vẫn chạy, nên không gì nổi lên. Chỉ số
+`job_last_success` theo từng job làm nó lộ ra ngay.
+
+**Bằng chứng** từ nhật ký biến động, cùng `reference_id`:
+
+```text
+18:04:22.826  RESERVE  1  → còn 76   ref=rsv_...GGG
+18:19:28.497  RELEASE  1  → còn 77   ref=rsv_...GGG
+18:19:28.499  RELEASE  1  → còn 78   ref=rsv_...GGG
+```
+
+Cùng một reservation, hai lượt nhả cách nhau 1,5 mili giây. Số khả dụng
+lên **78 — cao hơn 77 trước khi giữ**. Hàng sinh ra từ không khí: hệ thống
+tin mình có nhiều hàng hơn thực tế và sẽ bán phần chênh cho ai đó.
+
+Hệ quả kéo theo: một reservation khác kẹt ở `ACTIVE` với phần giữ chỗ đã
+bị lượt nhả thừa ăn mất, nên job dọn hạn hỏng vĩnh viễn.
+
+**Khoảng trống đã vá.** `ReservationStore.Save` là upsert KHÔNG ĐIỀU KIỆN
+— bất biến "một reservation nhả đúng MỘT lần" chỉ được cưỡng chế bằng kiểm
+tra trong bộ nhớ ở domain, và hai giao dịch cùng đi qua được. Khóa lạc
+quan có ở `inventory_item`, không có ở `reservation`.
+
+Đã thêm cột `version` + `WHERE reservation.version = $10` (migration
+000028), cùng cơ chế với `inventory_item` và `fulfillment_order`.
+
+**CHƯA GIẢI THÍCH ĐƯỢC — ghi ra thay vì đoán:**
+
+- Chỉ có MỘT tiến trình worker chạy lúc đó (đã đối chiếu vòng đời hai file
+  log). Giả thuyết "hai worker" của tôi SAI.
+- `ExpireReservations` duyệt tuần tự, không xử lý một reservation hai lần
+  trong một lượt, và có bỏ qua `ErrReservationNotActive`.
+- Test tranh chấp 8 goroutine cùng nhả một reservation KHÔNG tái hiện
+  được: khóa lạc quan của bản ghi tồn kho buộc thử lại, và lượt thử lại
+  đọc thấy trạng thái đã đổi rồi từ chối đúng.
+
+Nghĩa là cột `version` đóng khoảng trống ở tầng dữ liệu nhưng CHƯA chứng
+minh được nó chặn đúng cơ chế đã xảy ra. Cần thêm dấu vết ở đường nhả
+(ghi lại ai gọi, từ tiến trình nào) trước khi kết luận.
+
+Bản ghi kẹt đã được đánh dấu `EXPIRED` bằng tay; sau đó cả 5 job đều thành
+công và bộ đếm lỗi về 0.
+
 ### 2.7 Idempotency (PH-5) `[XONG 20/08]`
 
 | Đường ghi | Khóa ở HTTP | Ràng buộc ở tầng dữ liệu |

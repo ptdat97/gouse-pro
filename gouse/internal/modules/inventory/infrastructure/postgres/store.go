@@ -23,7 +23,7 @@ func NewReservationStore(db querier) *ReservationStore {
 
 const reservationCols = `
 	id, inventory_item_id, checkout_id, quantity, expires_at,
-	status, extensions, created_at, updated_at`
+	status, extensions, created_at, updated_at, version`
 
 func scanReservation(row pgx.Row) (*domain.Reservation, error) {
 	var (
@@ -32,7 +32,7 @@ func scanReservation(row pgx.Row) (*domain.Reservation, error) {
 		status                 string
 	)
 	err := row.Scan(&id, &itemID, &checkoutID, &p.Quantity, &p.ExpiresAt,
-		&status, &p.Extensions, &p.CreatedAt, &p.UpdatedAt)
+		&status, &p.Extensions, &p.CreatedAt, &p.UpdatedAt, &p.Version)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -47,23 +47,40 @@ func scanReservation(row pgx.Row) (*domain.Reservation, error) {
 }
 
 func (s *ReservationStore) Save(ctx context.Context, r *domain.Reservation) error {
+	// KHÓA LẠC QUAN trên reservation.
+	//
+	// `WHERE reservation.version = $10` là thứ biến bất biến "nhả đúng
+	// MỘT lần" từ một kiểm tra trong bộ nhớ thành một ràng buộc ở tầng dữ
+	// liệu. Kiểm tra trong bộ nhớ thì hai giao dịch cùng đọc thấy ACTIVE,
+	// cùng đi qua, và cùng ghi — đã xảy ra thật, xem migration 000028.
+	//
+	// Dòng chèn MỚI không đi qua nhánh conflict nên không bị chặn.
 	const q = `
 		INSERT INTO reservation (
 			id, inventory_item_id, checkout_id, quantity, expires_at,
-			status, extensions, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			status, extensions, created_at, updated_at, version
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		ON CONFLICT (id) DO UPDATE SET
 			expires_at = EXCLUDED.expires_at,
 			status     = EXCLUDED.status,
 			extensions = EXCLUDED.extensions,
-			updated_at = EXCLUDED.updated_at`
+			updated_at = EXCLUDED.updated_at,
+			version    = reservation.version + 1
+		WHERE reservation.version = $10`
 
-	_, err := s.db.Exec(ctx, q,
+	tag, err := s.db.Exec(ctx, q,
 		r.ID().String(), r.InventoryItemID().String(), r.CheckoutID().String(),
 		r.Quantity(), r.ExpiresAt(), string(r.Status()), r.Extensions(),
-		r.CreatedAt(), r.UpdatedAt())
+		r.CreatedAt(), r.UpdatedAt(), r.Version())
 	if err != nil {
 		return fmt.Errorf("inventory: lưu giữ hàng: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Không dòng nào khớp nghĩa là phiên bản đã đổi — một giao dịch
+		// khác vừa sửa bản ghi này. `withRetry` sẽ chạy lại từ đầu, đọc
+		// lại trạng thái mới, và lúc đó quy tắc domain từ chối lượt nhả
+		// thứ hai đúng như phải thế.
+		return domain.ErrVersionConflict
 	}
 	return nil
 }

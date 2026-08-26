@@ -92,35 +92,72 @@ var (
 		Help: "Tuổi của event chưa phát cũ nhất, tính bằng giây.",
 	})
 
-	// WorkerHeartbeat là DẤU THỜI GIAN lần cuối worker chạy xong một vòng.
+	// WorkerHeartbeat là nhịp của BỘ ĐIỀU PHỐI, độc lập với công việc.
 	//
-	// # Vì sao gauge tồn đọng KHÔNG đủ
+	// # Bốn câu hỏi khác nhau, bốn chỉ số khác nhau
 	//
-	// `OutboxPending` do CHÍNH worker đặt. Worker chết thì con số đứng yên
-	// ở giá trị cuối cùng — và "0 event tồn đọng" của một worker đã chết
-	// trông y hệt "0 event tồn đọng" của một worker khỏe mạnh.
+	//	tiến trình còn sống?   up{job="gouse-worker"}   (Prometheus tự có)
+	//	bộ điều phối còn chạy? WorkerHeartbeat
+	//	job này còn tiến triển? WorkerJobLastSuccess{job}
+	//	job này đang chạy?      WorkerJobRunning{job}
 	//
-	// Chuyện này đã xảy ra thật (26/08): worker chết cùng lúc PostgreSQL
-	// tắt, để lại 67 event tồn đọng suốt nhiều giờ. Không đơn thực hiện
-	// nào được tạo, không email nào được gửi, và không có gì kêu.
+	// Gộp chúng vào một con số là mất khả năng phân biệt, và mỗi lần mất
+	// đi một cách phân biệt là một kiểu sự cố không ai thấy.
 	//
-	// # Cách dùng
+	// # Vì sao KHÔNG đập theo lần hoàn tất job (sửa 26/08)
 	//
-	// Cảnh báo trên ĐỘ TƯƠI, không phải trên giá trị:
+	// Bản đầu đặt nhịp tim trong `runOnce`, tức mỗi lần MỘT job chạy xong.
+	// Các job chạy ở goroutine riêng với nhịp 5s, 30s, 60s, 5 phút và 10
+	// phút. Hệ quả là nhịp tim toàn cục được làm mới bởi BẤT KỲ job nào —
+	// nên job quan trọng nhất (phát event, 5 giây) có thể treo hoàn toàn
+	// trong khi job dọn dẹp 30 giây vẫn giữ nhịp tim tươi rói.
 	//
-	//	time() - gouse_worker_heartbeat_timestamp_seconds > 60
+	// Đó là ÂM TÍNH GIẢ: event chất đống, đơn thực hiện không được tạo, và
+	// bảng theo dõi báo "worker khỏe". Nguy hiểm hơn hẳn dương tính giả,
+	// vì dương tính giả thì có người tới xem.
 	//
-	// Kết hợp với `up{job="gouse-worker"} == 0` của Prometheus thì phủ
-	// được cả hai kiểu chết: tiến trình biến mất (up = 0) và tiến trình
-	// còn sống nhưng vòng lặp treo (nhịp tim cũ dần).
+	// Nay nhịp tim do một ticker RIÊNG đặt, không phụ thuộc job nào. Nó
+	// trả lời đúng một câu: bộ điều phối còn sống không. Tiến triển của
+	// từng job hỏi `WorkerJobLastSuccess`.
 	//
-	// Đơn vị là GIÂY UNIX chứ không phải "số giây kể từ lần cuối": một
-	// dấu thời gian tuyệt đối vẫn đúng khi Prometheus thu thập trễ, còn
-	// một khoảng thời gian tự tính thì không.
+	// Đơn vị là GIÂY UNIX tuyệt đối chứ không phải "số giây kể từ lần
+	// cuối": dấu thời gian vẫn đúng khi Prometheus thu thập trễ, còn một
+	// khoảng thời gian tự tính thì không.
 	WorkerHeartbeat = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "gouse_worker_heartbeat_timestamp_seconds",
-		Help: "Dấu thời gian Unix lần cuối worker hoàn tất một vòng chạy.",
+		Help: "Dấu thời gian Unix của nhịp bộ điều phối, độc lập với job.",
 	})
+
+	// WorkerJobLastSuccess là lần cuối MỖI job chạy xong THÀNH CÔNG.
+	//
+	// Đây là chỉ số bắt được một job treo — thứ nhịp tim toàn cục không
+	// thấy. Cảnh báo đặt riêng cho từng job vì ngưỡng khác nhau: job phát
+	// event chạy mỗi 5 giây, job tính chỉ số chạy mỗi 5 phút.
+	//
+	// Nhãn là `job_name`, KHÔNG phải `job`.
+	//
+	// `job` là nhãn DÀNH RIÊNG của Prometheus — nó gắn tên scrape job vào
+	// mọi chuỗi. Đặt trùng tên thì nhãn của ứng dụng bị đổi thành
+	// `exported_job`, và mọi biểu thức viết theo `job` sẽ khớp nhầm hoặc
+	// không khớp gì. Lỗi này chỉ lộ ra khi chạy Prometheus thật.
+	//
+	// Tên job là một tập ĐÓNG và nhỏ (5 giá trị) — không có nguy cơ bùng
+	// nổ số chuỗi thời gian.
+	WorkerJobLastSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gouse_worker_job_last_success_timestamp_seconds",
+		Help: "Dấu thời gian Unix lần cuối job chạy xong thành công.",
+	}, []string{"job_name"})
+
+	// WorkerJobRunning cho biết job có ĐANG chạy hay không (1 hoặc 0).
+	//
+	// Tồn tại để cảnh báo phân biệt được hai thứ trông giống nhau: một job
+	// TREO và một job đang chạy LÂU. Không có nó thì cảnh báo về độ tươi
+	// sẽ kêu oan mỗi khi một lượt chạy dài hơn ngưỡng — đúng dương tính
+	// giả mà thiết kế này phải tránh.
+	WorkerJobRunning = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gouse_worker_job_running",
+		Help: "1 nếu job đang chạy, 0 nếu không.",
+	}, []string{"job_name"})
 
 	// WorkerJobDuration đo thời gian mỗi job của worker.
 	//
@@ -130,13 +167,13 @@ var (
 		Name:    "gouse_worker_job_duration_seconds",
 		Help:    "Thời gian chạy một lượt của từng job nền.",
 		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 5, 15, 60},
-	}, []string{"job"})
+	}, []string{"job_name"})
 
 	// WorkerJobFailures đếm lượt chạy thất bại theo job.
 	WorkerJobFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "gouse_worker_job_failures_total",
 		Help: "Số lượt chạy thất bại của từng job nền.",
-	}, []string{"job"})
+	}, []string{"job_name"})
 
 	// HandlerFailures đếm lần xử lý event thất bại, theo bên nhận.
 	HandlerFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -167,7 +204,8 @@ func init() {
 	Registry.MustRegister(
 		HTTPDuration, HTTPInFlight,
 		OutboxPending, OutboxDeadLettered, OutboxOldestAgeSeconds,
-		WorkerHeartbeat, WorkerJobDuration, WorkerJobFailures,
+		WorkerHeartbeat, WorkerJobLastSuccess, WorkerJobRunning,
+		WorkerJobDuration, WorkerJobFailures,
 		HandlerFailures, BusinessFailures,
 
 		// Chỉ số của chính tiến trình Go: số goroutine, bộ nhớ, GC.

@@ -166,3 +166,97 @@ func datMotDon(t *testing.T, a *apiTest) {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
 }
+
+// TestDocGioKhongDungToiDatabase là bất biến MẠNH NHẤT của PH-29.
+//
+// # Vì sao kiểm ở tầng DATABASE chứ không qua response
+//
+// Response chỉ cho thấy thứ handler CHỌN trả về. Một lần `INSERT` hay
+// `UPDATE` âm thầm — cập nhật `updated_at`, ghi một dòng phụ, chạm bảng
+// khác — vẫn lọt qua mọi khẳng định về JSON.
+//
+// Bài này chụp trạng thái database TRƯỚC và SAU, rồi so từng bảng mà
+// đường đọc có thể chạm tới. Nó fail nếu ai đó lỡ đưa `Create`/`Save` trở
+// lại đường đọc trong tương lai — đúng yêu cầu của tiêu chí nghiệm thu.
+//
+// Chụp cả TỔNG `updated_at` chứ không chỉ đếm dòng: sửa một dòng có sẵn
+// không làm số dòng đổi, nhưng vẫn là ghi.
+func TestDocGioKhongDungToiDatabase(t *testing.T) {
+	a := newAPITest(t)
+
+	// Ba trạng thái khác nhau, vì mỗi trạng thái đi một nhánh code khác:
+	//
+	//  1. chưa có giỏ nào       → nhánh "không tìm thấy"
+	//  2. có giỏ với hàng       → nhánh đồng bộ giá
+	//  3. vừa đặt hàng xong     → nhánh giỏ đã chuyển thành đơn (PH-29)
+	tinhHuong := []struct {
+		ten     string
+		chuanBi func()
+	}{
+		{"chưa có giỏ", func() {}},
+		{"giỏ có hàng", func() { themMotMon(t, a) }},
+		{"vừa đặt hàng xong", func() { datMotDon(t, a) }},
+	}
+
+	// Mọi bảng mà đường đọc giỏ CÓ THỂ chạm tới, trực tiếp hoặc gián tiếp.
+	bang := []string{"cart", "cart_item", "reservation", "inventory_item"}
+
+	for _, tt := range tinhHuong {
+		t.Run(tt.ten, func(t *testing.T) {
+			tt.chuanBi()
+
+			truoc := map[string][2]any{}
+			for _, b := range bang {
+				n, s := a.anhChupBang(b)
+				truoc[b] = [2]any{n, s}
+			}
+
+			res := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
+			if res.code != http.StatusOK {
+				t.Fatalf("HTTP %d, cần 200 — %s", res.code, res.raw)
+			}
+
+			for _, b := range bang {
+				n, s := a.anhChupBang(b)
+				if n != truoc[b][0] {
+					t.Errorf("bảng %s: %v → %d dòng — đường ĐỌC đã GHI",
+						b, truoc[b][0], n)
+				}
+				if s != truoc[b][1] {
+					t.Errorf("bảng %s: tổng updated_at đổi %v → %v — đường ĐỌC đã SỬA",
+						b, truoc[b][1], s)
+				}
+			}
+		})
+	}
+}
+
+// themMotMon thêm một món vào giỏ qua HTTP, để có giỏ THẬT với hàng.
+func themMotMon(t *testing.T, a *apiTest) {
+	t.Helper()
+
+	res := a.call(http.MethodGet, "/api/v1/products?limit=1", nil, nil)
+	ds, _ := res.body["data"].([]any)
+	if len(ds) == 0 {
+		t.Skip("danh mục trống")
+	}
+	sp, _ := ds[0].(map[string]any)
+	maSP, _ := sp["id"].(string)
+
+	res = a.call(http.MethodGet, "/api/v1/products/"+maSP+"/offers", nil, nil)
+	offers, _ := res.body["data"].([]any)
+	for _, o := range offers {
+		m, _ := o.(map[string]any)
+		if ban, _ := m["is_sellable"].(bool); !ban {
+			continue
+		}
+		maOffer, _ := m["id"].(string)
+		got := a.call(http.MethodPost, "/api/v1/cart/items",
+			map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+		if got.code != http.StatusOK {
+			t.Fatalf("thêm vào giỏ: HTTP %d — %s", got.code, got.raw)
+		}
+		return
+	}
+	t.Skip("không có offer nào bán được")
+}

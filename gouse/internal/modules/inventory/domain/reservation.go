@@ -62,6 +62,13 @@ type Reservation struct {
 
 	createdAt time.Time
 	updatedAt time.Time
+
+	// version cho khóa lạc quan.
+	//
+	// Bất biến "nhả đúng MỘT lần" trước đây chỉ có kiểm tra trong bộ nhớ,
+	// và kiểm tra trong bộ nhớ thì hai giao dịch cùng đi qua được. Xem
+	// migration 000028 để biết bằng chứng vi phạm thật.
+	version int64
 }
 
 type NewReservationParams struct {
@@ -122,6 +129,7 @@ type RestoreReservationParams struct {
 	Extensions      int
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	Version         int64
 }
 
 // RestoreReservation dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
@@ -136,8 +144,12 @@ func RestoreReservation(p RestoreReservationParams) *Reservation {
 		extensions:      p.Extensions,
 		createdAt:       p.CreatedAt,
 		updatedAt:       p.UpdatedAt,
+		version:         p.Version,
 	}
 }
+
+// Version là phiên bản dùng cho khóa lạc quan.
+func (r *Reservation) Version() int64 { return r.version }
 
 func (r *Reservation) ID() ids.ID                { return r.id }
 func (r *Reservation) InventoryItemID() ids.ID   { return r.inventoryItemID }

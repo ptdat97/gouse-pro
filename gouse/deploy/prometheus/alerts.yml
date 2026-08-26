@@ -1,0 +1,184 @@
+# Luật cảnh báo cho Gouse.
+#
+# # Cách dùng
+#
+# Nạp file này vào Prometheus qua `rule_files`. Chưa có Alertmanager thì
+# các luật vẫn hiện ở tab Alerts của Prometheus — đủ để người trực nhìn,
+# chưa đủ để đánh thức ai. Dựng Alertmanager là bước riêng, có chủ ý:
+# thêm hạ tầng trước khi có người trực chỉ tạo thêm thứ để bảo trì.
+#
+# # Nguyên tắc chung của mọi luật ở đây
+#
+# KHÔNG cảnh báo chỉ dựa trên MỘT chỉ số nếu chỉ số đó có thể cũ đi vì lý
+# do lành tính. Mỗi luật dưới đây hoặc kết hợp hai tín hiệu, hoặc dùng một
+# chỉ số mà bản thân việc nó cũ đi đã là bất thường.
+
+groups:
+  - name: gouse-worker
+    rules:
+      # ---------------------------------------------------------------
+      # A. Tiến trình còn sống không?
+      # ---------------------------------------------------------------
+      - alert: WorkerDown
+        expr: up{job="gouse-worker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tiến trình worker không trả lời"
+          description: >-
+            Prometheus không thu thập được /metrics của worker trong 1 phút.
+            Không có worker thì event không được phát: đơn thực hiện không
+            được tạo, tồn kho không chuyển Reserved → Committed, và tiến
+            trình dọn có thể nhả hàng của một đơn ĐÃ THANH TOÁN.
+          runbook: docs/09-operations/observability.md
+
+      # ---------------------------------------------------------------
+      # B. Bộ điều phối còn chạy không?
+      # ---------------------------------------------------------------
+      #
+      # Tách khỏi WorkerDown: tiến trình có thể còn sống và /metrics vẫn
+      # trả lời trong khi vòng lặp điều phối đã treo. `up` không thấy được
+      # điều đó.
+      #
+      # Nhịp tim đập mỗi 5 giây và KHÔNG phụ thuộc job nào, nên cũ hơn 60
+      # giây là bất thường thật — không cần điều kiện phụ.
+      - alert: WorkerLoopStalled
+        expr: time() - gouse_worker_heartbeat_timestamp_seconds > 60
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vòng lặp điều phối của worker đã dừng"
+          description: >-
+            Nhịp tim cũ hơn 60 giây trong khi nó phải đập mỗi 5 giây. Tiến
+            trình còn trả lời nhưng bộ điều phối không chạy — kiểm tra
+            deadlock hoặc goroutine bị chặn.
+
+      # ---------------------------------------------------------------
+      # C + E. Một job cụ thể có treo không?
+      # ---------------------------------------------------------------
+      #
+      # ĐÂY là luật bắt được thứ nhịp tim toàn cục bỏ sót: job phát event
+      # treo trong khi các job khác vẫn chạy.
+      #
+      # Điều kiện thứ hai (`job_running == 0`) là chỗ tránh DƯƠNG TÍNH
+      # GIẢ: một lượt chạy dài hơn ngưỡng KHÔNG phải sự cố, nó chỉ là một
+      # lượt chạy dài. Chỉ khi job KHÔNG đang chạy mà vẫn lâu không thành
+      # công thì mới là treo.
+      - alert: WorkerJobStalled
+        expr: >-
+          (time() - gouse_worker_job_last_success_timestamp_seconds > 300)
+          and on(job_name) (gouse_worker_job_running == 0)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Job {{ $labels.job_name }} lâu không chạy xong thành công"
+          description: >-
+            Job không thành công lần nào trong 5 phút VÀ hiện không chạy.
+            Đây là treo thật, không phải một lượt chạy dài.
+
+      # Job chạy quá lâu — cảnh báo NHẸ, vì nó có thể là tải cao.
+      - alert: WorkerJobRunningTooLong
+        expr: gouse_worker_job_running == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job {{ $labels.job_name }} đã chạy hơn 10 phút"
+          description: >-
+            Một lượt chạy kéo dài bất thường. Chưa chắc hỏng, nhưng nếu kéo
+            dài thêm thì tồn đọng sẽ tăng theo.
+
+      # ---------------------------------------------------------------
+      # D. Job có lỗi không?
+      # ---------------------------------------------------------------
+      #
+      # Dùng TỶ LỆ chứ không phải tổng: tổng chỉ tăng, nên một lỗi từ tuần
+      # trước sẽ giữ cảnh báo kêu mãi.
+      - alert: WorkerJobFailing
+        expr: rate(gouse_worker_job_failures_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job {{ $labels.job_name }} đang lỗi liên tục"
+          description: >-
+            Job thất bại đều trong 5 phút. Xem log để biết lỗi cụ thể; nếu
+            là job phát event thì tồn đọng sẽ tăng ngay sau đó.
+
+  - name: gouse-outbox
+    rules:
+      # Event ĐÃ BỎ CUỘC — luôn cần người xem.
+      #
+      # Mỗi event ở đây là một việc đáng ra phải xảy ra mà đã không xảy ra.
+      - alert: OutboxDeadLettered
+        expr: gouse_outbox_dead_lettered_events > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Có event không phát được sau khi thử hết số lần"
+          description: >-
+            Xem cột last_error trong bảng event_outbox. Có sự thật nghiệp vụ
+            không tới được bên nhận.
+
+      # Event KẸT — nguy hiểm hơn tồn đọng lớn.
+      #
+      # Tồn đọng lớn mà tuổi nhỏ là đang bận. Tồn đọng nhỏ mà tuổi LỚN là
+      # có event kẹt, và nó dễ bị bỏ qua hơn hẳn.
+      - alert: OutboxOldestPendingTooOld
+        expr: gouse_outbox_oldest_pending_age_seconds > 300
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Event cũ nhất trong outbox đã chờ hơn 5 phút"
+          description: >-
+            Hàng đã bán có thể vẫn ở trạng thái đang giữ, và tiến trình dọn
+            có thể nhả hàng của một đơn đã thanh toán.
+
+      # Tồn đọng TĂNG ĐỀU — cảnh báo trên ĐỘ DỐC, không trên giá trị.
+      #
+      # Tồn đọng 500 lúc cao điểm là bình thường; tồn đọng tăng đều suốt
+      # 15 phút thì không, kể cả khi con số còn nhỏ.
+      - alert: OutboxBacklogGrowing
+        expr: deriv(gouse_outbox_pending_events[15m]) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tồn đọng outbox tăng đều"
+          description: >-
+            Bên phát đang nhanh hơn bên xử lý. Chưa hỏng, nhưng sẽ hỏng nếu
+            xu hướng giữ nguyên.
+
+  - name: gouse-api
+    rules:
+      - alert: APIHighErrorRate
+        expr: >-
+          sum(rate(gouse_http_request_duration_seconds_count{status=~"5.."}[5m]))
+          /
+          sum(rate(gouse_http_request_duration_seconds_count[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Hơn 1% request trả lỗi máy chủ"
+
+      # Thất bại NGHIỆP VỤ, tách khỏi lỗi HTTP.
+      #
+      # Hai thứ trả lời câu khác nhau: 500 nói "code hỏng", con số này nói
+      # "khách không mua được hàng" — và hệ thống có thể trả 200 cho tất cả
+      # trong khi không ai đặt được đơn.
+      - alert: CheckoutFailuresSpiking
+        expr: rate(gouse_business_failures_total{stage="checkout"}[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Thất bại ở bước thanh toán đang tăng"
+          description: >-
+            Xem nhãn `reason` để biết loại: hết hàng là chuyện thường lúc
+            cao điểm, `internal` thì không.

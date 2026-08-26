@@ -14,7 +14,8 @@ còn lại với hiểu biết đó.
 | **Metrics outbox** | ✅ tồn đọng · dead letter · tuổi event cũ nhất |
 | **Metrics nghiệp vụ** (mục 4) | 🟡 thất bại theo bước (reservation, checkout); payment và fulfillment chưa nối |
 | Distributed tracing (mục 5) | ⬜ hoãn có chủ ý — xem dưới |
-| **Nhịp tim worker** | ✅ `gouse_worker_heartbeat_timestamp_seconds` |
+| **Sức khỏe worker** | ✅ 4 chỉ số phân biệt 4 câu hỏi khác nhau — xem mục 0.1 |
+| **Luật cảnh báo** | ✅ `deploy/prometheus/alerts.yml` — 10 luật |
 | Cảnh báo (mục 7) · Dashboard (mục 8) | 🟡 chỉ số đã đủ để đặt cảnh báo, chưa dựng dashboard |
 | Nhật ký kiểm toán (`platform/audit`) | ✅ có, kèm ranh giới giao dịch |
 

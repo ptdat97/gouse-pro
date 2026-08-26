@@ -99,6 +99,12 @@ const (
 	// để không tạo truy vấn vô ích khi hệ thống rảnh.
 	dispatchEventsInterval = 5 * time.Second
 
+	// heartbeatInterval là nhịp đập của bộ điều phối.
+	//
+	// KHÔNG liên quan tới nhịp của job nào: nó chỉ chứng minh vòng lặp
+	// điều phối còn sống.
+	heartbeatInterval = 5 * time.Second
+
 	dispatchEventsBatch = 100
 
 	// outboxLagAlert là ngưỡng cảnh báo độ trễ.
@@ -568,6 +574,29 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 		}(j)
 	}
 
+	// NHỊP TIM của bộ điều phối, độc lập với mọi job.
+	//
+	// Đặt ở đây chứ không trong `runOnce` là điểm khác biệt then chốt so
+	// với bản đầu: nhịp tim gắn với lần hoàn tất job sẽ được làm mới bởi
+	// BẤT KỲ job nào, nên job quan trọng nhất có thể treo hoàn toàn mà
+	// bảng theo dõi vẫn báo khỏe. Xem chú thích ở metrics.WorkerHeartbeat.
+	//
+	// Nhịp 5 giây: đủ dày để cảnh báo 60 giây không kêu oan, đủ thưa để
+	// không tốn gì đáng kể.
+	go func() {
+		metrics.WorkerHeartbeat.SetToCurrentTime()
+		t := time.NewTicker(heartbeatInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				metrics.WorkerHeartbeat.SetToCurrentTime()
+			}
+		}
+	}()
+
 	log.Info("worker sẵn sàng", "số_job", running)
 
 	<-ctx.Done()
@@ -596,20 +625,17 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 // nối database chẳng hạn) không được làm chết tiến trình nền — lượt sau có
 // thể thành công.
 func runOnce(ctx context.Context, log *slog.Logger, j job) {
+	// ĐANG CHẠY: bật trước, tắt sau, kể cả khi job panic hay lỗi.
+	//
+	// Cảnh báo dùng cờ này để phân biệt job TREO với job đang chạy LÂU —
+	// hai thứ trông giống hệt nhau nếu chỉ nhìn "lần cuối thành công".
+	metrics.WorkerJobRunning.WithLabelValues(j.name).Set(1)
+	defer metrics.WorkerJobRunning.WithLabelValues(j.name).Set(0)
+
 	start := time.Now()
 	err := j.run(ctx)
 	metrics.WorkerJobDuration.WithLabelValues(j.name).
 		Observe(time.Since(start).Seconds())
-
-	// NHỊP TIM đập sau MỌI lượt chạy, kể cả lượt thất bại.
-	//
-	// Nhịp tim trả lời "worker còn sống không", không phải "worker có
-	// khỏe không". Chỉ đập khi thành công sẽ trộn hai câu hỏi vào một
-	// con số: một job liên tục lỗi trông y hệt một worker đã chết, và
-	// người trực sự cố mất thời gian tìm nhầm chỗ.
-	//
-	// Tỷ lệ lỗi có chỉ số riêng: `gouse_worker_job_failures_total`.
-	metrics.WorkerHeartbeat.SetToCurrentTime()
 
 	if err != nil {
 		// Ngữ cảnh bị hủy là chuyện bình thường khi đang tắt.
@@ -620,6 +646,14 @@ func runOnce(ctx context.Context, log *slog.Logger, j job) {
 		log.Error("job thất bại", "error", err, "thời_gian", time.Since(start).String())
 		return
 	}
+
+	// LẦN CUỐI THÀNH CÔNG — chỉ đặt khi thật sự thành công.
+	//
+	// Khác nhịp tim ở chỗ này, và khác có chủ ý: nhịp tim trả lời "bộ điều
+	// phối còn sống", còn con số này trả lời "job này còn TIẾN TRIỂN". Một
+	// job lỗi liên tục vẫn có nhịp tim tươi, nhưng con số này đứng yên —
+	// và đó chính là thứ cần thấy.
+	metrics.WorkerJobLastSuccess.WithLabelValues(j.name).SetToCurrentTime()
 	log.Debug("job hoàn tất", "thời_gian", time.Since(start).String())
 }
 

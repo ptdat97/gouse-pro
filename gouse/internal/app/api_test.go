@@ -12,6 +12,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/platform/config"
+	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
@@ -39,6 +40,13 @@ type apiTest struct {
 	t       *testing.T
 	handler http.Handler
 	mods    Modules
+
+	// db cho phép test soi TRẠNG THÁI DATABASE trước/sau một request.
+	//
+	// Cần cho lớp bất biến mạnh nhất: "đường đọc KHÔNG ghi gì". Kiểm qua
+	// response chỉ thấy được thứ handler chọn trả về — một lần INSERT âm
+	// thầm vẫn lọt.
+	db *database.DB
 
 	// cookies giữ phiên giữa các request.
 	//
@@ -91,7 +99,7 @@ func newAPITest(t *testing.T) *apiTest {
 		httpserver.CORS([]string{"http://localhost:3001"}),
 		httpserver.MaxBytes(cfg.HTTP.MaxRequestBytes),
 	)
-	return &apiTest{t: t, handler: h, mods: mods, cookies: map[string]string{}}
+	return &apiTest{t: t, handler: h, mods: mods, db: db, cookies: map[string]string{}}
 }
 
 type reply struct {
@@ -188,4 +196,38 @@ func bearer(tok string) map[string]string {
 func emailMoi(prefix string) string {
 	return fmt.Sprintf("%s-%s@apitest.local", prefix,
 		ids.MustNew(ids.PrefixRequest).String()[4:14])
+}
+
+// demDong đếm số dòng khớp điều kiện.
+func (a *apiTest) demDong(bang, dieuKien string, args ...any) int {
+	a.t.Helper()
+	var n int
+	q := "SELECT count(*) FROM " + bang
+	if dieuKien != "" {
+		q += " WHERE " + dieuKien
+	}
+	if err := a.db.Pool().QueryRow(context.Background(), q, args...).Scan(&n); err != nil {
+		a.t.Fatalf("đếm %s: %v", bang, err)
+	}
+	return n
+}
+
+// anhChupBang chụp lại (số dòng, tổng updated_at) của một bảng.
+//
+// Tổng dấu thời gian bắt được cả trường hợp SỬA mà không thêm dòng — thứ
+// mà đếm dòng một mình bỏ qua.
+func (a *apiTest) anhChupBang(bang string) (int, float64) {
+	a.t.Helper()
+	var n int
+	var tong *float64
+	err := a.db.Pool().QueryRow(context.Background(),
+		"SELECT count(*), sum(extract(epoch FROM updated_at)) FROM "+bang,
+	).Scan(&n, &tong)
+	if err != nil {
+		a.t.Fatalf("chụp bảng %s: %v", bang, err)
+	}
+	if tong == nil {
+		return n, 0
+	}
+	return n, *tong
 }

@@ -1,0 +1,26 @@
+-- Khóa lạc quan cho reservation.
+--
+-- VÌ SAO CẦN: bất biến "một reservation chỉ được nhả ĐÚNG MỘT LẦN" trước
+-- đây chỉ được cưỡng chế bằng kiểm tra trong bộ nhớ ở tầng domain, còn
+-- `ReservationStore.Save` là một upsert KHÔNG ĐIỀU KIỆN. Khóa lạc quan có
+-- ở bản ghi TỒN KHO, không có ở đây.
+--
+-- Bằng chứng vi phạm thật (26/08), từ nhật ký biến động tồn kho:
+--
+--   18:04:22.826  RESERVE  1  → còn 76   ref=rsv_...GGG
+--   18:19:28.497  RELEASE  1  → còn 77   ref=rsv_...GGG
+--   18:19:28.499  RELEASE  1  → còn 78   ref=rsv_...GGG
+--
+-- Cùng một reservation, hai lượt nhả cách nhau 1,5 mili giây. Số khả dụng
+-- lên 78 — CAO HƠN 77 trước khi giữ. Đó là hàng sinh ra từ không khí: hệ
+-- thống tin mình có nhiều hàng hơn thực tế và sẽ bán phần chênh cho ai đó.
+--
+-- Hệ quả kéo theo: một reservation khác kẹt ở ACTIVE với số giữ chỗ đã bị
+-- lượt nhả thừa ăn mất, nên job dọn hạn thất bại MỌI lượt suốt nhiều giờ.
+--
+-- Cơ chế chính xác gây ra hai lượt nhả vẫn CHƯA xác định được (chỉ có một
+-- tiến trình worker chạy lúc đó). Cột này không chờ kết luận đó: bất biến
+-- quan trọng phải có lớp bảo vệ ở tầng dữ liệu, độc lập với việc đường nào
+-- gọi tới. Cùng cơ chế với inventory_item.version và fulfillment_order.version.
+ALTER TABLE reservation
+    ADD COLUMN version BIGINT NOT NULL DEFAULT 0;
