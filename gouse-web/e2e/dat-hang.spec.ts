@@ -129,20 +129,7 @@ test("khách đã đăng nhập đặt được đơn, không phải nhập lạ
   await expect(page.getByText(/FC-\d{4}-\d{2}-\d+/).first()).toBeVisible();
   await expect(page.getByText("Không tìm thấy đơn hàng")).toHaveCount(0);
 
-  // Bỏ qua MỘT lỗi đã biết, có ghi trong backlog (PH-29).
-  //
-  // `GET /api/v1/cart` trả 500 khoảng một nửa số lần chạy, ngay sau khi
-  // đặt hàng: giỏ vừa chuyển thành đơn, và `GetOrCreateCart` có tranh chấp
-  // ở đúng khoảnh khắc đó. Không ảnh hưởng đơn hàng — đơn đã tạo và hiển
-  // thị đúng — nhưng console đỏ sau mỗi lần mua thành công.
-  //
-  // Liệt kê ĐÍCH DANH thay vì nới lỏng khẳng định: bỏ hẳn dòng kiểm lỗi
-  // sẽ giấu luôn những lỗi khác chưa ai biết, còn để nguyên thì test chập
-  // chờn — và test chập chờn thì người ta chạy lại cho tới khi xanh.
-  const conLai = loi
-    .map((l) => l.mo_ta)
-    .filter((m) => !m.includes("500 GET http://localhost:8080/api/v1/cart"));
-  expect(conLai).toEqual([]);
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
 });
 
 /**
@@ -254,8 +241,5 @@ test("đơn trộn hàng của hai nhà bán tách thành hai đơn thực hiệ
     page.getByText("Đơn chưa được tách thành gói giao"),
   ).toHaveCount(0);
 
-  const conLai = loi
-    .map((l) => l.mo_ta)
-    .filter((m) => !m.includes("500 GET http://localhost:8080/api/v1/cart"));
-  expect(conLai).toEqual([]);
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
 });
