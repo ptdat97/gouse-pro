@@ -2,6 +2,15 @@
 /bin/
 *.exe
 
+# Binary build ra ở gốc repo: `go build ./cmd/x` mặc định ghi ra ./x.
+# Hai lần đã lọt vào lịch sử (taonhaban, taotaikhoan — 20MB mỗi cái).
+/taonhaban
+/taotaikhoan
+/api
+/worker
+/archcheck
+/seed
+
 # Test và độ phủ
 coverage.out
 *.test
