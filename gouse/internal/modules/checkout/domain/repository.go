@@ -50,6 +50,37 @@ type Repository interface {
 	// đang KHÓA HÀNG mà không ai dùng tới.
 	FindExpired(ctx context.Context, now time.Time, limit int) ([]*Checkout, error)
 
+	// GiuDeHoanTat giành quyền hoàn tất một phiên, bằng MỘT câu lệnh
+	// nguyên tử.
+	//
+	// # Vì sao cần
+	//
+	// `CompleteCheckout` kiểm hạn trên bản phiên ĐÃ ĐỌC TRƯỚC ĐÓ. Job dọn
+	// hạn chen vào giữa lúc đọc và lúc tạo đơn sẽ nhả toàn bộ hàng, và
+	// phiên vẫn tạo đơn cho số hàng vừa trả lại kho (PH-32).
+	//
+	// Hàm này đẩy `expires_at` lên trước một quãng ân hạn NẾU phiên còn
+	// hiệu lực. Job dọn hạn từ đó không nhặt phiên này nữa, nên nó không
+	// nhả hàng trong lúc đơn đang được tạo.
+	//
+	// Trả ErrExpired hoặc ErrInvalidStatus khi không giành được — bên gọi
+	// phải DỪNG, không được tạo đơn.
+	//
+	// Ân hạn tự hết: tiến trình chết giữa chừng thì phiên hết hạn bình
+	// thường sau đó. Không có trạng thái nào kẹt lại để ai đó phải dọn.
+	GiuDeHoanTat(ctx context.Context, id ids.ID, now time.Time, anHan time.Duration) error
+
+	// GiuDeDonHan giành quyền DỌN một phiên quá hạn, bằng MỘT câu lệnh
+	// nguyên tử.
+	//
+	// Trả về false khi phiên vừa được bên khác giành — đang hoàn tất, hoặc
+	// đã kết thúc. Bên gọi PHẢI bỏ qua phiên đó và KHÔNG nhả hàng của nó.
+	//
+	// Hai hàm giành quyền này loại trừ nhau: chúng cùng sửa một dòng bằng
+	// một câu lệnh, nên PostgreSQL xếp chúng nối đuôi, và điều kiện WHERE
+	// của bên thua không còn đúng nữa.
+	GiuDeDonHan(ctx context.Context, id ids.ID, now time.Time) (bool, error)
+
 	// CountExpiredPending đếm số phiên quá hạn chưa dọn.
 	//
 	// Chỉ báo giám sát: con số này tăng dần nghĩa là tiến trình dọn đã

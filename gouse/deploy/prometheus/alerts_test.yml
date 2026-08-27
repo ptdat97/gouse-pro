@@ -1,0 +1,134 @@
+# Bài kiểm cho quy tắc cảnh báo.
+#
+# # Vì sao `promtool check rules` là KHÔNG ĐỦ
+#
+# `check rules` chỉ nói biểu thức đúng cú pháp. Một biểu thức đúng cú pháp
+# nhưng lọc nhầm nhãn, so sai chiều, hoặc dựa vào một nhãn không ai đặt vẫn
+# "hợp lệ" — nó chạy, không bao giờ khớp dòng nào, và không bao giờ kêu.
+#
+# Đó là kiểu hỏng tệ nhất của hệ giám sát: nó không báo lỗi, nó chỉ im lặng,
+# và người ta phát hiện vào đúng lúc cần nó nhất.
+#
+# Các bài dưới nạp chuỗi số liệu thật rồi khẳng định cảnh báo có kêu, kêu
+# đúng lúc, và mang đúng nhãn để định tuyến tới người trực.
+#
+# Bài thứ tư là bài NGƯỢC: job chạy LÂU thì KHÔNG được báo là đứng. Không
+# có nó thì một quy tắc "kêu với mọi thứ" vẫn qua được mọi bài còn lại.
+#
+# Chạy: promtool test rules deploy/prometheus/alerts_test.yml
+
+rule_files:
+- alerts.yml
+evaluation_interval: 1m
+tests:
+- interval: 1m
+  input_series:
+  - series: up{job="gouse-worker", instance="localhost:9091"}
+    values: 1 1 0 0 0 0
+  alert_rule_test:
+  - eval_time: 2m
+    alertname: WorkerDown
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: WorkerDown
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: gouse-worker
+        instance: localhost:9091
+      exp_annotations:
+        summary: Tiến trình worker không trả lời
+        description: 'Prometheus không thu thập được /metrics của worker trong 1 phút. Không có worker
+          thì event không được phát: đơn thực hiện không được tạo, tồn kho không chuyển Reserved → Committed,
+          và tiến trình dọn có thể nhả hàng của một đơn ĐÃ THANH TOÁN.'
+        runbook: docs/09-operations/observability.md
+- interval: 1m
+  input_series:
+  - series: gouse_worker_heartbeat_timestamp_seconds{job="gouse-worker"}
+    values: 0+0x10
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: WorkerLoopStalled
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: gouse-worker
+      exp_annotations:
+        summary: Vòng lặp điều phối của worker đã dừng
+        description: Nhịp tim cũ hơn 60 giây trong khi nó phải đập mỗi 5 giây. Tiến trình còn trả lời
+          nhưng bộ điều phối không chạy — kiểm tra deadlock hoặc goroutine bị chặn.
+- interval: 1m
+  input_series:
+  - series: gouse_worker_job_last_success_timestamp_seconds{job="gouse-worker", job_name="dọn giữ hàng
+      quá hạn"}
+    values: 0+0x20
+  - series: gouse_worker_job_running{job="gouse-worker", job_name="dọn giữ hàng quá hạn"}
+    values: 0+0x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: WorkerJobStalled
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: gouse-worker
+        job_name: dọn giữ hàng quá hạn
+      exp_annotations:
+        summary: Job dọn giữ hàng quá hạn lâu không chạy xong thành công
+        description: Job không thành công lần nào trong 5 phút VÀ hiện không chạy. Đây là treo thật, không
+          phải một lượt chạy dài.
+- interval: 1m
+  input_series:
+  - series: gouse_worker_job_last_success_timestamp_seconds{job="gouse-worker", job_name="job chạy lâu"}
+    values: 0+0x20
+  - series: gouse_worker_job_running{job="gouse-worker", job_name="job chạy lâu"}
+    values: 1+0x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: WorkerJobStalled
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: gouse_outbox_dead_lettered_events{job="gouse-worker"}
+    values: 0 0 3 3 3
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: OutboxDeadLettered
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: gouse-worker
+      exp_annotations:
+        summary: Có event không phát được sau khi thử hết số lần
+        description: Xem cột last_error trong bảng event_outbox. Có sự thật nghiệp vụ không tới được bên
+          nhận.
+- interval: 1m
+  input_series:
+  - series: gouse_business_failures_total{job="gouse-api", stage="checkout", reason="het_hang"}
+    values: 0+10x20
+  alert_rule_test:
+  - eval_time: 16m
+    alertname: CheckoutFailuresSpiking
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: gouse-api
+        stage: checkout
+        reason: het_hang
+      exp_annotations:
+        summary: Thất bại ở bước thanh toán đang tăng
+        description: 'Xem nhãn `reason` để biết loại: hết hàng là chuyện thường lúc cao điểm, `internal`
+          thì không.'
+- interval: 1m
+  input_series:
+  - series: gouse_http_request_duration_seconds_count{job="gouse-api", status="200", path="/api/v1/products"}
+    values: 0+100x20
+  - series: gouse_http_request_duration_seconds_count{job="gouse-api", status="500", path="/api/v1/products"}
+    values: 0+5x20
+  alert_rule_test:
+  - eval_time: 16m
+    alertname: APIHighErrorRate
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+      exp_annotations:
+        summary: Hơn 1% request trả lỗi máy chủ

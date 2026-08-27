@@ -110,7 +110,7 @@ idempotency** đều có test hồi quy tự động.
 
 ---
 
-### PH-33 — Đường tiền chưa nối `[P0, phát hiện 27/08]`
+### PH-33 — Đường tiền chưa nối `[XONG 27/08]`
 
 **Không một bút toán nào tồn tại.** 76 đơn hàng, 20 đã bàn giao cho vận
 chuyển, `ledger_entry` có **0 dòng**.
@@ -153,7 +153,7 @@ phải kiểm chứng lại bằng cách phá.
 
 ---
 
-### PH-32 — Phiên thanh toán hết hạn TRONG LÚC đang hoàn tất
+### PH-32 — Phiên thanh toán hết hạn TRONG LÚC đang hoàn tất `[XONG 27/08]`
 
 **Trạng thái:** đã xác định, CHƯA sửa. Ghi nhận theo quy tắc "phát hiện
 ngoài phạm vi thì ghi lại, không tự ý triển khai".

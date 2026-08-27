@@ -249,6 +249,13 @@ type OrderPort interface {
 	PlaceOrder(ctx context.Context, in PlaceOrderInput) (PlacedOrder, error)
 }
 
+// anHanHoanTat là quãng thời gian phiên được giữ thêm trong lúc tạo đơn.
+//
+// Chọn 30 giây vì việc còn lại chỉ là hai lượt ghi database. Rộng rãi so
+// với thực tế nhưng vẫn đủ ngắn để hàng không bị khóa lâu nếu tiến trình
+// chết giữa chừng — và nó TỰ hết, không để lại trạng thái nào phải dọn.
+const anHanHoanTat = 30 * time.Second
+
 // PlaceOrderInput là dữ liệu tạo đơn.
 type PlaceOrderInput struct {
 	CustomerID ids.ID
@@ -905,6 +912,18 @@ func (s *Service) CompleteCheckout(
 		return nil, domain.ErrNoAddress
 	}
 
+	// GIÀNH QUYỀN trước khi làm bất cứ việc gì không hoàn tác được.
+	//
+	// Mọi kiểm tra ở trên chạy trên bản phiên ĐÃ ĐỌC TRƯỚC ĐÓ. Job dọn hạn
+	// chen vào giữa sẽ nhả toàn bộ hàng, và những kiểm tra ấy vẫn nói
+	// "còn hiệu lực" vì chúng nhìn vào bộ nhớ (PH-32).
+	//
+	// Câu lệnh nguyên tử này là chỗ DUY NHẤT trạng thái thật được hỏi tới.
+	// Thua thì dừng ở đây — chưa có đơn hàng nào được tạo.
+	if err := s.checkouts.GiuDeHoanTat(ctx, id, now, anHanHoanTat); err != nil {
+		return nil, err
+	}
+
 	lines := make([]PlaceOrderLine, 0, len(c.Lines()))
 	for _, l := range c.Lines() {
 		// Quy tắc 1: không giữ được hàng thì không vào đơn.
@@ -1044,6 +1063,23 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 
 	var done int
 	for _, c := range stale {
+		// GIÀNH QUYỀN trước khi nhả hàng.
+		//
+		// Danh sách trên đọc xong là cũ ngay. Một phiên trong đó có thể
+		// đang được khách hoàn tất ngay lúc này; nhả hàng của nó nghĩa là
+		// đơn hàng vừa tạo mất chỗ dựa (PH-32).
+		//
+		// Câu lệnh nguyên tử này và GiuDeHoanTat cùng sửa một dòng, nên
+		// chúng loại trừ nhau: chỉ một bên thắng.
+		duoc, err := s.checkouts.GiuDeDonHan(ctx, c.ID(), now)
+		if err != nil {
+			return done, err
+		}
+		if !duoc {
+			// Bên khác vừa giành — đang hoàn tất, hoặc đã kết thúc.
+			continue
+		}
+
 		if err := c.MarkExpired(now); err != nil {
 			continue
 		}

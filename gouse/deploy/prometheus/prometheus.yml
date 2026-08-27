@@ -1,0 +1,36 @@
+# Cấu hình thu thập chỉ số của Gouse.
+#
+# # Vì sao file này BẮT BUỘC đi cùng alerts.yml
+#
+# Các biểu thức cảnh báo lọc theo `job="gouse-api"` và `job="gouse-worker"`.
+# Nhãn `job` KHÔNG do ứng dụng phát ra — nó do chính file này đặt khi thu
+# thập. Đặt tên khác ở đây thì mọi cảnh báo liên quan im lặng vĩnh viễn:
+# biểu thức vẫn hợp lệ, vẫn chạy, và không bao giờ khớp dòng nào.
+#
+# Đó là kiểu hỏng tệ nhất của hệ giám sát — nó không báo lỗi, nó chỉ không
+# báo gì cả.
+#
+# `promtool check config deploy/prometheus/prometheus.yml` kiểm cả file này
+# lẫn alerts.yml mà nó nạp.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  # API phơi /metrics ở CÙNG cổng với API — không tách cổng riêng, vì nó
+  # đã nằm sau cùng một tầng mạng.
+  - job_name: gouse-api
+    static_configs:
+      - targets: ['localhost:8080']
+
+  # Worker phơi /metrics ở CỔNG RIÊNG (mặc định 9091, đổi bằng
+  # WORKER_METRICS_PORT). Worker không có cổng HTTP nào khác, nên nếu cổng
+  # này chết thì `up` bằng 0 — và đó là tín hiệu "worker chết" chắc chắn
+  # hơn mọi chỉ số do chính worker tự phát.
+  - job_name: gouse-worker
+    static_configs:
+      - targets: ['localhost:9091']

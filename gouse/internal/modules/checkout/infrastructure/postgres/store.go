@@ -423,3 +423,64 @@ func isUnique(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.ConstraintName == constraint
 }
+
+// GiuDeHoanTat đẩy hạn phiên lên trước một quãng ân hạn, nếu phiên còn
+// hiệu lực. Xem domain.Repository để biết vì sao cần.
+func (s *CheckoutStore) GiuDeHoanTat(
+	ctx context.Context, id ids.ID, now time.Time, anHan time.Duration,
+) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE checkout
+		   SET expires_at = GREATEST(expires_at, $2::timestamptz + $3::interval),
+		       updated_at = $2
+		 WHERE id = $1
+		   AND status IN ('STARTED','PENDING_PAYMENT')
+		   AND expires_at > $2`,
+		id.String(), now, anHan.String())
+	if err != nil {
+		return fmt.Errorf("checkout: giữ phiên để hoàn tất: %w", err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+
+	// Không giành được. Đọc lại để nói ĐÚNG lý do: "hết hạn" và "đã kết
+	// thúc" dẫn tới hai hành động khác nhau ở phía khách.
+	var status string
+	var expiresAt time.Time
+	err = s.pool.QueryRow(ctx,
+		`SELECT status, expires_at FROM checkout WHERE id = $1`, id.String()).
+		Scan(&status, &expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("checkout: đọc lại phiên: %w", err)
+	}
+	// PHÂN BIỆT hai lý do: khách hết hạn phiên cần mở lại giỏ và làm lại,
+	// còn phiên đã hủy hay đã thành đơn thì làm lại là sai.
+	if domain.Status(status) == domain.StatusExpired {
+		return domain.ErrExpired
+	}
+	if domain.Status(status).IsFinal() {
+		return domain.ErrInvalidStatus
+	}
+	return domain.ErrExpired
+}
+
+// GiuDeDonHan đánh dấu một phiên quá hạn là EXPIRED, nếu chưa ai giành.
+func (s *CheckoutStore) GiuDeDonHan(
+	ctx context.Context, id ids.ID, now time.Time,
+) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE checkout
+		   SET status = 'EXPIRED', updated_at = $2
+		 WHERE id = $1
+		   AND status IN ('STARTED','PENDING_PAYMENT')
+		   AND expires_at <= $2`,
+		id.String(), now)
+	if err != nil {
+		return false, fmt.Errorf("checkout: giữ phiên để dọn: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
