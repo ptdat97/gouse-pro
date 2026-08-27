@@ -1,0 +1,4 @@
+.DS_Store
+
+# Cấu hình Claude Code của từng máy, không dùng chung.
+.claude/settings.local.json
