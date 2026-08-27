@@ -73,6 +73,17 @@ giao dịch.** Bên trong đang giữ khóa dòng.
 Đã dùng cho `inventory_item`, `fulfillment_order`, `reservation`. Xung đột
 ở đó là bất thường, nên trả lỗi và để bên gọi quyết định là đúng.
 
+**Khóa lạc quan phải đặt trên MỌI thực thể mà bất biến chạm tới, không chỉ
+thực thể bị ghi nhiều nhất.** Đây là bài học của PH-31, và nó đắt:
+
+`inventory_item` có cột `version` từ đầu; `reservation` thì không. Ai cũng
+tưởng thế là đủ, vì tồn kho mới là chỗ con số thay đổi. Nhưng bất biến
+"một reservation chỉ được nhả đúng một lần" nói về RESERVATION, và không
+gì cưỡng chế nó ở tầng dữ liệu.
+
+Hậu quả nhìn thấy được là hàng sinh ra từ không khí — chi tiết ở mục
+*Phụ lục: PH-31*.
+
 ### 3. Bất biến VƯỢT tổng hợp → ràng buộc UNIQUE
 
 "Một phiên thanh toán sinh tối đa một đơn" không phải bất biến của riêng
@@ -170,3 +181,89 @@ Cả ba đã được kiểm chứng bằng cách PHÁ code thật rồi xác nh
 - Bỏ `FOR UPDATE` → giỏ mất 6–8 trong 12 lượt
 - Trả `Sync` về đường sửa → giỏ mất 4–9 trong 12 lượt
 - Không ghi `source_checkout_id` → một phiên sinh 5–7 đơn
+
+
+---
+
+## Phụ lục: PH-31 — vì sao khóa lạc quan trên một bảng là không đủ
+
+Ghi lại vì cơ chế này phản trực giác, và ba lần thử tái hiện đầu tiên đều
+thất bại vì đoán sai nó.
+
+### Hiện trường
+
+Job dọn giữ hàng quá hạn thất bại MỌI lượt suốt nhiều giờ với
+`reserved có 0, cần 1`. Nhật ký biến động tồn kho:
+
+```text
+18:04:22.826  RESERVE  1  → còn 76   ref=rsv_…GGG
+18:19:28.497  RELEASE  1  → còn 77   ref=rsv_…GGG
+18:19:28.499  RELEASE  1  → còn 78   ref=rsv_…GGG
+```
+
+78 cao hơn 77 — số trước khi giữ. Hàng sinh ra từ không khí.
+
+### Chi tiết quyết định
+
+Con số **77 rồi 78**. Lượt nhả thứ hai ĐỌC ĐƯỢC kết quả của lượt thứ nhất.
+
+Nếu đây là cuộc đua kinh điển — hai bên cùng đọc một giá trị cũ rồi cùng
+ghi đè — cả hai đã cùng ghi 77, và khóa lạc quan trên `inventory_item` đã
+chặn bên thứ hai. Việc bên thứ hai thấy 77 nghĩa là nó đọc bảng tồn kho
+SAU khi bên thứ nhất commit. Phiên bản nó đọc là phiên bản mới nhất, nên
+câu `UPDATE` của nó hoàn toàn hợp lệ.
+
+Ba lần thử tái hiện đầu đều bắn nhiều lượt nhả song song và trông đợi cuộc
+đua kinh điển. Chúng không bao giờ trúng.
+
+### Cơ chế
+
+PostgreSQL chạy `READ COMMITTED`: **mỗi câu lệnh** trong một giao dịch lấy
+một ảnh chụp mới. Hai câu `SELECT` trong cùng một giao dịch có thể thấy
+hai thời điểm khác nhau của thế giới.
+
+```text
+T2: BEGIN
+T2: SELECT reservation  → ACTIVE                  (T1 chưa commit)
+T1: COMMIT                                        (item 76→77, reservation kết thúc)
+T2: kiểm IsFinal() trên bản TRONG BỘ NHỚ          → vẫn ACTIVE → cho qua
+T2: SELECT item         → 77, phiên bản mới nhất  (thấy việc của T1)
+T2: UPDATE item WHERE version = <mới nhất>        → HỢP LỆ → 78
+T2: UPDATE reservation  (upsert KHÔNG điều kiện)  → ghi đè
+T2: COMMIT
+```
+
+Khe hở rộng đúng bằng khoảng giữa hai câu `SELECT` của T2 — vài chục
+micro-giây. Nó trúng một lần trong nhiều giờ chạy thật.
+
+Điều kiện phụ khiến nó khó gặp hơn nữa: phải có reservation KHÁC còn sống
+trên cùng bản ghi tồn kho. Không có nó, `reserved` về 0 sau lượt nhả đầu
+và bất biến của chính bản ghi tồn kho chặn lượt sau bằng "không đủ hàng".
+Trên SKU đang bán thì điều kiện ấy gần như luôn đúng.
+
+### Cách dựng lại một cách xác định
+
+`releaseWith` gọi `s.clock.Now()` ĐÚNG giữa hai lần đọc, và `Clock` vốn đã
+là cổng tiêm sẵn có của module. Một đồng hồ chặn ở lần gọi đầu cho ta điều
+khiển được đúng khe ấy mà không sửa một dòng code production nào.
+
+Xem `internal/modules/inventory/nha_hai_lan_test.go`.
+
+### Kết quả
+
+`migrations/000028` thêm `reservation.version`. Bên thứ hai giữ số phiên
+bản CŨ, nên câu `UPDATE` của nó khớp 0 dòng, cả giao dịch quay lui, và lần
+thử lại đọc lại thấy trạng thái đã kết thúc.
+
+Kiểm chứng bằng cách phá — gỡ ràng buộc `WHERE reservation.version = $10`:
+
+| Bài | Khi phá |
+|-----|---------|
+| `TestNhaGiuHangHaiLan_TaiHienXacDinh` | 2 biến động RELEASE · khả dụng 6 thay vì 5 · T2 báo thành công |
+| `TestChotVaHetHanChongNhau_TaiHienXacDinh` | 1 biến động COMMIT trên reservation ĐÃ NHẢ — hàng vừa trả về kho lại bị bán |
+
+Bài thứ hai tồn tại vì `commitWith` có cùng hình dạng với `releaseWith`.
+Sửa một chỗ mà không kiểm chỗ có cùng hình dạng thì mới chỉ sửa triệu chứng.
+
+Việc quét tiếp tìm ra `CompleteCheckout` cũng mang hình dạng đó — ghi ở
+`docs/10-roadmap/backlog.md` mục **PH-32**, chưa sửa.

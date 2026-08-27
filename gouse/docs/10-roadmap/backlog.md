@@ -108,6 +108,49 @@ kịch bản:  own brand · 1 seller · nhiều seller · đơn trộn
 và mọi bất biến về **ownership, authorization, inventory, transaction,
 idempotency** đều có test hồi quy tự động.
 
+---
+
+### PH-32 — Phiên thanh toán hết hạn TRONG LÚC đang hoàn tất
+
+**Trạng thái:** đã xác định, CHƯA sửa. Ghi nhận theo quy tắc "phát hiện
+ngoài phạm vi thì ghi lại, không tự ý triển khai".
+
+**Cùng lớp lỗi với PH-31**, tìm ra khi quét những chỗ có chung hình dạng
+sau khi PH-31 được giải thích xong.
+
+Hình dạng: đọc thực thể A → kiểm bất biến TRONG BỘ NHỚ → đọc thực thể B →
+ghi cả hai. PostgreSQL chạy READ COMMITTED, nên mỗi câu lệnh lấy một ảnh
+chụp mới và hai lần đọc có thể thấy hai thời điểm khác nhau. Kiểm tra ở
+tầng ứng dụng không thay được ràng buộc ở tầng dữ liệu.
+
+`CompleteCheckout` mang đúng hình dạng đó:
+
+```text
+đọc checkout          → chưa hết hạn, chưa kết thúc
+   ExpireStale chen vào: đánh dấu EXPIRED + nhả toàn bộ reservation
+kiểm IsExpired() trên bản TRONG BỘ NHỚ   → vẫn "chưa hết hạn" → đi tiếp
+tạo đơn hàng
+```
+
+Kết quả: đơn hàng tồn tại cho số hàng vừa được trả lại kho. Bên xử lý
+`checkout.completed` sau đó chốt hàng thất bại, thử lại, rồi rơi vào hàng
+đợi chết — trong khi khách đã nhận xác nhận đặt hàng.
+
+Bảng `checkout` KHÔNG có cột `version`, và `CheckoutStore.Save` là upsert
+không điều kiện — đúng tình trạng của `reservation` trước migration
+000028.
+
+**Hướng sửa đề xuất** (theo [ADR-0013](../adr/0013-write-transaction-boundary.md)
+mục 2): thêm `checkout.version` và ràng buộc phiên bản vào `Save`. Xung
+đột ở đây HIẾM (chỉ khi job dọn hạn chen đúng vào lúc khách bấm nút), nên
+khóa lạc quan đúng hơn khóa bi quan.
+
+**Chưa làm vì:** cần một bài tái hiện xác định trước, theo đúng cách
+`internal/modules/inventory/nha_hai_lan_test.go` đã làm — chặn đúng khe
+giữa hai lần đọc bằng đồng hồ tiêm vào, thay vì bắn nhiều lượt song song
+và trông chờ may rủi. Module checkout chưa có cổng tiêm đồng hồ tương
+đương; cần kiểm xem có sẵn không trước khi thêm.
+
 ### 2.1 PH — Commerce Core Hardening
 
 | # | Việc | Trạng thái |

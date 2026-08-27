@@ -32,11 +32,17 @@ import (
 //
 // `releaseWith` đọc reservation, kiểm trạng thái TRONG BỘ NHỚ, rồi ghi.
 // Khóa lạc quan bảo vệ bản ghi TỒN KHO, không bảo vệ RESERVATION — và
-// `ReservationStore.Save` là một upsert KHÔNG ĐIỀU KIỆN.
+// `ReservationStore.Save` từng là upsert KHÔNG ĐIỀU KIỆN.
 //
-// Hai lượt nhả song song vì thế cùng đọc thấy ACTIVE, cùng đi qua kiểm
-// tra domain, và cùng ghi. Kiểm tra ở tầng ứng dụng không thay được ràng
-// buộc ở tầng dữ liệu.
+// Chi tiết quyết định nằm ở con số 77 rồi 78: lượt nhả thứ hai ĐỌC ĐƯỢC
+// kết quả của lượt thứ nhất. Nó không phải hai bên cùng đọc một giá trị
+// cũ — nếu vậy khóa lạc quan trên `inventory_item` đã chặn. Nó là hai câu
+// SELECT của CÙNG một giao dịch nhìn thấy hai thời điểm khác nhau, đúng
+// theo cách READ COMMITTED làm việc.
+//
+// Cơ chế đầy đủ và cách dựng lại nó một cách XÁC ĐỊNH nằm ở
+// nha_hai_lan_test.go. Bài đó chặn đúng khe giữa hai lần đọc bằng đồng
+// hồ tiêm vào, nên không phụ thuộc may rủi.
 //
 // Hai đường nhả CÓ THẬT chạy song song trong hệ thống: `releaseAll` khi
 // phiên thanh toán thất bại, và job dọn giữ hàng quá hạn.

@@ -18,9 +18,31 @@
 -- Hệ quả kéo theo: một reservation khác kẹt ở ACTIVE với số giữ chỗ đã bị
 -- lượt nhả thừa ăn mất, nên job dọn hạn thất bại MỌI lượt suốt nhiều giờ.
 --
--- Cơ chế chính xác gây ra hai lượt nhả vẫn CHƯA xác định được (chỉ có một
--- tiến trình worker chạy lúc đó). Cột này không chờ kết luận đó: bất biến
--- quan trọng phải có lớp bảo vệ ở tầng dữ liệu, độc lập với việc đường nào
--- gọi tới. Cùng cơ chế với inventory_item.version và fulfillment_order.version.
+-- CƠ CHẾ (xác định ngày 27/08, dựng lại được một cách xác định ở
+-- internal/modules/inventory/nha_hai_lan_test.go):
+--
+-- Chi tiết quyết định là con số 77 rồi 78 — lượt nhả thứ hai ĐỌC ĐƯỢC kết
+-- quả của lượt thứ nhất. Nếu hai bên cùng đọc một giá trị cũ thì khóa lạc
+-- quan trên inventory_item đã chặn lượt sau. Chuyện xảy ra khác:
+--
+--   T2: BEGIN
+--   T2: SELECT reservation  → ACTIVE            (T1 chưa commit)
+--   T1: COMMIT                                   (item 76→77, reservation kết thúc)
+--   T2: kiểm IsFinal() trên bản TRONG BỘ NHỚ    → vẫn ACTIVE → cho qua
+--   T2: SELECT item         → 77, phiên bản mới nhất
+--   T2: UPDATE item WHERE version = <mới nhất>  → HỢP LỆ → 78
+--   T2: COMMIT
+--
+-- PostgreSQL chạy READ COMMITTED: MỖI CÂU LỆNH lấy một ảnh chụp mới. Hai
+-- câu SELECT trong cùng một giao dịch có thể thấy hai thời điểm khác nhau
+-- của thế giới. Khe hở rộng đúng bằng khoảng giữa hai câu SELECT ấy, nên
+-- nó chỉ trúng một lần trong nhiều giờ chạy thật — và ba lần thử tái hiện
+-- bằng cách bắn nhiều lượt song song đều trượt.
+--
+-- Cột này là thứ đóng khe hở: lượt thứ hai giữ số phiên bản CŨ của
+-- reservation, nên câu UPDATE của nó khớp 0 dòng, cả giao dịch quay lui,
+-- và lần thử lại đọc lại thấy trạng thái đã kết thúc.
+--
+-- Cùng cơ chế với inventory_item.version và fulfillment_order.version.
 ALTER TABLE reservation
     ADD COLUMN version BIGINT NOT NULL DEFAULT 0;
