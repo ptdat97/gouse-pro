@@ -71,6 +71,17 @@ type AuthConfig struct {
 	// Sinh khóa: openssl rand -base64 32
 	EncryptionKey string
 
+	// WebhookSecrets là khóa HMAC của từng nhà cung cấp, theo mã nhà
+	// cung cấp viết thường.
+	//
+	// Đọc từ WEBHOOK_SECRETS dạng "ghn:bimat1,vnpay:bimat2".
+	//
+	// Nhà cung cấp KHÔNG có trong bản đồ này sẽ bị từ chối mọi webhook:
+	// mặc định phải là ĐÓNG. Một hệ thống cho qua khi chưa cấu hình khóa
+	// sẽ chạy được suốt quá trình phát triển rồi lên production với
+	// endpoint mở toang mà không ai nhận ra.
+	WebhookSecrets map[string]string
+
 	// JWTSecret là khóa ký access token. Tối thiểu 32 ký tự.
 	//
 	// Ở production BẮT BUỘC đặt qua biến môi trường. Khi phát triển, giá
@@ -252,6 +263,17 @@ func Load() (*Config, error) {
 			minJWTSecretLen, len(jwtSecret)))
 	}
 
+	biMatWebhook := map[string]string{}
+	for _, cap := range strings.Split(os.Getenv("WEBHOOK_SECRETS"), ",") {
+		ten, khoa, co := strings.Cut(strings.TrimSpace(cap), ":")
+		ten = strings.ToLower(strings.TrimSpace(ten))
+		khoa = strings.TrimSpace(khoa)
+		if !co || ten == "" || khoa == "" {
+			continue
+		}
+		biMatWebhook[ten] = khoa
+	}
+
 	encKey := os.Getenv("ENCRYPTION_KEY")
 	if encKey == "" && env.IsProduction() {
 		collect(errors.New(
@@ -283,8 +305,9 @@ func Load() (*Config, error) {
 		Log:     LogConfig{Level: logLevel, Format: logFormat},
 		Modules: ModulesConfig{Storage: storage},
 		Auth: AuthConfig{
-			JWTSecret:     jwtSecret,
-			EncryptionKey: encKey,
+			JWTSecret:      jwtSecret,
+			EncryptionKey:  encKey,
+			WebhookSecrets: biMatWebhook,
 			// Bật ở mọi nơi TRỪ development — localhost chạy HTTP, mà trình
 			// duyệt không gửi cookie Secure qua HTTP.
 			SecureCookie:   !env.IsDevelopment(),

@@ -67,6 +67,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/metrics"
 	"github.com/fashion-commerce/platform/internal/platform/privacy"
 	"github.com/fashion-commerce/platform/internal/platform/token"
+	"github.com/fashion-commerce/platform/internal/platform/webhook"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -667,6 +668,17 @@ func RegisterRoutes(
 			mux.Handle("GET /api/v1/seller/fulfillment-orders/{fulfillment_order_id}", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/deliver", authed)
+		}
+
+		// Webhook vận chuyển: KHÔNG có Auth, KHÔNG có Idempotency-Key.
+		//
+		// Bên gọi là hệ thống của hãng vận chuyển. Họ xác thực bằng CHỮ KÝ
+		// HMAC trên thân request, và idempotency dựa vào `event_id` của
+		// chính họ — hai thứ middleware của ta không biết cách kiểm.
+		if m.fulfillment != nil {
+			m.fulfillment.RegisterWebhookRoutes(mux,
+				&ghiSuKien{r: webhook.NewRecorder(db.Pool())},
+				biMatWebhook(cfg.Auth.WebhookSecrets), log)
 		}
 
 		// Offer và tồn kho của nhà bán — nửa còn lại của luồng 2.

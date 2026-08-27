@@ -148,6 +148,39 @@ có giá trị rỗng — `Version` của đơn mới bằng 0 — nên có thê
 
 ---
 
+### PH-36 — Webhook thanh toán CHẶN vì chưa có payment intent `[CHẶN]`
+
+Webhook **vận chuyển** đã cài xong (27/08). Webhook **thanh toán** thì
+không, và lý do đáng ghi lại.
+
+`api/paths/webhooks.yaml` quy định ba lớp bảo vệ cho webhook thanh toán:
+
+```text
+1. Xác minh chữ ký HMAC          → cài được, đã có httpserver.KiemChuKyHMAC
+2. Idempotency theo event_id     → cài được, đã có bảng webhook_event
+3. ĐỐI CHIẾU SỐ TIỀN với         → KHÔNG cài được
+   payment_intent trong hệ thống
+```
+
+Không có bảng `payment_intent`, và không có `PaymentIntent` nào trong mã
+nguồn — đã kiểm cả schema lẫn code. Module `payment` là một SỔ CÁI, không
+phải phần tích hợp cổng thanh toán.
+
+**Vì sao không cài hai lớp trước rồi bổ sung lớp ba sau:** như thế là dựng
+đúng nửa nguy hiểm. Một endpoint nhận "payment.succeeded" mà không đối
+chiếu số tiền sẽ ghi nhận doanh thu theo con số bên ngoài gửi vào. Chữ ký
+đúng chỉ chứng minh thông điệp đến từ nhà cung cấp, không chứng minh nội
+dung khớp với thứ khách đã trả — lỗi tích hợp phía họ, hoặc một khóa bị
+lộ, đều thành tiền ghi sai.
+
+**Cần trước:** mô hình `payment_intent` — tạo khi khách chọn phương thức
+trả trước, giữ số tiền đã đóng băng, và là thứ webhook đối chiếu vào. Đó
+là việc lớn hơn bản thân webhook.
+
+Hiện chỉ COD đi trọn được đường, và COD không cần webhook.
+
+---
+
 ### PH-33 — Đường tiền chưa nối `[XONG 27/08]`
 
 **Không một bút toán nào tồn tại.** 76 đơn hàng, 20 đã bàn giao cho vận

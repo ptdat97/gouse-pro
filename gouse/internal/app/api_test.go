@@ -78,6 +78,10 @@ func newAPITest(t *testing.T) *apiTest {
 			// dữ liệu mã hóa từ lượt trước không đọc lại được, và lỗi ấy
 			// trông y hệt lỗi mã hóa thật.
 			EncryptionKey: "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=",
+
+			// Một hãng vận chuyển CÓ khóa, để kiểm đường thành công; và
+			// mọi hãng khác KHÔNG có, để kiểm mặc định là đóng.
+			WebhookSecrets: map[string]string{"ghn": "bi-mat-ghn-cho-test"},
 		},
 	}
 

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -473,4 +474,88 @@ func (s *Service) CompleteDelivered(ctx context.Context, limit int) (int, error)
 		done++
 	}
 	return done, nil
+}
+
+// ---------------------------------------------- Cập nhật từ hãng vận chuyển
+
+// CapNhatTuHangVanChuyenInput là một sự kiện vận chuyển đã xác minh chữ ký.
+type CapNhatTuHangVanChuyenInput struct {
+	NhaVanChuyen string
+	MaVanDon     string
+
+	// TrangThai theo bảng của đặc tả: PICKED_UP, IN_TRANSIT,
+	// OUT_FOR_DELIVERY, DELIVERED, DELIVERY_FAILED, RETURNED_TO_SENDER.
+	TrangThai string
+
+	LyDoThatBai string
+}
+
+// ErrTrangThaiKhongDoi báo trạng thái này không kéo theo thay đổi nào.
+//
+// KHÔNG phải lỗi: hãng vận chuyển gửi nhiều mốc hơn số mốc hệ thống theo
+// dõi, và đó là chuyện bình thường. Bên gọi ghi nhật ký rồi trả 200.
+var ErrTrangThaiKhongDoi = errors.New("fulfillment: trạng thái không kéo theo thay đổi")
+
+// CapNhatTuHangVanChuyen áp một mốc vận chuyển lên đơn thực hiện.
+//
+// # Vì sao không kiểm chủ sở hữu
+//
+// Bên gọi là webhook đã xác minh CHỮ KÝ của hãng vận chuyển. Họ không biết
+// gian hàng nào, và không cần biết — mã vận đơn là thứ họ có.
+//
+// # Vì sao trạng thái đã ở đích thì trả nil, không phải lỗi
+//
+// Hãng vận chuyển gửi trùng là chuyện thường, và cả hai cơ chế — webhook
+// lẫn hỏi định kỳ — đều có thể mang cùng một mốc tới. Báo lỗi ở đây khiến
+// họ gửi lại mãi cho một việc đã xong.
+func (s *Service) CapNhatTuHangVanChuyen(
+	ctx context.Context, in CapNhatTuHangVanChuyenInput,
+) error {
+	fo, err := s.repo.FindByTracking(ctx, in.NhaVanChuyen, in.MaVanDon)
+	if err != nil {
+		return err
+	}
+
+	now := s.clock.Now()
+	var buoc func(*domain.FulfillmentOrder, time.Time) error
+
+	switch in.TrangThai {
+	case "IN_TRANSIT", "OUT_FOR_DELIVERY":
+		if fo.Status() == domain.FOInTransit {
+			return nil
+		}
+		buoc = func(f *domain.FulfillmentOrder, t time.Time) error {
+			return f.MarkInTransit(t)
+		}
+
+	case "DELIVERED":
+		if fo.Status() == domain.FODelivered {
+			return nil
+		}
+		buoc = func(f *domain.FulfillmentOrder, t time.Time) error {
+			return f.Deliver(t)
+		}
+
+	case "DELIVERY_FAILED", "RETURNED_TO_SENDER":
+		lyDo := strings.TrimSpace(in.LyDoThatBai)
+		if lyDo == "" {
+			lyDo = "hãng vận chuyển báo giao không thành công"
+		}
+		buoc = func(f *domain.FulfillmentOrder, t time.Time) error {
+			return f.MarkDeliveryFailed(lyDo, t)
+		}
+
+	default:
+		// PICKED_UP và mọi mốc khác: hệ thống không theo dõi, nhưng webhook
+		// VẪN được ghi nhật ký ở tầng trên.
+		return ErrTrangThaiKhongDoi
+	}
+
+	if err := buoc(fo, now); err != nil {
+		return err
+	}
+	if err := s.repo.Update(ctx, fo); err != nil {
+		return err
+	}
+	return s.publishProgress(ctx, fo)
 }

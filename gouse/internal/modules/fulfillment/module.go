@@ -312,6 +312,22 @@ func (m *Module) RegisterCustomerRoutes(
 // Bên gọi PHẢI bọc httpserver.Auth và RequireRole("SELLER_OWNER",
 // "SELLER_STAFF"): định danh nhà bán lấy từ token, và handler từ chối khi
 // token không gắn với nhà bán nào.
+// RegisterWebhookRoutes gắn endpoint nhận webhook của hãng vận chuyển.
+//
+// KHÔNG bọc Auth: bên gọi là hệ thống của hãng vận chuyển, xác thực bằng
+// CHỮ KÝ HMAC trên thân request chứ không bằng token.
+//
+// KHÔNG bọc RequireIdempotencyKey: nhà cung cấp không gửi header đó, và
+// idempotency ở đây dựa vào `event_id` của chính họ.
+func (m *Module) RegisterWebhookRoutes(
+	mux *http.ServeMux,
+	nhatKy fulfillmenthttp.GhiSuKien,
+	biMat fulfillmenthttp.BiMatNhaCungCap,
+	log *slog.Logger,
+) {
+	fulfillmenthttp.NewWebhookHandler(m.svc, nhatKy, biMat, log).Register(mux)
+}
+
 func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
 	fulfillmenthttp.NewSellerHandler(m.svc, log).Register(mux)
 }

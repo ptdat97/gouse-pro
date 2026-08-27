@@ -200,6 +200,37 @@ const foCols = `
 	confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
 	completed_at, created_at, updated_at, version`
 
+// FindByTracking tra đơn thực hiện theo NHÀ VẬN CHUYỂN và mã vận đơn.
+//
+// # Vì sao KHÔNG kiểm chủ sở hữu như FindByID
+//
+// Bên gọi là webhook của hãng vận chuyển, không phải một nhà bán. Họ được
+// xác thực bằng CHỮ KÝ, không bằng danh tính gian hàng — và họ không biết
+// gian hàng nào cả.
+//
+// Lọc theo cả `shipping_provider` là chủ ý: mã vận đơn chỉ duy nhất TRONG
+// PHẠM VI một hãng. Hai hãng hoàn toàn có thể cấp cùng một dãy số, và khi
+// đó webhook của hãng A sẽ cập nhật nhầm lô hàng của hãng B.
+func (s *FulfillmentStore) FindByTracking(
+	ctx context.Context, nhaVanChuyen, maVanDon string,
+) (*domain.FulfillmentOrder, error) {
+	row := s.pool.QueryRow(ctx, `SELECT`+foCols+`
+		  FROM fulfillment_order
+		 WHERE shipping_provider = $1 AND tracking_number = $2
+		 ORDER BY shipped_at DESC NULLS LAST
+		 LIMIT 1`,
+		nhaVanChuyen, maVanDon)
+
+	fo, err := scanFO(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("fulfillment: tra theo mã vận đơn: %w", err)
+	}
+	return fo, nil
+}
+
 func (s *FulfillmentStore) FindByID(
 	ctx context.Context, id, sellerID ids.ID,
 ) (*domain.FulfillmentOrder, error) {

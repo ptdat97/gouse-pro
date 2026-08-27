@@ -224,6 +224,7 @@ const (
 	StageCheckout    = "checkout"
 	StagePayment     = "payment"
 	StageFulfillment = "fulfillment"
+	StageWebhook     = "webhook"
 )
 
 // RecordFailure đếm một thất bại nghiệp vụ.
@@ -252,6 +253,16 @@ var lyDoChoPhep = map[string]bool{
 	"validation":       true,
 	"conflict":         true,
 	"internal":         true,
+
+	// Webhook: ba lý do phân biệt được ba hành động khác nhau.
+	//
+	//   chu_ky_sai              → có thể là nỗ lực giả mạo, phải bằng 0
+	//   khong_thay_ma_van_don   → dữ liệu lệch giữa ta và hãng vận chuyển
+	//   xu_ly_that_bai          → lỗi phía ta, cần thử lại
+	"chu_ky_sai":            true,
+	"khong_thay_ma_van_don": true,
+	"xu_ly_that_bai":        true,
+	"than_khong_hop_le":     true,
 }
 
 func safeReason(reason string) string {

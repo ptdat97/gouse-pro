@@ -31,6 +31,13 @@ type Repository interface {
 	// seller khác.
 	FindByID(ctx context.Context, id, sellerID ids.ID) (*FulfillmentOrder, error)
 
+	// FindByTracking tra theo nhà vận chuyển và mã vận đơn, KHÔNG kiểm
+	// chủ sở hữu.
+	//
+	// Dành cho webhook của hãng vận chuyển: họ được xác thực bằng chữ ký
+	// và không biết gian hàng nào cả.
+	FindByTracking(ctx context.Context, nhaVanChuyen, maVanDon string) (*FulfillmentOrder, error)
+
 	// ListBySeller trả danh sách việc cần xử lý của một seller.
 	//
 	// statuses rỗng nghĩa là mọi trạng thái.
