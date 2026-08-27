@@ -1,0 +1,23 @@
+-- Khóa lạc quan cho đơn hàng.
+--
+-- VÌ SAO CẦN: hai đường sửa cùng một đơn, ở HAI TIẾN TRÌNH khác nhau:
+--
+--   khách bấm Hủy      → API     → CancelOrder
+--   nhà bán bàn giao   → worker  → ApplyFulfillmentProgress
+--
+-- Cả hai đọc-sửa-ghi ở hai giao dịch rời. Ai ghi sau thắng, bản ghi của
+-- người kia biến mất — không lỗi, không cảnh báo.
+--
+-- Kiểm chứng trước khi thêm (internal/app/api_donhang_dua_test.go): dừng
+-- lượt hủy đúng giữa lúc đọc và lúc ghi, cho lượt bàn giao chạy trọn, rồi
+-- thả. Đơn đã SHIPPED bị ghi thành CANCELLED, và lệnh hủy báo THÀNH CÔNG.
+--
+-- Hàng đã rời kho mà hệ thống tin là đã hủy: tiền hoàn cho một lô hàng
+-- khách vẫn nhận được.
+--
+-- Cùng lớp lỗi với PH-31 và PH-32, tìm ra khi quét có hệ thống hình dạng
+-- FindByID + Update trên đường ghi. Chọn khóa LẠC QUAN vì xung đột ở đây
+-- hiếm — khách phải bấm hủy đúng khoảnh khắc nhà bán bàn giao — đúng quy
+-- tắc 2 của docs/adr/0013-write-transaction-boundary.md.
+ALTER TABLE "order"
+    ADD COLUMN version BIGINT NOT NULL DEFAULT 0;

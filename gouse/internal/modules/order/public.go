@@ -337,6 +337,9 @@ var (
 	ErrInvalidInput   = errInvalidInput{}
 	ErrInvalidStatus  = errInvalidStatus{}
 	ErrNotCancellable = errNotCancellable{}
+
+	// ErrConflict: đơn vừa bị bên khác sửa. Bên gọi nên đọc lại rồi thử lại.
+	ErrConflict = errConflict{}
 )
 
 type errNotFound struct{}
@@ -358,6 +361,12 @@ func (errInvalidStatus) Error() string { return "order: chuyển trạng thái k
 type errNotCancellable struct{}
 
 func (errNotCancellable) Error() string { return "order: không còn hủy được" }
+
+type errConflict struct{}
+
+func (errConflict) Error() string {
+	return "order: đơn hàng vừa được cập nhật, vui lòng tải lại và thử lại"
+}
 
 // ---------------------------------------------------------------- Tiền tố
 

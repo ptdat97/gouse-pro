@@ -375,6 +375,11 @@ func translate(err error) error {
 	case errors.Is(err, domain.ErrNotCancellable):
 		return apierror.New(apierror.CodeOrderNotCancellable,
 			"Đơn không hủy được với trạng thái hiện tại")
+	case errors.Is(err, domain.ErrVersionConflict):
+		// 409, không phải 500: đây không phải lỗi hệ thống. Đơn vừa đổi
+		// trạng thái ở đường khác — tải lại là thấy tình hình mới.
+		return apierror.New(apierror.CodeConflict,
+			"Đơn hàng vừa được cập nhật, vui lòng tải lại và thử lại")
 	default:
 		return apierror.From(err)
 	}

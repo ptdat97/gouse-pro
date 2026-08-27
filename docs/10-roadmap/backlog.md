@@ -110,6 +110,44 @@ idempotency** đều có test hồi quy tự động.
 
 ---
 
+### PH-34 — Hủy đơn ghi đè tiến độ giao hàng `[XONG 27/08]`
+
+Tìm ra khi quét CÓ HỆ THỐNG hình dạng `FindByID` + `Update` trên đường
+ghi — cùng hình dạng đã gây PH-31 và PH-32.
+
+Bảng `order` không có cột `version`, mà HAI tiến trình cùng sửa nó:
+
+```text
+khách bấm Hủy       → API     → CancelOrder
+nhà bán bàn giao    → worker  → ApplyFulfillmentProgress
+```
+
+Đọc-sửa-ghi ở hai giao dịch rời. Ai ghi sau thắng.
+
+Tái hiện xác định (`internal/app/api_donhang_dua_test.go`), dùng cổng tiêm
+đồng hồ của module order: dừng lượt hủy đúng giữa lúc đọc và lúc ghi, cho
+lượt bàn giao chạy trọn, rồi thả. Đơn **đã SHIPPED bị ghi thành
+CANCELLED**, và lệnh hủy báo THÀNH CÔNG. Hàng đã rời kho mà hệ thống tin
+là đã hủy — tiền hoàn cho một lô hàng khách vẫn nhận được.
+
+Sửa: `order.version` + ràng buộc phiên bản ở `Update` (migration 000030),
+`ErrVersionConflict` → HTTP 409. Khóa LẠC QUAN vì xung đột hiếm, đúng quy
+tắc 2 của [ADR-0013](../adr/0013-write-transaction-boundary.md).
+
+**Kéo theo — một bẫy đã sập HAI lần:** `withLines` dựng lại Order từ đầu
+sau khi nạp dòng hàng, và danh sách trường phải chép tay. Quên `Version`
+làm mọi lần chuyển trạng thái TIẾP THEO thất bại; quên `SourceCheckoutID`
+làm bất biến "một phiên một đơn" mất chỗ dựa. Trình biên dịch không nhắc,
+vì thiếu trường chỉ là giá trị rỗng hợp lệ.
+
+Đã thêm `internal/modules/order/vong_doc_ghi_test.go` so từng trường bằng
+phản chiếu, nên danh sách tự dài ra khi domain thêm trường. Ghi rõ giới
+hạn của nó ngay trong bài: phép so bằng phản chiếu KHÔNG bắt được trường
+có giá trị rỗng — `Version` của đơn mới bằng 0 — nên có thêm một khẳng
+định riêng sau một lần cập nhật.
+
+---
+
 ### PH-33 — Đường tiền chưa nối `[XONG 27/08]`
 
 **Không một bút toán nào tồn tại.** 76 đơn hàng, 20 đã bàn giao cho vận
@@ -150,6 +188,32 @@ dây chưa nối, nằm đúng chỗ quan trọng nhất.
 `internal/app/api_idempotency_test.go` hiện luôn đúng với 0 và CHƯA BAO
 GIỜ có tác dụng. Nó chỉ thành kiểm tra thật sau khi mục 1 xong — lúc đó
 phải kiểm chứng lại bằng cách phá.
+
+---
+
+### PH-35 — Nhà bán chưa tự đăng ký được `[CHẶN: cần quyết định]`
+
+`applyAsSeller` có trong đặc tả và `Module.ApplyAsSeller` chạy được, nhưng
+KHÔNG có route. Cách duy nhất tạo nhà bán hiện nay là công cụ dòng lệnh
+`cmd/taonhaban`.
+
+**Chặn ở đâu:** đặc tả bắt buộc `bank_account` (bank_code, account_number,
+account_holder) trong thân request. Domain hiện chỉ có cờ
+`bankAccountVerified`; KHÔNG có chỗ nào lưu số tài khoản — đã kiểm cả
+schema `seller` lẫn toàn bộ bảng.
+
+Không thể trả tiền cho nhà bán mà không biết tài khoản, nên đây là mảnh
+còn thiếu thật, không phải chi tiết bỏ qua được. Nhưng số tài khoản ngân
+hàng là dữ liệu tài chính nhạy cảm, và `internal/platform/privacy` hiện
+chỉ có băm địa chỉ IP — chưa có mã hóa trường.
+
+**Cần quyết định trước khi làm:** mã hóa ở tầng nào, khóa quản lý ra sao,
+ai được đọc lại. Đó là quyết định kiến trúc, nên dừng ở mức ghi nhận theo
+đúng quy tắc "phát hiện vấn đề cần thay đổi kiến trúc lớn thì báo lại".
+
+Phương án thay thế nếu muốn mở luồng sớm: tách `bank_account` khỏi bước
+nộp hồ sơ thành một endpoint riêng sau khi được duyệt — nhưng đó là sửa
+hợp đồng API, cũng cần quyết định.
 
 ---
 

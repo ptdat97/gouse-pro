@@ -36,6 +36,12 @@ var (
 	// "hai lần bấm thật trên cùng một giỏ". Bên gọi xử lý giống nhau — đọc
 	// lại đơn cũ — nhưng phân biệt để log nói đúng chuyện đã xảy ra.
 	ErrCheckoutAlreadyOrdered = errors.New("order: phiên thanh toán này đã có đơn")
+
+	// ErrVersionConflict: đơn đã bị bên khác sửa giữa lúc ta đọc và ghi.
+	//
+	// Bên gọi NÊN đọc lại rồi quyết định — thao tác vừa rồi dựa trên một
+	// bản đơn đã cũ.
+	ErrVersionConflict = errors.New("order: đơn hàng vừa bị thay đổi, hãy đọc lại")
 )
 
 // Status là trạng thái tổng hợp của đơn hàng.
@@ -118,6 +124,9 @@ type Order struct {
 	// sourceCheckoutID là phiên thanh toán sinh ra đơn. Rỗng với đơn tạo
 	// bằng đường quản trị.
 	sourceCheckoutID ids.ID
+
+	// version là khóa lạc quan. Xem migrations/000030.
+	version int64
 
 	// cancellationReason là lý do khách chọn khi tự hủy đơn.
 	//
@@ -261,6 +270,7 @@ type RestoreOrderParams struct {
 	Lines            []*Line
 	IdempotencyKey   string
 	SourceCheckoutID ids.ID
+	Version          int64
 
 	// CancellationReason rỗng với đơn chưa hủy.
 	CancellationReason string
@@ -289,6 +299,7 @@ func RestoreOrder(p RestoreOrderParams) *Order {
 		lines:              p.Lines,
 		idempotencyKey:     p.IdempotencyKey,
 		sourceCheckoutID:   p.SourceCheckoutID,
+		version:            p.Version,
 		cancellationReason: p.CancellationReason,
 		placedAt:           p.PlacedAt,
 		completedAt:        p.CompletedAt,
@@ -311,6 +322,7 @@ func (o *Order) TaxAmount() money.Money      { return o.taxAmount }
 func (o *Order) Status() Status              { return o.status }
 func (o *Order) IdempotencyKey() string      { return o.idempotencyKey }
 func (o *Order) SourceCheckoutID() ids.ID    { return o.sourceCheckoutID }
+func (o *Order) Version() int64              { return o.version }
 
 // CancellationReason là lý do khách chọn khi tự hủy. Rỗng nếu đơn chưa
 // hủy, hoặc nếu quản trị viên hủy (lý do đó nằm ở nhật ký thao tác).

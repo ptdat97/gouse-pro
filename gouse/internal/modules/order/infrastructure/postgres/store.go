@@ -191,17 +191,32 @@ func (s *OrderStore) update(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// `WHERE version = $6` là thứ biến "một đơn chỉ đi theo MỘT diễn biến"
+	// thành bất biến ở tầng dữ liệu. Thiếu nó, lượt ghi sau xóa trắng lượt
+	// trước và không ai biết — xem migrations/000030.
 	tag, err := tx.Exec(ctx, `
 		UPDATE "order"
 		   SET status = $2, completed_at = $3, cancellation_reason = $4,
-		       updated_at = $5
-		 WHERE id = $1`,
+		       updated_at = $5, version = version + 1
+		 WHERE id = $1 AND version = $6`,
 		o.ID().String(), string(o.Status()),
-		nullTime(o.CompletedAt()), o.CancellationReason(), o.UpdatedAt())
+		nullTime(o.CompletedAt()), o.CancellationReason(), o.UpdatedAt(),
+		o.Version())
 	if err != nil {
 		return fmt.Errorf("order: cập nhật đơn hàng: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
+		// Không phân biệt được "không có đơn" với "phiên bản đã cũ" bằng
+		// số dòng, nên hỏi thẳng database.
+		var co bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM "order" WHERE id = $1)`,
+			o.ID().String()).Scan(&co); err != nil {
+			return fmt.Errorf("order: kiểm tra đơn tồn tại: %w", err)
+		}
+		if co {
+			return domain.ErrVersionConflict
+		}
 		return domain.ErrNotFound
 	}
 
@@ -329,7 +344,7 @@ const orderCols = `
 	bill_district, bill_province, bill_country_code,
 	currency, shipping_fee, discount_amount, tax_amount,
 	status, idempotency_key, source_checkout_id, cancellation_reason,
-	placed_at, completed_at, created_at, updated_at`
+	placed_at, completed_at, created_at, updated_at, version`
 
 func (s *OrderStore) FindByID(ctx context.Context, id ids.ID) (*domain.Order, error) {
 	return s.findOne(ctx, `WHERE id = $1`, id.String())
@@ -555,7 +570,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		&bill.District, &bill.Province, &bill.CountryCode,
 		&currency, &shippingFee, &discount, &tax,
 		&status, &idemKey, &srcCheckout, &cancelReason,
-		&p.PlacedAt, &completedAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.PlacedAt, &completedAt, &p.CreatedAt, &p.UpdatedAt, &p.Version,
 	); err != nil {
 		return nil, err
 	}
@@ -604,8 +619,16 @@ func withLines(o *domain.Order, lines []*domain.Line) *domain.Order {
 
 		// withLines dựng lại TỪ ĐẦU nên phải chép đủ mọi trường: bỏ sót
 		// một trường ở đây làm nó biến mất im lặng sau mỗi lần đọc.
+		//
+		// ĐÃ XẢY RA HAI LẦN. Quên `Version` làm mọi lần chuyển trạng thái
+		// TIẾP THEO thất bại vì khóa lạc quan so với số 0; quên
+		// `SourceCheckoutID` làm bất biến "một phiên một đơn" mất chỗ dựa.
+		// Thêm trường mới vào Order thì phải thêm cả ở đây — trình biên
+		// dịch KHÔNG nhắc, vì thiếu trường chỉ là giá trị rỗng hợp lệ.
 		CancellationReason: o.CancellationReason(),
 		IdempotencyKey:     o.IdempotencyKey(),
+		SourceCheckoutID:   o.SourceCheckoutID(),
+		Version:            o.Version(),
 		PlacedAt:           o.PlacedAt(),
 		CompletedAt:        o.CompletedAt(),
 		CreatedAt:          o.CreatedAt(),

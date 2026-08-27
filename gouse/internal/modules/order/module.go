@@ -541,6 +541,8 @@ func translateErr(err error) error {
 		return ErrInvalidStatus
 	case errors.Is(err, domain.ErrNotCancellable):
 		return ErrNotCancellable
+	case errors.Is(err, domain.ErrVersionConflict):
+		return ErrConflict
 	case errors.Is(err, domain.ErrMissingIdempKey),
 		errors.Is(err, domain.ErrNoCustomer),
 		errors.Is(err, domain.ErrNoLines):
