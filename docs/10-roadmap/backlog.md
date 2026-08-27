@@ -110,6 +110,49 @@ idempotency** đều có test hồi quy tự động.
 
 ---
 
+### PH-33 — Đường tiền chưa nối `[P0, phát hiện 27/08]`
+
+**Không một bút toán nào tồn tại.** 76 đơn hàng, 20 đã bàn giao cho vận
+chuyển, `ledger_entry` có **0 dòng**.
+
+`docs/07-workflows/customer-purchase.md` vẽ rõ: sau `order.placed`, event
+bus gọi payment "ghi bút toán doanh thu, hoa hồng". Module payment đã dựng
+xong — `RecordOrderRevenue`, `RecordRefund`, `RecordPayout`, sổ kép, kiểm
+cân đối lúc khởi động — và đã được nối vào `internal/app`.
+
+Nhưng nó **không nghe event nào**: thư mục payment không có `handlers.go`.
+Các module đăng ký nghe `checkout.completed` là analytics, inventory,
+notification, order, supplychain. Payment không có mặt.
+
+Đếm bên gọi NGOÀI module, bằng grep trên toàn repo:
+
+```text
+RecordOrderRevenue   0
+RecordRefund         0
+RecordPayout         0
+MarkOrderPaid        0      ← đơn không bao giờ rời PENDING_PAYMENT
+MarkDelivered        0      ← fulfillment dừng vĩnh viễn ở HANDED_OVER
+```
+
+Đây KHÔNG phải lỗi logic — từng mảnh đều đúng và có test. Đây là một sợi
+dây chưa nối, nằm đúng chỗ quan trọng nhất.
+
+**Việc cần làm, theo thứ tự:**
+
+1. `handlers.go` cho payment, nghe `checkout.completed`, ghi bút toán
+   trong CÙNG giao dịch dispatcher đã mở — đúng khuôn `CommitInEventTx`
+   của inventory.
+2. Route cho `MarkDelivered`; với COD thì doanh thu ghi nhận lúc giao
+   thành công, nên hai việc này là một chuỗi.
+3. Sau đó mới tới quyết toán: bảng `settlement` chưa tồn tại.
+
+**Kéo theo:** khẳng định "tối đa 1 bút toán sổ cái" trong
+`internal/app/api_idempotency_test.go` hiện luôn đúng với 0 và CHƯA BAO
+GIỜ có tác dụng. Nó chỉ thành kiểm tra thật sau khi mục 1 xong — lúc đó
+phải kiểm chứng lại bằng cách phá.
+
+---
+
 ### PH-32 — Phiên thanh toán hết hạn TRONG LÚC đang hoàn tất
 
 **Trạng thái:** đã xác định, CHƯA sửa. Ghi nhận theo quy tắc "phát hiện
@@ -1321,9 +1364,14 @@ mã chuẩn, thay vì bắt bên gọi phân giải lần nữa.
 Luồng 7 phải làm ngay từ MVP dù chưa có dự báo hay AI — dữ liệu nhu cầu
 không tạo ngược được.
 
-**Trạng thái hiện tại:** cả 7 luồng đã chạy được ở tầng **domain/application**
-(có test, có database thật — xem [todo.md](todo.md) mục 5). Chưa luồng nào
-chạy được qua **HTTP**. Đó chính là nội dung P1.
+**Trạng thái 27/08/2026:** cả 7 luồng đã chạy được **qua HTTP**, có test
+tích hợp trên chuỗi middleware thật và E2E trình duyệt chứng minh (xem mục
+2.4b và 2.6). Luồng 7 chạy trên hệ thống thật, không chỉ trong test: 240
+tín hiệu nhu cầu trong database sinh từ hoạt động HTTP qua outbox.
+
+Câu trước ở đây — "chưa luồng nào chạy được qua HTTP" — đúng vào 15/08 và
+đã sai. Việc còn lại KHÔNG phải là làm cho luồng chạy, mà là **nối đường
+tiền**: xem PH-33 ở mục 2 (P0).
 
 ---
 
