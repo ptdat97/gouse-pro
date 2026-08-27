@@ -357,3 +357,10 @@ Ngoại lệ: giải phóng reservation quá hạn được tự động — hà
 - [../05-data/consistency.md](../05-data/consistency.md) mục 10
 - [../05-data/audit.md](../05-data/audit.md)
 - [../01-business/kpi.md](../01-business/kpi.md)
+
+---
+
+## Đo tải
+
+Xem [do-tai.md](do-tai.md) — chỉ ghi những phép đo ĐÃ chạy thật, kèm cách
+chạy lại và danh sách những gì CHƯA đo.
