@@ -181,4 +181,16 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 		m.fulfillment.RegisterCustomerRoutes(shipMux, m.order, log)
 		mux.Handle("GET /api/v1/orders/{order_id}/shipments", shopper(shipMux))
 	}
+
+	// Trả hàng, cùng lý lẽ với lô giao: đường dẫn thuộc khái niệm "đơn
+	// hàng" nhưng năng lực thuộc module returns, và nó hỏi order về quyền
+	// xem thay vì cài lại quy tắc ấy.
+	if m.returns != nil && m.order != nil {
+		retMux := http.NewServeMux()
+		m.returns.RegisterCustomerRoutes(retMux, m.order, log)
+
+		h := shopper(retMux, httpserver.RequireIdempotencyKey())
+		mux.Handle("GET /api/v1/orders/{order_id}/returns", h)
+		mux.Handle("POST /api/v1/orders/{order_id}/returns", h)
+	}
 }

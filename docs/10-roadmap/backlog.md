@@ -148,6 +148,39 @@ có giá trị rỗng — `Version` của đơn mới bằng 0 — nên có thê
 
 ---
 
+### PH-37 — Trả hàng `[XONG phần lõi 27/08]`
+
+Module `returns` (thư mục `returns` vì `return` là từ khóa Go). Xin trả →
+nhà bán duyệt/từ chối → nhận hàng → hoàn tiền, tất cả qua HTTP.
+
+**Phát hiện quan trọng khi làm:** nguy cơ HOÀN THỪA đã sẵn sàng nổ.
+
+```text
+POST /checkout/{id}/coupon   route SỐNG, đặt giảm giá ở CẤP ĐƠN
+promotion.AllocateDiscount   tồn tại, KHÔNG ai gọi
+```
+
+Comment của chính `AllocateDiscount` cảnh báo: *"Không lưu lại thì nền
+tảng hoàn nhiều hơn đã thu."* Nên một đơn có mã giảm giá sẽ có
+`discount_amount > 0` mà mọi dòng đều không mang khoản điều chỉnh — hoàn
+theo giá dòng là hoàn thừa đúng bằng phần giảm.
+
+`TinhTienHoan` vì thế TỪ CHỐI khi thấy giảm giá cấp đơn chưa phân bổ, và
+trả 409 kèm thông điệp nói thẳng để người vận hành xử lý tay.
+
+**Việc còn lại của luồng trả hàng:**
+
+| Việc | Ghi chú |
+|---|---|
+| Nối `AllocateDiscount` vào checkout | Gỡ hàng rào ở trên. Đây là việc nên làm sớm nhất |
+| Kiểm định chất lượng → Available | Hàng đang dừng ở Returned; `ProcessReturnInspection` đã có, chưa có route |
+| Giải phóng lượt dùng mã giảm giá | `promotion.ReleaseUsage` đã có, chưa nối |
+| Thu hồi điểm thưởng | Chưa có module loyalty |
+| Đảo hoa hồng creator | Chưa có module creator |
+| Phí vận chuyển chiều về | `LyDo.LoiCuaNguoiBan()` đã phân loại được ai chịu; chưa dùng |
+
+---
+
 ### PH-36 — Webhook thanh toán CHẶN vì chưa có payment intent `[CHẶN]`
 
 Webhook **vận chuyển** đã cài xong (27/08). Webhook **thanh toán** thì

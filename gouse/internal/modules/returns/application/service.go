@@ -204,11 +204,17 @@ func coDieuChinh(don DonHang) bool {
 type XinTraInput struct {
 	OrderID    ids.ID
 	CustomerID ids.ID
-	LyDo       domain.LyDo
 	GhiChu     string
 
-	// Dong là các dòng xin trả: mã dòng hàng → số lượng.
-	Dong map[ids.ID]int
+	Dong []DongXinTra
+}
+
+// DongXinTra là một dòng khách xin trả, KÈM lý do của riêng nó.
+type DongXinTra struct {
+	OrderLineID ids.ID
+	Quantity    int
+	LyDo        domain.LyDo
+	ChiTiet     string
 }
 
 // XinTra tạo một yêu cầu trả hàng.
@@ -239,7 +245,8 @@ func (s *Service) XinTra(
 
 	var dongTra []domain.Dong
 	var sellerID ids.ID
-	for lineID, qty := range in.Dong {
+	for _, xin := range in.Dong {
+		lineID, qty := xin.OrderLineID, xin.Quantity
 		d, co := theoID[lineID]
 		if !co {
 			return nil, fmt.Errorf("%w: dòng %s không thuộc đơn này",
@@ -269,12 +276,14 @@ func (s *Service) XinTra(
 			SKUID:       d.SKUID,
 			Quantity:    qty,
 			TienHoan:    tien,
+			LyDo:        xin.LyDo,
+			ChiTiet:     xin.ChiTiet,
 		})
 	}
 
 	y, err := domain.Tao(domain.TaoParams{
 		OrderID: in.OrderID, SellerID: sellerID, CustomerID: in.CustomerID,
-		LyDo: in.LyDo, GhiChu: in.GhiChu, Dong: dongTra, Now: s.clock.Now(),
+		GhiChu: in.GhiChu, Dong: dongTra, Now: s.clock.Now(),
 	})
 	if err != nil {
 		return nil, err
@@ -343,14 +352,25 @@ func (s *Service) NhanHangVaHoanTien(
 		return nil, fmt.Errorf("returns: ghi sổ hoàn tiền: %w", err)
 	}
 
-	now := s.clock.Now()
-	if err := y.DaHoanTien(now); err != nil {
+	// ĐỌC LẠI trước lượt ghi cuối.
+	//
+	// `doi` ở trên đã ghi một lần, nên phiên bản dưới database đã tăng còn
+	// bản trong bộ nhớ thì chưa. Ghi tiếp bằng bản cũ sẽ xung đột phiên
+	// bản với chính mình.
+	//
+	// Cùng cách module fulfillment làm: mỗi lượt đổi trạng thái bắt đầu
+	// bằng một lượt đọc.
+	moi, err := s.repo.TimTheoID(ctx, y.ID())
+	if err != nil {
 		return nil, err
 	}
-	if err := s.repo.Luu(ctx, y); err != nil {
+	if err := moi.DaHoanTien(s.clock.Now()); err != nil {
 		return nil, err
 	}
-	return y, nil
+	if err := s.repo.Luu(ctx, moi); err != nil {
+		return nil, err
+	}
+	return moi, nil
 }
 
 // tinhDaoHoaHong tính phần hoa hồng phải thu lại.

@@ -110,6 +110,16 @@ type Dong struct {
 	// Đóng băng chứ không tính lại lúc hoàn: giữa lúc khách xin trả và lúc
 	// hàng về kho, giá có thể đã đổi và khuyến mãi có thể đã kết thúc.
 	TienHoan money.Money
+
+	// LyDo là lý do trả CỦA DÒNG NÀY.
+	//
+	// Khách trả hai món trong một đơn vì hai lý do khác nhau là chuyện
+	// thường — cái áo chật, cái quần lỗi đường may. Mỗi lý do dẫn tới một
+	// hành động khắc phục khác nhau, nên gộp chúng lại là mất cả hai.
+	LyDo LyDo
+
+	// ChiTiet là mô tả thêm của khách cho dòng này.
+	ChiTiet string
 }
 
 // YeuCauTraHang là một yêu cầu trả hàng.
@@ -142,7 +152,6 @@ type TaoParams struct {
 	OrderID    ids.ID
 	SellerID   ids.ID
 	CustomerID ids.ID
-	LyDo       LyDo
 	GhiChu     string
 	Dong       []Dong
 	Now        time.Time
@@ -150,11 +159,13 @@ type TaoParams struct {
 
 // Tao dựng một yêu cầu trả hàng mới ở trạng thái REQUESTED.
 func Tao(p TaoParams) (*YeuCauTraHang, error) {
-	if !p.LyDo.HopLe() {
-		return nil, ErrInvalidReason
-	}
 	if len(p.Dong) == 0 {
 		return nil, ErrNoLines
+	}
+	for _, d := range p.Dong {
+		if !d.LyDo.HopLe() {
+			return nil, ErrInvalidReason
+		}
 	}
 
 	// Tổng tiền hoàn = tổng các dòng. Cộng ở đây, một chỗ duy nhất, thay
@@ -176,12 +187,14 @@ func Tao(p TaoParams) (*YeuCauTraHang, error) {
 	}
 
 	return &YeuCauTraHang{
-		id:          ids.MustNew(ids.PrefixReturnRequest),
-		orderID:     p.OrderID,
-		sellerID:    p.SellerID,
-		customerID:  p.CustomerID,
-		status:      TTYeuCau,
-		lyDo:        p.LyDo,
+		id:         ids.MustNew(ids.PrefixReturnRequest),
+		orderID:    p.OrderID,
+		sellerID:   p.SellerID,
+		customerID: p.CustomerID,
+		status:     TTYeuCau,
+		// Lý do CHÍNH là lý do của dòng đầu — chỉ để lọc nhanh danh sách.
+		// Lý do đầy đủ nằm ở từng dòng.
+		lyDo:        p.Dong[0].LyDo,
 		ghiChu:      strings.TrimSpace(p.GhiChu),
 		dong:        p.Dong,
 		tienHoan:    tong,

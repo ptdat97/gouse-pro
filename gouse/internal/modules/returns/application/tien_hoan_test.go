@@ -10,6 +10,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/returns/domain"
 )
 
+// Lý do nay nằm ở TỪNG DÒNG (đặc tả requestReturn), nên các bài dưới đây
+// chỉ kiểm phép tính tiền — phần không phụ thuộc lý do.
+
 func vnd(n int64) money.Money { return money.MustNew(n, money.VND) }
 
 func dong(niemYet, dieuChinh int64, sl int) application.DongDonHang {

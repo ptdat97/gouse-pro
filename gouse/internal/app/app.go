@@ -56,6 +56,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
+	"github.com/fashion-commerce/platform/internal/modules/returns"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
@@ -141,6 +142,7 @@ func Build(
 		cartModule        *cart.Module
 		checkoutModule    *checkout.Module
 		fulfillmentModule *fulfillment.Module
+		returnsModule     *returns.Module
 		identityModule    *identity.Module
 
 		// ownBrandSellerID cần ở bước nạp dữ liệu mẫu bên dưới: offer phải
@@ -333,6 +335,20 @@ func Build(
 		// Tách hai việc là chủ ý: request của khách không phải chờ chín
 		// bên nhận xử lý xong, và một bên nhận lỗi không làm hỏng việc
 		// đặt hàng.
+		// returns đảo ngược cả ba: đơn hàng, tồn kho, sổ cái. Thiếu bất kỳ
+		// module nào thì returns.New từ chối khởi tạo.
+		returnsModule, err = returns.New(returns.Config{
+			Storage:   "postgres",
+			DB:        db,
+			Order:     orderModule,
+			Payment:   paymentModule,
+			Inventory: inventoryModule,
+			Owner:     &sellerOwner{sellers: sellerModule},
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+
 		checkoutModule, err = checkout.New(checkout.Config{
 			Storage:     "postgres",
 			DB:          db,
@@ -492,6 +508,7 @@ func Build(
 		cart:        cartModule,
 		checkout:    checkoutModule,
 		fulfillment: fulfillmentModule,
+		returns:     returnsModule,
 		inventory:   inventoryModule,
 		audit:       auditRecorder,
 	}, nil
@@ -509,6 +526,7 @@ type Modules struct {
 	cart        *cart.Module
 	checkout    *checkout.Module
 	fulfillment *fulfillment.Module
+	returns     *returns.Module
 	inventory   *inventory.Module
 
 	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
@@ -668,6 +686,23 @@ func RegisterRoutes(
 			mux.Handle("GET /api/v1/seller/fulfillment-orders/{fulfillment_order_id}", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/deliver", authed)
+		}
+
+		// Trả hàng phía nhà bán: cùng ranh giới bảo mật với đơn thực hiện.
+		if m.returns != nil {
+			retMux := http.NewServeMux()
+			m.returns.RegisterSellerRoutes(retMux, log)
+
+			authed := httpserver.Chain(
+				retMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
+				httpserver.RequireIdempotencyKey(),
+			)
+			mux.Handle("GET /api/v1/seller/returns", authed)
+			mux.Handle("POST /api/v1/seller/returns/{return_id}/approve", authed)
+			mux.Handle("POST /api/v1/seller/returns/{return_id}/reject", authed)
+			mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", authed)
 		}
 
 		// Webhook vận chuyển: KHÔNG có Auth, KHÔNG có Idempotency-Key.

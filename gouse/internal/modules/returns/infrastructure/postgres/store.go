@@ -69,12 +69,14 @@ func (s *Store) Luu(ctx context.Context, y *domain.YeuCauTraHang) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO return_line (
 				id, return_request_id, order_line_id, sku_id,
-				quantity, line_refund, line_currency
-			) VALUES ($1,$2,$3,$4,$5,$6,$7)
+				quantity, line_refund, line_currency,
+				reason_code, reason_detail
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 			ON CONFLICT (id) DO NOTHING`,
 			d.ID.String(), y.ID().String(), d.OrderLineID.String(),
 			d.SKUID.String(), d.Quantity,
-			d.TienHoan.Amount(), string(d.TienHoan.Currency())); err != nil {
+			d.TienHoan.Amount(), string(d.TienHoan.Currency()),
+			string(d.LyDo), d.ChiTiet); err != nil {
 			return fmt.Errorf("returns: ghi dòng trả hàng: %w", err)
 		}
 	}
@@ -198,7 +200,7 @@ func (s *Store) doc(
 	// một gian hàng bận có hàng chục bản ghi.
 	lrows, err := s.pool.Query(ctx, `
 		SELECT return_request_id, id, order_line_id, sku_id,
-		       quantity, line_refund, line_currency
+		       quantity, line_refund, line_currency, reason_code, reason_detail
 		  FROM return_line WHERE return_request_id = ANY($1)
 		 ORDER BY created_at, id`, ma)
 	if err != nil {
@@ -207,10 +209,11 @@ func (s *Store) doc(
 	defer lrows.Close()
 
 	for lrows.Next() {
-		var reqID, id, lineID, skuID, tienTe string
+		var reqID, id, lineID, skuID, tienTe, lyDo, chiTiet string
 		var qty int
 		var soTien int64
-		if err := lrows.Scan(&reqID, &id, &lineID, &skuID, &qty, &soTien, &tienTe); err != nil {
+		if err := lrows.Scan(&reqID, &id, &lineID, &skuID, &qty, &soTien,
+			&tienTe, &lyDo, &chiTiet); err != nil {
 			return nil, err
 		}
 		tien, err := money.New(soTien, money.Currency(tienTe))
@@ -221,6 +224,7 @@ func (s *Store) doc(
 			p.Dong = append(p.Dong, domain.Dong{
 				ID: ids.ID(id), OrderLineID: ids.ID(lineID),
 				SKUID: ids.ID(skuID), Quantity: qty, TienHoan: tien,
+				LyDo: domain.LyDo(lyDo), ChiTiet: chiTiet,
 			})
 		}
 	}

@@ -48,6 +48,10 @@ func duongCanQuyen() []struct {
 		{http.MethodPatch, "/api/v1/seller/offers/off_01J9XABC123DEF456GHJKMNPQR"},
 		{http.MethodPost, "/api/v1/seller/fulfillment-orders/ful_01J9XABC123DEF456GHJKMNPQR/ship"},
 		{http.MethodPost, "/api/v1/seller/fulfillment-orders/ful_01J9XABC123DEF456GHJKMNPQR/deliver"},
+		{http.MethodGet, "/api/v1/seller/returns"},
+		{http.MethodPost, "/api/v1/seller/returns/ret_01J9XABC123DEF456GHJKMNPQR/approve"},
+		{http.MethodPost, "/api/v1/seller/returns/ret_01J9XABC123DEF456GHJKMNPQR/reject"},
+		{http.MethodPost, "/api/v1/seller/returns/ret_01J9XABC123DEF456GHJKMNPQR/receive"},
 		{http.MethodPut, "/api/v1/seller/inventory/sku_01J9XABC123DEF456GHJKMNPQR"},
 	}
 }
