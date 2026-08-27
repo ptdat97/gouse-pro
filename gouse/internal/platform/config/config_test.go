@@ -44,6 +44,7 @@ func TestProductionDefaultsFavorQueryability(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("AUTH_JWT_SECRET", "khoa-bi-mat-du-dai-cho-production-32-ky-tu")
+	t.Setenv("ENCRYPTION_KEY", "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -136,6 +137,7 @@ func TestSecureCookieOffOnlyInDevelopment(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("AUTH_JWT_SECRET", "khoa-bi-mat-du-dai-cho-production-32-ky-tu")
+	t.Setenv("ENCRYPTION_KEY", "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=")
 	cfg, err = config.Load()
 	if err != nil {
 		t.Fatalf("Load lỗi: %v", err)
@@ -268,5 +270,37 @@ func TestProductionKhongCoOriginMacDinh(t *testing.T) {
 	if len(cfg.Auth.AllowedOrigins) != 0 {
 		t.Errorf("production có origin mặc định %v — phải rỗng",
 			cfg.Auth.AllowedOrigins)
+	}
+}
+
+// TestThieuKhoaMaHoaOProductionLaLoiKhoiDong.
+//
+// Cùng lý lẽ với AUTH_JWT_SECRET: mặc định sai còn nguy hiểm hơn thiếu,
+// vì nó chạy được và không ai để ý. Ở đây "chạy được" nghĩa là mọi hồ sơ
+// đăng ký nhà bán bị từ chối — một lỗi chỉ lộ ra khi có người thật đi
+// đăng ký, tức là muộn.
+func TestThieuKhoaMaHoaOProductionLaLoiKhoiDong(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
+	t.Setenv("AUTH_JWT_SECRET", "khoa-bi-mat-du-dai-cho-production-32-ky-tu")
+	t.Setenv("ENCRYPTION_KEY", "")
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("thiếu ENCRYPTION_KEY ở production phải là lỗi khởi động")
+	} else if !strings.Contains(err.Error(), "ENCRYPTION_KEY") {
+		t.Errorf("lỗi không nhắc ENCRYPTION_KEY: %v", err)
+	}
+}
+
+// TestKhoaMaHoaSaiDinhDangBiTuChoi — khóa 16 byte trông "có vẻ đúng".
+func TestKhoaMaHoaSaiDinhDangBiTuChoi(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
+	t.Setenv("ENCRYPTION_KEY", "c2hvcnQta2V5LTE2Ynl0")
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("khóa sai kích thước được chấp nhận")
+	} else if !strings.Contains(err.Error(), "ENCRYPTION_KEY") {
+		t.Errorf("lỗi không nhắc ENCRYPTION_KEY: %v", err)
 	}
 }

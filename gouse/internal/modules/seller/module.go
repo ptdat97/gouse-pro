@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/types"
@@ -14,6 +15,7 @@ import (
 	sellerhttp "github.com/fashion-commerce/platform/internal/modules/seller/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
 
 // Module là cài đặt của API công khai.
@@ -33,6 +35,12 @@ type Config struct {
 
 	Clock application.Clock
 
+	// MaHoa mã hóa số tài khoản ngân hàng khi lưu.
+	//
+	// Nil thì module vẫn khởi tạo được, nhưng nhà bán KHÔNG khai được tài
+	// khoản — thà từ chối còn hơn ghi số tài khoản ở dạng rõ.
+	MaHoa *privacy.BoMaHoa
+
 	// Audit là nơi ghi nhật ký thao tác nhạy cảm.
 	//
 	// Thiếu nó thì module vẫn khởi tạo được (các use case khác không cần),
@@ -50,7 +58,7 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	deps := application.Deps{
-		Sellers: sellerpg.NewStore(cfg.DB.Pool()),
+		Sellers: sellerpg.NewStore(cfg.DB.Pool(), cfg.MaHoa),
 		Clock:   cfg.Clock,
 	}
 	if cfg.Audit != nil {
@@ -128,6 +136,12 @@ func (m *Module) ApplyAsSeller(ctx context.Context, req ApplicationRequest) (*Se
 		Email:          req.Email,
 		Phone:          req.Phone,
 		CommissionRate: rate,
+		BankAccount: domain.TaiKhoanNganHang{
+			BankCode: strings.TrimSpace(req.BankAccount.BankCode),
+			Holder:   strings.TrimSpace(req.BankAccount.AccountHolder),
+			Last4:    privacy.BonSoCuoi(req.BankAccount.AccountNumber),
+		},
+		SoTaiKhoanDayDu: strings.TrimSpace(req.BankAccount.AccountNumber),
 	})
 	if err != nil {
 		return nil, translateErr(err)
@@ -185,6 +199,31 @@ func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 // Handler công khai trả một tập trường HẸP HƠN hẳn bản quản trị — không
 // có tên pháp lý, mã số thuế, liên hệ hay tỷ lệ hoa hồng. Xem
 // interfaces/http/public.go.
+// RegisterApplyRoute gắn endpoint ĐĂNG KÝ làm nhà bán.
+//
+// Bên gọi PHẢI bọc Auth và RequireIdempotencyKey. KHÔNG bọc RequireRole:
+// người nộp hồ sơ chưa phải nhà bán.
+// LaySoTaiKhoan trả về số tài khoản ĐẦY ĐỦ của một nhà bán.
+//
+// # Chỉ đường chi trả được gọi
+//
+// Mọi màn hình hiển thị dùng bốn số cuối trong SellerView. Hàm này tồn tại
+// cho đúng một việc: chuyển tiền.
+//
+// Bên gọi có trách nhiệm ghi audit — đọc số tài khoản là truy cập dữ liệu
+// nhạy cảm, và phải đếm được ai đọc, lúc nào, vì sao.
+func (m *Module) LaySoTaiKhoan(ctx context.Context, sellerID string) (string, error) {
+	id, err := ids.Parse(sellerID, ids.PrefixSeller)
+	if err != nil {
+		return "", ErrInvalidID
+	}
+	return m.svc.LaySoTaiKhoan(ctx, id)
+}
+
+func (m *Module) RegisterApplyRoute(mux *http.ServeMux, log *slog.Logger) {
+	sellerhttp.NewPublicHandler(m.svc, log).RegisterApply(mux)
+}
+
 func (m *Module) RegisterPublicRoutes(mux *http.ServeMux, log *slog.Logger) {
 	sellerhttp.NewPublicHandler(m.svc, log).Register(mux)
 }

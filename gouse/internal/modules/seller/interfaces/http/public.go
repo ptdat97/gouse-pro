@@ -10,6 +10,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller/domain"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
 
 // PublicHandler phục vụ endpoint tra hồ sơ nhà bán cho KHÁCH.
@@ -40,6 +41,14 @@ func NewPublicHandler(svc *application.Service, log *slog.Logger) *PublicHandler
 // ai. Đây là điều kiện để trang so sánh nhà bán có nghĩa.
 func (h *PublicHandler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/sellers", http.HandlerFunc(h.listByIDs))
+}
+
+// RegisterApply gắn endpoint ĐĂNG KÝ làm nhà bán.
+//
+// Tách khỏi Register vì nó CẦN đăng nhập, còn tra hồ sơ thì không. Bên gọi
+// PHẢI bọc Auth và RequireIdempotencyKey.
+func (h *PublicHandler) RegisterApply(mux *http.ServeMux) {
+	mux.Handle("POST /api/v1/sellers", http.HandlerFunc(h.apply))
 }
 
 // maxSellerIDs chặn một lời gọi kéo cả bảng nhà bán.
@@ -148,4 +157,126 @@ func (h *PublicHandler) ok(w http.ResponseWriter, r *http.Request, body any) {
 
 func (h *PublicHandler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	apierror.Write(w, r, err, logger.RequestIDFromContext(r.Context()), h.log)
+}
+
+// ---------------------------------------------------------------- Đăng ký
+
+// applyRequest khớp `applyAsSeller` trong đặc tả.
+type applyRequest struct {
+	SellerType   string `json:"seller_type"`
+	BusinessName string `json:"business_name"`
+	TaxID        string `json:"tax_id"`
+	ContactEmail string `json:"contact_email"`
+	ContactPhone string `json:"contact_phone"`
+
+	BankAccount struct {
+		BankCode      string `json:"bank_code"`
+		AccountNumber string `json:"account_number"`
+		AccountHolder string `json:"account_holder"`
+	} `json:"bank_account"`
+}
+
+// apply nhận hồ sơ đăng ký làm nhà bán.
+//
+// # Vì sao endpoint này nằm ở nhóm storefront
+//
+// Người nộp hồ sơ CHƯA phải nhà bán — họ là một khách hàng đã đăng nhập.
+// Đặt nó sau `RequireRole("SELLER_OWNER")` thì chỉ nhà bán mới đăng ký
+// được làm nhà bán, và không ai vào được vòng.
+//
+// # Số tài khoản ngân hàng
+//
+// Đi thẳng xuống kho lưu trữ để mã hóa. KHÔNG ghi log, KHÔNG trả lại
+// trong response — response chỉ có hồ sơ công khai, và bốn số cuối là
+// thứ duy nhất của tài khoản từng đi ra ngoài.
+func (h *PublicHandler) apply(w http.ResponseWriter, r *http.Request) {
+	var req applyRequest
+	if err := decodeJSON(r, &req); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	thieu := map[string]string{
+		"seller_type":                 req.SellerType,
+		"business_name":               req.BusinessName,
+		"contact_email":               req.ContactEmail,
+		"contact_phone":               req.ContactPhone,
+		"bank_account.bank_code":      req.BankAccount.BankCode,
+		"bank_account.account_number": req.BankAccount.AccountNumber,
+		"bank_account.account_holder": req.BankAccount.AccountHolder,
+	}
+	for ten, gt := range thieu {
+		if strings.TrimSpace(gt) == "" {
+			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+				ten+" là trường bắt buộc"))
+			return
+		}
+	}
+
+	// INTERNAL là own brand của nền tảng, không ai tự đăng ký được.
+	if strings.EqualFold(req.SellerType, "INTERNAL") {
+		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+			"seller_type INTERNAL dành riêng cho gian hàng của nền tảng"))
+		return
+	}
+
+	sel, err := h.svc.Apply(r.Context(), application.ApplyInput{
+		Name:       strings.TrimSpace(req.BusinessName),
+		Slug:       taoSlug(req.BusinessName),
+		SellerType: domain.SellerType(strings.ToUpper(strings.TrimSpace(req.SellerType))),
+		LegalName:  strings.TrimSpace(req.BusinessName),
+		TaxCode:    strings.TrimSpace(req.TaxID),
+		Email:      strings.TrimSpace(req.ContactEmail),
+		Phone:      strings.TrimSpace(req.ContactPhone),
+		BankAccount: domain.TaiKhoanNganHang{
+			BankCode: strings.TrimSpace(req.BankAccount.BankCode),
+			Holder:   strings.TrimSpace(req.BankAccount.AccountHolder),
+			Last4:    privacy.BonSoCuoi(req.BankAccount.AccountNumber),
+		},
+		SoTaiKhoanDayDu: strings.TrimSpace(req.BankAccount.AccountNumber),
+	})
+	if err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+
+	// 201, không phải 200: hồ sơ vừa được TẠO. Trả về góc nhìn CÔNG KHAI
+	// — người vừa nộp không cần đọc lại thứ họ vừa gửi, và mọi trường thừa
+	// ở đây là một đường rò dữ liệu mới.
+	body := map[string]any{
+		"seller": sellerRefJSON{
+			ID:         sel.ID().String(),
+			Name:       sel.Name(),
+			IsOfficial: sel.IsInternal(),
+		},
+	}
+	if err := apierror.WriteJSON(w, http.StatusCreated, body); err != nil {
+		h.log.ErrorContext(r.Context(), "không ghi được response",
+			"error", err, "path", r.URL.Path)
+	}
+}
+
+// taoSlug dựng slug từ tên doanh nghiệp.
+//
+// Đặc tả không nhận slug từ client: để client tự đặt là mở đường cho một
+// nhà bán chiếm slug trùng thương hiệu người khác.
+func taoSlug(ten string) string {
+	var b strings.Builder
+	truocLaGach := true
+	for _, r := range strings.ToLower(strings.TrimSpace(ten)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			truocLaGach = false
+		default:
+			if !truocLaGach {
+				b.WriteByte('-')
+				truocLaGach = true
+			}
+		}
+	}
+	// Đuôi ngẫu nhiên: hai doanh nghiệp cùng tên là chuyện thường, và
+	// slug trùng làm hồ sơ thứ hai bị từ chối mà người nộp không hiểu vì sao.
+	return strings.Trim(b.String(), "-") + "-" +
+		strings.ToLower(ids.MustNew(ids.PrefixSeller).String()[26:])
 }

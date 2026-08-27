@@ -191,7 +191,7 @@ phải kiểm chứng lại bằng cách phá.
 
 ---
 
-### PH-35 — Nhà bán chưa tự đăng ký được `[CHẶN: cần quyết định]`
+### PH-35 — Nhà bán chưa tự đăng ký được `[XONG 27/08]`
 
 `applyAsSeller` có trong đặc tả và `Module.ApplyAsSeller` chạy được, nhưng
 KHÔNG có route. Cách duy nhất tạo nhà bán hiện nay là công cụ dòng lệnh
@@ -207,13 +207,18 @@ còn thiếu thật, không phải chi tiết bỏ qua được. Nhưng số tà
 hàng là dữ liệu tài chính nhạy cảm, và `internal/platform/privacy` hiện
 chỉ có băm địa chỉ IP — chưa có mã hóa trường.
 
-**Cần quyết định trước khi làm:** mã hóa ở tầng nào, khóa quản lý ra sao,
-ai được đọc lại. Đó là quyết định kiến trúc, nên dừng ở mức ghi nhận theo
-đúng quy tắc "phát hiện vấn đề cần thay đổi kiến trúc lớn thì báo lại".
+**Đã giải quyết** — xem [ADR-0014](../adr/0014-ma-hoa-truong-nhay-cam.md):
+AES-256-GCM, khóa từ `ENCRYPTION_KEY`, số đầy đủ KHÔNG nằm trong entity,
+bốn số cuối lưu riêng ở dạng rõ để hiển thị.
 
-Phương án thay thế nếu muốn mở luồng sớm: tách `bank_account` khỏi bước
-nộp hồ sơ thành một endpoint riêng sau khi được duyệt — nhưng đó là sửa
-hợp đồng API, cũng cần quyết định.
+Kèm theo, ràng buộc `seller_verified_needs_account` khiến
+`bank_account_verified` từ nay có nghĩa: nó nói về một tài khoản cụ thể.
+Trước đó dữ liệu thật có một nhà bán ACTIVE mang cờ đã-xác-minh mà không
+tài khoản nào — họ bán được hàng nhưng không nhận được tiền.
+
+**Còn phải làm:** xoay khóa, KMS, và ghi audit khi đọc số tài khoản. Ba
+việc này liệt kê trong ADR mục "CHƯA làm"; việc thứ ba PHẢI xong trước khi
+đường chi trả chạy.
 
 ---
 

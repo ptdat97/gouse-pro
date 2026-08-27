@@ -114,6 +114,14 @@ type ApplyInput struct {
 	Email          string
 	Phone          string
 	CommissionRate types.BasisPoints
+
+	// BankAccount là phần HIỂN THỊ ĐƯỢC của tài khoản nhận tiền.
+	BankAccount domain.TaiKhoanNganHang
+
+	// SoTaiKhoanDayDu chỉ đi xuống kho lưu trữ để mã hóa, không vào entity.
+	//
+	// Rỗng được với nhà bán NỘI BỘ: tiền không đi đâu cả.
+	SoTaiKhoanDayDu string
 }
 
 // Apply nộp hồ sơ đăng ký làm nhà bán.
@@ -127,12 +135,23 @@ func (s *Service) Apply(ctx context.Context, in ApplyInput) (*domain.Seller, err
 		Email:          in.Email,
 		Phone:          in.Phone,
 		CommissionRate: in.CommissionRate,
+		BankAccount:    in.BankAccount,
 		Now:            s.clock.Now(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	if err := s.sellers.Save(ctx, sel); err != nil {
+
+	// Không có số tài khoản thì ghi như thường — đúng với nhà bán nội bộ,
+	// và với hồ sơ nộp thiếu thì ràng buộc ở bước xác minh sẽ chặn.
+	if strings.TrimSpace(in.SoTaiKhoanDayDu) == "" {
+		if err := s.sellers.Save(ctx, sel); err != nil {
+			return nil, err
+		}
+		return sel, nil
+	}
+
+	if err := s.sellers.LuuKemTaiKhoan(ctx, sel, in.SoTaiKhoanDayDu); err != nil {
 		return nil, err
 	}
 	return sel, nil
@@ -353,9 +372,15 @@ func (s *Service) Terminate(ctx context.Context, id ids.ID, reason string) (*dom
 // VerifyBankAccount đánh dấu tài khoản ngân hàng đã xác minh.
 func (s *Service) VerifyBankAccount(ctx context.Context, id ids.ID) (*domain.Seller, error) {
 	return s.change(ctx, id, func(sel *domain.Seller, now time.Time) error {
-		sel.VerifyBankAccount(now)
-		return nil
+		return sel.VerifyBankAccount(now)
 	})
+}
+
+// LaySoTaiKhoan trả về số tài khoản ĐẦY ĐỦ, đã giải mã.
+//
+// Đi thẳng xuống kho lưu trữ: entity cố ý không mang số đầy đủ.
+func (s *Service) LaySoTaiKhoan(ctx context.Context, id ids.ID) (string, error) {
+	return s.sellers.LaySoTaiKhoan(ctx, id)
 }
 
 // ---------------------------------------------------------------- Đọc

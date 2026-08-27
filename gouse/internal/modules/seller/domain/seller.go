@@ -140,6 +140,7 @@ type Seller struct {
 	//
 	// Không có tài khoản đã xác minh thì không chi trả được, và seller sẽ
 	// bán hàng rồi không nhận được tiền — tranh chấp không đáng có.
+	bankAccount         TaiKhoanNganHang
 	bankAccountVerified bool
 
 	// suspensionReason lưu lý do đình chỉ để trả lời seller khi họ hỏi.
@@ -152,6 +153,37 @@ type Seller struct {
 	updatedAt time.Time
 }
 
+// TaiKhoanNganHang là tài khoản nhận tiền của nhà bán, ở dạng ENTITY THẤY
+// ĐƯỢC.
+//
+// # Vì sao KHÔNG có số tài khoản đầy đủ ở đây
+//
+// Số đầy đủ chỉ cần cho đúng MỘT việc: chuyển tiền. Mọi thứ khác — hiển
+// thị, đối chiếu tên, duyệt hồ sơ — chỉ cần bốn số cuối và tên chủ.
+//
+// Để số đầy đủ trong entity nghĩa là nó đi theo mọi lời gọi đọc nhà bán,
+// vào mọi log ai đó lỡ in cả struct, và vào mọi response ai đó lỡ trả
+// nguyên vẹn. Cắt nó ra khỏi đây là cắt luôn các đường ấy: muốn số đầy đủ
+// thì phải gọi một hàm RIÊNG, và hàm đó đếm được.
+//
+// Bản mã nằm ở database; xem SellerStore.LaySoTaiKhoan.
+type TaiKhoanNganHang struct {
+	// BankCode là mã ngân hàng, ví dụ "VCB", "TCB".
+	BankCode string
+
+	// Holder là tên chủ tài khoản. Phải KHỚP tên đăng ký — sai tên nghĩa
+	// là chuyển tiền nhầm người, rất khó thu hồi.
+	Holder string
+
+	// Last4 là bốn số cuối, để hiển thị.
+	Last4 string
+}
+
+// CoTaiKhoan cho biết nhà bán đã khai tài khoản chưa.
+func (t TaiKhoanNganHang) CoTaiKhoan() bool {
+	return strings.TrimSpace(t.BankCode) != "" && strings.TrimSpace(t.Holder) != ""
+}
+
 type NewSellerParams struct {
 	Name           string
 	Slug           string
@@ -161,7 +193,12 @@ type NewSellerParams struct {
 	Email          string
 	Phone          string
 	CommissionRate types.BasisPoints
-	Now            time.Time
+
+	// BankAccount rỗng được với nhà bán NỘI BỘ: hàng là của nền tảng và
+	// tiền không đi đâu cả.
+	BankAccount TaiKhoanNganHang
+
+	Now time.Time
 }
 
 // NewSeller tạo hồ sơ đăng ký nhà bán ở trạng thái APPLIED.
@@ -210,8 +247,13 @@ func NewSeller(p NewSellerParams) (*Seller, error) {
 		email:          strings.TrimSpace(p.Email),
 		phone:          strings.TrimSpace(p.Phone),
 		commissionRate: rate,
-		createdAt:      now,
-		updatedAt:      now,
+		bankAccount: TaiKhoanNganHang{
+			BankCode: strings.TrimSpace(p.BankAccount.BankCode),
+			Holder:   strings.TrimSpace(p.BankAccount.Holder),
+			Last4:    strings.TrimSpace(p.BankAccount.Last4),
+		},
+		createdAt: now,
+		updatedAt: now,
 	}, nil
 }
 
@@ -227,6 +269,7 @@ type RestoreSellerParams struct {
 	Email               string
 	Phone               string
 	CommissionRate      types.BasisPoints
+	BankAccount         TaiKhoanNganHang
 	BankAccountVerified bool
 	SuspensionReason    string
 	ApprovedBy          string
@@ -248,6 +291,7 @@ func RestoreSeller(p RestoreSellerParams) *Seller {
 		email:               p.Email,
 		phone:               p.Phone,
 		commissionRate:      p.CommissionRate,
+		bankAccount:         p.BankAccount,
 		bankAccountVerified: p.BankAccountVerified,
 		suspensionReason:    p.SuspensionReason,
 		approvedBy:          p.ApprovedBy,
@@ -268,6 +312,7 @@ func (s *Seller) Email() string                     { return s.email }
 func (s *Seller) Phone() string                     { return s.phone }
 func (s *Seller) CommissionRate() types.BasisPoints { return s.commissionRate }
 func (s *Seller) BankAccountVerified() bool         { return s.bankAccountVerified }
+func (s *Seller) BankAccount() TaiKhoanNganHang     { return s.bankAccount }
 func (s *Seller) SuspensionReason() string          { return s.suspensionReason }
 func (s *Seller) ApprovedBy() string                { return s.approvedBy }
 func (s *Seller) ApprovedAt() time.Time             { return s.approvedAt }
@@ -395,11 +440,21 @@ func (s *Seller) Terminate(reason string, now time.Time) error {
 
 // VerifyBankAccount đánh dấu tài khoản ngân hàng đã xác minh.
 //
-// KHÔNG lưu số tài khoản ở đây — thông tin ngân hàng thuộc bảng riêng và
-// không bao giờ được ghi log (xem internal/platform/logger).
-func (s *Seller) VerifyBankAccount(now time.Time) {
+// TỪ CHỐI khi chưa có tài khoản nào. Trước đây hàm này luôn thành công,
+// và kết quả là dữ liệu thật có nhà bán mang cờ "đã xác minh" mà không ai
+// biết nó nói về tài khoản nào — cờ ấy vô nghĩa, nhưng lại là điều kiện
+// để kích hoạt gian hàng.
+//
+// Nhà bán NỘI BỘ được miễn: tiền không đi đâu cả.
+//
+// Số tài khoản đầy đủ KHÔNG nằm trong entity — xem TaiKhoanNganHang.
+func (s *Seller) VerifyBankAccount(now time.Time) error {
+	if !s.IsInternal() && !s.bankAccount.CoTaiKhoan() {
+		return ErrNoBankAccount
+	}
 	s.bankAccountVerified = true
 	s.touch(now)
+	return nil
 }
 
 // SetCommissionRate đặt tỷ lệ hoa hồng.

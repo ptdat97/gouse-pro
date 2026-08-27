@@ -11,6 +11,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller/application"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
@@ -32,6 +33,7 @@ func newModule(t *testing.T) (*seller.Module, *database.DB) {
 		Storage: "postgres",
 		DB:      db,
 		Audit:   audit.NewRecorder(db.Pool()),
+		MaHoa:   maHoaThu(),
 	})
 	if err != nil {
 		t.Fatalf("seller.New: %v", err)
@@ -66,6 +68,11 @@ func apply(t *testing.T, m *seller.Module, slug string) *seller.SellerView {
 		SellerType:       "BUSINESS",
 		Email:            "shop@example.com",
 		CommissionRateBP: 1000, // 10%
+		BankAccount: seller.BankAccountInput{
+			BankCode:      "VCB",
+			AccountNumber: "1903" + ids.MustNew(ids.PrefixSeller).String()[20:],
+			AccountHolder: "CHU TAI KHOAN THU",
+		},
 	})
 	if err != nil {
 		t.Fatalf("ApplyAsSeller: %v", err)
@@ -168,6 +175,11 @@ func TestOwnBrandKhongChiuHoaHong(t *testing.T) {
 	v, err := m.ApplyAsSeller(ctx, seller.ApplicationRequest{
 		Name: "Own brand", Slug: "own-2",
 		SellerType: "INTERNAL", CommissionRateBP: 2000,
+		BankAccount: seller.BankAccountInput{
+			BankCode:      "VCB",
+			AccountNumber: "1903" + ids.MustNew(ids.PrefixSeller).String()[20:],
+			AccountHolder: "CHU TAI KHOAN THU",
+		},
 	})
 	if err != nil {
 		t.Fatalf("ApplyAsSeller: %v", err)
@@ -565,6 +577,11 @@ func TestSlugTrungBiChan(t *testing.T) {
 
 	_, err := m.ApplyAsSeller(ctx, seller.ApplicationRequest{
 		Name: "Khác", Slug: "trung-slug", SellerType: "BUSINESS",
+		BankAccount: seller.BankAccountInput{
+			BankCode:      "VCB",
+			AccountNumber: "1903" + ids.MustNew(ids.PrefixSeller).String()[20:],
+			AccountHolder: "CHU TAI KHOAN THU",
+		},
 	})
 	if err == nil {
 		t.Error("slug trùng phải bị chặn")
@@ -618,4 +635,16 @@ func activeSeller(t *testing.T, m *seller.Module, slug string) *seller.SellerVie
 		t.Fatalf("GetSeller: %v", err)
 	}
 	return got
+}
+
+// maHoaThu là bộ mã hóa dùng cho test, khóa CỐ ĐỊNH.
+//
+// Sinh ngẫu nhiên mỗi lần chạy sẽ khiến dữ liệu mã hóa từ lượt trước không
+// đọc lại được, và lỗi ấy trông y hệt lỗi mã hóa thật.
+func maHoaThu() *privacy.BoMaHoa {
+	bm, err := privacy.NewBoMaHoa("dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=")
+	if err != nil {
+		panic(err)
+	}
+	return bm
 }

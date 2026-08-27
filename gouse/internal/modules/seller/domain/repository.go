@@ -16,6 +16,18 @@ type TxFunc func(ctx context.Context) error
 type Repository interface {
 	Save(ctx context.Context, s *Seller) error
 
+	// LuuKemTaiKhoan ghi nhà bán VÀ số tài khoản đã mã hóa, trong MỘT
+	// giao dịch.
+	//
+	// Số đầy đủ đi thẳng từ tham số xuống kho lưu trữ, KHÔNG đi qua
+	// entity — xem TaiKhoanNganHang để biết vì sao.
+	LuuKemTaiKhoan(ctx context.Context, s *Seller, soDayDu string) error
+
+	// LaySoTaiKhoan giải mã và trả về số tài khoản ĐẦY ĐỦ.
+	//
+	// Chỗ DUY NHẤT giải mã. Chỉ đường chi trả được gọi.
+	LaySoTaiKhoan(ctx context.Context, id ids.ID) (string, error)
+
 	// SaveWithAudit ghi nhà bán VÀ chạy fn trong CÙNG một giao dịch.
 	//
 	// fn là nơi tầng application ghi vết kiểm toán. Đổi trạng thái thành

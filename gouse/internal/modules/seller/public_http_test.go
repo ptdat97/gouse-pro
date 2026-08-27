@@ -53,6 +53,11 @@ func taoNhaBan(t *testing.T, m *seller.Module, ten string) string {
 		Email:            "lienhe@" + strings.ToLower(ten) + ".example.com",
 		Phone:            "+84901234567",
 		CommissionRateBP: 1500,
+		BankAccount: seller.BankAccountInput{
+			BankCode:      "VCB",
+			AccountNumber: "1903" + ids.MustNew(ids.PrefixSeller).String()[20:],
+			AccountHolder: "CHU TAI KHOAN THU",
+		},
 	})
 	if err != nil {
 		t.Fatalf("ApplyAsSeller: %v", err)

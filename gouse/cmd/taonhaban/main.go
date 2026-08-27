@@ -131,6 +131,11 @@ func dungNhaBan(ctx context.Context, sel *seller.Module) string {
 		Email:            emailNhaBan,
 		Phone:            "+84907070707",
 		CommissionRateBP: 1200,
+		BankAccount: seller.BankAccountInput{
+			BankCode:      "VCB",
+			AccountNumber: "1903888777666",
+			AccountHolder: "CONG TY TNHH XUONG MAY BAY",
+		},
 	})
 	if err != nil {
 		panic(fmt.Sprintf("nộp hồ sơ: %v", err))

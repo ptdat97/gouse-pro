@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
 
 // Environment là môi trường chạy.
@@ -56,6 +58,19 @@ const (
 
 // AuthConfig là cấu hình xác thực.
 type AuthConfig struct {
+	// EncryptionKey là khóa mã hóa trường nhạy cảm, base64 của 32 byte.
+	//
+	// Nằm trong AuthConfig vì đây là chỗ gom BÍ MẬT, không phải vì nó
+	// liên quan tới xác thực — nó mã hóa số tài khoản ngân hàng của nhà
+	// bán, không dính gì tới token.
+	//
+	// Rỗng thì hệ thống vẫn chạy, nhưng mọi đường ghi dữ liệu nhạy cảm sẽ
+	// TỪ CHỐI — thà không nhận được tài khoản ngân hàng còn hơn lưu nó ở
+	// dạng rõ. Ở production, thiếu khóa là lỗi khởi động.
+	//
+	// Sinh khóa: openssl rand -base64 32
+	EncryptionKey string
+
 	// JWTSecret là khóa ký access token. Tối thiểu 32 ký tự.
 	//
 	// Ở production BẮT BUỘC đặt qua biến môi trường. Khi phát triển, giá
@@ -237,6 +252,20 @@ func Load() (*Config, error) {
 			minJWTSecretLen, len(jwtSecret)))
 	}
 
+	encKey := os.Getenv("ENCRYPTION_KEY")
+	if encKey == "" && env.IsProduction() {
+		collect(errors.New(
+			"ENCRYPTION_KEY bắt buộc ở môi trường production — thiếu nó thì " +
+				"không nhận được tài khoản ngân hàng của nhà bán, và mọi hồ sơ " +
+				"đăng ký sẽ bị từ chối"))
+	}
+	if encKey != "" {
+		if _, err := privacy.NewBoMaHoa(encKey); err != nil {
+			collect(fmt.Errorf("ENCRYPTION_KEY không hợp lệ: %w — "+
+				"sinh khóa mới bằng: openssl rand -base64 32", err))
+		}
+	}
+
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("cấu hình không hợp lệ:\n%w", errors.Join(errs...))
 	}
@@ -254,7 +283,8 @@ func Load() (*Config, error) {
 		Log:     LogConfig{Level: logLevel, Format: logFormat},
 		Modules: ModulesConfig{Storage: storage},
 		Auth: AuthConfig{
-			JWTSecret: jwtSecret,
+			JWTSecret:     jwtSecret,
+			EncryptionKey: encKey,
 			// Bật ở mọi nơi TRỪ development — localhost chạy HTTP, mà trình
 			// duyệt không gửi cookie Secure qua HTTP.
 			SecureCookie:   !env.IsDevelopment(),

@@ -163,6 +163,26 @@ type ApplicationRequest struct {
 
 	// CommissionRateBP theo phần vạn. Bỏ qua với seller INTERNAL.
 	CommissionRateBP int32
+
+	// BankAccount là tài khoản nhận tiền. BẮT BUỘC trừ seller INTERNAL.
+	//
+	// Không có nó thì nhà bán không được duyệt: xác minh tài khoản là
+	// điều kiện kích hoạt, và không thể xác minh thứ không tồn tại.
+	BankAccount BankAccountInput
+}
+
+// BankAccountInput là tài khoản ngân hàng khi nộp hồ sơ.
+//
+// AccountNumber được MÃ HÓA khi lưu và không bao giờ đọc lại ở đường
+// thường — chỉ bốn số cuối đi ra ngoài. Xem
+// docs/adr/0014-ma-hoa-truong-nhay-cam.md.
+type BankAccountInput struct {
+	BankCode      string
+	AccountNumber string
+
+	// AccountHolder phải KHỚP tên pháp lý đã đăng ký. Sai tên nghĩa là
+	// chuyển tiền nhầm người, rất khó thu hồi.
+	AccountHolder string
 }
 
 // ---------------------------------------------------------------- Lỗi

@@ -73,6 +73,11 @@ func newAPITest(t *testing.T) *apiTest {
 		Modules: config.ModulesConfig{Storage: "postgres"},
 		Auth: config.AuthConfig{
 			JWTSecret: "development-only-jwt-secret-do-not-use-in-production",
+
+			// Khóa CỐ ĐỊNH cho test: sinh ngẫu nhiên mỗi lần chạy sẽ khiến
+			// dữ liệu mã hóa từ lượt trước không đọc lại được, và lỗi ấy
+			// trông y hệt lỗi mã hóa thật.
+			EncryptionKey: "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=",
 		},
 	}
 

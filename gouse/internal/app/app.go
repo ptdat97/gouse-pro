@@ -65,6 +65,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 	"github.com/fashion-commerce/platform/internal/platform/metrics"
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 	"github.com/fashion-commerce/platform/internal/platform/token"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -202,10 +203,22 @@ func Build(
 		// ánh đồ thị phụ thuộc: marketplace gọi cả bốn module kia.
 		// Audit truyền vào để thao tác nhạy cảm (đình chỉ nhà bán) ghi vết
 		// trong CÙNG giao dịch với việc đổi trạng thái.
+		// Khóa mã hóa có thể rỗng khi phát triển: module vẫn khởi tạo,
+		// nhưng mọi hồ sơ đăng ký kèm tài khoản ngân hàng sẽ bị TỪ CHỐI.
+		// Thà không nhận còn hơn lưu số tài khoản ở dạng rõ.
+		var boMaHoa *privacy.BoMaHoa
+		if cfg.Auth.EncryptionKey != "" {
+			boMaHoa, err = privacy.NewBoMaHoa(cfg.Auth.EncryptionKey)
+			if err != nil {
+				return Modules{}, fmt.Errorf("app: khóa mã hóa: %w", err)
+			}
+		}
+
 		sellerModule, err = seller.New(seller.Config{
 			Storage: "postgres",
 			DB:      db,
 			Audit:   auditRecorder,
+			MaHoa:   boMaHoa,
 		})
 		if err != nil {
 			return Modules{}, err
@@ -544,6 +557,20 @@ func RegisterRoutes(
 	// không nói được đang mua của ai.
 	if sellerModule != nil {
 		sellerModule.RegisterPublicRoutes(mux, log)
+
+		// Đăng ký làm nhà bán: CẦN đăng nhập, KHÔNG cần vai trò nào.
+		//
+		// Bọc RequireRole("SELLER_OWNER") ở đây sẽ khiến chỉ nhà bán mới
+		// đăng ký được làm nhà bán, và không ai vào được vòng.
+		if identityModule != nil {
+			applyMux := http.NewServeMux()
+			sellerModule.RegisterApplyRoute(applyMux, log)
+			mux.Handle("POST /api/v1/sellers", httpserver.Chain(
+				applyMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireIdempotencyKey(),
+			))
+		}
 	}
 
 	registerShoppingRoutes(mux, log, m)

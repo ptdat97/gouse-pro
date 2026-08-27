@@ -43,6 +43,11 @@ func dungNhaBan(t *testing.T, a *apiTest, ten string) nhaBanThu {
 		Email:            ten + "@apitest.local",
 		Phone:            "+84900000000",
 		CommissionRateBP: 1000,
+		BankAccount: seller.BankAccountInput{
+			BankCode:      "VCB",
+			AccountNumber: "1903" + ids.MustNew(ids.PrefixSeller).String()[20:],
+			AccountHolder: "CONG TY " + ten,
+		},
 	})
 	if err != nil {
 		t.Fatalf("nộp hồ sơ %s: %v", ten, err)
