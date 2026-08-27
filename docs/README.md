@@ -235,7 +235,7 @@ Ba chỗ tài liệu đã được sửa cho khớp code thật, kèm lý do:
 
 ## Đặc tả OpenAPI
 
-Hợp đồng API nằm ở [`/api/openapi.yaml`](../api/README.md) — **nguồn sự thật duy nhất**, được cập nhật cùng pull request với thay đổi code.
+Hợp đồng API nằm ở [`/api/openapi.yaml`](../gouse/api/README.md) — **nguồn sự thật duy nhất**, được cập nhật cùng pull request với thay đổi code.
 
 ```text
 71 operation · 0 lỗi lint · sinh kiểu TypeScript thành công
@@ -244,7 +244,7 @@ Hợp đồng API nằm ở [`/api/openapi.yaml`](../api/README.md) — **nguồ
 
 **API-first phải trở thành API thật.** Trạng thái từng operation
 (`DESIGNED` / `IMPLEMENTED` / `TESTED` / `INTEGRATED`) ở
-[`api/README.md`](../api/README.md). Không thêm operation mới chỉ vì "sau
+[`api/README.md`](../gouse/api/README.md). Không thêm operation mới chỉ vì "sau
 này có thể cần".
 
 ## Nghiên cứu mã nguồn mở
@@ -261,6 +261,6 @@ Xem [10-roadmap/deliverables.md](10-roadmap/deliverables.md) — tổng hợp to
 |---|---|
 | [10-roadmap/backlog.md](10-roadmap/backlog.md) | **Việc CÒN PHẢI LÀM** — backlog duy nhất |
 | [10-roadmap/todo.md](10-roadmap/todo.md) | Việc ĐÃ LÀM + bằng chứng kiểm chứng |
-| [`api/README.md`](../api/README.md) | Trạng thái từng operation API |
+| [`api/README.md`](../gouse/api/README.md) | Trạng thái từng operation API |
 
 Đừng tạo backlog thứ hai. Việc mới ghi vào `backlog.md`.

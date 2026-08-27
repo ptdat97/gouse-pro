@@ -44,7 +44,7 @@ xanh nhưng KHÔNG kiểm chứng tầng kho lưu trữ. CI phải chạy nó.
 
 ## Trạng thái hiện tại
 
-Đang ở **Giai đoạn 8 — Production Hardening** theo [lộ trình triển khai](docs/10-roadmap/deliverables.md#14-thứ-tự-triển-khai-đề-xuất).
+Đang ở **Giai đoạn 8 — Production Hardening** theo [lộ trình triển khai](../docs/10-roadmap/deliverables.md#14-thứ-tự-triển-khai-đề-xuất).
 
 Commerce core đã dựng xong và có test. Phase này **không thêm tính năng** —
 nó chứng minh những gì đã có chịu được điều kiện thật: đồng thời, lỗi, thử
@@ -54,8 +54,8 @@ lại, và kẻ tấn công. Ưu tiên:
 Correctness > Consistency > Security > Reliability > Performance > Feature velocity
 ```
 
-Việc chi tiết ở [backlog mục 2](docs/10-roadmap/backlog.md); trạng thái
-từng phần kèm bằng chứng ở [todo mục 12](docs/10-roadmap/todo.md).
+Việc chi tiết ở [backlog mục 2](../docs/10-roadmap/backlog.md); trạng thái
+từng phần kèm bằng chứng ở [todo mục 12](../docs/10-roadmap/todo.md).
 
 | Thành phần | Trạng thái |
 |---|---|
@@ -138,7 +138,7 @@ make arch      # kiểm tra thủ công
 
 Trong CI, vi phạm làm **build thất bại**, không phải cảnh báo — cảnh báo sẽ bị bỏ qua và vi phạm nhỏ tích lũy tới mức không tách service được nữa.
 
-Xem [ADR-0005](docs/adr/0005-module-boundaries.md).
+Xem [ADR-0005](../docs/adr/0005-module-boundaries.md).
 
 ---
 
@@ -182,10 +182,10 @@ make api-types     # sinh kiểu TypeScript cho frontend
 
 | Bắt đầu từ | Nội dung |
 |---|---|
-| [docs/README.md](docs/README.md) | Điều hướng toàn bộ tài liệu |
-| [docs/00-overview/principles.md](docs/00-overview/principles.md) | 16 nguyên tắc kiến trúc bắt buộc |
-| [docs/10-roadmap/deliverables.md](docs/10-roadmap/deliverables.md) | Tổng hợp bàn giao, rủi ro, thứ tự triển khai |
-| [docs/adr/](docs/adr/) | 13 quyết định kiến trúc kèm lý do |
+| [docs/README.md](../docs/README.md) | Điều hướng toàn bộ tài liệu |
+| [docs/00-overview/principles.md](../docs/00-overview/principles.md) | 16 nguyên tắc kiến trúc bắt buộc |
+| [docs/10-roadmap/deliverables.md](../docs/10-roadmap/deliverables.md) | Tổng hợp bàn giao, rủi ro, thứ tự triển khai |
+| [docs/adr/](../docs/adr/) | 13 quyết định kiến trúc kèm lý do |
 
 ---
 

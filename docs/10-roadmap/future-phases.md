@@ -13,7 +13,7 @@ FUTURE — KHÔNG TRIỂN KHAI TRONG GIAI ĐOẠN NÀY
 > · `campaign` · `return` · `warehouse` · `quality` · `procurement` ·
 > `manufacturing` · `supplier`. Hai mươi thao tác thuộc các giai đoạn này
 > đã có trong OpenAPI vẫn ở mức `DESIGNED` — xem
-> [../../api/README.md](../../api/README.md).
+> [../../gouse/api/README.md](../../gouse/api/README.md).
 >
 > `supplychain` LÀ ngoại lệ đã tồn tại: nó chỉ GHI `demand_signal`, không
 > suy luận gì. Phần dự báo nhu cầu vẫn thuộc giai đoạn sau.

@@ -5,9 +5,15 @@ Nền tảng thương mại thời trang: own brand + marketplace + creator comm
 
 ```text
 gouse-pro/
-├── gouse/       ← Go backend · đặc tả OpenAPI · tài liệu kiến trúc
+├── docs/        ← tài liệu: nghiệp vụ, domain, kiến trúc, ADR, roadmap
+├── gouse/       ← Go backend · đặc tả OpenAPI
 └── gouse-web/   ← Next.js monorepo · storefront, admin, seller
 ```
+
+`docs/` nằm ở gốc chứ không nằm trong `gouse/`: phần lớn nội dung của nó —
+nghiệp vụ, mô hình domain, quy tắc kiến trúc, ADR, roadmap — nói về CẢ HAI
+phía, và `docs/08-frontend/` vốn đã mô tả `gouse-web`. Đặt trong backend
+là nói sai phạm vi của chính nó.
 
 Trước đây là hai repo rời (`ptdat97/gouse`, `ptdat97/gouse-web`). Gộp lại
 vì một lý do cụ thể: **OpenAPI là nguồn sự thật duy nhất**, và `gouse-web`
@@ -39,7 +45,7 @@ tiếng Việt. Định danh trong code theo quy ước của ngôn ngữ lập 
 
 | Đường dẫn | Nội dung |
 |---|---|
-| [gouse/docs/03-architecture/](gouse/docs/03-architecture/) | Quy tắc phụ thuộc giữa module, ranh giới tầng |
-| [gouse/docs/adr/](gouse/docs/adr/) | Quyết định kiến trúc và **lý do** |
-| [gouse/docs/10-roadmap/backlog.md](gouse/docs/10-roadmap/backlog.md) | Việc còn phải làm — backlog duy nhất |
+| [docs/03-architecture/](docs/03-architecture/) | Quy tắc phụ thuộc giữa module, ranh giới tầng |
+| [docs/adr/](docs/adr/) | Quyết định kiến trúc và **lý do** |
+| [docs/10-roadmap/backlog.md](docs/10-roadmap/backlog.md) | Việc còn phải làm — backlog duy nhất |
 | [gouse/api/openapi.yaml](gouse/api/openapi.yaml) | Hợp đồng API, nguồn sự thật |

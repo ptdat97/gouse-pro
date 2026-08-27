@@ -25,7 +25,7 @@ Next.js  →  Logic nghiệp vụ nhân bản  ✗
 
 Ngay cả phép cộng đơn giản cũng không làm ở đây — quy tắc giảm giá sẽ phức
 tạp dần, và khi đó hai nơi tính ra hai kết quả khác nhau. Xem
-[`../gouse/docs/08-frontend/frontend-architecture.md`](../gouse/docs/08-frontend/frontend-architecture.md).
+[`../docs/08-frontend/frontend-architecture.md`](../docs/08-frontend/frontend-architecture.md).
 
 ## Cấu trúc
 
@@ -42,7 +42,7 @@ packages/
 ```
 
 Chưa có `storefront`, `seller-center`, `creator-center` — chúng thuộc P2-5,
-P2-6 trong [backlog](../gouse/docs/10-roadmap/backlog.md). Cũng chưa có
+P2-6 trong [backlog](../docs/10-roadmap/backlog.md). Cũng chưa có
 `ui-commerce`: admin gần như không dùng component thương mại.
 
 ## Bắt đầu

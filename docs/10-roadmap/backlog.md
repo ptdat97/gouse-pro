@@ -1233,7 +1233,7 @@ lại thì mỗi lần từ chối để lại một tài khoản mồ côi, và
 `identity/public.go` ghi rõ: endpoint đăng ký CỐ Ý phân biệt "email đã có
 tài khoản" với "chưa dùng", nên nó trả lời được câu hỏi đó — không giới hạn
 thì nó là công cụ dò danh sách email. Đã thêm
-[`httpserver.RateLimit`](../../internal/platform/httpserver/ratelimit.go),
+[`httpserver.RateLimit`](../../gouse/internal/platform/httpserver/ratelimit.go),
 5 lần / 10 phút / IP.
 
 **Một lỗi bắt được khi chạy thật:** bộ đếm dùng `RemoteAddr` nguyên văn, mà
@@ -1825,7 +1825,7 @@ thứ tự ngẫu nhiên, nên với hai phần tử một cài đặt sai vẫn
 Cách chữa cũ là cờ `-p 1` trong Makefile. Nó chỉ chữa sự cố thứ hai, chỉ khi
 người chạy dùng `make test` — `go test ./...` hay `make test-race` vẫn hỏng.
 
-Nay [internal/platform/testdb](../../internal/platform/testdb/testdb.go) cấp
+Nay [internal/platform/testdb](../../gouse/internal/platform/testdb/testdb.go) cấp
 cho **mỗi gói test một database riêng**, sao từ khuôn bằng
 `CREATE DATABASE ... TEMPLATE` (nhanh hơn nhiều so với chạy lại 22 migration
 cho mỗi gói). Kèm một **hàng rào**: test dừng hẳn nếu `TEST_DATABASE_URL` và
@@ -1969,6 +1969,6 @@ Và:
 
 - [../README.md](../README.md) — Architecture Freeze
 - [todo.md](todo.md) — việc đã làm và bằng chứng kiểm chứng
-- [../../api/README.md](../../api/README.md) — trạng thái từng operation
+- [../../gouse/api/README.md](../../gouse/api/README.md) — trạng thái từng operation
 - [mvp.md](mvp.md) — phạm vi MVP (đã đóng băng)
 - [future-phases.md](future-phases.md) — Phase 2, 3, 4 (FUTURE)

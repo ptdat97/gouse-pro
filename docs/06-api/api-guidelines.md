@@ -391,7 +391,7 @@ Sinh ra từ đó:
     - Kiểm thử hợp đồng trong CI
 ```
 
-Xem [../../api/README.md](../../api/README.md) để biết lệnh lint, bundle và sinh kiểu.
+Xem [../../gouse/api/README.md](../../gouse/api/README.md) để biết lệnh lint, bundle và sinh kiểu.
 
 **Quy tắc:** cập nhật đặc tả **cùng pull request** với thay đổi code. CI so sánh đặc tả với cài đặt, thất bại nếu lệch.
 

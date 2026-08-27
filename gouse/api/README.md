@@ -253,7 +253,7 @@ làm.
 
 Mười lăm operation `IMPLEMENTED` đã được kiểm chứng bằng **chạy server thật**,
 nhưng chưa có test tự động ở **tầng HTTP** — nợ kỹ thuật P3-1 trong
-[backlog](../docs/10-roadmap/backlog.md). Riêng `suspendSeller` có nghiệp vụ
+[backlog](../../docs/10-roadmap/backlog.md). Riêng `suspendSeller` có nghiệp vụ
 được phủ bởi test module chạy trên PostgreSQL thật (ranh giới giao dịch,
 kiểm tra lý do, ghi vết kiểm toán); phần chưa phủ tự động là lớp HTTP:
 phân quyền, hình dạng JSON, ánh xạ lỗi.
@@ -261,7 +261,7 @@ phân quyền, hình dạng JSON, ánh xạ lỗi.
 **Đặc tả đã được sửa cho khớp kiến trúc — ba chỗ.** Cả ba đều là cùng một
 kiểu lỗi: đặc tả hứa dữ liệu TỔNG HỢP TỪ NHIỀU MODULE mà ranh giới phụ
 thuộc không cho phép. Chi tiết ở
-[backlog](../docs/10-roadmap/backlog.md) mục 3d.
+[backlog](../../docs/10-roadmap/backlog.md) mục 3d.
 
 ```text
 suspendSeller.effects.offers_hidden       → seller không gọi được marketplace
@@ -310,8 +310,8 @@ Không thêm vì *"sau này có thể cần"*.
 
 ## Tài liệu liên quan
 
-- Chuẩn API chi tiết: [../docs/06-api/api-guidelines.md](../docs/06-api/api-guidelines.md)
-- Phân nhóm và phân quyền: [../docs/06-api/api-domains.md](../docs/06-api/api-domains.md)
-- Nguyên tắc API First: [../docs/03-architecture/api-first.md](../docs/03-architecture/api-first.md)
-- Idempotency: [../docs/05-data/idempotency.md](../docs/05-data/idempotency.md)
-- Quyết định kiến trúc: [../docs/adr/0002-api-first.md](../docs/adr/0002-api-first.md)
+- Chuẩn API chi tiết: [../docs/06-api/api-guidelines.md](../../docs/06-api/api-guidelines.md)
+- Phân nhóm và phân quyền: [../docs/06-api/api-domains.md](../../docs/06-api/api-domains.md)
+- Nguyên tắc API First: [../docs/03-architecture/api-first.md](../../docs/03-architecture/api-first.md)
+- Idempotency: [../docs/05-data/idempotency.md](../../docs/05-data/idempotency.md)
+- Quyết định kiến trúc: [../docs/adr/0002-api-first.md](../../docs/adr/0002-api-first.md)
