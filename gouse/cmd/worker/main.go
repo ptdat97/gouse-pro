@@ -34,6 +34,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/notification"
 	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/modules/supplychain"
@@ -261,6 +262,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// payment ghi sổ doanh thu khi phiên hoàn tất. Không có nó thì hàng
+	// rời kho mà không có bản ghi kế toán nào — xem PH-33.
+	paymentModule, err := payment.New(payment.Config{
+		Storage: "postgres",
+		DB:      db,
+	})
+	if err != nil {
+		return err
+	}
+
 	checkoutModule, err := checkout.New(checkout.Config{
 		Storage:     "postgres",
 		DB:          db,
@@ -289,6 +300,8 @@ func run() error {
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
 	bus.Subscribe(notification.NewOrderNotifier(notificationModule, log))
 	bus.Subscribe(analytics.NewEventRecorder(analyticsModule))
+	bus.Subscribe(payment.NewRevenueHandler(
+		paymentModule, payment.NewSellerKind(sellerModule), log))
 
 	jobs := []job{
 		{

@@ -55,6 +55,8 @@ func (h *SellerHandler) Register(mux *http.ServeMux) {
 		http.HandlerFunc(h.get))
 	mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship",
 		http.HandlerFunc(h.ship))
+	mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/deliver",
+		http.HandlerFunc(h.deliver))
 }
 
 type foItemJSON struct {
@@ -340,4 +342,42 @@ func toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
 		ShippedAt:         formatTime(fo.ShippedAt()),
 		DeliveredAt:       formatTime(fo.DeliveredAt()),
 	}
+}
+
+// deliver xác nhận hàng đã tới tay khách.
+//
+// # Vì sao mắt xích này quan trọng hơn vẻ ngoài của nó
+//
+// Nó là chỗ vòng đời đơn hàng KẾT THÚC. Từ đây bắt đầu đếm hạn đổi trả;
+// hết hạn thì job nền chuyển đơn sang COMPLETED và số dư seller từ Pending
+// sang Available. Thiếu nó thì mọi đơn dừng vĩnh viễn ở HANDED_OVER, không
+// ai được trả tiền, và không có gì báo cho ai biết là đang kẹt.
+//
+// # Vì sao KHÔNG có thân request
+//
+// "Đã giao" không mang thêm dữ liệu nào ngoài chính sự việc. Thời điểm do
+// máy chủ ghi, không nhận từ client: một seller đặt lùi ngày giao sẽ rút
+// ngắn hạn đổi trả của khách.
+//
+// Nguồn đáng tin hơn là webhook của hãng vận chuyển, chưa cài. Khi có, thao
+// tác này vẫn giữ cho hàng seller tự giao.
+func (h *SellerHandler) deliver(w http.ResponseWriter, r *http.Request) {
+	sellerID, err := h.sellerID(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	foID := ids.ID(r.PathValue("fulfillment_order_id"))
+	if err := h.svc.Deliver(r.Context(), sellerID, foID); err != nil {
+		h.fail(w, r, translateSeller(err))
+		return
+	}
+
+	fo, err := h.svc.GetSellerFulfillment(r.Context(), sellerID, foID)
+	if err != nil {
+		h.fail(w, r, translateSeller(err))
+		return
+	}
+	h.ok(w, r, http.StatusOK, toSellerFO(fo))
 }

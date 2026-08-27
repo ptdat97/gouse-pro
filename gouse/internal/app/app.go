@@ -639,6 +639,7 @@ func RegisterRoutes(
 			mux.Handle("GET /api/v1/seller/fulfillment-orders", authed)
 			mux.Handle("GET /api/v1/seller/fulfillment-orders/{fulfillment_order_id}", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship", authed)
+			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/deliver", authed)
 		}
 
 		// Offer và tồn kho của nhà bán — nửa còn lại của luồng 2.

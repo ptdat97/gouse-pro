@@ -550,6 +550,44 @@ fulfillment_order_ship:
       '409':
         $ref: '../components/common.yaml#/responses/Conflict'
 
+fulfillment_order_deliver:
+  post:
+    tags: [Seller]
+    summary: Xác nhận đã giao tới khách
+    description: |
+      Đóng mắt xích cuối của vòng đời đơn hàng.
+
+      Từ đây bắt đầu đếm **hạn đổi trả**. Hết hạn mà không có yêu cầu trả,
+      job nền chuyển đơn sang `COMPLETED` và số dư seller từ `Pending` sang
+      `Available` — xem `docs/07-workflows/marketplace-order.md` mục 6.
+
+      **Tạm thời do seller tự xác nhận.** Nguồn đáng tin hơn là webhook của
+      hãng vận chuyển (`receiveShippingWebhook`), chưa cài. Khi có webhook,
+      thao tác này vẫn giữ lại cho hàng seller tự giao.
+    operationId: deliverFulfillmentOrder
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: fulfillment_order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    responses:
+      '200':
+        description: Đã ghi nhận giao hàng
+        content:
+          application/json:
+            schema:
+              $ref: '#/SellerFulfillmentOrder'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+
 balance:
   get:
     tags: [Seller]

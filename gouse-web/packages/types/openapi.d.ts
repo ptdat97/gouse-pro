@@ -1022,6 +1022,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seller/fulfillment-orders/{fulfillment_order_id}/deliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Xác nhận đã giao tới khách
+         * @description Đóng mắt xích cuối của vòng đời đơn hàng.
+         *
+         *     Từ đây bắt đầu đếm **hạn đổi trả**. Hết hạn mà không có yêu cầu trả,
+         *     job nền chuyển đơn sang `COMPLETED` và số dư seller từ `Pending` sang
+         *     `Available` — xem `docs/07-workflows/marketplace-order.md` mục 6.
+         *
+         *     **Tạm thời do seller tự xác nhận.** Nguồn đáng tin hơn là webhook của
+         *     hãng vận chuyển (`receiveShippingWebhook`), chưa cài. Khi có webhook,
+         *     thao tác này vẫn giữ lại cho hàng seller tự giao.
+         */
+        post: operations["deliverFulfillmentOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/seller/balance": {
         parameters: {
             query?: never;
@@ -5298,6 +5326,42 @@ export interface operations {
                     "application/json": components["schemas"]["SellerFulfillmentOrder"];
                 };
             };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deliverFulfillmentOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                fulfillment_order_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã ghi nhận giao hàng */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerFulfillmentOrder"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
     };

@@ -129,10 +129,29 @@ type RecordOrderRevenueInput struct {
 func (s *Service) RecordOrderRevenue(
 	ctx context.Context, in RecordOrderRevenueInput,
 ) (*domain.LedgerEntry, error) {
-	key := "order-revenue:" + in.OrderID.String()
+	return s.RecordOrderRevenueWith(ctx, s.ledger, in)
+}
+
+// RecordOrderRevenueWith ghi doanh thu bằng kho sổ cái bên gọi đưa vào.
+//
+// Dành cho bên nhận domain event: dispatcher đã mở giao dịch để đánh dấu
+// event đã xử lý, và bút toán phải nằm TRONG giao dịch đó — xem
+// postgres.LedgerForTx. Cùng khuôn với inventory.CommitInRepos.
+func (s *Service) RecordOrderRevenueWith(
+	ctx context.Context, ledger domain.LedgerRepository, in RecordOrderRevenueInput,
+) (*domain.LedgerEntry, error) {
+	// Khoá gồm CẢ nhà bán, không chỉ đơn hàng.
+	//
+	// Một đơn trộn hàng của nhiều nhà bán sinh ra NHIỀU bút toán — mỗi
+	// nhà bán một cái, đúng như docs/07-workflows/marketplace-order.md
+	// mục 4 mô tả. Khoá chỉ theo đơn sẽ khiến nhà bán thứ hai trở đi bị
+	// coi là trùng lặp và tiền của họ không bao giờ được ghi sổ.
+	//
+	// Đơn own brand không có nhà bán: phần sau khoá rỗng, khoá vẫn xác định.
+	key := "order-revenue:" + in.OrderID.String() + ":" + in.SellerID.String()
 
 	// Đã ghi rồi thì trả kết quả cũ — đó là ý nghĩa của idempotent.
-	if existing, err := s.ledger.FindByIdempotencyKey(ctx, key); err == nil {
+	if existing, err := ledger.FindByIdempotencyKey(ctx, key); err == nil {
 		return existing, nil
 	} else if !errors.Is(err, domain.ErrNotFound) {
 		return nil, err
@@ -156,11 +175,11 @@ func (s *Service) RecordOrderRevenue(
 		return nil, err
 	}
 
-	if err := s.ledger.Append(ctx, entry); err != nil {
+	if err := ledger.Append(ctx, entry); err != nil {
 		// Hai request đồng thời: bên kia vừa ghi xong. Đọc lại kết quả của
 		// họ thay vì báo lỗi — kết quả cuối giống nhau.
 		if errors.Is(err, domain.ErrDuplicateEntry) {
-			return s.ledger.FindByIdempotencyKey(ctx, key)
+			return ledger.FindByIdempotencyKey(ctx, key)
 		}
 		return nil, err
 	}
@@ -168,12 +187,12 @@ func (s *Service) RecordOrderRevenue(
 	// Đơn own brand ghi thêm giá vốn — bút toán RIÊNG, không gộp vào bút
 	// toán doanh thu: hai sự kiện tài chính khác nhau.
 	if in.COGS.IsPositive() {
-		cogsKey := "order-cogs:" + in.OrderID.String()
+		cogsKey := "order-cogs:" + in.OrderID.String() + ":" + in.SellerID.String()
 		cogsEntry, err := domain.NewCOGSEntry(in.OrderID, in.COGS, cogsKey, in.CreatedBy, now)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.ledger.Append(ctx, cogsEntry); err != nil &&
+		if err := ledger.Append(ctx, cogsEntry); err != nil &&
 			!errors.Is(err, domain.ErrDuplicateEntry) {
 			return nil, err
 		}

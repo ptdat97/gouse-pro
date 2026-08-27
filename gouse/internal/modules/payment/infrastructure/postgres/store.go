@@ -19,13 +19,35 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment/domain"
 )
 
+// querier là thứ chạy được câu lệnh: pool HOẶC giao dịch.
+type querier interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 // LedgerStore ghi và đọc sổ cái.
+//
+// pool rỗng nghĩa là kho này BÁM VÀO giao dịch của bên gọi — xem LedgerForTx.
 type LedgerStore struct {
 	pool *pgxpool.Pool
+	q    querier
 }
 
 func NewLedgerStore(pool *pgxpool.Pool) *LedgerStore {
-	return &LedgerStore{pool: pool}
+	return &LedgerStore{pool: pool, q: pool}
+}
+
+// LedgerForTx trả kho sổ cái ghi bằng GIAO DỊCH CỦA BÊN GỌI.
+//
+// Dành cho bên nhận domain event: dispatcher đã mở một giao dịch để đánh
+// dấu event đã xử lý, và bút toán phải nằm TRONG giao dịch đó. Hai giao
+// dịch tách rời nghĩa là ghi sổ thành công trong khi đánh dấu thất bại —
+// lần thử lại sẽ ghi doanh thu LẦN THỨ HAI.
+//
+// Cùng lý do và cùng khuôn với inventory.ReposForTx.
+func LedgerForTx(tx pgx.Tx) *LedgerStore {
+	return &LedgerStore{q: tx}
 }
 
 // Append ghi bút toán CÙNG các dòng của nó trong MỘT giao dịch.
@@ -60,13 +82,34 @@ func TxFrom(ctx context.Context) (pgx.Tx, bool) {
 func (s *LedgerStore) append(
 	ctx context.Context, e *domain.LedgerEntry, fn domain.TxFunc,
 ) error {
+	// Bên gọi đang giữ giao dịch: ghi thẳng vào đó, KHÔNG mở giao dịch
+	// lồng. Mở thêm một giao dịch ở đây là quay lại đúng cái lỗi mà
+	// LedgerForTx sinh ra để tránh.
+	if s.pool == nil {
+		return s.ghi(ctx, s.q, e, fn)
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("payment: mở giao dịch: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	_, err = tx.Exec(ctx, `
+	if err := s.ghi(ctx, tx, e, fn); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("payment: xác nhận giao dịch: %w", err)
+	}
+	return nil
+}
+
+// ghi ghi bút toán và các dòng bằng querier bên gọi đưa vào.
+func (s *LedgerStore) ghi(
+	ctx context.Context, tx querier, e *domain.LedgerEntry, fn domain.TxFunc,
+) error {
+	_, err := tx.Exec(ctx, `
 		INSERT INTO ledger_entry (
 			id, entry_type, reference_type, reference_id,
 			description, idempotency_key, created_by, created_at
@@ -101,10 +144,6 @@ func (s *LedgerStore) append(
 			return err
 		}
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("payment: xác nhận giao dịch: %w", err)
-	}
 	return nil
 }
 
@@ -128,7 +167,7 @@ func (s *LedgerStore) findOne(ctx context.Context, q string, args ...any) (*doma
 		p                    domain.RestoreEntryParams
 		id, entryType, refID string
 	)
-	err := s.pool.QueryRow(ctx, q, args...).Scan(
+	err := s.q.QueryRow(ctx, q, args...).Scan(
 		&id, &entryType, &p.ReferenceType, &refID,
 		&p.Description, &p.IdempotencyKey, &p.CreatedBy, &p.CreatedAt)
 	if err != nil {
@@ -151,7 +190,7 @@ func (s *LedgerStore) findOne(ctx context.Context, q string, args ...any) (*doma
 }
 
 func (s *LedgerStore) linesFor(ctx context.Context, entryID ids.ID) ([]domain.Line, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.q.Query(ctx, `
 		SELECT account_type, account_owner_id, direction, amount, currency, description
 		FROM ledger_line WHERE entry_id = $1 ORDER BY id`, entryID.String())
 	if err != nil {
@@ -211,7 +250,7 @@ func (s *LedgerStore) FindAll(
 func (s *LedgerStore) findMany(
 	ctx context.Context, q string, args ...any,
 ) ([]*domain.LedgerEntry, error) {
-	rows, err := s.pool.Query(ctx, q, args...)
+	rows, err := s.q.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("payment: đọc bút toán: %w", err)
 	}

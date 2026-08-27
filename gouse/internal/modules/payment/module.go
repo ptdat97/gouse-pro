@@ -15,6 +15,7 @@ import (
 	paymenthttp "github.com/fashion-commerce/platform/internal/modules/payment/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // Module là cài đặt của API công khai.
@@ -84,14 +85,53 @@ func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 func (m *Module) RecordOrderRevenue(
 	ctx context.Context, req OrderRevenueRequest,
 ) (*EntryView, error) {
+	in, err := toRevenueInput(req)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := m.svc.RecordOrderRevenue(ctx, in)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	v := toEntryView(entry)
+	return &v, nil
+}
+
+// RecordOrderRevenueInEventTx ghi doanh thu bằng GIAO DỊCH của dispatcher.
+//
+// Ngữ cảnh PHẢI mang giao dịch do eventbus mở — cùng ràng buộc và cùng lý
+// do với CommitInEventTx của inventory: ghi sổ thành công mà đánh dấu
+// event thất bại thì lần thử lại ghi doanh thu LẦN THỨ HAI, và sổ cái là
+// chỗ không được phép đếm hai lần.
+func (m *Module) RecordOrderRevenueInEventTx(
+	ctx context.Context, req OrderRevenueRequest,
+) error {
+	in, err := toRevenueInput(req)
+	if err != nil {
+		return err
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.svc.RecordOrderRevenueWith(ctx, paymentpg.LedgerForTx(tx), in)
+	return translateErr(err)
+}
+
+// toRevenueInput chuyển yêu cầu công khai thành đầu vào của tầng ứng dụng.
+func toRevenueInput(req OrderRevenueRequest) (application.RecordOrderRevenueInput, error) {
+	var zero application.RecordOrderRevenueInput
+
 	orderID, err := ids.Parse(req.OrderID, ids.PrefixOrder)
 	if err != nil {
-		return nil, ErrInvalidID
+		return zero, ErrInvalidID
 	}
 
 	gross, err := toMoney(req.GrossAmount)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	in := application.RecordOrderRevenueInput{
@@ -103,21 +143,21 @@ func (m *Module) RecordOrderRevenue(
 	if req.SellerID != "" {
 		sellerID, err := ids.Parse(req.SellerID, ids.PrefixSeller)
 		if err != nil {
-			return nil, ErrInvalidID
+			return zero, ErrInvalidID
 		}
 		in.SellerID = sellerID
 		if in.SellerPayable, err = toMoneyOrZero(req.SellerPayable, gross.Currency()); err != nil {
-			return nil, err
+			return zero, err
 		}
 	}
 	if req.CreatorID != "" {
 		creatorID, err := ids.Parse(req.CreatorID, ids.PrefixCreator)
 		if err != nil {
-			return nil, ErrInvalidID
+			return zero, ErrInvalidID
 		}
 		in.CreatorID = creatorID
 		if in.CreatorPayable, err = toMoneyOrZero(req.CreatorPayable, gross.Currency()); err != nil {
-			return nil, err
+			return zero, err
 		}
 	}
 
@@ -131,17 +171,12 @@ func (m *Module) RecordOrderRevenue(
 	} {
 		v, err := toMoneyOrZero(f.src, gross.Currency())
 		if err != nil {
-			return nil, err
+			return zero, err
 		}
 		*f.dst = v
 	}
 
-	entry, err := m.svc.RecordOrderRevenue(ctx, in)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-	v := toEntryView(entry)
-	return &v, nil
+	return in, nil
 }
 
 func (m *Module) RecordRefund(ctx context.Context, req RefundRequest) (*EntryView, error) {
