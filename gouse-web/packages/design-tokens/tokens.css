@@ -1,0 +1,105 @@
+/*
+ * Design tokens — nguồn sự thật duy nhất về màu, khoảng cách, typography.
+ *
+ * QUY TẮC (design-system.md mục 3): component KHÔNG BAO GIỜ dùng giá trị
+ * màu hay khoảng cách trực tiếp. Luôn qua biến.
+ *
+ *   ✗ color: #1A73E8
+ *   ✓ color: var(--color-primary)
+ *
+ * Lý do: đổi màu thương hiệu là sửa MỘT file, không phải tìm kiếm khắp
+ * codebase và bỏ sót vài chỗ.
+ */
+
+:root {
+  /* ---------------------------------------------------------- Màu */
+
+  /* Thương hiệu */
+  --color-primary: #1a1a1a;
+  --color-primary-hover: #000000;
+  --color-primary-contrast: #ffffff;
+
+  /* Ngữ nghĩa — dùng cho trạng thái, không dùng cho trang trí */
+  --color-success: #0f7b3f;
+  --color-success-bg: #e6f4ec;
+  --color-warning: #9a6700;
+  --color-warning-bg: #fff8e1;
+  --color-danger: #b3261e;
+  --color-danger-bg: #fdecea;
+  --color-info: #1a56db;
+  --color-info-bg: #e8f0fe;
+
+  /* Trung tính */
+  --color-bg: #ffffff;
+  --color-bg-subtle: #f7f7f8;
+  --color-border: #e3e3e6;
+  --color-border-strong: #c7c7cc;
+  --color-text: #1a1a1a;
+  --color-text-muted: #5f5f68;
+  --color-text-inverse: #ffffff;
+
+  /*
+   * Độ tương phản đã kiểm tra ở tầng token, không phải ở từng component:
+   *   text (#1a1a1a) trên bg (#fff)          → 16.9:1  (AAA)
+   *   text-muted (#5f5f68) trên bg (#fff)    →  6.4:1  (AA)
+   *   danger (#b3261e) trên danger-bg        →  6.1:1  (AA)
+   * Đổi màu thì phải kiểm tra lại — đây là lý do màu nằm một chỗ.
+   */
+
+  /* ---------------------------------------------------- Khoảng cách */
+
+  /* Thang đo nhất quán. Không dùng giá trị ngoài thang này. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---------------------------------------------------- Typography */
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold: 600;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  /* --------------------------------------------------------- Khác */
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.14);
+
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+
+  /*
+   * Breakpoint khai báo ở đây để không ai hardcode trong component.
+   * Dùng qua @media (min-width: 768px) — CSS chưa cho dùng biến trong
+   * media query, nên đây là tài liệu, không phải giá trị dùng được.
+   *   sm 640px · md 768px · lg 1024px · xl 1280px
+   */
+}
+
+/*
+ * Giao diện quản trị dùng nền hơi xám để bảng nổi lên trên.
+ * Thiết kế mobile-first, nhưng admin chủ yếu dùng trên màn hình lớn.
+ */

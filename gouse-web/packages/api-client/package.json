@@ -1,0 +1,15 @@
+{
+  "name": "@fc/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Gọi API Go backend. Không chứa logic nghiệp vụ.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@fc/types": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

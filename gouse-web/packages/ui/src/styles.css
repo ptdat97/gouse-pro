@@ -1,0 +1,257 @@
+/*
+ * Kiểu của component dùng chung.
+ *
+ * MỌI giá trị màu và khoảng cách đều qua biến từ @fc/design-tokens. Không
+ * có mã màu nào viết trực tiếp ở file này — đó là quy tắc, không phải sở
+ * thích: đổi màu thương hiệu phải là sửa MỘT file.
+ */
+
+/* ---------------------------------------------------------------- Button */
+
+.fc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background var(--duration-fast), border-color var(--duration-fast);
+}
+
+.fc-btn:hover:not(:disabled) {
+  background: var(--color-bg-subtle);
+}
+
+/*
+ * Trạng thái focus RÕ RÀNG, không bao giờ `outline: none`.
+ *
+ * Người dùng bàn phím mất dấu con trỏ là mất khả năng dùng cả trang.
+ */
+.fc-btn:focus-visible,
+.fc-input:focus-visible,
+.fc-table tr[data-clickable]:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+.fc-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.fc-btn[data-variant="primary"] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+.fc-btn[data-variant="primary"]:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.fc-btn[data-variant="danger"] {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-text-inverse);
+}
+.fc-btn[data-variant="danger"]:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+/* ----------------------------------------------------------------- Field */
+
+.fc-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+
+.fc-field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.fc-field__hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.fc-field__error {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+  font-weight: var(--weight-medium);
+}
+
+.fc-input {
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-base);
+}
+
+.fc-input--multiline {
+  min-height: 72px;
+  resize: vertical;
+  line-height: var(--leading-normal);
+}
+
+.fc-input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+/* ----------------------------------------------------------------- Badge */
+
+.fc-badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+}
+
+.fc-badge[data-tone="success"] { background: var(--color-success-bg); color: var(--color-success); }
+.fc-badge[data-tone="warning"] { background: var(--color-warning-bg); color: var(--color-warning); }
+.fc-badge[data-tone="danger"]  { background: var(--color-danger-bg);  color: var(--color-danger); }
+.fc-badge[data-tone="info"]    { background: var(--color-info-bg);    color: var(--color-info); }
+
+/* ----------------------------------------------------------------- Table */
+
+.fc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+}
+
+.fc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+
+.fc-table th,
+.fc-table td {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fc-table th {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle);
+  white-space: nowrap;
+}
+
+.fc-table tr:last-child td { border-bottom: none; }
+
+/* Cột số căn phải: mắt so sánh số theo hàng đơn vị. */
+.fc-table th[data-numeric],
+.fc-table td[data-numeric] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-table tr[data-clickable] { cursor: pointer; }
+.fc-table tr[data-clickable]:hover { background: var(--color-bg-subtle); }
+
+.fc-empty {
+  padding: var(--space-12) var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+}
+
+/* ----------------------------------------------------------------- Alert */
+
+.fc-alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border-left: 3px solid currentColor;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  background: var(--color-info-bg);
+  color: var(--color-info);
+}
+
+.fc-alert[data-tone="success"] { background: var(--color-success-bg); color: var(--color-success); }
+.fc-alert[data-tone="warning"] { background: var(--color-warning-bg); color: var(--color-warning); }
+.fc-alert[data-tone="danger"]  { background: var(--color-danger-bg);  color: var(--color-danger); }
+
+.fc-alert__title { font-weight: var(--weight-bold); }
+
+/* ---------------------------------------------------------------- Dialog */
+
+.fc-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.45);
+  z-index: 40;
+}
+
+.fc-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - var(--space-8)));
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-lg);
+  z-index: 50;
+}
+
+.fc-dialog__title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+}
+
+.fc-dialog__impact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+  font-size: var(--text-sm);
+}
+
+.fc-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}

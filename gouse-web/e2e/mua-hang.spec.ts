@@ -1,0 +1,162 @@
+import { expect, test } from "@playwright/test";
+
+import { watchApi } from "./loi-mang";
+
+/**
+ * Đường mua hàng của khách VÃNG LAI — đường ra tiền.
+ *
+ * Chạy qua trình duyệt thật vì đây là nơi DUY NHẤT thấy được ba thứ:
+ * CORS, cookie phiên đi qua nhiều trang, và trường dữ liệu mà đặc tả cho
+ * phép vắng mặt nhưng giao diện lại CẦN có.
+ *
+ * Thứ ba là lý do bài test này tồn tại. Nó bắt được ngay lần chạy đầu
+ * tiên: nút "Thêm vào giỏ" khóa vĩnh viễn vì trang đọc `availability` —
+ * một trường đặc tả có khai nhưng endpoint không bao giờ trả. Trường không
+ * `required` nên TypeScript cho qua, backend xanh, log máy chủ sạch, và
+ * cửa hàng không bán được gì.
+ */
+test("khách vãng lai mua được: chọn nhà bán → thêm giỏ → giỏ có hàng", async ({
+  page,
+}) => {
+  const loi = watchApi(page);
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Sản phẩm" })).toBeVisible();
+
+  // Vào sản phẩm ĐẦU TIÊN có thật thay vì hardcode mã: dữ liệu mẫu sinh
+  // ULID mới mỗi lần nạp, nên mã cứng sẽ mục sau lần nạp kế tiếp.
+  const card = page.locator("a.card__link").first();
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  await card.click();
+
+  await expect(page.getByRole("heading", { name: "Nhà bán" })).toBeVisible();
+
+  // Ba bước, theo đúng thứ tự khách nghĩ: màu → size → nhà bán.
+  //
+  // Màu và size xác định MÓN HÀNG (một SKU); nhà bán chỉ là mua món đó của
+  // ai. Trang phải chọn sẵn một tổ hợp mua được, nếu không thì mở ra đã
+  // phải bấm thêm một bước chỉ để về trạng thái dùng được.
+  await expect(page.getByRole("radiogroup", { name: "Size" })).toBeVisible();
+
+  const offer = page.locator('input[name="offer"]').first();
+  await expect(offer).toBeVisible();
+  await offer.check();
+
+  // TÊN nhà bán phải hiện ra. Endpoint offer chỉ trả `seller_id`, nên trang
+  // tra tên bằng một lượt gọi riêng — nếu lượt đó hỏng, cả danh sách kẹt ở
+  // "Đang tra nhà bán…" và khách không biết mình mua của ai.
+  await expect(page.getByText("Đang tra nhà bán…")).toHaveCount(0, {
+    timeout: 10_000,
+  });
+
+  // Điểm mấu chốt của cả bài test.
+  const nut = page.getByRole("button", { name: "Thêm vào giỏ" });
+  await expect(
+    nut,
+    "nút thêm giỏ bị khóa — cửa hàng không bán được gì",
+  ).toBeEnabled();
+  await nut.click();
+
+  await page.goto("/cart");
+  await expect(page.getByRole("heading", { name: "Giỏ hàng" })).toBeVisible();
+  await expect(page.getByText("Giỏ hàng đang trống")).toHaveCount(0);
+
+  // Giỏ phải hiện TÊN nhà bán: khách cần biết đang mua của ai, và đó là
+  // dữ liệu module cart trả sẵn.
+  await expect(page.getByText(/^Bán bởi /)).toBeVisible();
+
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
+});
+
+/**
+ * Trang tra cứu đơn dùng header `X-Guest-Phone`.
+ *
+ * Header tùy chỉnh làm trình duyệt gửi preflight. Thiếu nó trong
+ * `Access-Control-Allow-Headers` thì RIÊNG trang này hỏng trong khi mọi
+ * trang khác vẫn chạy — đã xảy ra một lần, và không log máy chủ nào ghi.
+ */
+test("trang tra cứu đơn gọi được API kèm header tùy chỉnh", async ({ page }) => {
+  const loi = watchApi(page);
+
+  await page.goto("/orders");
+  await expect(page.getByRole("heading", { name: /Đơn hàng|Tra cứu/ })).toBeVisible();
+
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
+});
+
+/**
+ * Đổi màu phải đổi ĐÚNG món hàng đằng sau.
+ *
+ * Đây là chỗ dễ sinh lỗi im lặng nhất của luồng chọn hàng: giữ nguyên
+ * `sku_id` cũ khi đổi màu thì khách tưởng đang xem màu xanh nhưng lại mua
+ * đúng chiếc áo trắng. Giá là bằng chứng quan sát được — mỗi SKU một
+ * offer, một giá.
+ */
+test("đổi màu và size thì đổi đúng món hàng", async ({ page }) => {
+  const loi = watchApi(page);
+
+  await page.goto("/");
+  await page.locator("a.card__link").first().click();
+  await expect(page.getByRole("heading", { name: "Nhà bán" })).toBeVisible();
+
+  const giaHienTai = async () =>
+    (await page.locator(".offer strong").allInnerTexts()).join("|");
+
+  const nhomMau = page.getByRole("radiogroup", { name: "Màu" });
+  const nhomSize = page.getByRole("radiogroup", { name: "Size" });
+
+  const banDau = await giaHienTai();
+  expect(banDau, "phải có ít nhất một nhà bán cho món đang chọn").not.toBe("");
+
+  // Đổi sang size khác trong cùng màu → phải sang một món hàng khác.
+  const sizes = nhomSize.getByRole("radio");
+  if ((await sizes.count()) > 1) {
+    await sizes.nth(1).click();
+    await expect
+      .poll(giaHienTai, { message: "đổi size mà offer không đổi" })
+      .not.toBe(banDau);
+  }
+
+  // Đổi màu → cũng phải sang món khác.
+  const maus = nhomMau.getByRole("radio");
+  if ((await maus.count()) > 1) {
+    const truoc = await giaHienTai();
+    await maus.nth(1).click();
+    await expect
+      .poll(giaHienTai, { message: "đổi màu mà offer không đổi" })
+      .not.toBe(truoc);
+  }
+
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
+});
+
+/**
+ * Danh sách sản phẩm phải hiện GIÁ.
+ *
+ * Trước 26/08 chỗ này hiện dấu gạch suốt nhiều tuần: đặc tả khai
+ * `price_from` là bắt buộc trên `ProductSummary` trong khi API chưa bao
+ * giờ trả nó, nên TypeScript tin đặc tả và không báo gì.
+ *
+ * Không lỗi, không cảnh báo — chỉ là một cửa hàng không nói giá. Bài này
+ * khẳng định thẻ sản phẩm có một con số tiền thật, không phải dấu gạch.
+ */
+test("danh sách sản phẩm hiện giá, không phải dấu gạch", async ({ page }) => {
+  const loi = watchApi(page);
+
+  await page.goto("/");
+  const the = page.locator(".card").first();
+  await expect(the).toBeVisible();
+
+  const gia = the.locator(".card__price");
+  await expect(gia).toBeVisible();
+
+  // Chờ giá về: nó được tra bằng một lượt gọi RIÊNG sau danh sách.
+  await expect
+    .poll(async () => (await gia.innerText()).trim(), {
+      message: "thẻ sản phẩm không bao giờ hiện giá",
+      timeout: 10_000,
+    })
+    .toMatch(/\d/);
+
+  expect(loi.map((l) => l.mo_ta)).toEqual([]);
+});

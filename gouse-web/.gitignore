@@ -1,0 +1,26 @@
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# Next.js tự sinh hai file này trong từng app mỗi lần build. Chúng là bản
+# tóm tắt máy sinh cho công cụ AI, không phải tài liệu của dự án — commit
+# vào là ba app cùng sinh ra ba bản gần giống nhau và cùng lệch dần.
+apps/*/AGENTS.md
+apps/*/CLAUDE.md
+
+# Môi trường — KHÔNG BAO GIỜ commit bí mật
+.env
+.env.*
+!.env.example
+
+.DS_Store
+.idea/
+.vscode/
+
+# Playwright: báo cáo và dấu vết của lần chạy gần nhất. Chúng nặng (ảnh
+# chụp màn hình, file trace) và chỉ có nghĩa với lần chạy sinh ra chúng.
+test-results/
+playwright-report/
+blob-report/

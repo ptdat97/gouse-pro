@@ -1,0 +1,9 @@
+{
+  "name": "@fc/design-tokens",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Màu, khoảng cách, typography. Component KHÔNG dùng giá trị trực tiếp.",
+  "exports": {
+    "./tokens.css": "./tokens.css"
+  }
+}
