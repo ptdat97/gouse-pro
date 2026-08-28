@@ -256,6 +256,14 @@ type OrderPort interface {
 // chết giữa chừng — và nó TỰ hết, không để lại trạng thái nào phải dọn.
 const anHanHoanTat = 30 * time.Second
 
+// DongPhanBo là một dòng hàng đưa đi phân bổ giảm giá.
+type DongPhanBo struct {
+	LineID ids.ID
+
+	// Total là giá trị dòng, dùng làm TỶ LỆ phân bổ.
+	Total money.Money
+}
+
 // PlaceOrderInput là dữ liệu tạo đơn.
 type PlaceOrderInput struct {
 	CustomerID ids.ID
@@ -289,6 +297,11 @@ type PlaceOrderLine struct {
 	UnitPrice          money.Money
 	Quantity           int
 	CommissionRate     types.BasisPoints
+
+	// GiamGia là phần giảm ĐÃ PHÂN BỔ cho dòng này, số DƯƠNG.
+	//
+	// Đóng băng vào đơn hàng để việc trả hàng tính đúng giá thực trả.
+	GiamGia money.Money
 }
 
 // PlacedOrder là kết quả tạo đơn.
@@ -326,6 +339,19 @@ type PromotionPort interface {
 	// Đây là đường ĐỌC: KHÔNG ghi nhận lượt dùng. Khách gõ mã rồi bỏ giỏ
 	// hàng là chuyện thường, và ghi nhận ngay sẽ làm mã hết lượt vì những
 	// người chưa mua gì.
+	// PhanBoGiamGia chia số tiền giảm xuống từng dòng hàng THEO TỶ LỆ.
+	//
+	// Kết quả PHẢI được đóng băng vào đơn hàng: khi khách trả lại một món,
+	// số tiền hoàn là giá dòng TRỪ phần giảm đã phân bổ cho nó. Không lưu
+	// lại thì nền tảng hoàn nhiều hơn đã thu — và module returns hiện phải
+	// TỪ CHỐI hoàn tự động những đơn như vậy.
+	//
+	// Tổng các phần luôn bằng ĐÚNG số tiền giảm; phần dư của phép chia
+	// được rải chứ không biến mất.
+	PhanBoGiamGia(
+		ctx context.Context, giam money.Money, dong []DongPhanBo,
+	) (map[ids.ID]money.Money, error)
+
 	ValidateCoupon(
 		ctx context.Context, code, customerID string, orderTotal money.Money,
 	) (discount money.Money, freeShipping bool, err error)
@@ -924,6 +950,16 @@ func (s *Service) CompleteCheckout(
 		return nil, err
 	}
 
+	// PHÂN BỔ giảm giá xuống từng dòng, ĐÓNG BĂNG vào đơn.
+	//
+	// Không làm bước này thì đơn chỉ có tổng giảm ở cấp đơn, và lúc khách
+	// trả một món không ai tính được họ đã thực trả bao nhiêu cho món đó.
+	// Hoàn theo giá niêm yết khi ấy là trả nhiều hơn đã thu.
+	giamTheoDong, err := s.phanBoGiamGia(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+
 	lines := make([]PlaceOrderLine, 0, len(c.Lines()))
 	for _, l := range c.Lines() {
 		// Quy tắc 1: không giữ được hàng thì không vào đơn.
@@ -942,6 +978,7 @@ func (s *Service) CompleteCheckout(
 			UnitPrice:          l.UnitPrice(),
 			Quantity:           l.Quantity(),
 			CommissionRate:     l.CommissionRate(),
+			GiamGia:            giamTheoDong[l.ID()],
 		})
 	}
 
@@ -998,6 +1035,30 @@ func (s *Service) CompleteCheckout(
 		OrderNumber: placed.OrderNumber,
 		Replayed:    placed.Replayed,
 	}, nil
+}
+
+// phanBoGiamGia chia số tiền giảm của phiên xuống từng dòng hàng.
+//
+// Trả bản đồ RỖNG khi phiên không có giảm giá — đường đi phổ biến nhất,
+// và nó không được trả lỗi chỉ vì module promotion chưa nối.
+func (s *Service) phanBoGiamGia(
+	ctx context.Context, c *domain.Checkout,
+) (map[ids.ID]money.Money, error) {
+	giam := c.DiscountAmount()
+	if !giam.IsPositive() {
+		return nil, nil
+	}
+	if s.promotions == nil {
+		// Có giảm giá mà không phân bổ được là tình huống KHÔNG được đi
+		// tiếp: đơn tạo ra sẽ không trả hàng tự động được.
+		return nil, ErrPromotionUnavailable
+	}
+
+	dong := make([]DongPhanBo, 0, len(c.Lines()))
+	for _, l := range c.Lines() {
+		dong = append(dong, DongPhanBo{LineID: l.ID(), Total: l.LineTotal()})
+	}
+	return s.promotions.PhanBoGiamGia(ctx, giam, dong)
 }
 
 // completedEvent dựng dữ liệu event từ phiên đã hoàn tất.

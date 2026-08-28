@@ -12,6 +12,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 )
 
@@ -204,6 +205,54 @@ func (a *commissionAdapter) RateForSeller(
 	return types.NewBasisPoints(raw)
 }
 
+// PhanBoGiamGia chuyển tiếp sang module promotion.
+//
+// Quy tắc chia — theo tỷ lệ, phần dư được rải — nằm ở promotion, một chỗ
+// duy nhất. Chia lại ở đây nghĩa là hai nơi cùng tính một con số tiền, và
+// sớm muộn hai nơi ra hai kết quả.
+func (a *promotionAdapter) PhanBoGiamGia(
+	ctx context.Context, giam money.Money, dong []application.DongPhanBo,
+) (map[ids.ID]money.Money, error) {
+	req := promotion.AllocateRequest{
+		Discount: giam.Amount(),
+		Currency: string(giam.Currency()),
+	}
+	for _, d := range dong {
+		req.Lines = append(req.Lines, promotion.AllocateLine{
+			LineID: d.LineID.String(), Total: d.Total.Amount(),
+		})
+	}
+
+	phan, err := a.api.AllocateDiscount(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[ids.ID]money.Money, len(phan))
+	for _, p := range phan {
+		m, err := money.New(p.Discount, giam.Currency())
+		if err != nil {
+			return nil, err
+		}
+		out[ids.ID(p.LineID)] = m
+	}
+	return out, nil
+}
+
+// NewOrderPort dựng cổng tới module order.
+//
+// # Vì sao xuất ra ngoài
+//
+// Test tích hợp của module này từng tự viết một bản sao của adapter dưới
+// đây. Bản sao ấy TRÔI LỆCH: nó thiếu phần khoản điều chỉnh, nên bài test
+// vẫn xanh trong khi đường production đã đổi.
+//
+// Một bản sao của mã ánh xạ là một chỗ để hai bên nói khác nhau. Xuất
+// constructor ra để test dùng CHÍNH thứ chạy thật.
+func NewOrderPort(api order.API) application.OrderPort {
+	return &orderAdapter{api: api}
+}
+
 // orderAdapter nối tới module order.
 type orderAdapter struct{ api order.API }
 
@@ -231,6 +280,7 @@ func (a *orderAdapter) PlaceOrder(
 			},
 			Quantity:       l.Quantity,
 			CommissionRate: int(l.CommissionRate.Value()),
+			Adjustments:    khoanGiam(l),
 		})
 	}
 
@@ -268,4 +318,28 @@ func (a *orderAdapter) PlaceOrder(
 
 func toOrderAmount(m money.Money) order.Amount {
 	return order.Amount{Value: m.Amount(), Currency: string(m.Currency())}
+}
+
+// khoanGiam đổi phần giảm đã phân bổ thành khoản điều chỉnh của dòng hàng.
+//
+// Số ÂM: khoản điều chỉnh dùng dấu để phân biệt giảm với tăng, và đảo dấu
+// ở đây một lần thay vì bắt mọi nơi đọc phải nhớ quy ước riêng.
+//
+// CostBearer là PLATFORM: mã giảm giá của nền tảng thì nền tảng chịu. Khi
+// có chương trình do nhà bán tự chạy, chỗ này phải phân biệt — nếu không
+// thì đối soát cuối kỳ tính nhầm bên chịu chi phí.
+func khoanGiam(l application.PlaceOrderLine) []order.AdjustmentInput {
+	if !l.GiamGia.IsPositive() {
+		return nil
+	}
+	return []order.AdjustmentInput{{
+		Type:  "PROMOTION",
+		Label: "Giảm giá đã phân bổ",
+		Amount: order.Amount{
+			Value:    -l.GiamGia.Amount(),
+			Currency: string(l.GiamGia.Currency()),
+		},
+		SourceType: "COUPON",
+		CostBearer: "PLATFORM",
+	}}
 }
