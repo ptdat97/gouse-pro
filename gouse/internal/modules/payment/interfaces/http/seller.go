@@ -1,13 +1,16 @@
 package http
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 	"github.com/fashion-commerce/platform/internal/modules/payment/application"
+	"github.com/fashion-commerce/platform/internal/modules/payment/domain"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
@@ -28,6 +31,9 @@ func NewSellerHandler(svc *application.Service, log *slog.Logger) *SellerHandler
 
 func (h *SellerHandler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/seller/balance", http.HandlerFunc(h.soDu))
+	mux.Handle("GET /api/v1/seller/settlements", http.HandlerFunc(h.danhSachDoiSoat))
+	mux.Handle("GET /api/v1/seller/settlements/{settlement_id}",
+		http.HandlerFunc(h.motDoiSoat))
 }
 
 type moneyJSON struct {
@@ -108,4 +114,90 @@ func (h *SellerHandler) sellerID(r *http.Request) (ids.ID, error) {
 
 func (h *SellerHandler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	apierror.Write(w, r, err, logger.RequestIDFromContext(r.Context()), h.log)
+}
+
+// ---------------------------------------------------------------- Đối soát
+
+type settlementJSON struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Currency string `json:"currency"`
+
+	PeriodStart string `json:"period_start"`
+	PeriodEnd   string `json:"period_end"`
+
+	// Gross là tổng khoản rút được gom trong đợt.
+	Gross moneyJSON `json:"gross_amount"`
+
+	// Deficit là phần nhà bán đang NỢ, trừ ra khỏi số thực chi.
+	//
+	// Hiện ra ngoài chứ không giấu: nhà bán thấy số thực chi nhỏ hơn tổng
+	// và cần biết vì sao, nếu không mọi đợt như thế đều thành khiếu nại.
+	Deficit moneyJSON `json:"deficit_amount"`
+
+	// Net là số ĐEM ĐI CHI TRẢ.
+	Net moneyJSON `json:"net_amount"`
+
+	CreatedAt string `json:"created_at"`
+}
+
+func toSettlementJSON(d *domain.DoiSoat) settlementJSON {
+	m := func(x money.Money) moneyJSON {
+		return moneyJSON{Amount: x.Amount(), Currency: string(x.Currency())}
+	}
+	out := settlementJSON{
+		ID: d.ID().String(), Status: string(d.Status()),
+		Currency:    string(d.Net().Currency()),
+		PeriodStart: d.PeriodStart().Format(time.RFC3339),
+		PeriodEnd:   d.PeriodEnd().Format(time.RFC3339),
+		Gross:       m(d.Gross()), Deficit: m(d.Deficit()), Net: m(d.Net()),
+		CreatedAt: d.CreatedAt().Format(time.RFC3339),
+	}
+	return out
+}
+
+func (h *SellerHandler) danhSachDoiSoat(w http.ResponseWriter, r *http.Request) {
+	sellerID, err := h.sellerID(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	ds, err := h.svc.DanhSachDoiSoat(r.Context(), sellerID, 50)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out := make([]settlementJSON, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, toSettlementJSON(d))
+	}
+	if err := apierror.WriteJSON(w, http.StatusOK,
+		map[string]any{"data": out}); err != nil {
+		h.log.ErrorContext(r.Context(), "không ghi được response", "error", err)
+	}
+}
+
+func (h *SellerHandler) motDoiSoat(w http.ResponseWriter, r *http.Request) {
+	sellerID, err := h.sellerID(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	d, err := h.svc.LayDoiSoat(r.Context(),
+		ids.ID(r.PathValue("settlement_id")), sellerID)
+	if err != nil {
+		if errors.Is(err, domain.ErrSettlementNotFound) {
+			h.fail(w, r, apierror.New(apierror.CodeNotFound,
+				"Không tìm thấy đợt đối soát"))
+			return
+		}
+		h.fail(w, r, err)
+		return
+	}
+
+	if err := apierror.WriteJSON(w, http.StatusOK,
+		map[string]any{"settlement": toSettlementJSON(d)}); err != nil {
+		h.log.ErrorContext(r.Context(), "không ghi được response", "error", err)
+	}
 }

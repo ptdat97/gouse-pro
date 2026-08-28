@@ -162,3 +162,155 @@ func (a *apiTest) soDuNhaBan(t *testing.T, token string) (float64, float64) {
 	r, _ := rut["amount"].(float64)
 	return c, r
 }
+
+// TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan.
+//
+// # Bất biến
+//
+// Một bút toán rút được thuộc về ĐÚNG MỘT đợt đối soát. Lọt vào hai đợt
+// nghĩa là nhà bán được trả tiền hai lần cho cùng một đơn hàng.
+//
+// # Lớp nào thật sự gánh bất biến này
+//
+// Có HAI lớp, và chúng không ngang nhau:
+//
+//	lọc "chưa gom" ở truy vấn      → tránh làm việc thừa
+//	UNIQUE (ledger_entry_id)       → CƯỠNG CHẾ bất biến
+//
+// Đã kiểm bằng cách phá: bỏ lớp lọc thì bài này VẪN XANH, vì ràng buộc
+// database chặn. Bỏ CẢ HAI thì nó đỏ với "bút toán với khóa này đã tồn
+// tại". Nên lớp lọc là tối ưu, không phải bảo đảm — và nếu ai đó gỡ ràng
+// buộc UNIQUE vì thấy "đã có kiểm ở tầng ứng dụng rồi", nhà bán sẽ được
+// trả tiền hai lần.
+func TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	B, rut := a.dungNhaBanCoTienRutDuoc(t)
+	if rut <= 0 {
+		t.Fatalf("không dựng được số dư rút được (%v)", rut)
+	}
+
+	den := time.Now().UTC().Add(time.Minute)
+	tu := den.Add(-7 * 24 * time.Hour)
+
+	n, err := a.mods.payment.TaoDoiSoatChoKy(ctx, tu, den, 1000)
+	if err != nil {
+		t.Fatalf("tạo đợt đối soát: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("không tạo được đợt nào dù có khoản rút được")
+	}
+
+	res := a.call(http.MethodGet, "/api/v1/seller/settlements", nil, bearer(B.token))
+	if res.code != http.StatusOK {
+		t.Fatalf("đọc danh sách đợt: HTTP %d — %s", res.code, res.raw)
+	}
+	ds, _ := res.body["data"].([]any)
+	if len(ds) != 1 {
+		t.Fatalf("nhà bán có %d đợt, cần 1", len(ds))
+	}
+	d0, _ := ds[0].(map[string]any)
+	gross, _ := d0["gross_amount"].(map[string]any)
+	g, _ := gross["amount"].(float64)
+	if g != rut {
+		t.Errorf("đợt gom %v, cần %v — không khớp số rút được", g, rut)
+	}
+
+	// CHẠY LẠI job: KHÔNG được gom lần hai.
+	lai, err := a.mods.payment.TaoDoiSoatChoKy(ctx, tu, den, 1000)
+	if err != nil {
+		t.Fatalf("chạy lại job: %v", err)
+	}
+	if lai != 0 {
+		t.Errorf("chạy lại tạo thêm %d đợt — bút toán bị gom hai lần, "+
+			"nhà bán được trả tiền gấp đôi", lai)
+	}
+
+	// Đếm theo ĐÚNG nhà bán này: bảng dùng chung với các bài khác trong
+	// cùng lượt chạy, và đếm toàn bảng là đo cả dữ liệu của người khác.
+	var soDong int
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM settlement_line sl
+		  JOIN settlement s ON s.id = sl.settlement_id
+		 WHERE s.seller_id = $1`, B.sellerID).Scan(&soDong); err != nil {
+		t.Fatalf("đếm dòng đối soát: %v", err)
+	}
+	if soDong != 1 {
+		t.Errorf("nhà bán này có %d dòng đối soát, cần 1", soDong)
+	}
+}
+
+// dungNhaBanCoTienRutDuoc dựng một nhà bán đã bán được và hết hạn đổi trả.
+func (a *apiTest) dungNhaBanCoTienRutDuoc(t *testing.T) (nhaBanThu, float64) {
+	t.Helper()
+	ctx := context.Background()
+
+	B := dungNhaBan(t, a, "nhabanstl"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	skuID := dungSkuThuongHieuMo(t, a)
+
+	gia, _ := money.New(300_000, money.VND)
+	offer, err := a.mods.marketplace.Service().CreateOffer(ctx, marketapp.CreateOfferInput{
+		SKUID: ids.ID(skuID), SellerID: ids.ID(B.sellerID), Price: gia,
+		Condition: marketdom.ConditionNew, HandlingTimeHours: 24,
+		MinOrderQuantity: 1, Activate: true,
+	})
+	if err != nil {
+		t.Skipf("không tạo được offer: %v", err)
+	}
+	loc, err := a.mods.inventory.EnsureLocation(ctx, "Kho đối soát", "SELLER-"+B.sellerID, "SELLER")
+	if err != nil {
+		t.Fatalf("tạo kho: %v", err)
+	}
+	if _, err := a.mods.inventory.Receive(ctx, inventory.ReceiveRequest{
+		SKUID: skuID, LocationID: loc,
+		OwnerID:  inventory.OwnerForSeller(B.sellerID, false),
+		Quantity: 5, PerformedBy: "test",
+	}); err != nil {
+		t.Fatalf("nhập kho: %v", err)
+	}
+
+	res := a.call(http.MethodPost, "/api/v1/cart/items",
+		map[string]any{"offer_id": offer.ID().String(), "quantity": 1}, khoaIdem())
+	if res.code != http.StatusOK {
+		t.Fatalf("thêm giỏ: HTTP %d — %s", res.code, res.raw)
+	}
+	gio, _ := res.body["cart"].(map[string]any)
+	maGio, _ := gio["id"].(string)
+	maDon := a.datDonTuGio(t, maGio, "doisoat@example.com", "0900112233")
+
+	a.phatEvent(t)
+	fo := a.timFulfillment(t, maDon)
+	if fo.id == "" {
+		t.Skip("không tạo được đơn thực hiện")
+	}
+	for _, b := range []func() error{
+		func() error { return a.mods.fulfillment.ConfirmFulfillment(ctx, fo.sellerID, fo.id) },
+		func() error { return a.mods.fulfillment.MarkPicking(ctx, fo.sellerID, fo.id) },
+		func() error { return a.mods.fulfillment.MarkPacked(ctx, fo.sellerID, fo.id) },
+		func() error {
+			return a.mods.fulfillment.HandOverToCarrier(ctx, fulfillment.HandOverRequest{
+				SellerID: fo.sellerID, FulfillmentID: fo.id,
+				Provider: "ghn", TrackingNumber: "DS-" + fo.id[4:14],
+			})
+		},
+		func() error { return a.mods.fulfillment.MarkDelivered(ctx, fo.sellerID, fo.id) },
+	} {
+		if err := b(); err != nil {
+			t.Fatalf("chuyển trạng thái: %v", err)
+		}
+	}
+
+	if _, err := a.db.Pool().Exec(ctx,
+		`UPDATE fulfillment_order SET delivered_at = now() - $1::interval WHERE id = $2`,
+		(fulfillmentapp.ReturnWindow + time.Hour).String(), fo.id); err != nil {
+		t.Fatalf("đẩy mốc giao: %v", err)
+	}
+	if _, err := a.mods.fulfillment.CompleteDelivered(ctx, 10); err != nil {
+		t.Fatalf("hoàn tất đơn: %v", err)
+	}
+	a.phatEvent(t)
+
+	_, rut := a.soDuNhaBan(t, B.token)
+	return B, rut
+}

@@ -734,6 +734,8 @@ func RegisterRoutes(
 				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
 			)
 			mux.Handle("GET /api/v1/seller/balance", authed)
+			mux.Handle("GET /api/v1/seller/settlements", authed)
+			mux.Handle("GET /api/v1/seller/settlements/{settlement_id}", authed)
 		}
 
 		// Webhook vận chuyển: KHÔNG có Auth, KHÔNG có Idempotency-Key.

@@ -91,6 +91,21 @@ const (
 
 	completeDeliveredBatch = 200
 
+	// taoDoiSoatInterval là nhịp tạo đợt đối soát.
+	//
+	// Một giờ chứ không phải một tuần: tài liệu nêu chu kỳ hàng tuần như
+	// VÍ DỤ về nhịp chi trả, còn việc GOM có thể chạy dày hơn — đợt tạo
+	// sớm thì nhà bán thấy sớm, và việc chi trả vẫn do người duyệt.
+	//
+	// Chạy dày cũng an toàn: mỗi bút toán chỉ vào được một đợt, cưỡng chế
+	// bằng UNIQUE ở settlement_line.
+	taoDoiSoatInterval = time.Hour
+
+	// taoDoiSoatKy là độ dài kỳ ghi trên đợt — chỉ để hiển thị.
+	taoDoiSoatKy = 7 * 24 * time.Hour
+
+	doiSoatBatch = 1000
+
 	// dispatchEventsInterval là nhịp phát domain event từ outbox.
 	//
 	// DÀY NHẤT trong các job: mỗi event chờ ở đây là một việc chưa xảy ra
@@ -338,6 +353,11 @@ func run() error {
 			run:      completeDelivered(fulfillmentModule, log),
 		},
 		{
+			name:     "tạo đợt đối soát cho nhà bán",
+			interval: taoDoiSoatInterval,
+			run:      taoDoiSoat(paymentModule, log),
+		},
+		{
 			name:     "tính chỉ số phân tích",
 			interval: computeMetricsInterval,
 			run:      computeMetrics(analyticsModule, log),
@@ -508,6 +528,29 @@ func computeMetrics(m *analytics.Module, log *slog.Logger) func(context.Context)
 			"số_đơn", gmv.SampleSize,
 			"lưu_ý", "số liệu phân tích KHÔNG dùng cho quyết định tài chính")
 
+		return nil
+	}
+}
+
+// taoDoiSoat gom các khoản rút được thành đợt đối soát.
+//
+// # Vì sao chạy theo chu kỳ chứ không theo event
+//
+// Đối soát là gom NHIỀU khoản thành một đợt. Tạo một đợt cho mỗi lần tiền
+// chuyển sang rút được nghĩa là mỗi đơn hàng một đợt chi trả — và mỗi lần
+// chuyển tiền qua ngân hàng đều tốn phí.
+func taoDoiSoat(m *payment.Module, log *slog.Logger) func(context.Context) error {
+	return func(ctx context.Context) error {
+		den := time.Now().UTC()
+		tu := den.Add(-taoDoiSoatKy)
+
+		n, err := m.TaoDoiSoatChoKy(ctx, tu, den, doiSoatBatch)
+		if err != nil {
+			return fmt.Errorf("tạo đợt đối soát: %w", err)
+		}
+		if n > 0 {
+			log.Info("đã tạo đợt đối soát", "số_đợt", n)
+		}
 		return nil
 	}
 }

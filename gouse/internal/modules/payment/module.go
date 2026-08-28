@@ -57,9 +57,10 @@ func New(cfg Config) (*Module, error) {
 
 	pool := cfg.DB.Pool()
 	deps := application.Deps{
-		Ledger:   paymentpg.NewLedgerStore(pool),
-		Balances: paymentpg.NewBalanceStore(pool),
-		Clock:    cfg.Clock,
+		Ledger:      paymentpg.NewLedgerStore(pool),
+		Balances:    paymentpg.NewBalanceStore(pool),
+		Settlements: paymentpg.NewSettlementStore(pool),
+		Clock:       cfg.Clock,
 	}
 	if cfg.Audit != nil {
 		deps.Audit = NewAuditRecorder(cfg.Audit)
@@ -159,6 +160,15 @@ func (m *Module) ChuyenSangRutDuocInEventTx(
 			FulfillmentID: foID, SellerID: sellerID, Amount: amount,
 			CreatedBy: req.CreatedBy,
 		}))
+}
+
+// TaoDoiSoatChoKy tạo đợt đối soát cho mọi nhà bán có khoản rút được.
+//
+// Do tiến trình nền gọi theo chu kỳ. Trả số đợt đã tạo để job ghi log.
+func (m *Module) TaoDoiSoatChoKy(
+	ctx context.Context, tuNgay, denNgay time.Time, limit int,
+) (int, error) {
+	return m.svc.TaoDoiSoatChoKy(ctx, tuNgay, denNgay, limit)
 }
 
 // toRevenueInput chuyển yêu cầu công khai thành đầu vào của tầng ứng dụng.

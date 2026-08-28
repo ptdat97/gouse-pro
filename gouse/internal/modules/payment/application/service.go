@@ -66,16 +66,18 @@ type AdjustmentRecord struct {
 
 // Service là tầng application của module payment.
 type Service struct {
-	ledger   domain.LedgerRepository
-	balances domain.BalanceRepository
-	audit    AuditRecorder
-	clock    Clock
+	ledger      domain.LedgerRepository
+	balances    domain.BalanceRepository
+	settlements SettlementRepository
+	audit       AuditRecorder
+	clock       Clock
 }
 
 type Deps struct {
-	Ledger   domain.LedgerRepository
-	Balances domain.BalanceRepository
-	Clock    Clock
+	Ledger      domain.LedgerRepository
+	Balances    domain.BalanceRepository
+	Settlements SettlementRepository
+	Clock       Clock
 
 	// Audit có thể nil: các use case ghi sổ tự động (doanh thu, hoàn tiền)
 	// không cần. Chỉ RecordAdjustmentWithAudit bắt buộc có nó.
@@ -88,10 +90,11 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{
-		ledger:   d.Ledger,
-		balances: d.Balances,
-		audit:    d.Audit,
-		clock:    clock,
+		ledger:      d.Ledger,
+		balances:    d.Balances,
+		settlements: d.Settlements,
+		audit:       d.Audit,
+		clock:       clock,
 	}
 }
 
@@ -568,4 +571,119 @@ func (s *Service) CheckIntegrity(ctx context.Context, from, to time.Time) (Integ
 		UnbalancedEntries: report.UnbalancedEntries,
 		CheckedEntries:    report.TotalEntries,
 	}, nil
+}
+
+// ---------------------------------------------------------------- Đối soát
+
+// SettlementRepository là PORT cho kho lưu trữ đợt đối soát.
+type SettlementRepository interface {
+	Luu(ctx context.Context, d *domain.DoiSoat) error
+	TimTheoID(ctx context.Context, id ids.ID) (*domain.DoiSoat, error)
+	TimTheoNhaBan(ctx context.Context, sellerID ids.ID, limit int) ([]*domain.DoiSoat, error)
+
+	// ButToanChuaGom trả các bút toán rút được chưa thuộc đợt nào, gom
+	// theo nhà bán.
+	ButToanChuaGom(
+		ctx context.Context, denNgay time.Time, limit int,
+	) (map[ids.ID][]domain.DongDoiSoat, error)
+}
+
+// TaoDoiSoatChoKy tạo đợt đối soát cho mọi nhà bán có khoản rút được.
+//
+// # Vì sao trừ phần ÂM của tài khoản đang chờ
+//
+// Hoàn tiền thu hồi từ SELLER_PAYABLE. Nhưng khách có thể xin trả ngày 6
+// và hàng về ngày 10 — khi tiền ĐÃ chuyển sang rút được. Khoản thu hồi
+// khi ấy rơi vào một tài khoản đã rỗng và làm nó âm.
+//
+// Chi trả trọn phần rút được trong tình huống đó là trả cả khoản vừa hoàn
+// cho khách. Nên số thực chi = rút được TRỪ phần âm ấy.
+//
+// Phần đang chờ DƯƠNG thì KHÔNG cộng vào: đó là tiền của đơn còn trong hạn
+// đổi trả, chưa được phép chi.
+func (s *Service) TaoDoiSoatChoKy(
+	ctx context.Context, tuNgay, denNgay time.Time, limitMoiLuot int,
+) (int, error) {
+	if s.settlements == nil {
+		return 0, errors.New("payment: chưa cấu hình kho lưu trữ đối soát")
+	}
+	if limitMoiLuot <= 0 || limitMoiLuot > 5000 {
+		limitMoiLuot = 1000
+	}
+
+	theoNhaBan, err := s.settlements.ButToanChuaGom(ctx, denNgay, limitMoiLuot)
+	if err != nil {
+		return 0, err
+	}
+
+	daTao := 0
+	for sellerID, dong := range theoNhaBan {
+		if len(dong) == 0 {
+			continue
+		}
+
+		thieu, err := s.phanAmDangCho(ctx, sellerID, dong[0].Amount.Currency())
+		if err != nil {
+			return daTao, err
+		}
+
+		d, err := domain.TaoDoiSoat(domain.TaoDoiSoatParams{
+			SellerID: sellerID, PeriodStart: tuNgay, PeriodEnd: denNgay,
+			Dong: dong, Deficit: thieu, Now: s.clock.Now(),
+		})
+		if err != nil {
+			return daTao, err
+		}
+
+		if err := s.settlements.Luu(ctx, d); err != nil {
+			// Bút toán đã bị lượt khác gom mất: bỏ qua nhà bán này, lượt
+			// sau nhặt phần còn lại. KHÔNG phải lỗi cần dừng cả job.
+			if errors.Is(err, domain.ErrDuplicateEntry) {
+				continue
+			}
+			return daTao, err
+		}
+		daTao++
+	}
+	return daTao, nil
+}
+
+// phanAmDangCho trả phần ÂM của tài khoản đang chờ, dưới dạng số DƯƠNG.
+//
+// Số 0 khi tài khoản không âm.
+func (s *Service) phanAmDangCho(
+	ctx context.Context, sellerID ids.ID, cur money.Currency,
+) (money.Money, error) {
+	b, err := s.balances.Balance(ctx, domain.Account{
+		Type: domain.AccountSellerPayable, OwnerID: sellerID,
+	})
+	if err != nil {
+		return money.Money{}, err
+	}
+	if b.Amount.Amount() >= 0 {
+		return money.New(0, cur)
+	}
+	return money.New(-b.Amount.Amount(), cur)
+}
+
+// LayDoiSoat đọc một đợt đối soát, KÈM kiểm chủ sở hữu.
+func (s *Service) LayDoiSoat(
+	ctx context.Context, id, sellerID ids.ID,
+) (*domain.DoiSoat, error) {
+	d, err := s.settlements.TimTheoID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// KHÔNG phân biệt "không tồn tại" với "của nhà bán khác".
+	if !sellerID.IsZero() && d.SellerID() != sellerID {
+		return nil, domain.ErrSettlementNotFound
+	}
+	return d, nil
+}
+
+// DanhSachDoiSoat trả các đợt của một nhà bán.
+func (s *Service) DanhSachDoiSoat(
+	ctx context.Context, sellerID ids.ID, limit int,
+) ([]*domain.DoiSoat, error) {
+	return s.settlements.TimTheoNhaBan(ctx, sellerID, limit)
 }

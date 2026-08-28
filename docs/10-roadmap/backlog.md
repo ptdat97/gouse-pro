@@ -179,10 +179,11 @@ trả, chưa có cơ chế giữ tiền khi tranh chấp, chưa có chính sách
 
 | Việc | Ghi chú |
 |---|---|
-| Bảng `settlement` + job tổng hợp theo kỳ | Gom các khoản rút được thành một đợt đối soát |
-| `GET /api/v1/seller/settlements/{id}` | Nhà bán xem chi tiết đợt |
-| `POST /api/v1/admin/payouts` | Thao tác NGUY HIỂM NHẤT: cần 2FA, cần tích hợp ngân hàng |
-| Số dư âm | Hoàn hàng vượt doanh thu kỳ — không chuyển tiền âm, chuyển sang kỳ sau |
+| ~~Bảng `settlement` + job tổng hợp theo kỳ~~ | **XONG 27/08** — job chạy mỗi giờ, mỗi bút toán chỉ vào được một đợt |
+| ~~`GET /api/v1/seller/settlements/{id}`~~ | **XONG 27/08** — kèm danh sách đợt |
+| ~~Số dư âm~~ | **XONG 27/08** — phần âm của tài khoản đang chờ bị trừ khỏi số thực chi; đợt không có số dương thì không xác nhận được |
+| **`POST /api/v1/admin/payouts`** | Thao tác NGUY HIỂM NHẤT: chuyển tiền thật ra ngoài. Cần 2FA và tích hợp ngân hàng — CHƯA có cái nào |
+| Chặn chuyển sang rút được khi đang có yêu cầu trả hàng | Hiện xử lý bằng cách trừ phần âm ở đối soát, đúng nhưng gián tiếp. Chặn từ đầu thì sạch hơn — cần fulfillment hỏi returns |
 
 ---
 
