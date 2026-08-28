@@ -721,6 +721,7 @@ func RegisterRoutes(
 			mux.Handle("POST /api/v1/seller/returns/{return_id}/approve", authed)
 			mux.Handle("POST /api/v1/seller/returns/{return_id}/reject", authed)
 			mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", authed)
+			mux.Handle("POST /api/v1/seller/returns/{return_id}/inspect", authed)
 		}
 
 		// Số dư nhà bán — cùng ranh giới bảo mật.

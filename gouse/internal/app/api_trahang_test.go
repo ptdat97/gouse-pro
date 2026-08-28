@@ -176,3 +176,174 @@ func (a *apiTest) tonKhoKhaDung(t *testing.T, orderID string) int {
 	}
 	return n
 }
+
+// TestKiemDinhDuaHangHoanTroLaiBanDuoc.
+//
+// # Vì sao bước này quyết định
+//
+// Hàng hoàn về kho nằm ở trạng thái Returned và KHÔNG BAO GIỜ tự động vào
+// Available — quy tắc bắt buộc, vì bán lại hàng hỏng gây thiệt hại uy tín
+// lớn hơn nhiều giá trị món hàng.
+//
+// Nhưng không có bước ghi kết quả kiểm định thì hàng nằm CHẾT vĩnh viễn:
+// nhà bán mất cả hàng lẫn tiền, và con số tồn kho ngày càng xa thực tế.
+//
+// Bài này đo cả hai chiều: hàng ĐẠT quay lại bán được, hàng LOẠI thì không.
+//
+// # Chống kiểm hai lần có HAI lớp, bài này không phân biệt được
+//
+//	domain GhiKetQuaKiemDinh  → từ chối khi dòng đã kiểm
+//	bất biến của tồn kho      → không còn hàng ở Returned để chuyển
+//
+// Đã kiểm bằng cách phá: bỏ lớp domain thì bài này VẪN XANH, vì tồn kho
+// chặn. Cả hai đều đúng và đều cần — nhưng lớp domain là thứ trả về lỗi
+// đọc được cho nhà bán, còn tồn kho chỉ trả 500.
+func TestKiemDinhDuaHangHoanTroLaiBanDuoc(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	maDon, maDong, sellerID := a.dungDonDaGiao(t)
+	tokBan := a.dangNhapNhaBan(t, sellerID)
+
+	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", map[string]any{
+		"lines": []any{map[string]any{
+			"order_line_id": maDong, "quantity": 1, "reason_code": "SIZE_TOO_SMALL",
+		}},
+	}, hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"}))
+	if res.code != http.StatusCreated {
+		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
+	}
+	yc, _ := res.body["return"].(map[string]any)
+	maYC, _ := yc["id"].(string)
+
+	if err := a.mods.returns.Duyet(ctx, maYC, sellerID); err != nil {
+		t.Fatalf("duyệt: %v", err)
+	}
+	if err := a.mods.returns.NhanHangVaHoanTien(ctx, maYC, sellerID); err != nil {
+		t.Fatalf("nhận hàng: %v", err)
+	}
+
+	truoc := a.tonKhoTheoTrangThai(t, maDon)
+	if truoc.hoan == 0 {
+		t.Fatalf("sau khi nhận hàng, tồn Returned là 0 — hàng chưa vào kho")
+	}
+
+	// KIỂM ĐỊNH ĐẠT — qua HTTP, đường trước đây không tồn tại.
+	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+		map[string]any{
+			"lines": []any{map[string]any{"order_line_id": maDong, "passed": true}},
+		}, hopNhat(bearer(tokBan), khoaIdem()))
+	if got.code != http.StatusOK {
+		t.Fatalf("kiểm định: HTTP %d — %s", got.code, got.raw)
+	}
+
+	// Đo MỨC THAY ĐỔI, không phải con số tuyệt đối: SKU dùng chung với
+	// các bài khác trong cùng lượt chạy, và tổng tuyệt đối là đo cả dữ
+	// liệu của người khác.
+	sau := a.tonKhoTheoTrangThai(t, maDon)
+	if sau.khaDung-truoc.khaDung != 1 {
+		t.Errorf("hàng ĐẠT kiểm định: khả dụng đổi %d → %d, cần +1 — "+
+			"hàng hoàn không quay lại bán được và nằm chết trong kho",
+			truoc.khaDung, sau.khaDung)
+	}
+	if truoc.hoan-sau.hoan != 1 {
+		t.Errorf("tồn Returned đổi %d → %d, cần −1 — hàng không rời trạng "+
+			"thái chờ kiểm định", truoc.hoan, sau.hoan)
+	}
+
+	// KIỂM HAI LẦN phải bị chặn: hàng vào Available gấp đôi là tồn kho
+	// tăng thêm số hàng không có thật.
+	lai := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+		map[string]any{
+			"lines": []any{map[string]any{"order_line_id": maDong, "passed": true}},
+		}, hopNhat(bearer(tokBan), khoaIdem()))
+	if lai.code == http.StatusOK {
+		t.Error("kiểm định LẦN HAI vẫn thành công — tồn kho tăng thêm hàng không có thật")
+	}
+	if cuoi := a.tonKhoTheoTrangThai(t, maDon); cuoi.khaDung != sau.khaDung {
+		t.Errorf("kiểm lần hai làm khả dụng đổi %d → %d", sau.khaDung, cuoi.khaDung)
+	}
+}
+
+// TestLoaiHangPhaiNeuLyDo.
+//
+// Lý do loại là đầu vào cho việc làm việc với nhà cung cấp và quyết ai
+// chịu chi phí. "Hỏng" không có mô tả thì không làm được gì với nó.
+//
+// Cũng có HAI lớp: kiểm ở domain và CHECK `return_line_fail_needs_note` ở
+// database. Bỏ lớp domain thì bài vẫn xanh vì database chặn — nhưng khi
+// đó nhà bán nhận 500 thay vì một thông điệp nói rõ thiếu gì.
+func TestLoaiHangPhaiNeuLyDo(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	maDon, maDong, sellerID := a.dungDonDaGiao(t)
+	tokBan := a.dangNhapNhaBan(t, sellerID)
+
+	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", map[string]any{
+		"lines": []any{map[string]any{
+			"order_line_id": maDong, "quantity": 1, "reason_code": "DEFECTIVE",
+		}},
+	}, hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"}))
+	if res.code != http.StatusCreated {
+		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
+	}
+	yc, _ := res.body["return"].(map[string]any)
+	maYC, _ := yc["id"].(string)
+
+	if err := a.mods.returns.Duyet(ctx, maYC, sellerID); err != nil {
+		t.Fatalf("duyệt: %v", err)
+	}
+	if err := a.mods.returns.NhanHangVaHoanTien(ctx, maYC, sellerID); err != nil {
+		t.Fatalf("nhận hàng: %v", err)
+	}
+
+	// Loại hàng mà KHÔNG nêu lý do.
+	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+		map[string]any{
+			"lines": []any{map[string]any{"order_line_id": maDong, "passed": false}},
+		}, hopNhat(bearer(tokBan), khoaIdem()))
+	if got.code == http.StatusOK {
+		t.Error("loại hàng KHÔNG nêu lý do vẫn được chấp nhận")
+	}
+
+	// Có lý do thì được, và hàng KHÔNG quay lại bán được.
+	truoc := a.tonKhoTheoTrangThai(t, maDon)
+	ok := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+		map[string]any{
+			"lines": []any{map[string]any{
+				"order_line_id": maDong, "passed": false,
+				"note": "rách đường may vai trái",
+			}},
+		}, hopNhat(bearer(tokBan), khoaIdem()))
+	if ok.code != http.StatusOK {
+		t.Fatalf("loại hàng có lý do: HTTP %d — %s", ok.code, ok.raw)
+	}
+
+	sau := a.tonKhoTheoTrangThai(t, maDon)
+	if sau.khaDung != truoc.khaDung {
+		t.Errorf("hàng LOẠI vẫn vào khả dụng: %d → %d — bán lại hàng hỏng "+
+			"cho khách khác", truoc.khaDung, sau.khaDung)
+	}
+	if sau.hong-truoc.hong != 1 {
+		t.Errorf("hàng loại vào Damaged đổi %d → %d, cần +1",
+			truoc.hong, sau.hong)
+	}
+}
+
+type tonKhoTrangThai struct{ khaDung, hoan, hong int }
+
+func (a *apiTest) tonKhoTheoTrangThai(t *testing.T, orderID string) tonKhoTrangThai {
+	t.Helper()
+	var tk tonKhoTrangThai
+	if err := a.db.Pool().QueryRow(context.Background(), `
+		SELECT coalesce(sum(quantity_available), 0),
+		       coalesce(sum(quantity_returned), 0),
+		       coalesce(sum(quantity_damaged), 0)
+		  FROM inventory_item
+		 WHERE sku_id IN (SELECT sku_id FROM order_line WHERE order_id = $1)`,
+		orderID).Scan(&tk.khaDung, &tk.hoan, &tk.hong); err != nil {
+		t.Fatalf("đọc tồn kho: %v", err)
+	}
+	return tk
+}

@@ -24,6 +24,9 @@ var (
 	ErrVersionConflict  = errors.New("returns: yêu cầu vừa bị thay đổi, hãy đọc lại")
 	ErrDuplicateLine    = errors.New("returns: dòng hàng này đã có yêu cầu trả")
 	ErrQuantityExceeded = errors.New("returns: số lượng xin trả vượt số đã mua")
+	ErrChuaNhanHang     = errors.New("returns: chưa nhận được hàng, không kiểm định được")
+	ErrDaKiemDinh       = errors.New("returns: dòng hàng này đã kiểm định rồi")
+	ErrThieuLyDoLoai    = errors.New("returns: loại hàng phải nêu lý do")
 
 	// ErrGiamGiaChuaPhanBo là HÀNG RÀO CHỐNG HOÀN THỪA.
 	//
@@ -120,7 +123,28 @@ type Dong struct {
 
 	// ChiTiet là mô tả thêm của khách cho dòng này.
 	ChiTiet string
+
+	// KiemDinh là kết quả kiểm định hàng hoàn: PENDING, PASSED, FAILED.
+	//
+	// Hàng hoàn về kho nằm ở Returned và KHÔNG BAO GIỜ tự động vào
+	// Available — bước này quyết định nó đi đâu.
+	KiemDinh KetQuaKiemDinh
+
+	// GhiChuKiemDinh BẮT BUỘC khi loại hàng: lý do loại là đầu vào cho
+	// việc làm việc với nhà cung cấp và quyết ai chịu chi phí.
+	GhiChuKiemDinh string
+
+	InspectedAt time.Time
 }
+
+// KetQuaKiemDinh là kết quả kiểm định một dòng hàng hoàn.
+type KetQuaKiemDinh string
+
+const (
+	KiemDinhChoXuLy KetQuaKiemDinh = "PENDING"
+	KiemDinhDat     KetQuaKiemDinh = "PASSED"
+	KiemDinhLoai    KetQuaKiemDinh = "FAILED"
+)
 
 // YeuCauTraHang là một yêu cầu trả hàng.
 type YeuCauTraHang struct {
@@ -327,4 +351,53 @@ func KhoiPhuc(p KhoiPhucParams) *YeuCauTraHang {
 		receivedAt: p.ReceivedAt, refundedAt: p.RefundedAt,
 		version: p.Version, createdAt: p.CreatedAt, updatedAt: p.UpdatedAt,
 	}
+}
+
+// GhiKetQuaKiemDinh ghi kết quả kiểm định cho một dòng hàng.
+//
+// # Vì sao chỉ cho kiểm sau khi ĐÃ NHẬN hàng
+//
+// Kiểm định là nhìn vào món hàng thật. Ghi kết quả trước khi hàng về là
+// ghi một điều chưa ai biết — và nó sẽ đẩy hàng vào Available trong khi
+// kho chưa có gì.
+func (y *YeuCauTraHang) GhiKetQuaKiemDinh(
+	orderLineID ids.ID, dat bool, ghiChu string, now time.Time,
+) error {
+	if y.status != TTDaNhan && y.status != TTDaHoan {
+		return ErrChuaNhanHang
+	}
+	if !dat && strings.TrimSpace(ghiChu) == "" {
+		return ErrThieuLyDoLoai
+	}
+
+	for i := range y.dong {
+		if y.dong[i].OrderLineID != orderLineID {
+			continue
+		}
+		if y.dong[i].KiemDinh != KiemDinhChoXuLy && y.dong[i].KiemDinh != "" {
+			// Kiểm hai lần nghĩa là hàng vào Available hai lần — tồn kho
+			// tăng thêm số hàng không có thật.
+			return ErrDaKiemDinh
+		}
+
+		y.dong[i].KiemDinh = KiemDinhLoai
+		if dat {
+			y.dong[i].KiemDinh = KiemDinhDat
+		}
+		y.dong[i].GhiChuKiemDinh = strings.TrimSpace(ghiChu)
+		y.dong[i].InspectedAt = now
+		y.touch(now)
+		return nil
+	}
+	return ErrNotFound
+}
+
+// ConChoKiemDinh cho biết còn dòng nào chưa kiểm không.
+func (y *YeuCauTraHang) ConChoKiemDinh() bool {
+	for _, d := range y.dong {
+		if d.KiemDinh == KiemDinhChoXuLy || d.KiemDinh == "" {
+			return true
+		}
+	}
+	return false
 }

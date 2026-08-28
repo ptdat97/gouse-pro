@@ -224,7 +224,8 @@ trả 409 kèm thông điệp nói thẳng để người vận hành xử lý t
 |---|---|
 | ~~Nối `AllocateDiscount` vào checkout~~ | **XONG 27/08** — phân bổ ở `CompleteCheckout`, đóng băng thành khoản điều chỉnh của dòng hàng |
 | ~~Nối module `promotion` vào `internal/app`~~ | **XONG 27/08** — mã giảm giá chạy được từ đầu tới cuối, kể cả trả hàng |
-| Kiểm định chất lượng → Available | Hàng đang dừng ở Returned; `ProcessReturnInspection` đã có, chưa có route |
+| ~~Kiểm định chất lượng → Available~~ | **XONG 27/08** — `POST /seller/returns/{id}/inspect`, đạt vào Available, loại vào Damaged |
+| **Đối chiếu dòng "đã kiểm" với tồn kho** | Kiểm định lưu trạng thái TRƯỚC rồi mới ghi tồn kho. Lượt ghi tồn kho hỏng để lại dòng đã kiểm mà hàng còn kẹt ở Returned — không có gì tự phát hiện. Cần một truy vấn đối chiếu định kỳ |
 | Giải phóng lượt dùng mã giảm giá | `promotion.ReleaseUsage` đã có, chưa nối |
 | Thu hồi điểm thưởng | Chưa có module loyalty |
 | Đảo hoa hồng creator | Chưa có module creator |

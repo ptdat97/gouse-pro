@@ -70,13 +70,19 @@ func (s *Store) Luu(ctx context.Context, y *domain.YeuCauTraHang) error {
 			INSERT INTO return_line (
 				id, return_request_id, order_line_id, sku_id,
 				quantity, line_refund, line_currency,
-				reason_code, reason_detail
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-			ON CONFLICT (id) DO NOTHING`,
+				reason_code, reason_detail,
+				inspection, inspection_note, inspected_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			ON CONFLICT (id) DO UPDATE SET
+				inspection      = EXCLUDED.inspection,
+				inspection_note = EXCLUDED.inspection_note,
+				inspected_at    = EXCLUDED.inspected_at`,
 			d.ID.String(), y.ID().String(), d.OrderLineID.String(),
 			d.SKUID.String(), d.Quantity,
 			d.TienHoan.Amount(), string(d.TienHoan.Currency()),
-			string(d.LyDo), d.ChiTiet); err != nil {
+			string(d.LyDo), d.ChiTiet,
+			kiemDinhHoacMacDinh(d.KiemDinh), d.GhiChuKiemDinh,
+			nullTime(d.InspectedAt)); err != nil {
 			return fmt.Errorf("returns: ghi dòng trả hàng: %w", err)
 		}
 	}
@@ -200,7 +206,8 @@ func (s *Store) doc(
 	// một gian hàng bận có hàng chục bản ghi.
 	lrows, err := s.pool.Query(ctx, `
 		SELECT return_request_id, id, order_line_id, sku_id,
-		       quantity, line_refund, line_currency, reason_code, reason_detail
+		       quantity, line_refund, line_currency, reason_code, reason_detail,
+		       inspection, inspection_note, inspected_at
 		  FROM return_line WHERE return_request_id = ANY($1)
 		 ORDER BY created_at, id`, ma)
 	if err != nil {
@@ -210,10 +217,12 @@ func (s *Store) doc(
 
 	for lrows.Next() {
 		var reqID, id, lineID, skuID, tienTe, lyDo, chiTiet string
+		var kiemDinh, ghiChuKD string
+		var kiemLuc *time.Time
 		var qty int
 		var soTien int64
 		if err := lrows.Scan(&reqID, &id, &lineID, &skuID, &qty, &soTien,
-			&tienTe, &lyDo, &chiTiet); err != nil {
+			&tienTe, &lyDo, &chiTiet, &kiemDinh, &ghiChuKD, &kiemLuc); err != nil {
 			return nil, err
 		}
 		tien, err := money.New(soTien, money.Currency(tienTe))
@@ -225,6 +234,9 @@ func (s *Store) doc(
 				ID: ids.ID(id), OrderLineID: ids.ID(lineID),
 				SKUID: ids.ID(skuID), Quantity: qty, TienHoan: tien,
 				LyDo: domain.LyDo(lyDo), ChiTiet: chiTiet,
+				KiemDinh:       domain.KetQuaKiemDinh(kiemDinh),
+				GhiChuKiemDinh: ghiChuKD,
+				InspectedAt:    deref(kiemLuc),
 			})
 		}
 	}
@@ -250,4 +262,15 @@ func deref(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
+}
+
+// kiemDinhHoacMacDinh đảm bảo không ghi chuỗi rỗng vào cột có ràng buộc.
+//
+// Dòng vừa tạo chưa có kết quả kiểm định, và giá trị zero của kiểu là
+// chuỗi rỗng — thứ mà CHECK ở database từ chối.
+func kiemDinhHoacMacDinh(k domain.KetQuaKiemDinh) string {
+	if k == "" {
+		return string(domain.KiemDinhChoXuLy)
+	}
+	return string(k)
 }

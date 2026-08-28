@@ -1692,6 +1692,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seller/returns/{return_id}/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ghi kết quả kiểm định hàng hoàn
+         * @description Đóng mắt xích CUỐI của luồng trả hàng.
+         *
+         *     Hàng hoàn về kho nằm ở trạng thái `Returned` — **không bao giờ** tự
+         *     động vào `Available`. Bán lại hàng hỏng cho khách khác gây thiệt hại
+         *     uy tín lớn hơn nhiều lần giá trị món hàng.
+         *
+         *     Không có bước này thì mọi món hàng hoàn nằm chết vĩnh viễn: nhà bán
+         *     mất cả hàng lẫn tiền.
+         *
+         *     **Kết quả quyết định hàng đi đâu:**
+         *
+         *     | `passed` | Hàng vào | Ý nghĩa |
+         *     |---|---|---|
+         *     | `true`  | `Available` | Còn nguyên tem mác, bán lại được |
+         *     | `false` | `Damaged`   | Hỏng, bẩn, thiếu phụ kiện |
+         *
+         *     Kiểm theo TỪNG DÒNG: một yêu cầu trả hai món hoàn toàn có thể một
+         *     món bán lại được và một món hỏng.
+         */
+        post: operations["inspectReturn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/shipping/{provider}": {
         parameters: {
             query?: never;
@@ -7126,6 +7163,62 @@ export interface operations {
                      *       "request_id": "req_01J9XABC123DEF456GHJKMNPQR"
                      *     }
                      */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    inspectReturn: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                return_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    lines: {
+                        order_line_id: components["schemas"]["Id"];
+                        passed: boolean;
+                        /**
+                         * @description Bắt buộc khi `passed = false`. Lý do loại hàng là
+                         *     đầu vào cho việc làm việc với nhà cung cấp.
+                         */
+                        note?: string;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Đã ghi kết quả kiểm định */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Yêu cầu chưa tới bước kiểm định, hoặc đã kiểm rồi. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["Error"];
                 };
             };

@@ -176,6 +176,7 @@ func (h *SellerHandler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/approve", http.HandlerFunc(h.duyet))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/reject", http.HandlerFunc(h.tuChoi))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", http.HandlerFunc(h.nhanHang))
+	mux.Handle("POST /api/v1/seller/returns/{return_id}/inspect", http.HandlerFunc(h.kiemDinh))
 }
 
 func (h *SellerHandler) danhSach(w http.ResponseWriter, r *http.Request) {
@@ -229,6 +230,43 @@ func (h *SellerHandler) tuChoi(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// kiemDinh ghi kết quả kiểm định hàng hoàn.
+//
+// Đây là bước DUY NHẤT đưa hàng hoàn ra khỏi trạng thái Returned. Không có
+// nó, mọi món hàng hoàn nằm chết vĩnh viễn: nhà bán mất cả hàng lẫn tiền,
+// và con số tồn kho ngày càng xa thực tế.
+func (h *SellerHandler) kiemDinh(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Lines []struct {
+			OrderLineID string `json:"order_line_id"`
+			Passed      bool   `json:"passed"`
+			Note        string `json:"note"`
+		} `json:"lines"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if len(req.Lines) == 0 {
+		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+			"lines là trường bắt buộc"))
+		return
+	}
+
+	kq := make([]application.KetQuaKiemDinhDong, 0, len(req.Lines))
+	for _, l := range req.Lines {
+		kq = append(kq, application.KetQuaKiemDinhDong{
+			OrderLineID: ids.ID(strings.TrimSpace(l.OrderLineID)),
+			Dat:         l.Passed,
+			GhiChu:      l.Note,
+		})
+	}
+
+	h.buoc(w, r, func(sellerID, id ids.ID) (*domain.YeuCauTraHang, error) {
+		return h.svc.KiemDinh(r.Context(), id, sellerID, kq)
+	})
+}
+
 func (h *SellerHandler) buoc(
 	w http.ResponseWriter, r *http.Request,
 	lam func(sellerID, id ids.ID) (*domain.YeuCauTraHang, error),
@@ -271,6 +309,10 @@ type returnLineJSON struct {
 	ReasonCode   string    `json:"reason_code"`
 	ReasonDetail string    `json:"reason_detail,omitempty"`
 	Refund       moneyJSON `json:"refund"`
+
+	// Inspection: PENDING, PASSED, FAILED.
+	Inspection     string `json:"inspection"`
+	InspectionNote string `json:"inspection_note,omitempty"`
 }
 
 type moneyJSON struct {
@@ -306,6 +348,7 @@ func toJSON(y *domain.YeuCauTraHang) returnJSON {
 			OrderLineID: d.OrderLineID.String(), SKUID: d.SKUID.String(),
 			Quantity:   d.Quantity,
 			ReasonCode: string(d.LyDo), ReasonDetail: d.ChiTiet,
+			Inspection: string(d.KiemDinh), InspectionNote: d.GhiChuKiemDinh,
 			Refund: moneyJSON{
 				Amount:   d.TienHoan.Amount(),
 				Currency: string(d.TienHoan.Currency()),
@@ -337,6 +380,16 @@ func dich(err error) error {
 	case errors.Is(err, domain.ErrVersionConflict):
 		return apierror.New(apierror.CodeConflict,
 			"Yêu cầu vừa được cập nhật, vui lòng tải lại")
+
+	case errors.Is(err, domain.ErrChuaNhanHang):
+		return apierror.New(apierror.CodeConflict,
+			"Chưa nhận được hàng, không kiểm định được")
+	case errors.Is(err, domain.ErrDaKiemDinh):
+		return apierror.New(apierror.CodeConflict,
+			"Món này đã kiểm định rồi")
+	case errors.Is(err, domain.ErrThieuLyDoLoai):
+		return apierror.New(apierror.CodeValidationFailed,
+			"note là trường bắt buộc khi loại hàng")
 
 	case errors.Is(err, domain.ErrGiamGiaChuaPhanBo):
 		// 409 kèm thông điệp nói THẲNG vấn đề: đây không phải lỗi của

@@ -550,6 +550,78 @@ fulfillment_order_ship:
       '409':
         $ref: '../components/common.yaml#/responses/Conflict'
 
+return_inspect:
+  post:
+    tags: [Seller]
+    summary: Ghi kết quả kiểm định hàng hoàn
+    description: |
+      Đóng mắt xích CUỐI của luồng trả hàng.
+
+      Hàng hoàn về kho nằm ở trạng thái `Returned` — **không bao giờ** tự
+      động vào `Available`. Bán lại hàng hỏng cho khách khác gây thiệt hại
+      uy tín lớn hơn nhiều lần giá trị món hàng.
+
+      Không có bước này thì mọi món hàng hoàn nằm chết vĩnh viễn: nhà bán
+      mất cả hàng lẫn tiền.
+
+      **Kết quả quyết định hàng đi đâu:**
+
+      | `passed` | Hàng vào | Ý nghĩa |
+      |---|---|---|
+      | `true`  | `Available` | Còn nguyên tem mác, bán lại được |
+      | `false` | `Damaged`   | Hỏng, bẩn, thiếu phụ kiện |
+
+      Kiểm theo TỪNG DÒNG: một yêu cầu trả hai món hoàn toàn có thể một
+      món bán lại được và một món hỏng.
+    operationId: inspectReturn
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: return_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [lines]
+            properties:
+              lines:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [order_line_id, passed]
+                  properties:
+                    order_line_id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    passed:
+                      type: boolean
+                    note:
+                      type: string
+                      description: |
+                        Bắt buộc khi `passed = false`. Lý do loại hàng là
+                        đầu vào cho việc làm việc với nhà cung cấp.
+    responses:
+      '200':
+        description: Đã ghi kết quả kiểm định
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        description: |
+          Yêu cầu chưa tới bước kiểm định, hoặc đã kiểm rồi.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+
 fulfillment_order_deliver:
   post:
     tags: [Seller]

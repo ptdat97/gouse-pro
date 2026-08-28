@@ -232,6 +232,8 @@ paths:
   # ----------------------------------------------------------------- Webhooks
   /api/v1/webhooks/payment/{provider}:
     $ref: './paths/webhooks.yaml#/payment_webhook'
+  /api/v1/seller/returns/{return_id}/inspect:
+    $ref: './paths/seller.yaml#/return_inspect'
   /api/v1/webhooks/shipping/{provider}:
     $ref: './paths/webhooks.yaml#/shipping_webhook'
 

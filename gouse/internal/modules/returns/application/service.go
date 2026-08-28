@@ -73,6 +73,15 @@ type InventoryPort interface {
 	// Bên cài đặt tự tra bản ghi tồn kho từ (SKU, nhà bán): việc trả hàng
 	// không cần biết kho nào giữ món đó.
 	NhanHangHoan(ctx context.Context, skuID, sellerID ids.ID, qty int, returnID ids.ID) error
+
+	// GhiKetQuaKiemDinh chuyển hàng từ Returned sang Available (đạt) hoặc
+	// Damaged (loại).
+	//
+	// Đây là bước DUY NHẤT đưa hàng hoàn trở lại bán được. Không có nó,
+	// hàng nằm chết ở Returned vĩnh viễn.
+	GhiKetQuaKiemDinh(
+		ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, lyDo string,
+	) error
 }
 
 // PaymentPort ghi bút toán hoàn tiền.
@@ -452,4 +461,80 @@ func (s *Service) DanhSachTheoNhaBan(
 		limit = 50
 	}
 	return s.repo.TimTheoNhaBan(ctx, sellerID, status, limit)
+}
+
+// KetQuaKiemDinhDong là kết quả kiểm định một dòng hàng hoàn.
+type KetQuaKiemDinhDong struct {
+	OrderLineID ids.ID
+	Dat         bool
+	GhiChu      string
+}
+
+// KiemDinh ghi kết quả kiểm định và đưa hàng ra khỏi trạng thái Returned.
+//
+// # Thứ tự: LƯU TRẠNG THÁI TRƯỚC, ghi tồn kho SAU
+//
+// Hai module, không có giao dịch chung, nên một trong hai lượt ghi có thể
+// hỏng. Hai thứ tự cho hai kiểu hỏng:
+//
+//	tồn kho trước → hỏng ở bước lưu: hàng ĐÃ chuyển, dòng vẫn PENDING,
+//	                lần thử lại chuyển TIẾP → hàng ma trong kho
+//	lưu trước     → hỏng ở bước tồn kho: dòng ghi "đã kiểm", hàng còn kẹt
+//	                ở Returned → hàng chết, nhưng KHÔNG có hàng ma
+//
+// Chọn thứ hai. Hàng chết là mất mát đếm được và sửa tay được; hàng ma là
+// bán thứ không tồn tại, và nó chỉ lộ ra khi khách đặt rồi không giao được.
+//
+// Thứ tự đầu là thứ tôi viết trước, và phép kiểm chứng bằng cách phá đã
+// lộ ra nó: bỏ ràng buộc lý do khiến lượt lưu hỏng, và tồn kho đã chuyển
+// mất rồi.
+//
+// Rủi ro còn lại: dòng "đã kiểm" mà hàng chưa chuyển thì KHÔNG có gì tự
+// phát hiện. Cần một truy vấn đối chiếu định kỳ — chưa có, ghi ở backlog.
+func (s *Service) KiemDinh(
+	ctx context.Context, id, sellerID ids.ID, ketQua []KetQuaKiemDinhDong,
+) (*domain.YeuCauTraHang, error) {
+	if len(ketQua) == 0 {
+		return nil, domain.ErrNoLines
+	}
+
+	y, err := s.repo.TimTheoID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !sellerID.IsZero() && y.SellerID() != sellerID {
+		return nil, domain.ErrNotFound
+	}
+
+	theoDong := map[ids.ID]domain.Dong{}
+	for _, d := range y.Dong() {
+		theoDong[d.OrderLineID] = d
+	}
+
+	now := s.clock.Now()
+	for _, kq := range ketQua {
+		if _, co := theoDong[kq.OrderLineID]; !co {
+			return nil, domain.ErrNotFound
+		}
+
+		// Hàng rào chống kiểm hai lần nằm ở đây, TRƯỚC mọi lượt ghi.
+		if err := y.GhiKetQuaKiemDinh(kq.OrderLineID, kq.Dat, kq.GhiChu, now); err != nil {
+			return nil, err
+		}
+
+	}
+
+	// LƯU TRƯỚC: nếu bước này hỏng thì chưa có gì chuyển trong kho.
+	if err := s.repo.Luu(ctx, y); err != nil {
+		return nil, err
+	}
+
+	for _, kq := range ketQua {
+		dong := theoDong[kq.OrderLineID]
+		if err := s.inventory.GhiKetQuaKiemDinh(ctx, dong.SKUID, y.SellerID(),
+			dong.Quantity, kq.Dat, kq.GhiChu); err != nil {
+			return nil, fmt.Errorf("returns: ghi kết quả kiểm định vào tồn kho: %w", err)
+		}
+	}
+	return y, nil
 }

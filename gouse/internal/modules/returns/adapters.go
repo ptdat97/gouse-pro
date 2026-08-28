@@ -107,11 +107,29 @@ type OwnerResolver interface {
 func (a *inventoryAdapter) NhanHangHoan(
 	ctx context.Context, skuID, sellerID ids.ID, qty int, returnID ids.ID,
 ) error {
+	item, err := a.timBanGhi(ctx, skuID, sellerID)
+	if err != nil {
+		return err
+	}
+
+	// Hàng vào trạng thái Returned, KHÔNG phải Available — quy tắc bắt
+	// buộc của docs/07-workflows/return.md mục 4. Bước kiểm định mới quyết
+	// định món hàng đi đâu tiếp.
+	return a.api.ReceiveReturn(ctx, item.ID, qty, returnID.String())
+}
+
+// timBanGhi tra bản ghi tồn kho của một SKU thuộc một nhà bán.
+//
+// Tách ra vì cả nhận hàng lẫn kiểm định đều cần: hai bản sao của phép tra
+// này là hai chỗ để quên lọc theo chủ sở hữu.
+func (a *inventoryAdapter) timBanGhi(
+	ctx context.Context, skuID, sellerID ids.ID,
+) (*inventory.ItemView, error) {
 	chuSoHuu := sellerID.String()
 	if a.owner != nil {
 		v, err := a.owner.InventoryOwnerID(ctx, sellerID.String())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		chuSoHuu = v
 	}
@@ -119,29 +137,34 @@ func (a *inventoryAdapter) NhanHangHoan(
 	// Tham số thứ ba là KHO, không phải chủ sở hữu — để rỗng rồi tự lọc.
 	found, err := a.api.GetItemsBySKUs(ctx, []string{skuID.String()}, "")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Lọc theo CHỦ SỞ HỮU: một SKU có tồn kho của nhiều chủ cùng lúc, và
-	// đó là lý do cái chợ tồn tại. Nhập hàng hoàn vào bản ghi của người
-	// khác nghĩa là cộng hàng cho nhà bán không liên quan.
-	var item *inventory.ItemView
+	// đó là lý do cái chợ tồn tại. Ghi vào bản ghi của người khác nghĩa là
+	// cộng hàng cho nhà bán không liên quan.
 	for i := range found[skuID.String()] {
 		if found[skuID.String()][i].OwnerID == chuSoHuu {
-			item = &found[skuID.String()][i]
-			break
+			return &found[skuID.String()][i], nil
 		}
 	}
-	if item == nil {
-		return fmt.Errorf(
-			"returns: không có bản ghi tồn kho cho SKU %s của chủ sở hữu %s",
-			skuID, chuSoHuu)
-	}
+	return nil, fmt.Errorf(
+		"returns: không có bản ghi tồn kho cho SKU %s của chủ sở hữu %s",
+		skuID, chuSoHuu)
+}
 
-	// Hàng vào trạng thái Returned, KHÔNG phải Available — quy tắc bắt
-	// buộc của docs/07-workflows/return.md mục 4. Bước kiểm định mới quyết
-	// định món hàng đi đâu tiếp.
-	return a.api.ReceiveReturn(ctx, item.ID, qty, returnID.String())
+// GhiKetQuaKiemDinh chuyển hàng hoàn sang Available hoặc Damaged.
+func (a *inventoryAdapter) GhiKetQuaKiemDinh(
+	ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, lyDo string,
+) error {
+	item, err := a.timBanGhi(ctx, skuID, sellerID)
+	if err != nil {
+		return err
+	}
+	return a.api.ProcessReturnInspection(ctx, inventory.InspectionRequest{
+		ItemID: item.ID, Quantity: qty, Passed: dat,
+		Reason: lyDo, PerformedBy: "returns",
+	})
 }
 
 // ---------------------------------------------------------------- payment
