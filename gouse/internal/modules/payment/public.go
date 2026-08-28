@@ -117,6 +117,17 @@ type RefundRequest struct {
 	CreatedBy string
 }
 
+// SellerReleaseRequest là dữ liệu chuyển tiền nhà bán sang trạng thái rút được.
+type SellerReleaseRequest struct {
+	FulfillmentID string
+	SellerID      string
+
+	// Amount là tiền hàng TRỪ hoa hồng, đã đóng băng lúc đặt đơn.
+	Amount Amount
+
+	CreatedBy string
+}
+
 // PayoutRequest là dữ liệu ghi sổ chi trả.
 type PayoutRequest struct {
 	PayoutID  string

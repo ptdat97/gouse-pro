@@ -148,6 +148,44 @@ có giá trị rỗng — `Version` của đơn mới bằng 0 — nên có thê
 
 ---
 
+### PH-38 — Số dư nhà bán: Đang chờ → Rút được `[XONG 27/08]`
+
+Nhà bán kiếm được tiền nhưng không có cách nào NHÌN THẤY, và không có ranh
+giới nào giữa "tiền đã ghi nhận" với "tiền rút được".
+
+Chi trả từ khoản còn trong hạn đổi trả là cách mất tiền chắc chắn nhất:
+khách trả hàng sau khi nhà bán đã rút thì đòi bằng gì.
+
+**Hai tài khoản thay vì một cột trạng thái**
+
+```text
+SELLER_PAYABLE    đơn đã giao, CÒN trong hạn đổi trả
+SELLER_AVAILABLE  hết hạn đổi trả, sẵn sàng chi trả
+```
+
+Số dư là KẾT QUẢ TÍNH từ sổ cái ([ADR-0008](../adr/0008-financial-ledger.md)
+quyết định 3), nên "chuyển trạng thái tiền" phải là một BÚT TOÁN — tổng nợ
+phải trả không đổi, tiền chỉ đổi chỗ, và mọi lần đổi chỗ đều để lại dấu vết.
+
+Sự kiện `fulfillment_order.completed` (mới) mang sẵn số tiền phải trả, nên
+payment không phải gọi ngược fulfillment.
+
+`GET /api/v1/seller/balance` trả năm trường theo đặc tả, nhưng chỉ
+`pending` và `available` có thật. Ba trường còn lại — `processing`,
+`on_hold`, `reserve_held` — trả 0, và 0 là con số ĐÚNG: chưa có luồng chi
+trả, chưa có cơ chế giữ tiền khi tranh chấp, chưa có chính sách reserve.
+
+**Còn lại của đường tiền:**
+
+| Việc | Ghi chú |
+|---|---|
+| Bảng `settlement` + job tổng hợp theo kỳ | Gom các khoản rút được thành một đợt đối soát |
+| `GET /api/v1/seller/settlements/{id}` | Nhà bán xem chi tiết đợt |
+| `POST /api/v1/admin/payouts` | Thao tác NGUY HIỂM NHẤT: cần 2FA, cần tích hợp ngân hàng |
+| Số dư âm | Hoàn hàng vượt doanh thu kỳ — không chuyển tiền âm, chuyển sang kỳ sau |
+
+---
+
 ### PH-37 — Trả hàng `[XONG phần lõi 27/08]`
 
 Module `returns` (thư mục `returns` vì `return` là từ khóa Go). Xin trả →

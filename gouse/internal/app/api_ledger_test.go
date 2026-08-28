@@ -37,6 +37,7 @@ func (a *apiTest) phatEvent(t *testing.T) int {
 	bus.Subscribe(order.NewProgressHandler(a.mods.order, log))
 	bus.Subscribe(payment.NewRevenueHandler(
 		a.mods.payment, payment.NewSellerKind(a.mods.seller), log))
+	bus.Subscribe(payment.NewSellerReleaseHandler(a.mods.payment, log))
 
 	n, err := bus.DispatchBatch(context.Background(), 100)
 	if err != nil {

@@ -331,3 +331,36 @@ func (p *eventPublisher) PublishCancelled(
 	e = e.WithTrace(in.OrderID.String(), "")
 	return p.outbox.Publish(ctx, e)
 }
+
+// PublishCompleted phát tín hiệu tài chính "đơn thực hiện đã qua hạn đổi trả".
+//
+// Payload mang SẴN số tiền phải trả nhà bán. Bên nhận (payment) không phải
+// gọi ngược fulfillment để hỏi — hai module nhận event của nhau mà còn hỏi
+// nhau đồng bộ thì cái lợi của event mất sạch.
+func (p *eventPublisher) PublishCompleted(
+	ctx context.Context, in application.FulfillmentCompleted,
+) error {
+	e, err := eventbus.NewEvent(
+		eventbus.TypeFulfillmentCompleted,
+		eventbus.AggregateFulfillment,
+		in.FulfillmentID,
+		struct {
+			FulfillmentID string `json:"fulfillment_id"`
+			OrderID       string `json:"order_id"`
+			SellerID      string `json:"seller_id"`
+
+			SellerPayable int64  `json:"seller_payable"`
+			Currency      string `json:"currency"`
+		}{
+			FulfillmentID: in.FulfillmentID.String(),
+			OrderID:       in.OrderID.String(),
+			SellerID:      in.SellerID.String(),
+			SellerPayable: in.SellerPayable.Amount(),
+			Currency:      string(in.SellerPayable.Currency()),
+		},
+	)
+	if err != nil {
+		return err
+	}
+	return p.outbox.Publish(ctx, e)
+}

@@ -149,3 +149,57 @@ func (h *RevenueOnCheckoutCompleted) laNoiBo(ctx context.Context, sellerID strin
 	}
 	return h.seller.IsInternal(ctx, sellerID)
 }
+
+// ChuyenSoDuKhiHetHanDoiTra nghe fulfillment_order.completed.
+//
+// # Vì sao chuyển số dư phải là một BÚT TOÁN
+//
+// Số dư là KẾT QUẢ TÍNH từ sổ cái (ADR-0008 quyết định 3), không phải một
+// cột được cập nhật. Nên "chuyển trạng thái tiền" là ghi thêm một bút
+// toán, không phải sửa một con số — sửa thẳng số dư là phá bỏ chính thứ
+// khiến sổ đối chiếu được.
+type ChuyenSoDuKhiHetHanDoiTra struct {
+	module *Module
+	log    *slog.Logger
+}
+
+func NewSellerReleaseHandler(m *Module, log *slog.Logger) *ChuyenSoDuKhiHetHanDoiTra {
+	return &ChuyenSoDuKhiHetHanDoiTra{module: m, log: log}
+}
+
+var _ eventbus.Handler = (*ChuyenSoDuKhiHetHanDoiTra)(nil)
+
+func (h *ChuyenSoDuKhiHetHanDoiTra) Name() string {
+	return "payment.seller_release_on_fulfillment_completed"
+}
+
+func (h *ChuyenSoDuKhiHetHanDoiTra) EventTypes() []string {
+	return []string{eventbus.TypeFulfillmentCompleted}
+}
+
+type sellerReleasePayload struct {
+	FulfillmentID string `json:"fulfillment_id"`
+	SellerID      string `json:"seller_id"`
+	SellerPayable int64  `json:"seller_payable"`
+	Currency      string `json:"currency"`
+}
+
+func (h *ChuyenSoDuKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event) error {
+	var p sellerReleasePayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event: %w", err)
+	}
+
+	// Đơn own brand không có nhà bán ngoài để trả tiền: tiền thuộc nền
+	// tảng toàn phần và không đi đâu cả.
+	if p.SellerID == "" || p.SellerPayable <= 0 {
+		return nil
+	}
+
+	return h.module.ChuyenSangRutDuocInEventTx(ctx, SellerReleaseRequest{
+		FulfillmentID: p.FulfillmentID,
+		SellerID:      p.SellerID,
+		Amount:        Amount{Value: p.SellerPayable, Currency: p.Currency},
+		CreatedBy:     "payment.seller_release_on_fulfillment_completed",
+	})
+}

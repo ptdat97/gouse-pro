@@ -213,6 +213,48 @@ type RecordRefundInput struct {
 }
 
 // RecordRefund ghi sổ hoàn tiền — ĐẢO NGƯỢC chuỗi ghi sổ ban đầu.
+// ChuyenSangRutDuocInput là dữ liệu chuyển tiền nhà bán sang rút được.
+type ChuyenSangRutDuocInput struct {
+	FulfillmentID ids.ID
+	SellerID      ids.ID
+	Amount        money.Money
+	CreatedBy     string
+}
+
+// ChuyenSangRutDuocWith ghi bút toán chuyển ĐANG CHỜ → RÚT ĐƯỢC.
+//
+// IDEMPOTENT theo đơn thực hiện: outbox giao hàng ít nhất một lần, và
+// chuyển hai lần nghĩa là nhà bán rút được gấp đôi số tiền thật.
+func (s *Service) ChuyenSangRutDuocWith(
+	ctx context.Context, ledger domain.LedgerRepository, in ChuyenSangRutDuocInput,
+) error {
+	key := "seller-release:" + in.FulfillmentID.String()
+
+	if _, err := ledger.FindByIdempotencyKey(ctx, key); err == nil {
+		return nil
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return err
+	}
+
+	entry, err := domain.NewSellerReleaseEntry(domain.SellerReleaseParams{
+		FulfillmentID:  in.FulfillmentID,
+		SellerID:       in.SellerID,
+		Amount:         in.Amount,
+		IdempotencyKey: key,
+		CreatedBy:      in.CreatedBy,
+		Now:            s.clock.Now(),
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := ledger.Append(ctx, entry); err != nil &&
+		!errors.Is(err, domain.ErrDuplicateEntry) {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) RecordRefund(
 	ctx context.Context, in RecordRefundInput,
 ) (*domain.LedgerEntry, error) {
@@ -432,6 +474,45 @@ func (s *Service) GetSellerBalance(ctx context.Context, sellerID ids.ID) (domain
 	return s.balances.Balance(ctx, domain.Account{
 		Type: domain.AccountSellerPayable, OwnerID: sellerID,
 	})
+}
+
+// SoDuNhaBan là số dư nhà bán theo TỪNG TRẠNG THÁI.
+type SoDuNhaBan struct {
+	// DangCho: đơn đã giao, còn trong hạn đổi trả. CHƯA rút được.
+	DangCho money.Money
+
+	// RutDuoc: hết hạn đổi trả, sẵn sàng đưa vào đối soát.
+	RutDuoc money.Money
+}
+
+// GetSoDuNhaBan trả số dư nhà bán tách theo trạng thái.
+//
+// # Vì sao chỉ hai trạng thái, trong khi đặc tả nêu năm
+//
+// `pending` và `available` là hai trạng thái CÓ THẬT trong sổ cái hôm nay,
+// mỗi cái là một tài khoản riêng và số dư tính được từ bút toán.
+//
+// Ba trạng thái còn lại — `processing`, `on_hold`, `reserve_held` — chưa
+// tồn tại: chưa có luồng chi trả để "đang xử lý", chưa có cơ chế giữ tiền
+// khi tranh chấp, và chưa có chính sách reserve. Tầng HTTP trả 0 cho
+// chúng, và đó là con số ĐÚNG — thật sự không có đồng nào ở những trạng
+// thái ấy. Bịa ra số khác mới là nói dối.
+func (s *Service) GetSoDuNhaBan(
+	ctx context.Context, sellerID ids.ID,
+) (SoDuNhaBan, error) {
+	cho, err := s.balances.Balance(ctx, domain.Account{
+		Type: domain.AccountSellerPayable, OwnerID: sellerID,
+	})
+	if err != nil {
+		return SoDuNhaBan{}, err
+	}
+	rut, err := s.balances.Balance(ctx, domain.Account{
+		Type: domain.AccountSellerAvailable, OwnerID: sellerID,
+	})
+	if err != nil {
+		return SoDuNhaBan{}, err
+	}
+	return SoDuNhaBan{DangCho: cho.Amount, RutDuoc: rut.Amount}, nil
 }
 
 func (s *Service) GetEntriesForOrder(

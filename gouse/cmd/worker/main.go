@@ -314,6 +314,7 @@ func run() error {
 	bus.Subscribe(analytics.NewEventRecorder(analyticsModule))
 	bus.Subscribe(payment.NewRevenueHandler(
 		paymentModule, payment.NewSellerKind(sellerModule), log))
+	bus.Subscribe(payment.NewSellerReleaseHandler(paymentModule, log))
 
 	jobs := []job{
 		{

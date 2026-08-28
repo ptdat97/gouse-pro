@@ -723,6 +723,19 @@ func RegisterRoutes(
 			mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", authed)
 		}
 
+		// Số dư nhà bán — cùng ranh giới bảo mật.
+		if m.payment != nil {
+			balMux := http.NewServeMux()
+			m.payment.RegisterSellerRoutes(balMux, log)
+
+			authed := httpserver.Chain(
+				balMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
+			)
+			mux.Handle("GET /api/v1/seller/balance", authed)
+		}
+
 		// Webhook vận chuyển: KHÔNG có Auth, KHÔNG có Idempotency-Key.
 		//
 		// Bên gọi là hệ thống của hãng vận chuyển. Họ xác thực bằng CHỮ KÝ

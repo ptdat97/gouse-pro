@@ -56,8 +56,22 @@ const (
 	// PLATFORM_REVENUE — doanh thu nền tảng (hoa hồng, phí). DOANH THU.
 	AccountPlatformRevenue AccountType = "PLATFORM_REVENUE"
 
-	// SELLER_PAYABLE — phải trả seller. NỢ PHẢI TRẢ.
+	// SELLER_PAYABLE — phải trả seller, ĐANG CHỜ. NỢ PHẢI TRẢ.
+	//
+	// Tiền đã ghi nhận nhưng CHƯA rút được: đơn còn trong hạn đổi trả, và
+	// khách vẫn có thể trả hàng. Chi trả từ đây là chi trả một khoản có
+	// thể phải đòi lại.
 	AccountSellerPayable AccountType = "SELLER_PAYABLE"
+
+	// SELLER_AVAILABLE — phải trả seller, RÚT ĐƯỢC. NỢ PHẢI TRẢ.
+	//
+	// Hết hạn đổi trả mà không có yêu cầu trả hàng thì tiền chuyển sang
+	// đây, và chỉ từ đây mới đưa vào đối soát để chi trả.
+	//
+	// Hai tài khoản thay vì một cột trạng thái: số dư là KẾT QUẢ TÍNH từ
+	// sổ cái (ADR-0008 quyết định 3), nên "chuyển trạng thái" phải là một
+	// bút toán, không phải một lệnh UPDATE.
+	AccountSellerAvailable AccountType = "SELLER_AVAILABLE"
 
 	// CREATOR_PAYABLE — phải trả creator. NỢ PHẢI TRẢ.
 	AccountCreatorPayable AccountType = "CREATOR_PAYABLE"
@@ -80,7 +94,8 @@ const (
 
 func (a AccountType) valid() bool {
 	switch a {
-	case AccountPlatformCash, AccountPlatformRevenue, AccountSellerPayable,
+	case AccountPlatformCash, AccountPlatformRevenue,
+		AccountSellerPayable, AccountSellerAvailable,
 		AccountCreatorPayable, AccountCustomerRefundPayable, AccountSupplierPayable,
 		AccountCOGS, AccountFeeExpense, AccountInventoryAsset:
 		return true
@@ -118,7 +133,14 @@ const (
 	EntryRefund       EntryType = "REFUND"
 	EntryPayout       EntryType = "PAYOUT"
 	EntryAdjustment   EntryType = "ADJUSTMENT"
-	EntryFee          EntryType = "FEE"
+
+	// EntrySellerRelease chuyển tiền nhà bán từ ĐANG CHỜ sang RÚT ĐƯỢC.
+	//
+	// Không phải một sự kiện tiền vào hay tiền ra: tổng nợ phải trả không
+	// đổi, chỉ đổi chỗ. Nhưng nó VẪN là một bút toán vì số dư được TÍNH
+	// từ sổ cái — sửa thẳng số dư là phá bỏ chính thứ khiến sổ đối chiếu được.
+	EntrySellerRelease EntryType = "SELLER_RELEASE"
+	EntryFee           EntryType = "FEE"
 )
 
 // Account định danh một tài khoản cụ thể.
@@ -139,8 +161,8 @@ type Account struct {
 // không chi trả được.
 func (a AccountType) RequiresOwner() bool {
 	switch a {
-	case AccountSellerPayable, AccountCreatorPayable,
-		AccountCustomerRefundPayable, AccountSupplierPayable:
+	case AccountSellerPayable, AccountSellerAvailable,
+		AccountCreatorPayable, AccountCustomerRefundPayable, AccountSupplierPayable:
 		return true
 	}
 	return false

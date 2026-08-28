@@ -310,3 +310,55 @@ func NewAdjustmentEntry(
 		Now:            now,
 	})
 }
+
+// SellerReleaseParams là dữ liệu chuyển tiền nhà bán sang trạng thái rút được.
+type SellerReleaseParams struct {
+	FulfillmentID ids.ID
+	SellerID      ids.ID
+	Amount        money.Money
+
+	IdempotencyKey string
+	CreatedBy      string
+	Now            time.Time
+}
+
+// NewSellerReleaseEntry dựng bút toán chuyển ĐANG CHỜ → RÚT ĐƯỢC.
+//
+//	DEBIT   SELLER_PAYABLE    (giảm nợ đang chờ)
+//	CREDIT  SELLER_AVAILABLE  (tăng nợ rút được)
+//
+// Tổng nợ phải trả nhà bán KHÔNG đổi — tiền chỉ đổi chỗ. Đó là lý do bút
+// toán này luôn cân bằng theo đúng nghĩa đen.
+func NewSellerReleaseEntry(p SellerReleaseParams) (*LedgerEntry, error) {
+	if !p.Amount.IsPositive() {
+		return nil, fmt.Errorf(
+			"payment: số tiền chuyển sang rút được phải lớn hơn 0, nhận %s", p.Amount)
+	}
+	if p.SellerID.IsZero() {
+		return nil, fmt.Errorf("payment: thiếu định danh nhà bán")
+	}
+
+	return NewLedgerEntry(NewEntryParams{
+		Type:          EntrySellerRelease,
+		ReferenceType: "FULFILLMENT_ORDER",
+		ReferenceID:   p.FulfillmentID,
+		Description:   "Hết hạn đổi trả — tiền nhà bán chuyển sang rút được",
+		Lines: []Line{
+			{
+				Account:     Account{Type: AccountSellerPayable, OwnerID: p.SellerID},
+				Direction:   Debit,
+				Amount:      p.Amount,
+				Description: "Giảm phải trả đang chờ",
+			},
+			{
+				Account:     Account{Type: AccountSellerAvailable, OwnerID: p.SellerID},
+				Direction:   Credit,
+				Amount:      p.Amount,
+				Description: "Tăng phải trả rút được",
+			},
+		},
+		IdempotencyKey: p.IdempotencyKey,
+		CreatedBy:      p.CreatedBy,
+		Now:            p.Now,
+	})
+}

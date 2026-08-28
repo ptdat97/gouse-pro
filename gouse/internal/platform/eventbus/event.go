@@ -192,6 +192,18 @@ const (
 
 	TypeFulfillmentProgress = "fulfillment.progress_changed"
 
+	// TypeFulfillmentCompleted: một đơn thực hiện đã qua hạn đổi trả.
+	//
+	// TÁCH khỏi fulfillment.progress vì nó nói một chuyện KHÁC. progress
+	// mang cờ tiến độ giao hàng cho module order tính trạng thái tổng hợp;
+	// event này là tín hiệu TÀI CHÍNH — từ đây tiền của nhà bán chuyển từ
+	// "đang chờ" sang "rút được".
+	//
+	// Payload mang sẵn số tiền phải trả nhà bán để payment không phải gọi
+	// ngược fulfillment: bên nhận event mà phải hỏi lại bên phát thì hai
+	// module dính chặt vào nhau, và một bên chậm làm bên kia chậm theo.
+	TypeFulfillmentCompleted = "fulfillment_order.completed"
+
 	// TypeSearchNoResult là khách tìm mà KHÔNG ra kết quả.
 	//
 	// Đây là tín hiệu NHU CẦU KHÔNG ĐƯỢC ĐÁP ỨNG — thứ dữ liệu bán hàng

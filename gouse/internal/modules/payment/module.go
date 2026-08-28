@@ -76,6 +76,13 @@ func (m *Module) Service() *application.Service { return m.svc }
 // Mux truyền vào PHẢI đã bọc Auth, RequireRole("ADMIN", "OPS_FINANCE") và
 // RequireIdempotencyKey. Gắn nhầm vào mux công khai nghĩa là bất kỳ ai cũng
 // ghi được bút toán vào sổ cái.
+// RegisterSellerRoutes gắn endpoint số dư của NHÀ BÁN.
+//
+// Bên gọi PHẢI bọc Auth và RequireRole("SELLER_OWNER", "SELLER_STAFF").
+func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
+	paymenthttp.NewSellerHandler(m.svc, log).Register(mux)
+}
+
 func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 	paymenthttp.NewHandler(m.svc, log).Register(mux)
 }
@@ -118,6 +125,40 @@ func (m *Module) RecordOrderRevenueInEventTx(
 
 	_, err = m.svc.RecordOrderRevenueWith(ctx, paymentpg.LedgerForTx(tx), in)
 	return translateErr(err)
+}
+
+// ChuyenSangRutDuocInEventTx chuyển tiền nhà bán sang rút được, bằng GIAO
+// DỊCH của dispatcher.
+//
+// Cùng ràng buộc với RecordOrderRevenueInEventTx: ghi sổ thành công mà
+// đánh dấu event thất bại thì lần thử lại chuyển LẦN THỨ HAI, và nhà bán
+// rút được gấp đôi số tiền thật.
+func (m *Module) ChuyenSangRutDuocInEventTx(
+	ctx context.Context, req SellerReleaseRequest,
+) error {
+	foID, err := ids.Parse(req.FulfillmentID, ids.PrefixFulfillmentOrder)
+	if err != nil {
+		return ErrInvalidID
+	}
+	sellerID, err := ids.Parse(req.SellerID, ids.PrefixSeller)
+	if err != nil {
+		return ErrInvalidID
+	}
+	amount, err := toMoney(req.Amount)
+	if err != nil {
+		return err
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	return translateErr(m.svc.ChuyenSangRutDuocWith(ctx, paymentpg.LedgerForTx(tx),
+		application.ChuyenSangRutDuocInput{
+			FulfillmentID: foID, SellerID: sellerID, Amount: amount,
+			CreatedBy: req.CreatedBy,
+		}))
 }
 
 // toRevenueInput chuyển yêu cầu công khai thành đầu vào của tầng ứng dụng.

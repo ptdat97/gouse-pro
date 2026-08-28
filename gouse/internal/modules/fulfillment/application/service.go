@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/money"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 )
 
@@ -50,6 +51,27 @@ type EventPublisher interface {
 	// progress nói "tiến độ đổi rồi, tính lại trạng thái đơn", còn cái
 	// này nói "những món cụ thể này không đi nữa, trả về kho".
 	PublishCancelled(ctx context.Context, e FulfillmentCancelled) error
+
+	// PublishCompleted báo một đơn thực hiện đã qua hạn đổi trả.
+	//
+	// Tín hiệu TÀI CHÍNH: từ đây tiền của nhà bán chuyển từ "đang chờ"
+	// sang "rút được". Tách khỏi PublishProgress vì progress nói về giao
+	// hàng, còn cái này nói về tiền.
+	PublishCompleted(ctx context.Context, e FulfillmentCompleted) error
+}
+
+// FulfillmentCompleted là sự thật "một đơn thực hiện đã qua hạn đổi trả".
+type FulfillmentCompleted struct {
+	FulfillmentID ids.ID
+	OrderID       ids.ID
+	SellerID      ids.ID
+
+	// SellerPayable là tiền hàng TRỪ hoa hồng nền tảng, đã đóng băng.
+	//
+	// Mang sẵn trong payload để payment không phải gọi ngược fulfillment:
+	// bên nhận event mà phải hỏi lại bên phát thì hai module dính chặt vào
+	// nhau, và một bên chậm làm bên kia chậm theo.
+	SellerPayable money.Money
 }
 
 // FulfillmentCancelled là sự thật "một đơn thực hiện đã bị hủy".
@@ -470,6 +492,22 @@ func (s *Service) CompleteDelivered(ctx context.Context, limit int) (int, error)
 		}
 		if err := s.publishProgress(ctx, fo); err != nil {
 			return done, err
+		}
+
+		// Tín hiệu tài chính, RIÊNG khỏi tiến độ giao hàng.
+		if s.events != nil {
+			payable, err := fo.Subtotal().Sub(fo.CommissionAmount())
+			if err != nil {
+				return done, fmt.Errorf(
+					"fulfillment: tính tiền phải trả nhà bán cho %s: %w",
+					fo.FONumber(), err)
+			}
+			if err := s.events.PublishCompleted(ctx, FulfillmentCompleted{
+				FulfillmentID: fo.ID(), OrderID: fo.OrderID(),
+				SellerID: fo.SellerID(), SellerPayable: payable,
+			}); err != nil {
+				return done, err
+			}
 		}
 		done++
 	}
