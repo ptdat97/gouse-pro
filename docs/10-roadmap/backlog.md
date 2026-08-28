@@ -148,6 +148,45 @@ có giá trị rỗng — `Version` của đơn mới bằng 0 — nên có thê
 
 ---
 
+### PH-39 — Lọc danh mục theo giá và còn hàng `[CHẶN: cần read model]`
+
+Đặc tả `listProducts` khai sáu bộ lọc. Bốn cái đã cài (27/08): `size`,
+`color` (nhóm màu), `gender_target`, `product_type` — tất cả đều là dữ
+liệu của module `product`, nên lọc được bằng một truy vấn.
+
+Hai cái còn lại KHÔNG cài được như vậy:
+
+```text
+price_min / price_max   giá nằm ở module marketplace (offer)
+in_stock                tồn kho nằm ở module inventory
+```
+
+Lọc theo chúng cần JOIN xuyên module — thứ kiến trúc cấm, và cấm có lý do:
+module nào sở hữu bảng nào là ranh giới giữ cho chúng thay đổi độc lập.
+
+**Vì sao không lách bằng cách lọc ở tầng ứng dụng**
+
+Trang lấy 50 sản phẩm rồi tự loại những cái hết hàng sẽ trả về ít hơn 50,
+và trang 2 bỏ sót. Phân trang chỉ đúng khi việc lọc nằm TRONG truy vấn.
+
+**Hướng đề xuất: read model cho danh mục.**
+
+Một bảng chiếu `product_search` do event cập nhật, mang sẵn giá thấp nhất
+và cờ còn hàng:
+
+```text
+offer.price_changed        → cập nhật min_price
+inventory.stock_changed    → cập nhật in_stock
+product.published/archived → thêm/xóa dòng
+```
+
+Đây là thay đổi kiến trúc thật (thêm một nguồn dữ liệu phải giữ đồng bộ),
+nên dừng ở mức đề xuất theo đúng quy tắc. Cần quyết trước: chấp nhận độ
+trễ bao lâu giữa lúc giá đổi và lúc bộ lọc thấy, và ai đối chiếu khi bảng
+chiếu lệch.
+
+---
+
 ### PH-38 — Số dư nhà bán: Đang chờ → Rút được `[XONG 27/08]`
 
 Nhà bán kiếm được tiền nhưng không có cách nào NHÌN THẤY, và không có ranh

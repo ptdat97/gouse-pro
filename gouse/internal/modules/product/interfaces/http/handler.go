@@ -176,6 +176,21 @@ func (h *Handler) listProducts(w http.ResponseWriter, r *http.Request) {
 		f.CollectionID = id
 	}
 
+	// Bộ lọc theo THUỘC TÍNH biến thể và theo sản phẩm.
+	//
+	// Đây là cách người ta mua quần áo: lọc size mình mặc vừa và màu mình
+	// thích, rồi mới nhìn. Danh mục không có hai bộ lọc này bắt khách mở
+	// từng sản phẩm để biết có mua được không.
+	f.Sizes = tachDanhSach(q.Get("size"))
+	f.ColorFamilies = tachDanhSach(q.Get("color"))
+
+	if raw := strings.TrimSpace(q.Get("gender_target")); raw != "" {
+		f.Gender = domain.GenderTarget(strings.ToUpper(raw))
+	}
+	if raw := strings.TrimSpace(q.Get("product_type")); raw != "" {
+		f.ProductType = domain.ProductType(strings.ToUpper(raw))
+	}
+
 	list, err := h.svc.ListProducts(r.Context(), f)
 	if err != nil {
 		h.fail(w, r, apierror.From(err))
@@ -379,4 +394,33 @@ func translate(err error, notFoundMsg string) error {
 		return apierror.New(apierror.CodeNotFound, notFoundMsg)
 	}
 	return apierror.From(err)
+}
+
+// maxGiaTriLoc chặn một bộ lọc kéo cả bảng.
+//
+// 20 rộng hơn nhiều so với nhu cầu thật: không ai lọc cùng lúc 20 size.
+const maxGiaTriLoc = 20
+
+// tachDanhSach tách chuỗi "M,L,XL" thành danh sách.
+//
+// Cắt ở maxGiaTriLoc thay vì báo lỗi: bộ lọc quá dài là lỗi của giao diện,
+// không phải của khách, và trả lỗi cho họ không giúp được gì.
+func tachDanhSach(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+		if len(out) == maxGiaTriLoc {
+			break
+		}
+	}
+	return out
 }

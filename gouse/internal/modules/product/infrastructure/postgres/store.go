@@ -471,6 +471,24 @@ func (s *ProductStore) List(ctx context.Context, f domain.Filter) ([]*domain.Pro
 	        AND ($7 = '' OR status = $7)
 	        AND (NOT $8::bool OR status = 'ACTIVE')
 	        AND ($9 = '' OR name ILIKE '%' || $9 || '%')
+
+	        -- Lọc theo thuộc tính BIẾN THỂ.
+	        --
+	        -- EXISTS chứ không JOIN: một sản phẩm có nhiều biến thể khớp
+	        -- thì JOIN trả về nó nhiều lần, và bên gọi phải tự khử trùng.
+	        -- EXISTS dừng ngay ở biến thể đầu tiên khớp.
+	        AND ($10::text[] IS NULL OR EXISTS (
+	            SELECT 1 FROM variant v
+	             WHERE v.product_id = product.id
+	               AND v.status <> 'ARCHIVED'
+	               AND lower(v.attributes->>'size') = ANY($10::text[])
+	        ))
+	        AND ($11::text[] IS NULL OR EXISTS (
+	            SELECT 1 FROM variant v
+	             WHERE v.product_id = product.id
+	               AND v.status <> 'ARCHIVED'
+	               AND upper(v.attributes->>'color_family') = ANY($11::text[])
+	        ))
 	      ORDER BY id`
 
 	args := []any{
@@ -481,6 +499,7 @@ func (s *ProductStore) List(ctx context.Context, f domain.Filter) ([]*domain.Pro
 		// thường. Không xếp hạng liên quan, không xử lý dấu — chỉ mục tìm
 		// kiếm riêng là hạ tầng thêm KHI ĐO ĐƯỢC nhu cầu, không phải bây giờ.
 		f.Query,
+		chuanHoaSize(f.Sizes), chuanHoaNhomMau(f.ColorFamilies),
 	}
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT $%d", len(args)+1)
@@ -556,4 +575,35 @@ func timeOrZero(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
+}
+
+// chuanHoaSize đưa danh sách size về chữ thường để so khớp.
+//
+// Trả nil khi rỗng: điều kiện SQL dùng `IS NULL` để bỏ qua bộ lọc, và một
+// mảng rỗng KHÔNG phải là "không lọc" — nó là "không khớp gì cả".
+func chuanHoaSize(v []string) []string {
+	return chuanHoa(v, strings.ToLower)
+}
+
+// chuanHoaNhomMau đưa nhóm màu về CHỮ HOA: nhóm là hằng số, không phải
+// chuỗi người dùng nhập.
+func chuanHoaNhomMau(v []string) []string {
+	return chuanHoa(v, strings.ToUpper)
+}
+
+func chuanHoa(v []string, f func(string) string) []string {
+	if len(v) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(v))
+	for _, x := range v {
+		x = strings.TrimSpace(x)
+		if x != "" {
+			out = append(out, f(x))
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

@@ -93,6 +93,18 @@ type Filter struct {
 	// thêm KHI ĐO ĐƯỢC nhu cầu — xem future-phases.md.
 	Query string
 
+	// Sizes lọc theo size của BIẾN THỂ. Khớp bất kỳ giá trị nào trong danh sách.
+	//
+	// Bộ lọc quan trọng nhất của một sàn thời trang: khách chỉ mặc vừa một
+	// hai size, và danh mục không lọc được size là danh mục họ phải mở
+	// từng sản phẩm mới biết có mua được không.
+	Sizes []string
+
+	// ColorFamilies lọc theo NHÓM màu, không phải tên màu cụ thể.
+	//
+	// Xem domain.SuyRaNhomMau để biết vì sao lọc theo nhóm.
+	ColorFamilies []string
+
 	Limit  int
 	Offset int
 }

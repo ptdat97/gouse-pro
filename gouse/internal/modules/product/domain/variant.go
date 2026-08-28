@@ -83,6 +83,20 @@ func NewVariant(p NewVariantParams) (*Variant, error) {
 		attrs[key] = val
 	}
 
+	// Suy ra NHÓM MÀU từ tên màu, tự động.
+	//
+	// Bắt người bán khai thêm một trường là bảo đảm trường ấy sẽ trống ở
+	// phần lớn sản phẩm — và bộ lọc theo màu chỉ hữu ích khi gần như mọi
+	// sản phẩm đều có nhóm.
+	//
+	// KHÔNG ghi đè nếu bên gọi đã tự khai: họ biết rõ hơn phép đoán theo
+	// từ khóa.
+	if mau, co := attrs[AttrColor]; co {
+		if _, daCo := attrs[AttrColorFamily]; !daCo {
+			attrs[AttrColorFamily] = string(SuyRaNhomMau(mau))
+		}
+	}
+
 	id, err := ids.New(ids.PrefixVariant)
 	if err != nil {
 		return nil, err
@@ -175,6 +189,15 @@ func (v *Variant) SKUs() []*SKU {
 func (v *Variant) AttributeKey() string {
 	keys := make([]string, 0, len(v.attributes))
 	for k := range v.attributes {
+		// Bỏ thuộc tính SUY RA khỏi khóa định danh.
+		//
+		// `color_family` tính từ `color`, nên nó không mang thông tin
+		// phân biệt nào. Đưa nó vào khóa khiến biến thể tạo trước khi có
+		// nhóm màu và biến thể tạo sau có khóa KHÁC nhau — và phép chống
+		// trùng bỏ lọt một biến thể trùng thật.
+		if k == AttrColorFamily {
+			continue
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
