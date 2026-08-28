@@ -156,10 +156,14 @@ nhà bán duyệt/từ chối → nhận hàng → hoàn tiền, tất cả qua 
 **Phát hiện quan trọng khi làm:** nguy cơ HOÀN THỪA đã sẵn sàng nổ.
 
 ```text
-POST /checkout/{id}/coupon   route có, nhưng module promotion CHƯA nối
-                             → hiện trả "chưa sẵn sàng"
-promotion.AllocateDiscount   tồn tại, KHÔNG ai gọi   (ĐÃ SỬA 27/08)
+POST /checkout/{id}/coupon   route có, module promotion CHƯA nối
+                             → trả "chưa sẵn sàng"        (ĐÃ NỐI 27/08)
+promotion.AllocateDiscount   tồn tại, KHÔNG ai gọi        (ĐÃ SỬA 27/08)
 ```
+
+**Trạng thái 27/08:** cả hai đã xong, và xong ĐÚNG THỨ TỰ — phân bổ trước,
+nối promotion sau. Nối trước thì mọi đơn có mã giảm giá tạo ra trong
+khoảng giữa sẽ không trả hàng tự động được.
 
 **Đính chính:** mô tả đầu tiên của mục này nói nguy cơ "đã sẵn sàng nổ".
 Không đúng — module `promotion` chưa được nối vào ứng dụng, nên hôm nay
@@ -180,7 +184,7 @@ trả 409 kèm thông điệp nói thẳng để người vận hành xử lý t
 | Việc | Ghi chú |
 |---|---|
 | ~~Nối `AllocateDiscount` vào checkout~~ | **XONG 27/08** — phân bổ ở `CompleteCheckout`, đóng băng thành khoản điều chỉnh của dòng hàng |
-| **Nối module `promotion` vào `internal/app`** | Chưa nối, nên route `POST /checkout/{id}/coupon` trả "chưa sẵn sàng". Đây là việc chặn cuối của mã giảm giá |
+| ~~Nối module `promotion` vào `internal/app`~~ | **XONG 27/08** — mã giảm giá chạy được từ đầu tới cuối, kể cả trả hàng |
 | Kiểm định chất lượng → Available | Hàng đang dừng ở Returned; `ProcessReturnInspection` đã có, chưa có route |
 | Giải phóng lượt dùng mã giảm giá | `promotion.ReleaseUsage` đã có, chưa nối |
 | Thu hồi điểm thưởng | Chưa có module loyalty |

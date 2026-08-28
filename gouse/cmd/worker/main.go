@@ -36,6 +36,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/product"
+	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/modules/supplychain"
 	"github.com/fashion-commerce/platform/internal/platform/config"
@@ -272,6 +273,16 @@ func run() error {
 		return err
 	}
 
+	// promotion: worker dọn phiên quá hạn, và phiên có mã giảm giá phải
+	// phân bổ được phần giảm nếu nó được hoàn tất ở đây.
+	promotionModule, err := promotion.New(promotion.Config{
+		Storage: "postgres",
+		DB:      db,
+	})
+	if err != nil {
+		return err
+	}
+
 	checkoutModule, err := checkout.New(checkout.Config{
 		Storage:     "postgres",
 		DB:          db,
@@ -280,6 +291,7 @@ func run() error {
 		Marketplace: marketplaceModule,
 		Order:       orderModule,
 		Seller:      sellerModule,
+		Promotion:   promotionModule,
 		Events:      eventbus.NewOutbox(db.Pool()),
 	})
 	if err != nil {

@@ -56,6 +56,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
+	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/modules/returns"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
@@ -143,6 +144,7 @@ func Build(
 		checkoutModule    *checkout.Module
 		fulfillmentModule *fulfillment.Module
 		returnsModule     *returns.Module
+		promotionModule   *promotion.Module
 		identityModule    *identity.Module
 
 		// ownBrandSellerID cần ở bước nạp dữ liệu mẫu bên dưới: offer phải
@@ -337,6 +339,19 @@ func Build(
 		// đặt hàng.
 		// returns đảo ngược cả ba: đơn hàng, tồn kho, sổ cái. Thiếu bất kỳ
 		// module nào thì returns.New từ chối khởi tạo.
+		// promotion phục vụ checkout qua Go, không có tầng HTTP riêng.
+		//
+		// Nối nó vào là điều kiện để mã giảm giá hoạt động: thiếu, route
+		// coupon trả "chưa sẵn sàng", và CompleteCheckout không phân bổ
+		// được phần giảm xuống dòng hàng.
+		promotionModule, err = promotion.New(promotion.Config{
+			Storage: "postgres",
+			DB:      db,
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+
 		returnsModule, err = returns.New(returns.Config{
 			Storage:   "postgres",
 			DB:        db,
@@ -357,6 +372,7 @@ func Build(
 			Marketplace: marketplaceModule,
 			Order:       orderModule,
 			Seller:      sellerModule,
+			Promotion:   promotionModule,
 			Events:      eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
@@ -509,6 +525,7 @@ func Build(
 		checkout:    checkoutModule,
 		fulfillment: fulfillmentModule,
 		returns:     returnsModule,
+		promotion:   promotionModule,
 		inventory:   inventoryModule,
 		audit:       auditRecorder,
 	}, nil
@@ -527,6 +544,7 @@ type Modules struct {
 	checkout    *checkout.Module
 	fulfillment *fulfillment.Module
 	returns     *returns.Module
+	promotion   *promotion.Module
 	inventory   *inventory.Module
 
 	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
