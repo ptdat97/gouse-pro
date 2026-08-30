@@ -72,7 +72,24 @@ login:
             schema:
               $ref: '../components/common.yaml#/schemas/Error'
       '429':
-        $ref: '../components/common.yaml#/responses/TooManyRequests'
+        description: |
+          Quá nhiều lượt đăng nhập THẤT BẠI từ cùng một địa chỉ mạng.
+
+          Khác với `ACCOUNT_LOCKED` (401): 401 khóa MỘT tài khoản, 429 chặn
+          MỘT đường mạng. Hai lớp bắt hai kiểu tấn công khác nhau — dò mật
+          khẩu một tài khoản, và rải một mật khẩu qua nhiều tài khoản.
+
+          Lượt đăng nhập THÀNH CÔNG không bị tính, nên người dùng thật ngồi
+          sau NAT dùng chung không bao giờ chạm hạn mức này.
+        headers:
+          Retry-After:
+            description: Số giây nên chờ trước khi thử lại.
+            schema:
+              type: integer
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
 
 refresh:
   post:

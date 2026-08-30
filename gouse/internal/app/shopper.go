@@ -52,6 +52,24 @@ func (r *customerResolver) CustomerIDForUser(
 const (
 	registerLimit  = 5
 	registerWindow = 10 * time.Minute
+
+	// loginLimit là số lần đăng nhập HỎNG cho phép trên MỘT địa chỉ IP.
+	//
+	// Hạn mức này KHÔNG phải để chặn dò mật khẩu một tài khoản — việc đó
+	// `identity.MaxFailedAttempts` (5 lượt, khóa 15 phút) đã làm, và làm
+	// đúng chỗ hơn vì nó theo tài khoản chứ không theo đường mạng.
+	//
+	// Nó bịt lỗ mà khóa tài khoản KHÔNG thấy: RẢI MẬT KHẨU. Kẻ tấn công lấy
+	// một mật khẩu phổ biến rồi thử lên hàng nghìn email khác nhau — mỗi
+	// tài khoản chỉ sai ĐÚNG MỘT LẦN nên không tài khoản nào bị khóa, trong
+	// khi vẫn mở được mọi tài khoản đặt mật khẩu yếu.
+	//
+	// Vì thế hạn mức đặt ở mức cao hơn hẳn sinh hoạt bình thường chứ không
+	// sát nút: một văn phòng sau NAT dùng chung có thể gõ sai vài chục lượt
+	// một buổi sáng mà không có gì bất thường, còn kẻ rải mật khẩu cần
+	// hàng nghìn lượt mới có kết quả.
+	loginLimit  = 30
+	loginWindow = 10 * time.Minute
 )
 
 // registerShoppingRoutes nối giỏ hàng và phiên thanh toán.
@@ -193,4 +211,15 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 		mux.Handle("GET /api/v1/orders/{order_id}/returns", h)
 		mux.Handle("POST /api/v1/orders/{order_id}/returns", h)
 	}
+}
+
+// laDangNhapHong cho biết một phản hồi đăng nhập có tính là lượt hỏng không.
+//
+// 401 là sai email hoặc sai mật khẩu — đúng thứ cần đếm.
+//
+// 400 (thân request sai định dạng) KHÔNG tính: nó là lỗi của client chứ
+// không phải một lượt đoán, và tính nó vào thì một giao diện lỗi tự khóa
+// người dùng của chính nó.
+func laDangNhapHong(status int) bool {
+	return status == http.StatusUnauthorized
 }

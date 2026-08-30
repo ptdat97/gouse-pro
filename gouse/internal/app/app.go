@@ -614,7 +614,32 @@ func RegisterRoutes(
 
 	if identityModule != nil {
 		// Endpoint công khai: login, refresh, logout.
-		identityModule.RegisterRoutes(mux, log)
+		//
+		// ĐĂNG NHẬP đi qua giới hạn tần suất riêng, chỉ đếm lượt THẤT BẠI.
+		//
+		// Đây là lớp THỨ HAI. Lớp thứ nhất là khóa theo tài khoản trong
+		// identity (5 lượt sai → khóa 15 phút), và nó đã chặn việc dò mật
+		// khẩu của MỘT tài khoản.
+		//
+		// Lớp này bịt kiểu tấn công mà lớp kia không thấy: rải một mật khẩu
+		// phổ biến lên hàng nghìn email khác nhau. Mỗi tài khoản chỉ sai
+		// một lần nên không tài khoản nào bị khóa — chỉ nhìn từ phía ĐƯỜNG
+		// MẠNG mới thấy bất thường.
+		//
+		// Vì sao chỉ đếm lượt thất bại: xem `httpserver.RateLimitThatBai`.
+		//
+		// REFRESH và LOGOUT không giới hạn: cả hai đòi một token đã cấp,
+		// nên chúng không trả lời được câu hỏi nào cho người chưa có gì
+		// trong tay.
+		authMux := http.NewServeMux()
+		identityModule.RegisterRoutes(authMux, log)
+
+		mux.Handle("POST /api/v1/auth/login", httpserver.Chain(
+			authMux,
+			httpserver.RateLimitThatBai(loginLimit, loginWindow, laDangNhapHong),
+		))
+		mux.Handle("POST /api/v1/auth/refresh", authMux)
+		mux.Handle("POST /api/v1/auth/logout", authMux)
 
 		// Endpoint cần xác thực đi qua một mux RIÊNG đã bọc middleware
 		// Auth, rồi mới gắn vào mux gốc.

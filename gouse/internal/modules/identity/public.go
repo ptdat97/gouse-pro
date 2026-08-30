@@ -30,6 +30,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"github.com/fashion-commerce/platform/internal/modules/identity/domain"
 	"time"
 )
 
@@ -251,6 +252,19 @@ type SessionView struct {
 }
 
 // ---------------------------------------------------------------- Lỗi
+
+// MaxFailedAttempts là số lần sai mật khẩu trước khi tài khoản tạm khóa.
+//
+// LockDuration là thời gian khóa.
+//
+// Công bố ở biên module vì lớp giới hạn tần suất theo IP ở tầng app được
+// hiệu chỉnh DỰA TRÊN hai con số này: nó cố ý đặt hạn mức cao hơn hẳn, vì
+// việc chặn dò mật khẩu MỘT tài khoản đã do hai hằng số này lo. Chép tay
+// con số sang bên kia thì hai nơi sẽ lệch nhau lúc nào không biết.
+const (
+	MaxFailedAttempts = domain.MaxFailedAttempts
+	LockDuration      = domain.LockDuration
+)
 
 var (
 	// ErrNotFound là không tìm thấy tài khoản.

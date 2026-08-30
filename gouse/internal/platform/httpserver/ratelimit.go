@@ -74,6 +74,75 @@ func RateLimit(limit int, window time.Duration) Middleware {
 	}
 }
 
+// RateLimitThatBai giới hạn theo IP nhưng CHỈ đếm những lượt THẤT BẠI.
+//
+// # Vì sao đăng nhập không dùng được RateLimit thường
+//
+// Đếm mọi lượt đăng nhập thì một địa chỉ IP là một hạn mức — mà văn phòng,
+// trường học và mạng di động đều ra Internet bằng MỘT địa chỉ NAT dùng
+// chung. Hạn mức 5 lượt / 10 phút áp lên cả tòa nhà nghĩa là người thứ sáu
+// đăng nhập đúng mật khẩu vẫn bị chặn.
+//
+// Đó là kiểu hỏng tệ: biện pháp bảo vệ hoạt động đúng như viết, kẻ tấn công
+// vẫn bị chặn, nhưng thiệt hại đổ lên người dùng thật và chỉ lộ ra khi
+// khách đã bỏ đi.
+//
+// Đếm riêng lượt THẤT BẠI giữ nguyên tác dụng chặn dò mật khẩu — kẻ dò thì
+// gần như lượt nào cũng sai — trong khi người đăng nhập đúng không bao giờ
+// chạm hạn mức dù ngồi cùng mạng với bao nhiêu người.
+//
+// # Nó bổ sung cho khóa tài khoản, không thay thế
+//
+// Khóa theo TÀI KHOẢN (identity.MaxFailedAttempts) chặn việc dò mật khẩu
+// của một tài khoản. Nó không thấy được kiểu RẢI MẬT KHẨU: một mật khẩu
+// phổ biến thử lên hàng nghìn email, mỗi email sai đúng một lần.
+//
+// Hai lớp nhìn cùng một chuỗi request từ hai phía — theo tài khoản và theo
+// đường mạng — nên mỗi lớp bắt được thứ lớp kia mù.
+//
+// `laThatBai` quyết định lượt nào bị tính. Truyền vào thay vì cố định 401
+// để bên gọi tự định nghĩa "thất bại" theo endpoint của mình.
+func RateLimitThatBai(
+	limit int, window time.Duration, laThatBai func(status int) bool,
+) Middleware {
+	l := &limiter{
+		limit:  limit,
+		window: window,
+		hits:   make(map[string][]time.Time),
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodOptions {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			key := clientIP(r)
+			if l.vuot(key, time.Now()) {
+				logger.FromContext(r.Context()).Warn(
+					"chặn vì quá nhiều lượt thất bại",
+					"path", r.URL.Path)
+
+				w.Header().Set("Retry-After", strconv.Itoa(int(window.Seconds())))
+				apierror.Write(w, r,
+					apierror.New(apierror.CodeRateLimitExceeded,
+						"Bạn thao tác quá nhanh, vui lòng thử lại sau"),
+					logger.RequestIDFromContext(r.Context()),
+					logger.FromContext(r.Context()))
+				return
+			}
+
+			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(rec, r)
+
+			if laThatBai(rec.status) {
+				l.ghiNhan(key, time.Now())
+			}
+		})
+	}
+}
+
 type limiter struct {
 	mu     sync.Mutex
 	limit  int
@@ -101,20 +170,9 @@ func (l *limiter) allow(key string, now time.Time) bool {
 
 	cutoff := now.Add(-l.window)
 
-	kept := l.hits[key][:0]
-	for _, t := range l.hits[key] {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-
-	// Dọn hẳn khóa không còn lượt nào: không dọn thì map phình theo số IP
-	// đã từng gọi, và đó là rò rỉ bộ nhớ chậm nhưng chắc chắn.
-	if len(kept) == 0 {
-		delete(l.hits, key)
-	} else {
-		l.hits[key] = kept
-	}
+	// conHieuLuc dọn luôn khóa không còn lượt nào: không dọn thì map phình
+	// theo số IP đã từng gọi — rò rỉ bộ nhớ chậm nhưng chắc chắn.
+	kept := l.conHieuLuc(key, cutoff)
 
 	if len(l.hits) > sweepThreshold {
 		l.sweep(cutoff)
@@ -126,6 +184,47 @@ func (l *limiter) allow(key string, now time.Time) bool {
 
 	l.hits[key] = append(l.hits[key], now)
 	return true
+}
+
+// vuot cho biết khóa ĐÃ chạm hạn mức, KHÔNG ghi nhận thêm lượt nào.
+//
+// Tách khỏi `allow` vì `RateLimitThatBai` chỉ biết lượt này có tính hay
+// không SAU khi handler chạy xong — lúc kiểm thì chưa được ghi.
+func (l *limiter) vuot(key string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.conHieuLuc(key, now.Add(-l.window))) >= l.limit
+}
+
+// ghiNhan ghi một lượt vào bộ đếm.
+func (l *limiter) ghiNhan(key string, now time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	cutoff := now.Add(-l.window)
+	l.conHieuLuc(key, cutoff)
+	if len(l.hits) > sweepThreshold {
+		l.sweep(cutoff)
+	}
+	l.hits[key] = append(l.hits[key], now)
+}
+
+// conHieuLuc lọc bỏ những lượt đã ra ngoài cửa sổ và ghi lại kết quả.
+//
+// Bên gọi PHẢI đang giữ khóa mu.
+func (l *limiter) conHieuLuc(key string, cutoff time.Time) []time.Time {
+	kept := l.hits[key][:0]
+	for _, t := range l.hits[key] {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) == 0 {
+		delete(l.hits, key)
+	} else {
+		l.hits[key] = kept
+	}
+	return kept
 }
 
 // sweep bỏ mọi khóa không còn lượt nào trong cửa sổ.

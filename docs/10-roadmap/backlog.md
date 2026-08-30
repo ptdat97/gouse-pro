@@ -960,7 +960,18 @@ Còn phải rà:
    route sổ cái bọc `OPS_MERCHANDISING` vẫn chặn khách, vẫn xanh mọi test,
    trong khi nhân viên hàng hóa đọc được sổ cái. Kèm bài phủ bắt buộc mọi
    đường mới phải có nhóm trong ma trận.
-⬜ rate limit mới áp cho ĐĂNG KÝ; đăng nhập, tra đơn vãng lai chưa có
+✅ rate limit cho ĐĂNG NHẬP `[XONG 30/08]`
+   `httpserver.RateLimitThatBai` + `internal/app/api_gioihan_dangnhap_test.go`.
+   Rà lại mới thấy mô hình đe dọa ban đầu ghi sai: khóa theo TÀI KHOẢN
+   (`identity.MaxFailedAttempts` = 5, khóa 15 phút) ĐÃ chặn việc dò mật khẩu
+   một tài khoản. Lỗ thật còn hở là RẢI MẬT KHẨU — một mật khẩu phổ biến thử
+   lên hàng nghìn email, mỗi email sai đúng một lần nên không tài khoản nào
+   bị khóa. Chỉ nhìn từ phía đường mạng mới thấy.
+   Chỉ đếm lượt THẤT BẠI: đếm mọi lượt thì một văn phòng sau NAT dùng chung
+   tự khóa chính mình, và hỏng kiểu đó không ai thấy — log sạch, kẻ tấn công
+   vẫn bị chặn, chỉ khách thật lặng lẽ bỏ đi.
+   Chưa làm: TRA ĐƠN VÃNG LAI — endpoint này chưa tồn tại (`GET
+   /api/v1/orders/{id}` nằm sau xác thực). Khi nào có thì phải kèm giới hạn.
 ⬜ bộ đếm rate limit nằm trong bộ nhớ (P3-16) — N bản sao = N lần hạn mức
 ✅ test khẳng định response công khai KHÔNG chứa dữ liệu nội bộ `[XONG 30/08]`
    `internal/app/api_ro_ri_test.go` — HAI lớp độc lập trên 8 đường công khai:

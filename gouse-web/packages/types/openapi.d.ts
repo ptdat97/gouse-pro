@@ -2947,7 +2947,26 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            429: components["responses"]["TooManyRequests"];
+            /**
+             * @description Quá nhiều lượt đăng nhập THẤT BẠI từ cùng một địa chỉ mạng.
+             *
+             *     Khác với `ACCOUNT_LOCKED` (401): 401 khóa MỘT tài khoản, 429 chặn
+             *     MỘT đường mạng. Hai lớp bắt hai kiểu tấn công khác nhau — dò mật
+             *     khẩu một tài khoản, và rải một mật khẩu qua nhiều tài khoản.
+             *
+             *     Lượt đăng nhập THÀNH CÔNG không bị tính, nên người dùng thật ngồi
+             *     sau NAT dùng chung không bao giờ chạm hạn mức này.
+             */
+            429: {
+                headers: {
+                    /** @description Số giây nên chờ trước khi thử lại. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     refreshSession: {
