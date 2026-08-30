@@ -1464,9 +1464,22 @@ export interface paths {
          * Điều chỉnh tồn kho thủ công
          * @description Dùng khi kiểm kê phát hiện chênh lệch.
          *
-         *     `reason` bắt buộc và được ghi vào nhật ký biến động tồn kho —
-         *     độ lệch kiểm kê > 1% cần điều tra (mất cắp, lấy nhầm không ghi nhận,
-         *     lỗi nhập liệu).
+         *     `reason` bắt buộc (tối thiểu 10 ký tự) và được ghi vào nhật ký biến
+         *     động tồn kho — độ lệch kiểm kê > 1% cần điều tra (mất cắp, lấy nhầm
+         *     không ghi nhận, lỗi nhập liệu).
+         *
+         *     **Chỉ đặt được `quantity_available` và `quantity_damaged`.** Hàng đã
+         *     giữ hoặc đã cam kết cho khách (`reserved`, `committed`) là lời hứa đã
+         *     đưa ra; người kiểm kê không có thẩm quyền xóa. Lệch ở đó là vấn đề
+         *     của đơn hàng và phải xử lý qua đơn hàng.
+         *
+         *     **Trường không khai thì giữ nguyên.** Gửi mình `quantity_available`
+         *     KHÔNG đặt `quantity_damaged` về 0.
+         *
+         *     **Cặp (sku, kho) không đủ định danh:** hàng seller gửi ở kho nền tảng
+         *     vẫn thuộc seller, nên cùng SKU cùng kho có bản ghi riêng cho từng chủ.
+         *     Khi có nhiều chủ, phải nêu `inventory_owner_id`; nếu không, trả 409
+         *     thay vì đoán.
          */
         post: operations["adjustInventory"];
         delete?: never;
@@ -6594,6 +6607,11 @@ export interface operations {
                 "application/json": {
                     sku_id: components["schemas"]["Id"];
                     stock_location_id: components["schemas"]["Id"];
+                    /**
+                     * @description Chủ sở hữu tồn kho. Bỏ trống được KHI chỉ có đúng một chủ
+                     *     sở hữu cho cặp (sku, kho) — trường hợp thường gặp.
+                     */
+                    inventory_owner_id?: string;
                     reason: string;
                     /**
                      * @description Giá trị **tuyệt đối** cho từng trạng thái. Tổng phải bằng
@@ -6621,6 +6639,19 @@ export interface operations {
                 };
             };
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description Cặp (sku, kho) ứng với tồn kho của NHIỀU chủ sở hữu. Gửi lại kèm
+             *     `inventory_owner_id`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             422: components["responses"]["UnprocessableEntity"];
         };
     };

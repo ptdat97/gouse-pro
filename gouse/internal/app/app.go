@@ -828,6 +828,30 @@ func RegisterRoutes(
 				httpserver.RequireRole("ADMIN"),
 			))
 		}
+
+		// Điều chỉnh tồn kho thủ công: ADMIN và OPS_WAREHOUSE.
+		//
+		// Đây là đường đầu tiên OPS_WAREHOUSE dùng tới, và đúng vai của nó:
+		// kiểm kê là việc của người ĐỨNG TRONG KHO, không phải của người
+		// duyệt hồ sơ hay người đối soát sổ sách.
+		//
+		// Idempotency-Key bắt buộc: gửi lại vì mất mạng mà endpoint không
+		// chống lặp thì lần hai áp con số lên trạng thái đã sửa. Ở đây con
+		// số là TUYỆT ĐỐI nên lặp vô hại về giá trị, nhưng nó đẻ thêm một
+		// dòng biến động giả trong sổ kho — và sổ kho là thứ dùng để điều
+		// tra mất mát.
+		if m.inventory != nil {
+			invAdminMux := http.NewServeMux()
+			m.inventory.RegisterAdminRoutes(invAdminMux, log)
+
+			mux.Handle("POST /api/v1/admin/inventory/adjustments",
+				httpserver.Chain(
+					invAdminMux,
+					httpserver.Auth(identityModule),
+					httpserver.RequireRole("ADMIN", "OPS_WAREHOUSE"),
+					httpserver.RequireIdempotencyKey(),
+				))
+		}
 	} else {
 		log.Warn("bỏ qua endpoint xác thực: cần MODULES_STORAGE=postgres")
 	}

@@ -432,6 +432,16 @@ func (m *Module) RegisterSellerRoutes(
 	inventoryhttp.NewSellerHandler(m.svc, owner, log).Register(mux)
 }
 
+// RegisterAdminRoutes gắn endpoint điều chỉnh tồn kho thủ công.
+//
+// Tách khỏi RegisterSellerRoutes vì hai bên khác nhau ở PHẠM VI: nhà bán
+// chỉ sửa được tồn kho của chính mình (lọc theo OwnerResolver), còn quản
+// trị viên sửa được của bất kỳ ai. Gộp chung thì cái lọc dễ mất lúc nào
+// không biết.
+func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
+	inventoryhttp.NewAdminHandler(m.svc, log).Register(mux)
+}
+
 // ReleaseCommittedRequest là yêu cầu trả hàng đã cam kết về khả dụng.
 type ReleaseCommittedRequest struct {
 	SKUID   string

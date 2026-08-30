@@ -495,9 +495,22 @@ inventory_adjustment:
     description: |
       Dùng khi kiểm kê phát hiện chênh lệch.
 
-      `reason` bắt buộc và được ghi vào nhật ký biến động tồn kho —
-      độ lệch kiểm kê > 1% cần điều tra (mất cắp, lấy nhầm không ghi nhận,
-      lỗi nhập liệu).
+      `reason` bắt buộc (tối thiểu 10 ký tự) và được ghi vào nhật ký biến
+      động tồn kho — độ lệch kiểm kê > 1% cần điều tra (mất cắp, lấy nhầm
+      không ghi nhận, lỗi nhập liệu).
+
+      **Chỉ đặt được `quantity_available` và `quantity_damaged`.** Hàng đã
+      giữ hoặc đã cam kết cho khách (`reserved`, `committed`) là lời hứa đã
+      đưa ra; người kiểm kê không có thẩm quyền xóa. Lệch ở đó là vấn đề
+      của đơn hàng và phải xử lý qua đơn hàng.
+
+      **Trường không khai thì giữ nguyên.** Gửi mình `quantity_available`
+      KHÔNG đặt `quantity_damaged` về 0.
+
+      **Cặp (sku, kho) không đủ định danh:** hàng seller gửi ở kho nền tảng
+      vẫn thuộc seller, nên cùng SKU cùng kho có bản ghi riêng cho từng chủ.
+      Khi có nhiều chủ, phải nêu `inventory_owner_id`; nếu không, trả 409
+      thay vì đoán.
     operationId: adjustInventory
     security:
       - bearerAuth: []
@@ -515,6 +528,11 @@ inventory_adjustment:
                 $ref: '../components/common.yaml#/schemas/Id'
               stock_location_id:
                 $ref: '../components/common.yaml#/schemas/Id'
+              inventory_owner_id:
+                type: string
+                description: |
+                  Chủ sở hữu tồn kho. Bỏ trống được KHI chỉ có đúng một chủ
+                  sở hữu cho cặp (sku, kho) — trường hợp thường gặp.
               reason:
                 type: string
                 minLength: 10
@@ -546,6 +564,16 @@ inventory_adjustment:
                   type: object
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        description: |
+          Cặp (sku, kho) ứng với tồn kho của NHIỀU chủ sở hữu. Gửi lại kèm
+          `inventory_owner_id`.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
       '422':
         $ref: '../components/common.yaml#/responses/UnprocessableEntity'
 

@@ -1462,7 +1462,26 @@ thống, ba lớp bảo vệ nguyên tử với nhau (cân bằng · lý do · v
 `cancelAdminOrder` — xem chi tiết đơn **ghi vết việc ĐỌC**, vì response chứa
 tên người nhận, số điện thoại và địa chỉ.
 
-⬜ Còn lại (2): `adjustInventory` · `getCustomerAsAdmin`
+✅ `adjustInventory` `[XONG 30/08]` — `POST /api/v1/admin/inventory/adjustments`,
+vai trò ADMIN + OPS_WAREHOUSE (đường đầu tiên OPS_WAREHOUSE dùng tới).
+
+Ba điểm chốt lại trong lúc làm, đều là chỗ dễ hỏng âm thầm:
+
+- **Chỉ đặt `available` và `damaged`.** `reserved`/`committed` là lời hứa
+  đã đưa ra cho khách; ghi đè chúng là trả hàng đã bán về khả dụng rồi bán
+  lần hai — đúng kiểu "sinh hàng từ không khí" của PH-31.
+- **Trường không khai thì giữ nguyên** (con trỏ, không phải int). Dùng int
+  thường thì mọi request không nhắc tới số hỏng sẽ lặng lẽ xóa nó về 0.
+- **Cặp (sku, kho) KHÔNG đủ định danh** — hàng seller gửi ở kho nền tảng
+  vẫn thuộc seller, nên cùng SKU cùng kho có bản ghi riêng cho từng chủ.
+  Đặc tả ban đầu thiếu chỗ này. Thêm `inventory_owner_id` không bắt buộc,
+  và trả 409 khi nhập nhằng thay vì đoán.
+
+Vết kiểm toán dùng nhật ký BIẾN ĐỘNG (quy tắc 4) chứ không thêm cổng audit
+mới cho inventory: movement gắn với chính bản ghi tồn kho và đối soát được
+theo SKU, chặt hơn audit log cho việc này. Bản seller cũng dựa vào đúng nó.
+
+⬜ Còn lại (1): `getCustomerAsAdmin`
 
 `executePayouts` đã chuyển sang **FUTURE** — xem mục 6.
 

@@ -575,6 +575,153 @@ func (s *Service) SetAvailable(ctx context.Context, in SetAvailableInput) error 
 	})
 }
 
+// ErrItemNhapNhang — một SKU ở một kho có tồn kho của NHIỀU chủ sở hữu.
+//
+// Không phải lỗi dữ liệu: hàng seller gửi ở kho nền tảng vẫn THUỘC seller,
+// nên cùng SKU cùng kho có bản ghi riêng cho từng chủ. Nghĩa là cặp
+// (sku, kho) KHÔNG đủ định danh một bản ghi tồn kho.
+//
+// Đoán bừa một trong số đó là kiểu hỏng tệ nhất ở đây: sửa nhầm tồn kho
+// của người khác, và cả hai bên đều không biết cho tới khi bán hụt.
+var ErrItemNhapNhang = errors.New(
+	"inventory: một SKU ở một kho có tồn kho của nhiều chủ sở hữu — " +
+		"phải nêu rõ inventory_owner_id")
+
+// TimItemKiemKe tìm bản ghi tồn kho để kiểm kê.
+//
+// ownerID rỗng được chấp nhận KHI VÀ CHỈ KHI chỉ có đúng một chủ sở hữu —
+// trường hợp thường gặp, và bắt người vận hành gõ thêm một mã dài khi không
+// có gì để nhầm chỉ khiến họ chép dán sai.
+func (s *Service) TimItemKiemKe(
+	ctx context.Context, skuID, locationID, ownerID ids.ID,
+) (*domain.InventoryItem, error) {
+	if !ownerID.IsZero() {
+		return s.repos.Items.FindByKey(ctx, domain.ItemKey{
+			SKUID: skuID, LocationID: locationID, OwnerID: ownerID,
+		})
+	}
+
+	theoSKU, err := s.repos.Items.FindBySKUs(ctx, []ids.ID{skuID}, locationID)
+	if err != nil {
+		return nil, err
+	}
+	ds := theoSKU[skuID]
+	switch len(ds) {
+	case 0:
+		return nil, domain.ErrNotFound
+	case 1:
+		return ds[0], nil
+	default:
+		return nil, ErrItemNhapNhang
+	}
+}
+
+// CountInput là một lần kiểm kê thủ công của quản trị viên.
+//
+// Available/Damaged là con số TUYỆT ĐỐI đếm được; nil = không khai.
+type CountInput struct {
+	ItemID      ids.ID
+	Available   *int
+	Damaged     *int
+	Reason      string
+	PerformedBy ids.ID
+}
+
+// CountResult là ảnh chụp trước và sau, để người kiểm kê đối chiếu.
+type CountResult struct {
+	Before domain.Quantities
+	After  domain.Quantities
+}
+
+// Count đặt số khả dụng và số hỏng theo kết quả đếm thực tế.
+//
+// # Vì sao con số TUYỆT ĐỐI, và vì sao phép trừ nằm TRONG vòng thử lại
+//
+// Người kiểm kê đếm ra một con số, không đếm ra một chênh lệch. Nhưng tính
+// chênh lệch ở tầng trên rồi gửi xuống là đọc-rồi-ghi ngoài vòng khóa lạc
+// quan: giữa hai bước có khách đặt hàng, và chênh lệch cũ áp lên số mới cho
+// ra con số KHÔNG PHẢI cái đã đếm. `withRetry` đọc lại và áp lại con số
+// tuyệt đối, nên kết quả luôn là cái người đếm khẳng định.
+//
+// Đây là cùng một lập luận với `SetAvailable` ở phía seller; khác biệt là
+// bản này đặt được CẢ số hỏng, và đặt cả hai trong MỘT lần ghi.
+//
+// # Vì sao lý do dài hơn
+//
+// Quản trị viên sửa được tồn kho của BẤT KỲ ai, kể cả hàng thuộc sở hữu
+// seller. Quyền rộng hơn thì đòi hỏi giải trình chặt hơn — tầng interfaces
+// cưỡng chế độ dài, ở đây chỉ đòi không rỗng.
+func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error) {
+	if in.Reason == "" {
+		return nil, errors.New("inventory: kiểm kê bắt buộc phải nêu lý do")
+	}
+	if in.PerformedBy.IsZero() {
+		return nil, errors.New("inventory: kiểm kê bắt buộc phải ghi người thực hiện")
+	}
+
+	var ra CountResult
+	err := s.withRetry(ctx, func(r domain.Repos) error {
+		item, err := r.Items.FindByID(ctx, in.ItemID)
+		if err != nil {
+			return err
+		}
+		truoc := item.Quantities()
+
+		var saved *domain.InventoryItem
+		err = s.mutate(ctx, r, item, mutation{
+			apply: func(i *domain.InventoryItem, t time.Time) error {
+				return i.KiemKe(in.Available, in.Damaged, t)
+			},
+			movement:    domain.MovementAdjust,
+			quantity:    lechKiemKe(truoc, in),
+			reason:      in.Reason,
+			performedBy: in.PerformedBy,
+			result:      &saved,
+		})
+
+		// Đếm ra đúng con số đang có là kết quả TỐT, không phải lỗi: thoát
+		// êm và KHÔNG ghi dòng biến động nào. Một dòng "thay đổi 0 đơn vị"
+		// chỉ làm loãng sổ kho.
+		if errors.Is(err, domain.ErrKiemKeKhongDoi) {
+			ra = CountResult{Before: truoc, After: truoc}
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		ra = CountResult{Before: truoc, After: saved.Quantities()}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ra, nil
+}
+
+// lechKiemKe là độ lớn thay đổi, dùng cho cột số lượng của dòng biến động.
+//
+// Cộng trị tuyệt đối của cả hai phần: một lần kiểm kê chuyển 5 đơn vị từ
+// lành sang hỏng là 10 đơn vị bị động tới, và ghi 0 sẽ khiến dòng nhật ký
+// trông như không có gì xảy ra.
+func lechKiemKe(truoc domain.Quantities, in CountInput) int {
+	tong := 0
+	if in.Available != nil {
+		tong += absInt(*in.Available - truoc.Available())
+	}
+	if in.Damaged != nil {
+		tong += absInt(*in.Damaged - truoc.Damaged())
+	}
+	return tong
+}
+
+func absInt(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 // simpleChange áp dụng một thay đổi số lượng kèm ghi nhật ký.
 func (s *Service) simpleChange(
 	ctx context.Context, itemID ids.ID, qty int,

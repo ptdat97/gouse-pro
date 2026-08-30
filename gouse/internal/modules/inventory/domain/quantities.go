@@ -270,6 +270,55 @@ func (q Quantities) ArriveFromTransit(qty int) (Quantities, error) {
 	return q.move(qty, stInTransit, stAvailable)
 }
 
+// KiemKe đặt số lượng KHẢ DỤNG và HỎNG theo kết quả đếm thực tế.
+//
+// # Vì sao một phép, không phải hai
+//
+// Kiểm kê ra "90 lành, 10 hỏng" là MỘT lời khẳng định về kho tại một thời
+// điểm. Đặt lần lượt bằng hai phép thì có một khoảnh khắc ở giữa mà sổ ghi
+// 90 lành và số hỏng CŨ — một trạng thái chưa bao giờ tồn tại thật. Nếu
+// phép thứ hai hỏng, trạng thái sai đó nằm lại vĩnh viễn.
+//
+// # Vì sao KHÔNG đụng tới reserved / committed / in_transit
+//
+// Ba đại lượng đó là hàng đã hứa cho khách hoặc đang trên đường. Chúng
+// không phải kết quả đếm mà là hệ quả của đơn hàng, và người kiểm kê không
+// có thẩm quyền xóa một lời hứa đã đưa ra. Lệch ở đó là vấn đề của đơn
+// hàng, phải xử lý qua đơn hàng.
+//
+// nil nghĩa là "không khai" và giữ nguyên giá trị đang có.
+func (q Quantities) KiemKe(available, damaged *int) (Quantities, error) {
+	if available == nil && damaged == nil {
+		return q, errors.New("inventory: kiểm kê không khai số nào")
+	}
+
+	out := q
+	if available != nil {
+		if *available < 0 {
+			return q, fmt.Errorf("%w: available = %d", ErrNegativeQuantity, *available)
+		}
+		out.available = *available
+	}
+	if damaged != nil {
+		if *damaged < 0 {
+			return q, fmt.Errorf("%w: damaged = %d", ErrNegativeQuantity, *damaged)
+		}
+		out.damaged = *damaged
+	}
+
+	if out == q {
+		return q, ErrKiemKeKhongDoi
+	}
+	return out, nil
+}
+
+// ErrKiemKeKhongDoi — đếm ra đúng con số đang có.
+//
+// KHÔNG phải lỗi của người dùng: nó là kết quả TỐT của một lần kiểm kê.
+// Tầng application bắt riêng nó để thoát êm, vì ghi một dòng biến động
+// "thay đổi 0 đơn vị" chỉ làm loãng sổ kho mà không nói lên điều gì.
+var ErrKiemKeKhongDoi = errors.New("inventory: kiểm kê không làm đổi số nào")
+
 // AdjustAvailable điều chỉnh thủ công số lượng khả dụng (kiểm kê).
 //
 // delta có thể ÂM. Đây là phép duy nhất cho phép đặt số lượng tùy ý, nên

@@ -229,6 +229,13 @@ func (i *InventoryItem) AdjustAvailable(delta int, now time.Time) error {
 	return i.apply(func(q Quantities) (Quantities, error) { return q.AdjustAvailable(delta) }, now)
 }
 
+// KiemKe đặt số khả dụng và số hỏng theo kết quả đếm. Xem Quantities.KiemKe.
+func (i *InventoryItem) KiemKe(available, damaged *int, now time.Time) error {
+	return i.apply(func(q Quantities) (Quantities, error) {
+		return q.KiemKe(available, damaged)
+	}, now)
+}
+
 func (i *InventoryItem) touch(now time.Time) {
 	if now.IsZero() {
 		now = time.Now().UTC()
