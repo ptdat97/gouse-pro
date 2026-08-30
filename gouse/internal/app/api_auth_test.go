@@ -33,6 +33,7 @@ func duongCanQuyen() []struct {
 	return []d{
 		{http.MethodGet, "/api/v1/admin/audit-log"},
 		{http.MethodPost, "/api/v1/admin/inventory/adjustments"},
+		{http.MethodGet, "/api/v1/admin/customers/cus_01J9XABC123DEF456GHJKMNPQR"},
 		{http.MethodGet, "/api/v1/admin/orders"},
 		{http.MethodGet, "/api/v1/admin/orders/ord_01J9XABC123DEF456GHJKMNPQR"},
 		{http.MethodGet, "/api/v1/admin/sellers"},

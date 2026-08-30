@@ -1481,7 +1481,27 @@ Vết kiểm toán dùng nhật ký BIẾN ĐỘNG (quy tắc 4) chứ không th
 mới cho inventory: movement gắn với chính bản ghi tồn kho và đối soát được
 theo SKU, chặt hơn audit log cho việc này. Bản seller cũng dựa vào đúng nó.
 
-⬜ Còn lại (1): `getCustomerAsAdmin`
+✅ `getCustomerAsAdmin` `[XONG 30/08]` — `GET /api/v1/admin/customers/{id}`,
+vai trò ADMIN + OPS_SUPPORT (cùng nhóm với đơn hàng: người trả lời khiếu
+nại cần biết khách là ai; OPS_FINANCE và OPS_MERCHANDISING thì không).
+
+Ghi vết TRƯỚC khi trả dữ liệu, và ghi vết hỏng thì KHÔNG trả — cùng thứ tự
+với `order.GetOrderAsAdmin`. Kiểm bằng cách đổi tên bảng `audit_log` rồi
+gọi endpoint: nếu vẫn trả hồ sơ thì câu "mọi lần gọi đều ghi audit log"
+trong đặc tả là nói dối.
+
+Lệch hợp đồng phát hiện trong lúc làm: đặc tả ghi `X-Access-Reason` tối
+thiểu 10 ký tự, `audit.ValidateReason` cưỡng chế 20. API sẽ từ chối lý do
+15 ký tự trong khi tài liệu hứa 10 là đủ — không làm hỏng test nào, chỉ lộ
+ra khi người tích hợp gặp 400 không giải thích được. Sửa đặc tả theo giá
+trị đang cưỡng chế (không nới lỏng kiểm soát sẵn có) và thêm bài đo ở ranh
+giới 19/20 để hai bên không lệch lại.
+
+Số đo cơ thể: đặc tả yêu cầu không trả nếu không có quyền đặc biệt. Module
+customer CHƯA lưu số đo, nên yêu cầu này thoả mãn từ cấu trúc chứ không nhờ
+câu lệnh lọc nào. Khi thêm số đo, đây là chỗ phải xem lại.
+
+**Admin: 10/10 operation.** (`executePayouts` đã chuyển sang FUTURE.)
 
 `executePayouts` đã chuyển sang **FUTURE** — xem mục 6.
 

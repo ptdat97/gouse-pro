@@ -800,9 +800,17 @@ customer_detail:
         required: true
         description: |
           **Bắt buộc.** Lý do truy cập, ghi vào audit log.
+
+          Tối thiểu 20 ký tự, và không được là chuỗi rác lặp lại (`test`,
+          `fix`, `abc`, …) — cùng ngưỡng với mọi thao tác nhạy cảm khác.
+          Một lý do trống hoặc vô nghĩa làm toàn bộ nhật ký truy cập trở
+          nên vô dụng: nó ghi lại rằng có người đã xem, nhưng không trả lời
+          được câu hỏi duy nhất đáng hỏi khi điều tra — xem để làm gì.
+
+          Ví dụ: `xử lý khiếu nại đơn ORD-12345`.
         schema:
           type: string
-          minLength: 10
+          minLength: 20
     responses:
       '200':
         description: Hồ sơ khách hàng (đã ghi audit)

@@ -4,6 +4,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -30,6 +31,7 @@ type Service struct {
 	wishlists domain.WishlistRepository
 	merges    domain.MergeLogRepository
 	clock     Clock
+	audit     AuditRecorder
 }
 
 type Deps struct {
@@ -39,6 +41,11 @@ type Deps struct {
 	Wishlists domain.WishlistRepository
 	Merges    domain.MergeLogRepository
 	Clock     Clock
+
+	// Audit là cổng ghi vết. Bỏ trống thì mọi thứ khác vẫn chạy, chỉ
+	// `GetAsAdmin` từ chối — cố ý: đọc hồ sơ khách mà không có đường ghi
+	// vết thì thà không đọc được.
+	Audit AuditRecorder
 }
 
 func NewService(d Deps) *Service {
@@ -53,6 +60,7 @@ func NewService(d Deps) *Service {
 		wishlists: d.Wishlists,
 		merges:    d.Merges,
 		clock:     clock,
+		audit:     d.Audit,
 	}
 }
 
@@ -122,6 +130,75 @@ func (s *Service) EnsureByEmail(ctx context.Context, in CreateInput) (*domain.Cu
 
 	// Request khác thắng cuộc đua. Hồ sơ của họ cũng là hồ sơ đúng.
 	return s.customers.FindByEmail(ctx, email)
+}
+
+// AuditRecorder là cổng RA ghi nhật ký thao tác.
+//
+// Cổng do BÊN GỌI khai (mẫu caller-defines-port): module customer nói nó
+// cần ghi được vết, không nói ghi vào đâu.
+type AuditRecorder interface {
+	// RecordCustomerView ghi việc nhân viên XEM hồ sơ khách hàng.
+	RecordCustomerView(ctx context.Context, in CustomerViewRecord) error
+}
+
+// CustomerViewRecord là một lần nhân viên mở hồ sơ khách.
+type CustomerViewRecord struct {
+	CustomerID ids.ID
+	ActorID    string
+	Reason     string
+	RequestID  string
+}
+
+// ViewCustomerInput là yêu cầu xem hồ sơ khách từ giao diện quản trị.
+type ViewCustomerInput struct {
+	CustomerID ids.ID
+	ActorID    string
+	Reason     string
+	RequestID  string
+}
+
+// GetAsAdmin đọc hồ sơ khách CHO NHÂN VIÊN, và ghi vết việc đọc đó.
+//
+// # Vì sao ghi vết TRƯỚC khi trả dữ liệu
+//
+// Nếu trả dữ liệu rồi mới ghi vết, một lần ghi hỏng để lại đúng thứ mà
+// nhật ký truy cập sinh ra để ngăn: một lần đọc dữ liệu cá nhân không dấu.
+// Thà nhân viên phải thử lại còn hơn.
+//
+// Cùng lập luận và cùng thứ tự với `order.GetOrderAsAdmin`.
+//
+// # Vì sao thiếu cổng ghi vết là TỪ CHỐI, không phải bỏ qua
+//
+// Nối dây thiếu thì hệ thống vẫn chạy, chỉ là mọi lần đọc hồ sơ khách đều
+// không có dấu — và không ai phát hiện cho tới lúc cần điều tra. Hỏng theo
+// hướng đóng cửa là cách duy nhất để cái thiếu đó lộ ra ngay.
+func (s *Service) GetAsAdmin(
+	ctx context.Context, in ViewCustomerInput,
+) (*domain.Customer, error) {
+	if s.audit == nil {
+		return nil, errors.New(
+			"customer: thiếu AuditRecorder — không được đọc hồ sơ khách khi " +
+				"chưa có đường ghi vết")
+	}
+	if strings.TrimSpace(in.ActorID) == "" {
+		return nil, errors.New("customer: thiếu định danh người truy cập")
+	}
+
+	c, err := s.customers.FindByID(ctx, in.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.audit.RecordCustomerView(ctx, CustomerViewRecord{
+		CustomerID: in.CustomerID,
+		ActorID:    in.ActorID,
+		Reason:     in.Reason,
+		RequestID:  in.RequestID,
+	}); err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }
 
 func (s *Service) Get(ctx context.Context, id ids.ID) (*domain.Customer, error) {

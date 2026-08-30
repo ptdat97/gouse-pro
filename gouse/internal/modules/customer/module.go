@@ -12,6 +12,7 @@ import (
 	customerpg "github.com/fashion-commerce/platform/internal/modules/customer/infrastructure/postgres"
 	customerhttp "github.com/fashion-commerce/platform/internal/modules/customer/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/identity"
+	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
@@ -49,6 +50,12 @@ type Config struct {
 	// hồ sơ khách hàng không phụ thuộc việc có tài khoản (khách vãng lai
 	// cũng có hồ sơ).
 	Identity identity.API
+
+	// Audit là nhật ký thao tác, dùng cho endpoint quản trị xem hồ sơ khách.
+	//
+	// Bỏ trống thì mọi thứ khác vẫn chạy, chỉ `GetAsAdmin` từ chối — đọc
+	// dữ liệu cá nhân mà không có đường ghi vết thì thà không đọc được.
+	Audit *audit.Recorder
 }
 
 // New khởi tạo module customer.
@@ -71,7 +78,20 @@ func New(cfg Config) (*Module, error) {
 		Wishlists: customerpg.NewWishlistStore(pool),
 		Merges:    customerpg.NewMergeLogStore(pool),
 		Clock:     cfg.Clock,
+		Audit:     auditPort(cfg.Audit),
 	})}, nil
+}
+
+// auditPort đổi bộ ghi nhật ký thành cổng của tầng application.
+//
+// Trả nil khi cfg.Audit nil, KHÔNG trả một adapter bọc nil: một adapter
+// không rỗng bọc con trỏ nil sẽ qua được phép kiểm `s.audit == nil` ở
+// `GetAsAdmin` rồi mới nổ lúc ghi — đúng lúc dữ liệu khách đã đọc xong.
+func auditPort(rec *audit.Recorder) application.AuditRecorder {
+	if rec == nil {
+		return nil
+	}
+	return NewAuditRecorder(rec)
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
@@ -91,6 +111,15 @@ func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
 // Tách khỏi RegisterRoutes vì hai nhóm cần chuỗi middleware khác hẳn:
 // nhóm kia yêu cầu đã đăng nhập, nhóm này thì không được yêu cầu (người
 // đăng ký chưa có tài khoản) nhưng PHẢI có giới hạn tần suất.
+// RegisterAdminRoutes gắn endpoint tra cứu hồ sơ khách của NHÂN VIÊN.
+//
+// Tách khỏi RegisterRoutes vì phạm vi khác hẳn: nhóm kia đọc hồ sơ của
+// CHÍNH người đang đăng nhập (lấy từ ResolveShopper), nhóm này đọc hồ sơ
+// của BẤT KỲ ai và vì thế phải ghi nhật ký mọi lần đọc.
+func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
+	customerhttp.NewAdminHandler(m.svc, log).Register(mux)
+}
+
 func (m *Module) RegisterPublicRoutes(mux *http.ServeMux, log *slog.Logger) {
 	customerhttp.NewRegisterHandler(
 		&registerAdapter{m: m}, log,

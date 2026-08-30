@@ -50,6 +50,9 @@ var maTranQuyen = []nhomQuyen{
 	{"kiểm kê tồn kho — vận hành kho", "/api/v1/admin/inventory",
 		[]string{identity.RoleAdmin, identity.RoleOpsWarehouse}},
 
+	{"hồ sơ khách — hỗ trợ khách", "/api/v1/admin/customers",
+		[]string{identity.RoleAdmin, identity.RoleOpsSupport}},
+
 	{"trung tâm người bán", "/api/v1/seller/",
 		[]string{identity.RoleSellerOwner, identity.RoleSellerStaff}},
 }

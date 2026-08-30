@@ -306,6 +306,10 @@ func Build(
 			// Identity để khách ĐĂNG KÝ được: một lần đăng ký sinh ra tài
 			// khoản đăng nhập (identity) VÀ hồ sơ mua hàng (customer).
 			Identity: identityModule,
+
+			// Audit để endpoint quản trị ghi vết mọi lần nhân viên MỞ hồ sơ
+			// khách — tên, email, số điện thoại.
+			Audit: auditRecorder,
 		})
 		if err != nil {
 			return Modules{}, err
@@ -827,6 +831,28 @@ func RegisterRoutes(
 				httpserver.Auth(identityModule),
 				httpserver.RequireRole("ADMIN"),
 			))
+		}
+
+		// Tra cứu hồ sơ khách: ADMIN và OPS_SUPPORT.
+		//
+		// Cùng vai trò với nhóm đơn hàng, và cùng một lý do: người trả lời
+		// khiếu nại cần biết khách là ai. OPS_FINANCE và OPS_MERCHANDISING
+		// KHÔNG có việc gì với tên và số điện thoại của khách.
+		//
+		// KHÔNG bọc RequireIdempotencyKey: đây là GET, không đổi trạng thái
+		// nghiệp vụ. Nó có ghi một dòng nhật ký truy cập, nhưng đó là vết
+		// của việc đọc — gộp hai lần đọc thành một là làm mất một lần đọc
+		// đã thực sự xảy ra.
+		if m.customer != nil {
+			custAdminMux := http.NewServeMux()
+			m.customer.RegisterAdminRoutes(custAdminMux, log)
+
+			mux.Handle("GET /api/v1/admin/customers/{customer_id}",
+				httpserver.Chain(
+					custAdminMux,
+					httpserver.Auth(identityModule),
+					httpserver.RequireRole("ADMIN", "OPS_SUPPORT"),
+				))
 		}
 
 		// Điều chỉnh tồn kho thủ công: ADMIN và OPS_WAREHOUSE.
