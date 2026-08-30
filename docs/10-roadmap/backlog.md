@@ -775,7 +775,15 @@ Ba quyết định nhỏ:
 Kiểm chứng: nhịp tim ĐẬP LẠI sau 10 giây (không phải đặt một lần lúc khởi
 động), và khi giết worker thì `/metrics` ngừng trả lời đúng như mong đợi.
 
-### 2.6e PH-31 — nhả giữ hàng HAI LẦN sinh ra hàng từ không khí `[CHƯA GIẢI THÍCH ĐƯỢC]`
+### 2.6e PH-31 — nhả giữ hàng HAI LẦN sinh ra hàng từ không khí `[XONG 27/08]`
+
+> **Cập nhật 27/08:** cơ chế ĐÃ xác định và dựng lại được một cách xác
+> định. Nguyên nhân là khe hở READ COMMITTED giữa hai câu SELECT trong
+> cùng một giao dịch — không phải cuộc đua kinh điển như phần dưới đoán.
+> Xem [ADR-0013](../adr/0013-write-transaction-boundary.md) phụ lục và
+> `internal/modules/inventory/nha_hai_lan_test.go`.
+>
+> Phần dưới giữ nguyên làm ghi chép quá trình điều tra.
 
 Phát hiện nhờ chính chỉ số vừa thêm ở PH-30 — đúng loại sự cố mà nó sinh
 ra để bắt.
@@ -945,11 +953,21 @@ trường lạ.
 Còn phải rà:
 
 ```text
-⬜ một bảng liệt kê MỌI resource × MỌI vai trò, không phải rà theo trí nhớ
+✅ một bảng liệt kê MỌI resource × MỌI vai trò `[XONG 30/08]`
+   `internal/app/api_ma_tran_quyen_test.go` — 175 cặp (đường × vai trò).
+   Bài sẵn có chỉ thử MỘT vai trò sai (CUSTOMER) nên bắt được "quên bọc
+   RequireRole" mà KHÔNG bắt được "bọc NHẦM vai trò" — lỗi nguy hiểm hơn:
+   route sổ cái bọc `OPS_MERCHANDISING` vẫn chặn khách, vẫn xanh mọi test,
+   trong khi nhân viên hàng hóa đọc được sổ cái. Kèm bài phủ bắt buộc mọi
+   đường mới phải có nhóm trong ma trận.
 ⬜ rate limit mới áp cho ĐĂNG KÝ; đăng nhập, tra đơn vãng lai chưa có
 ⬜ bộ đếm rate limit nằm trong bộ nhớ (P3-16) — N bản sao = N lần hạn mức
-⬜ chưa có test khẳng định response công khai KHÔNG chứa dữ liệu nội bộ,
-   trừ endpoint `/api/v1/sellers` (đã có, kiểm danh sách TRẮNG)
+✅ test khẳng định response công khai KHÔNG chứa dữ liệu nội bộ `[XONG 30/08]`
+   `internal/app/api_ro_ri_test.go` — HAI lớp độc lập trên 8 đường công khai:
+   danh sách ĐEN tên trường (duyệt đệ quy, bắt cả object lồng), và MỒI theo
+   GIÁ TRỊ (nạp chuỗi độc nhất vào cột nội bộ rồi tìm trong phản hồi).
+   Lớp hai kiếm được chỗ đứng: phá bằng cách trả `legal_name` dưới tên
+   `display_ref` thì danh sách đen XANH, chỉ mồi bắt được.
 ```
 
 Nguyên tắc đã áp và cần giữ: **không suy quyền từ id hay số điện thoại**.
