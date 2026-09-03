@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/fashion-commerce/platform/internal/platform/metrics"
 	"strings"
 	"time"
 
@@ -142,7 +143,16 @@ func (s *Service) RecordOrderRevenue(
 // postgres.LedgerForTx. Cùng khuôn với inventory.CommitInRepos.
 func (s *Service) RecordOrderRevenueWith(
 	ctx context.Context, ledger domain.LedgerRepository, in RecordOrderRevenueInput,
-) (*domain.LedgerEntry, error) {
+) (_ *domain.LedgerEntry, ketQua error) {
+	// Bọc bằng defer để MỌI đường thoát sớm đều được đếm. Rải lời gọi ở
+	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
+	// bị sót thường là nhánh hiếm — tức nhánh đáng quan tâm nhất.
+	defer func() {
+		if ketQua != nil {
+			metrics.RecordFailure(metrics.StagePayment, lyDoThatBaiTien(ketQua))
+		}
+	}()
+
 	// Khoá gồm CẢ nhà bán, không chỉ đơn hàng.
 	//
 	// Một đơn trộn hàng của nhiều nhà bán sinh ra NHIỀU bút toán — mỗi
@@ -260,7 +270,16 @@ func (s *Service) ChuyenSangRutDuocWith(
 
 func (s *Service) RecordRefund(
 	ctx context.Context, in RecordRefundInput,
-) (*domain.LedgerEntry, error) {
+) (_ *domain.LedgerEntry, ketQua error) {
+	// Bọc bằng defer để MỌI đường thoát sớm đều được đếm. Rải lời gọi ở
+	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
+	// bị sót thường là nhánh hiếm — tức nhánh đáng quan tâm nhất.
+	defer func() {
+		if ketQua != nil {
+			metrics.RecordFailure(metrics.StagePayment, lyDoThatBaiTien(ketQua))
+		}
+	}()
+
 	ref := in.RefundID
 	if ref.IsZero() {
 		ref = in.OrderID
@@ -398,7 +417,16 @@ type AdjustmentInput struct {
 //  3. Vết kiểm toán            — cùng giao dịch với bút toán
 func (s *Service) RecordAdjustmentWithAudit(
 	ctx context.Context, in AdjustmentInput,
-) (*domain.LedgerEntry, error) {
+) (_ *domain.LedgerEntry, ketQua error) {
+	// Bọc bằng defer để MỌI đường thoát sớm đều được đếm. Rải lời gọi ở
+	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
+	// bị sót thường là nhánh hiếm — tức nhánh đáng quan tâm nhất.
+	defer func() {
+		if ketQua != nil {
+			metrics.RecordFailure(metrics.StagePayment, lyDoThatBaiTien(ketQua))
+		}
+	}()
+
 	if s.audit == nil {
 		return nil, errors.New(
 			"payment: thiếu AuditRecorder — điều chỉnh sổ cái không được " +
@@ -686,4 +714,30 @@ func (s *Service) DanhSachDoiSoat(
 	ctx context.Context, sellerID ids.ID, limit int,
 ) ([]*domain.DoiSoat, error) {
 	return s.settlements.TimTheoNhaBan(ctx, sellerID, limit)
+}
+
+// lyDoThatBaiTien phân loại lỗi đường tiền thành nhãn Prometheus.
+//
+// Tập giá trị phải ĐÓNG và nhỏ: mỗi giá trị nhãn là một chuỗi thời gian
+// riêng, nên truyền thẳng thông điệp lỗi — thứ thường chứa mã đơn — sẽ
+// làm nổ số chuỗi thời gian.
+func lyDoThatBaiTien(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrUnbalanced):
+		// Tách riêng, và là nhãn đáng theo dõi nhất ở đây: bút toán lệch
+		// nghĩa là sổ sách sai. Khác 0 là sự cố, không phải chỉ số.
+		return "unbalanced"
+	case errors.Is(err, domain.ErrDuplicateEntry):
+		return "duplicate"
+	case errors.Is(err, domain.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, domain.ErrNoLines),
+		errors.Is(err, domain.ErrMixedCurrency),
+		errors.Is(err, domain.ErrNonPositiveLine),
+		errors.Is(err, domain.ErrMissingReference),
+		errors.Is(err, domain.ErrMissingIdempKey):
+		return "invalid_entry"
+	default:
+		return "internal"
+	}
 }

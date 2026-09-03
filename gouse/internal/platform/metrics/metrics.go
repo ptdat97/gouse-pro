@@ -263,6 +263,21 @@ var lyDoChoPhep = map[string]bool{
 	"khong_thay_ma_van_don": true,
 	"xu_ly_that_bai":        true,
 	"than_khong_hop_le":     true,
+
+	// Đường tiền: ba lý do phân biệt được ba mức nghiêm trọng khác nhau.
+	//
+	//   unbalanced    → Σ DEBIT ≠ Σ CREDIT. Sổ sách sai. PHẢI bằng 0, và
+	//                   khác 0 là sự cố chứ không phải chỉ số.
+	//   invalid_entry → bút toán thiếu tham chiếu, lẫn đơn vị tiền, dòng
+	//                   không dương. Lỗi phía người gọi, sửa được.
+	//   duplicate     → cùng khóa idempotency gửi lại. Bình thường; tăng
+	//                   đột biến nghĩa là có bên nào đó thử lại quá tay.
+	//
+	// Tách riêng vì gộp cả ba vào "internal" khiến sự cố nghiêm trọng
+	// nhất của hệ thống trông y hệt một lỗi vặt.
+	"unbalanced":    true,
+	"invalid_entry": true,
+	"duplicate":     true,
 }
 
 func safeReason(reason string) string {

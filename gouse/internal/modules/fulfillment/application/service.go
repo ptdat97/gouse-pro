@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/fashion-commerce/platform/internal/platform/metrics"
 	"strings"
 	"time"
 
@@ -388,7 +389,20 @@ func (s *Service) publishCancelled(
 func (s *Service) advance(
 	ctx context.Context, sellerID, foID ids.ID,
 	step func(*domain.FulfillmentOrder, time.Time) error,
-) error {
+) (ketQua error) {
+	// Đếm ở advance chứ không ở từng bước: mọi chuyển trạng thái của đơn
+	// thực hiện đều đi qua đây, nên một chỗ là đủ và không bước nào mới
+	// thêm bị bỏ sót.
+	//
+	// Bọc bằng defer để MỌI đường thoát sớm đều được đếm — rải lời gọi ở
+	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
+	// bị sót thường là nhánh hiếm, tức nhánh đáng quan tâm nhất.
+	defer func() {
+		if ketQua != nil {
+			metrics.RecordFailure(metrics.StageFulfillment, lyDoThatBai(ketQua))
+		}
+	}()
+
 	fo, err := s.loadOwned(ctx, sellerID, foID)
 	if err != nil {
 		return err
@@ -596,4 +610,25 @@ func (s *Service) CapNhatTuHangVanChuyen(
 		return err
 	}
 	return s.publishProgress(ctx, fo)
+}
+
+// lyDoThatBai phân loại lỗi thành nhãn Prometheus.
+//
+// Tập giá trị phải ĐÓNG và nhỏ: mỗi giá trị nhãn khác nhau là một chuỗi
+// thời gian riêng, nên truyền thẳng thông điệp lỗi vào đây — thứ thường
+// chứa mã đơn — sẽ làm nổ số chuỗi thời gian.
+func lyDoThatBai(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		return "not_found"
+	case errors.Is(err, domain.ErrInvalidStatus):
+		return "invalid_status"
+	case errors.Is(err, domain.ErrVersionConflict):
+		// Tách riêng vì nó KHÁC hẳn về ý nghĩa vận hành: không phải sai
+		// sót của ai, mà là hai đường ghi cùng chạm một bản ghi. Con số
+		// này tăng nghĩa là tranh chấp đang tăng, không phải lỗi tăng.
+		return "version_conflict"
+	default:
+		return "internal"
+	}
 }

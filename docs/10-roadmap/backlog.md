@@ -1164,7 +1164,7 @@ Thiết kế đã có ở [observability.md](../09-operations/observability.md);
 | PH-25 | Metrics database (pool, thời gian truy vấn) | ⬜ chưa đo |
 | PH-26 | Metrics outbox (tồn đọng, độ trễ, số lần thử lại) | ✅ 3 gauge + đếm thất bại theo bên nhận |
 | PH-30 | **Worker chết thì chỉ số outbox đứng yên** | ✅ nhịp tim + độ trễ job + đếm lỗi job |
-| PH-27 | Đếm thất bại nghiệp vụ | 🟡 giữ hàng và checkout xong; payment, fulfillment chưa nối |
+| PH-27 | Đếm thất bại nghiệp vụ | ✅ payment và fulfillment đã nối, có test đọc registry thật |
 
 **PH-26 và PH-27 quan trọng hơn vẻ ngoài của chúng.** Outbox tồn đọng là
 triệu chứng SỚM của gần như mọi sự cố ở kiến trúc này: worker chết, event
