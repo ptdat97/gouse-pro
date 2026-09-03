@@ -198,9 +198,15 @@ func (s *CheckoutStore) FindExpired(
 		limit = 100
 	}
 
+	// `order_id = ''` LOẠI phiên đã tạo được đơn.
+	//
+	// Không có điều kiện này, một phiên mà chuỗi hoàn tất hỏng giữa chừng
+	// (đơn đã tạo, giao dịch ghi phiên chưa xong) sẽ bị dọn như phiên bỏ
+	// dở — và nhả toàn bộ hàng của một đơn có thật. Xem `GhiNhanDaTaoDon`.
 	rows, err := s.pool.Query(ctx, `SELECT`+checkoutCols+`
 		  FROM checkout
 		 WHERE status IN ('STARTED','PENDING_PAYMENT')
+		   AND order_id = ''
 		   AND expires_at < $1
 		 ORDER BY expires_at
 		 LIMIT $2`, now, limit)
@@ -238,14 +244,66 @@ func (s *CheckoutStore) FindExpired(
 
 func (s *CheckoutStore) CountExpiredPending(ctx context.Context, now time.Time) (int, error) {
 	var n int
+	// Cùng điều kiện với FindExpired, kể cả `order_id = ''`.
+	//
+	// Lệch nhau thì chỉ báo nói dối: nó đếm cả những phiên mà job dọn CỐ Ý
+	// không đụng tới, con số tăng mãi, và cảnh báo "tiến trình dọn đã
+	// ngừng chạy" kêu suốt trong khi tiến trình vẫn chạy bình thường.
+	// Một cảnh báo kêu sai vài lần là một cảnh báo không ai đọc nữa.
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM checkout
-		 WHERE status IN ('STARTED','PENDING_PAYMENT') AND expires_at < $1`,
+		 WHERE status IN ('STARTED','PENDING_PAYMENT')
+		   AND order_id = ''
+		   AND expires_at < $1`,
 		now).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("checkout: đếm phiên quá hạn: %w", err)
 	}
 	return n, nil
+}
+
+// CountHoanTatKetLai đếm phiên ĐÃ TẠO ĐƠN nhưng chưa hoàn tất xong.
+//
+// Đây là mặt trái của việc loại chúng khỏi job dọn: hàng của chúng nằm
+// giữ vô thời hạn. Đánh đổi ấy chỉ chấp nhận được nếu số hàng chết ĐẾM
+// ĐƯỢC — nếu không thì "thà hàng chết còn hơn hàng ma" chỉ là cách nói
+// khác của "giấu vấn đề đi".
+//
+// Con số này bình thường phải là 0. Khác 0 nghĩa là có chuỗi hoàn tất
+// dừng giữa chừng: đơn đã tồn tại, phiên chưa đóng, và cần người đối soát.
+func (s *CheckoutStore) CountHoanTatKetLai(ctx context.Context, now time.Time) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM checkout
+		 WHERE status IN ('STARTED','PENDING_PAYMENT')
+		   AND order_id <> ''
+		   AND expires_at < $1`,
+		now).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("checkout: đếm phiên kẹt sau khi tạo đơn: %w", err)
+	}
+	return n, nil
+}
+
+// GhiNhanDaTaoDon ghi mã đơn lên phiên ngay sau khi đơn được tạo.
+//
+// Xem chú thích ở cổng (domain/repository.go) về vì sao cần một lượt ghi
+// riêng thay vì đợi Save.
+func (s *CheckoutStore) GhiNhanDaTaoDon(
+	ctx context.Context, id ids.ID, orderID ids.ID,
+) error {
+	// Chỉ ghi khi phiên CHƯA có mã đơn: lần gọi lại (khách thử lại, đơn
+	// idempotent trả về cùng mã) không được ghi đè, và một mã đơn khác
+	// tới đây là dấu hiệu sai sót nghiêm trọng chứ không phải chuyện
+	// bình thường — im lặng ghi đè sẽ xóa mất manh mối duy nhất.
+	_, err := s.pool.Exec(ctx, `
+		UPDATE checkout SET order_id = $2, updated_at = now()
+		 WHERE id = $1 AND order_id = ''`,
+		id.String(), orderID.String())
+	if err != nil {
+		return fmt.Errorf("checkout: ghi nhận đơn đã tạo: %w", err)
+	}
+	return nil
 }
 
 func (s *CheckoutStore) findOne(

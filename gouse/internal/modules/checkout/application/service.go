@@ -1002,6 +1002,27 @@ func (s *Service) CompleteCheckout(
 		return nil, err
 	}
 
+	// GHI MÃ ĐƠN LÊN PHIÊN NGAY, trước khi làm bất cứ việc gì khác.
+	//
+	// Từ dòng trên, đơn hàng ĐÃ TỒN TẠI trong database. Nhưng phiên vẫn
+	// mang trạng thái `STARTED`, tức vẫn nằm trong tầm quét của job dọn
+	// hạn — và ân hạn 30 giây mà `GiuDeHoanTat` cấp sẽ hết.
+	//
+	// Nếu tiến trình chết ở đây, hoặc `SaveWithEvents` bên dưới hỏng, và
+	// khách không thử lại: job dọn nhặt phiên này lên và NHẢ TOÀN BỘ hàng
+	// của một đơn có thật. Hàng đó bán tiếp cho người khác, còn đơn cũ
+	// thành đơn không có hàng — chính thứ mà chú thích ở
+	// `inventory.CommitOnCheckoutCompleted` gọi là "không thể để làm sau".
+	//
+	// Dựng lại được một cách xác định: xem TestPH8_* ở internal/app.
+	//
+	// Lỗi ở đây thì DỪNG: chưa ghi được dấu thì đi tiếp nghĩa là bước vào
+	// đúng khoảng trống vừa mô tả. Khách thử lại được — `PlaceOrder`
+	// idempotent theo cùng khóa nên không sinh đơn thứ hai.
+	if err := s.checkouts.GhiNhanDaTaoDon(ctx, c.ID(), placed.OrderID); err != nil {
+		return nil, err
+	}
+
 	if err := c.Complete(placed.OrderID, idempotencyKey, now); err != nil {
 		return nil, err
 	}
@@ -1155,6 +1176,18 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 		done++
 	}
 	return done, nil
+}
+
+// CountHoanTatKetLai đếm phiên ĐÃ TẠO ĐƠN nhưng chuỗi hoàn tất chưa xong.
+//
+// Chỉ báo giám sát, và là mặt trái của việc loại những phiên này khỏi job
+// dọn: hàng của chúng nằm giữ vô thời hạn. Đánh đổi "thà hàng chết còn hơn
+// hàng ma" chỉ chấp nhận được khi hàng chết ĐẾM ĐƯỢC — nếu không, nó chỉ
+// là cách nói khác của việc giấu vấn đề đi.
+//
+// Bình thường phải là 0.
+func (s *Service) CountHoanTatKetLai(ctx context.Context) (int, error) {
+	return s.checkouts.CountHoanTatKetLai(ctx, s.clock.Now())
 }
 
 // CountExpiredPending đếm số phiên quá hạn chưa dọn.

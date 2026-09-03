@@ -66,9 +66,49 @@ type Repository interface {
 	// Trả ErrExpired hoặc ErrInvalidStatus khi không giành được — bên gọi
 	// phải DỪNG, không được tạo đơn.
 	//
-	// Ân hạn tự hết: tiến trình chết giữa chừng thì phiên hết hạn bình
-	// thường sau đó. Không có trạng thái nào kẹt lại để ai đó phải dọn.
+	// Ân hạn tự hết, và điều đó ĐÚNG chỉ khi tiến trình chết TRƯỚC lúc
+	// tạo đơn: phiên hết hạn bình thường, hàng nhả về kho, không ai mất gì.
+	//
+	// Chết SAU lúc tạo đơn thì ngược lại — hết hạn là việc tệ nhất có thể
+	// làm, vì nó nhả hàng của một đơn đã tồn tại. `GhiNhanDaTaoDon` bên
+	// dưới đóng khe hở đó.
 	GiuDeHoanTat(ctx context.Context, id ids.ID, now time.Time, anHan time.Duration) error
+
+	// GhiNhanDaTaoDon ghi mã đơn lên phiên NGAY khi đơn vừa được tạo.
+	//
+	// # Vì sao cần một lượt ghi riêng, chứ không đợi Save
+	//
+	// Chuỗi hoàn tất đi qua nhiều giao dịch: tạo đơn là một, ghi trạng
+	// thái phiên kèm event là một giao dịch khác. Giữa hai giao dịch đó có
+	// một khoảng mà ĐƠN ĐÃ TỒN TẠI nhưng phiên vẫn mang trạng thái
+	// `STARTED` — tức vẫn nằm trong tầm quét của `FindExpired`.
+	//
+	// Nếu giao dịch sau hỏng (mất kết nối, ghi outbox thất bại) và khách
+	// không thử lại, job dọn hạn sẽ nhả toàn bộ hàng của một đơn có thật.
+	// Hàng ấy bán được cho người khác, và đơn cũ thành đơn không có hàng —
+	// đúng thứ mà chú thích ở `CommitOnCheckoutCompleted` gọi là "không
+	// thể để làm sau".
+	//
+	// Ghi mã đơn ngay biến sự kiện "đơn đã tồn tại" thành một sự thật BỀN
+	// VỮNG mà job dọn đọc được, thay vì một biến trong bộ nhớ của tiến
+	// trình có thể chết bất cứ lúc nào.
+	//
+	// # Cái giá
+	//
+	// Phiên đã ghi mã đơn thì không bao giờ bị dọn tự động nữa. Nếu chuỗi
+	// hoàn tất không bao giờ chạy xong, hàng nằm ở trạng thái giữ cho tới
+	// khi có người đối soát.
+	//
+	// Đó là đánh đổi CÓ CHỦ Ý và cùng hướng với lựa chọn ở kiểm định hàng
+	// hoàn: thà HÀNG CHẾT còn hơn HÀNG MA. Hàng chết đếm được, tìm được,
+	// và sửa được; hàng ma thì bán hai lần cho hai người rồi mới lộ.
+	GhiNhanDaTaoDon(ctx context.Context, id ids.ID, orderID ids.ID) error
+
+	// CountHoanTatKetLai đếm phiên đã tạo đơn mà chưa hoàn tất xong.
+	//
+	// Chỉ báo cho cái giá của GhiNhanDaTaoDon: những phiên này không bao
+	// giờ bị dọn tự động, nên hàng của chúng phải đếm được.
+	CountHoanTatKetLai(ctx context.Context, now time.Time) (int, error)
 
 	// GiuDeDonHan giành quyền DỌN một phiên quá hạn, bằng MỘT câu lệnh
 	// nguyên tử.

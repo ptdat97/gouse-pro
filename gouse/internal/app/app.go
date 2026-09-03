@@ -392,6 +392,25 @@ func Build(
 		if err != nil {
 			return Modules{}, fmt.Errorf("kiểm tra phiên thanh toán quá hạn: %w", err)
 		}
+
+		// Chỉ báo giám sát: phiên ĐÃ TẠO ĐƠN mà chuỗi hoàn tất chưa xong.
+		//
+		// Những phiên này CỐ Ý nằm ngoài tầm job dọn — nhả hàng của chúng
+		// là nhả hàng của một đơn có thật. Cái giá là hàng nằm giữ vô thời
+		// hạn, và đánh đổi "thà hàng chết còn hơn hàng ma" chỉ đứng vững
+		// nếu hàng chết ĐẾM ĐƯỢC.
+		//
+		// Khác 0 nghĩa là có đơn hàng với phiên chưa đóng: cần đối soát,
+		// không phải chờ nó tự khỏi.
+		ketLai, err := checkoutModule.CountHoanTatKetLai(ctx)
+		if err != nil {
+			return Modules{}, fmt.Errorf("kiểm tra phiên kẹt sau khi tạo đơn: %w", err)
+		}
+		if ketLai > 0 {
+			log.Error("CÓ PHIÊN ĐÃ TẠO ĐƠN NHƯNG CHƯA HOÀN TẤT",
+				"số_lượng", ketLai,
+				"hệ_quả", "hàng của các đơn này đang bị giữ và không tự nhả")
+		}
 		// Chỉ báo giám sát: event chưa phát và event đã bỏ cuộc.
 		//
 		// Dead letter khác 0 nghĩa là có sự thật nghiệp vụ không tới được

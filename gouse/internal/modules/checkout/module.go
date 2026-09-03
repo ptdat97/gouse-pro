@@ -299,6 +299,11 @@ func (m *Module) CountExpiredPending(ctx context.Context) (int, error) {
 	return n, translateErr(err)
 }
 
+func (m *Module) CountHoanTatKetLai(ctx context.Context) (int, error) {
+	n, err := m.svc.CountHoanTatKetLai(ctx)
+	return n, translateErr(err)
+}
+
 // ---------------------------------------------------------------- Chuyển đổi
 
 func toMoney(a Amount) (money.Money, error) {

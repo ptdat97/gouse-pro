@@ -79,6 +79,12 @@ type API interface {
 	// Chỉ báo giám sát: con số tăng dần nghĩa là tiến trình dọn đã ngừng
 	// chạy, và hàng đang bị khóa mà không ai biết.
 	CountExpiredPending(ctx context.Context) (int, error)
+
+	// CountHoanTatKetLai đếm phiên đã tạo đơn mà chuỗi hoàn tất chưa xong.
+	//
+	// Khác 0 nghĩa là có đơn hàng tồn tại với phiên chưa đóng, và hàng của
+	// nó nằm giữ cho tới khi có người đối soát.
+	CountHoanTatKetLai(ctx context.Context) (int, error)
 }
 
 // ---------------------------------------------------------------- DTO

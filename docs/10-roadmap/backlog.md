@@ -436,14 +436,14 @@ và trông chờ may rủi. Module checkout chưa có cổng tiêm đồng hồ 
 | PH-5 | **Chuẩn hóa idempotency** — bảng ở mục 2.7 | ✅ 5/5 có ràng buộc ở tầng dữ liệu |
 | PH-6 | Chuẩn hóa retry / xử lý thất bại | 🟡 outbox có, phần còn lại chưa |
 | PH-7 | **Event versioning** — quy tắc + test tự động | ✅ 3 test tương thích, xem 2.8 |
-| PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | 🟡 từng cặp có, chưa có test xuyên suốt |
+| PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | ✅ tiêm lỗi ở tầng DB, tìm ra và bịt một khe hở thật — xem 2.15 |
 
 ### 2.3 PH — Security
 
 | # | Việc | Trạng thái |
 |---|---|---|
-| PH-9 | **Audit authorization toàn bộ resource** | 🟡 xem 2.9 |
-| PH-10 | Rà: xác thực · phân quyền · kiểm tra đầu vào · rate limit · CORS · lộ dữ liệu · nhật ký kiểm toán | 🟡 xem 2.9 |
+| PH-9 | **Audit authorization toàn bộ resource** | ✅ ma trận 175 cặp, xem 2.9 |
+| PH-10 | Rà: xác thực · phân quyền · kiểm tra đầu vào · rate limit · CORS · lộ dữ liệu · nhật ký kiểm toán | ✅ xem 2.9 |
 
 ### 2.4 PH — API Contract
 
@@ -936,6 +936,58 @@ trường lạ.
 | [0008](../adr/0008-financial-ledger.md) | Sổ cái bất biến — nền của idempotency thanh toán |
 | [0011](../adr/0011-audit-log.md) | Audit log cùng giao dịch với thao tác — PH-10 |
 | [0012](../adr/0012-inventory-ownership.md) | **Bất biến chủ sở hữu tồn kho** — trung tâm của PH-2 |
+
+### 2.15 PH-8 — tiêm lỗi ở ranh giới giao dịch `[XONG 03/09]`
+
+Test theo CẶP không tìm ra được lỗi này, vì mỗi cặp đều đúng. Lỗi nằm ở
+KHOẢNG TRỐNG giữa hai giao dịch liền nhau.
+
+**Chuỗi hoàn tất phiên đi qua ba giao dịch, có chủ ý:**
+
+```text
+1. GiuDeHoanTat       giành quyền, gia hạn expires_at   (giao dịch riêng)
+2. orders.PlaceOrder  TẠO ĐƠN                            (giao dịch riêng)
+3. SaveWithEvents     trạng thái phiên + event outbox    (một giao dịch)
+```
+
+Bước 3 gộp phiên và event — đúng. Nhưng giữa bước 2 và bước 3 có một
+khoảng mà **đơn đã tồn tại còn phiên vẫn `STARTED`**, tức vẫn nằm trong
+tầm quét của `FindExpired`. Ân hạn 30 giây của `GiuDeHoanTat` rồi cũng hết.
+
+Nếu bước 3 hỏng và khách không thử lại: job dọn nhặt phiên lên và **nhả
+toàn bộ hàng của một đơn có thật**. Hàng bán tiếp cho người khác, đơn cũ
+thành đơn không có hàng.
+
+Chú thích ở `inventory.CommitOnCheckoutCompleted` đã gọi đúng tên mối nguy
+này và nói nó "không thể để làm sau". `GiuDeHoanTat` sinh ra để chặn nó —
+nhưng chỉ chặn được cuộc ĐUA ĐỒNG THỜI, không chặn được hoàn tất HỎNG GIỮA
+CHỪNG. Chú thích của chính cổng ấy ghi giả định sai: *"tiến trình chết
+giữa chừng thì phiên hết hạn bình thường, không có trạng thái nào kẹt
+lại"* — đúng nếu chết TRƯỚC khi tạo đơn, sai hẳn nếu chết SAU.
+
+**Cách dựng lại** (`internal/app/api_ph8_ranhgioi_test.go`): trigger
+PostgreSQL từ chối ghi riêng event `checkout.completed`. Chặn theo LOẠI
+chứ không chặn cả bảng là điểm mấu chốt — `PlaceOrder` cũng ghi outbox,
+nên chặn cả bảng làm bước 2 hỏng trước và khe hở không bao giờ mở ra. Lần
+chạy đầu đã hỏng đúng kiểu đó và suýt kết luận "không có khe hở".
+
+**Bản sửa:** ghi mã đơn lên phiên NGAY sau bước 2 (`GhiNhanDaTaoDon`), và
+`FindExpired` loại phiên đã có mã đơn. Sự kiện "đơn đã tồn tại" trở thành
+sự thật bền vững mà job dọn đọc được, thay vì một biến trong bộ nhớ của
+tiến trình có thể chết bất cứ lúc nào.
+
+**Cái giá, và vì sao chấp nhận:** phiên đã ghi mã đơn không bao giờ bị dọn
+tự động nữa; chuỗi hoàn tất không chạy xong thì hàng nằm giữ tới khi có
+người đối soát. Thà HÀNG CHẾT còn hơn HÀNG MA — cùng hướng với lựa chọn ở
+kiểm định hàng hoàn. Hàng chết đếm được, tìm được, sửa được; hàng ma bán
+hai lần cho hai người rồi mới lộ.
+
+Đánh đổi đó chỉ đứng vững nếu hàng chết ĐẾM ĐƯỢC, nên kèm
+`CountHoanTatKetLai` (chỉ báo riêng, log lỗi lúc khởi động) và sửa
+`CountExpiredPending` dùng CÙNG điều kiện với `FindExpired` — lệch nhau thì
+cảnh báo "job dọn đã chết" kêu sai mãi, và cảnh báo kêu sai vài lần là
+cảnh báo không ai đọc nữa.
+
 
 ### 2.9 Audit authorization (PH-9, PH-10)
 
