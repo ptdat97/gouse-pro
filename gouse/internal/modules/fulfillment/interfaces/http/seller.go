@@ -278,6 +278,17 @@ func translateSeller(err error) error {
 		return apierror.New(apierror.CodeConflict,
 			"Đơn thực hiện không ở trạng thái cho phép thao tác này")
 
+	case errors.Is(err, domain.ErrVersionConflict):
+		// 409, KHÔNG phải 500. Xung đột phiên bản không phải lỗi hệ thống:
+		// một tiến trình khác vừa sửa đúng bản ghi này. Người gọi tải lại
+		// rồi thử lại là xong.
+		//
+		// Trả 500 sai theo hai hướng cùng lúc — người gọi tưởng hệ thống
+		// hỏng nên không thử lại, còn giám sát thì kêu báo động cho một
+		// tình huống bình thường dưới tải.
+		return apierror.New(apierror.CodeConflict,
+			"Đơn thực hiện vừa được cập nhật, vui lòng tải lại và thử lại")
+
 	default:
 		return apierror.From(err)
 	}

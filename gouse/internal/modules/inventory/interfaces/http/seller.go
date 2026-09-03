@@ -229,6 +229,17 @@ func translateInventory(err error) error {
 		// khác": phân biệt cho phép dò xem đối thủ có bán SKU nào.
 		return apierror.New(apierror.CodeNotFound,
 			"Bạn chưa có tồn kho cho sản phẩm này")
+	case errors.Is(err, domain.ErrVersionConflict):
+		// 409, KHÔNG phải 500. Xung đột phiên bản không phải lỗi hệ thống:
+		// một tiến trình khác vừa sửa đúng bản ghi này. Người gọi tải lại
+		// rồi thử lại là xong.
+		//
+		// Trả 500 sai theo hai hướng cùng lúc — người gọi tưởng hệ thống
+		// hỏng nên không thử lại, còn giám sát thì kêu báo động cho một
+		// tình huống bình thường dưới tải.
+		return apierror.New(apierror.CodeConflict,
+			"Tồn kho vừa thay đổi, vui lòng tải lại và thử lại")
+
 	default:
 		return apierror.From(err)
 	}

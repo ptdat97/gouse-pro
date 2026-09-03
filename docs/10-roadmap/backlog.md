@@ -434,7 +434,7 @@ và trông chờ may rủi. Module checkout chưa có cổng tiêm đồng hồ 
 | # | Việc | Trạng thái |
 |---|---|---|
 | PH-5 | **Chuẩn hóa idempotency** — bảng ở mục 2.7 | ✅ 5/5 có ràng buộc ở tầng dữ liệu |
-| PH-6 | Chuẩn hóa retry / xử lý thất bại | 🟡 outbox có, phần còn lại chưa |
+| PH-6 | Chuẩn hóa retry / xử lý thất bại | ✅ ba tầng, có test cưỡng chế — xem 2.16 |
 | PH-7 | **Event versioning** — quy tắc + test tự động | ✅ 3 test tương thích, xem 2.8 |
 | PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | ✅ tiêm lỗi ở tầng DB, tìm ra và bịt một khe hở thật — xem 2.15 |
 
@@ -987,6 +987,51 @@ hai lần cho hai người rồi mới lộ.
 `CountExpiredPending` dùng CÙNG điều kiện với `FindExpired` — lệch nhau thì
 cảnh báo "job dọn đã chết" kêu sai mãi, và cảnh báo kêu sai vài lần là
 cảnh báo không ai đọc nữa.
+
+
+### 2.16 PH-6 — ba tầng xử lý xung đột `[XONG 03/09]`
+
+Chín module dùng khóa lạc quan. Câu hỏi "chuẩn hóa" không phải "tất cả
+phải retry" — mà là **mỗi tầng có đúng một cơ chế, và không tầng nào rơi
+vào khoảng trống**.
+
+| Tầng | Cơ chế | Ví dụ |
+|---|---|---|
+| Trong tiến trình, xung đột DÀY | `withRetry` + chờ ngẫu nhiên tăng dần | inventory, promotion |
+| Đường HTTP, xung đột THƯA | trả **409**, người gọi tải lại rồi thử lại | order, customer, fulfillment, returns |
+| Đường worker | outbox giao lại event | payment (ghi đợt đối soát) |
+
+**Lỗ hổng tìm thấy:** `apierror.From` biến mọi lỗi chưa ánh xạ thành
+`INTERNAL_ERROR` (500). Ba module — `customer`, `fulfillment`, `inventory`
+— không ánh xạ `ErrVersionConflict` ở tầng HTTP, nên xung đột phiên bản ra
+**500**. Sai theo hai hướng cùng lúc: người gọi tưởng hệ thống hỏng nên
+không thử lại (trong khi thử lại mới là việc đúng), và giám sát kêu báo
+động cho một tình huống bình thường dưới tải.
+
+Đáng chú ý ở `fulfillment`: cột version của nó thêm vào **chính vì PH-34**
+(hủy đè lên giao hàng), tức xung đột ở đó là chuyện đã biết chắc sẽ xảy ra
+— và nhà bán thua cuộc đua lúc bấm "Đã giao" nhận 500.
+
+`payment` được MIỄN TRỪ có ghi lý do: xung đột của nó chỉ đến từ đường
+worker, thêm ánh xạ HTTP sẽ là mã chết.
+
+**Cưỡng chế bằng test** (`internal/app/api_xungdot_version_test.go`): quét
+mã nguồn, mọi module vừa có khóa lạc quan vừa có route GHI thì phải ánh xạ
+`ErrVersionConflict`; kèm một bài đo hành vi thật (8 request `PATCH
+/api/v1/me` song song) khẳng định không bao giờ ra 5xx.
+
+**Hai lần bài test tự nó xanh rỗng, và cách phát hiện:**
+
+1. `strings.Contains(s, "ErrVersionConflict = errors.New")` — gofmt CĂN CỘT
+   trong khối var nên chuỗi thật có nhiều dấu cách. Bộ lọc bỏ qua 4/5
+   module, test xanh trong khi phủ gần như không có gì. Chỉ lộ ra khi phá
+   `customer` mà test vẫn xanh.
+2. Bài đo hành vi dùng helper song song sẵn có, nhưng helper đó không nhận
+   header nên không mang token: cả 8 request trả **401**, không cái nào
+   chạm tới handler.
+
+Cả hai giờ có hàng rào: test IN RA số module đã kiểm và fail nếu < 3; bài
+hành vi khẳng định có ít nhất một request qua được xác thực.
 
 
 ### 2.9 Audit authorization (PH-9, PH-10)

@@ -383,6 +383,17 @@ func translate(err error) error {
 		return apierror.New(apierror.CodeNotFound, "Không tìm thấy hồ sơ khách hàng")
 	case errors.Is(err, domain.ErrAddressNotFound):
 		return apierror.New(apierror.CodeNotFound, "Không tìm thấy địa chỉ")
+	case errors.Is(err, domain.ErrVersionConflict):
+		// 409, KHÔNG phải 500. Xung đột phiên bản không phải lỗi hệ thống:
+		// một tiến trình khác vừa sửa đúng bản ghi này. Người gọi tải lại
+		// rồi thử lại là xong.
+		//
+		// Trả 500 sai theo hai hướng cùng lúc — người gọi tưởng hệ thống
+		// hỏng nên không thử lại, còn giám sát thì kêu báo động cho một
+		// tình huống bình thường dưới tải.
+		return apierror.New(apierror.CodeConflict,
+			"Hồ sơ vừa được cập nhật ở nơi khác, vui lòng tải lại và thử lại")
+
 	default:
 		return apierror.From(err)
 	}
