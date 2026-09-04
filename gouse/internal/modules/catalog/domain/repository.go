@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
@@ -69,7 +70,17 @@ type AuthorizationRepository interface {
 	FindActiveForSeller(ctx context.Context, brandID, sellerID ids.ID) (*BrandAuthorization, error)
 
 	// FindExpiring tìm giấy sắp hết hạn — dùng cho job cảnh báo.
-	FindExpiring(ctx context.Context, withinDays int) ([]*BrandAuthorization, error)
+	//
+	// `now` truyền vào TƯỜNG MINH, không lấy giờ hệ thống bên trong.
+	//
+	// Cùng quy ước với `checkout.FindExpired(ctx, now, limit)`. Bản đầu
+	// tự gọi `time.Now()`, và hệ quả là một bài test gắn dữ liệu vào mốc
+	// cố định CHẠY ĐÚNG cho tới khi thời gian thật vượt qua mốc đó — rồi
+	// đỏ mà không ai đụng vào mã.
+	//
+	// Test xanh hôm nay rồi đỏ tháng sau tệ hơn test đỏ ngay: nó tạo niềm
+	// tin sai, rồi hỏng vào lúc không ai đang nhìn phần này.
+	FindExpiring(ctx context.Context, now time.Time, withinDays int) ([]*BrandAuthorization, error)
 }
 
 // CollectionRepository quản lý bộ sưu tập.

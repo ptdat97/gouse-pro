@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -53,6 +54,9 @@ type StockPort interface {
 		ctx context.Context, skuID, sellerID ids.ID, locationID string, quantity int,
 	) error
 }
+
+// maxTrangSeller khớp `maximum: 100` của tham số Limit dùng chung.
+const maxTrangSeller = 100
 
 type SellerHandler struct {
 	svc *application.Service
@@ -122,9 +126,15 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, convErr := strconv.Atoi(v)
-		if convErr != nil || n < 1 || n > 200 {
+		// Trần 100 khớp `common.yaml#/parameters/Limit`.
+		//
+		// Bản đầu chặn ở 200 trong khi đặc tả khai tối đa 100: mã DỄ DÃI
+		// hơn hợp đồng. Kiểu lệch này không ai thấy — request 150 chạy
+		// tốt, cho tới khi một client sinh từ đặc tả từ chối gửi nó, hoặc
+		// một proxy kiểm hợp đồng chặn lại.
+		if convErr != nil || n < 1 || n > maxTrangSeller {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
-				"limit phải là số nguyên từ 1 đến 200"))
+				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d", maxTrangSeller)))
 			return
 		}
 		limit = n

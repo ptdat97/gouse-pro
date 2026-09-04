@@ -104,14 +104,20 @@ func (s *AuthorizationStore) FindActiveForSeller(
 // Dùng now() của database ở đây là chấp nhận được: đây là job cảnh báo
 // chạy nền, không phải quyết định nghiệp vụ ảnh hưởng tới khách hàng.
 func (s *AuthorizationStore) FindExpiring(
-	ctx context.Context, withinDays int,
+	ctx context.Context, now time.Time, withinDays int,
 ) ([]*domain.BrandAuthorization, error) {
+	// Mốc thời gian từ THAM SỐ, không dùng `now()` của database.
+	//
+	// Hai lý do: cùng một câu truy vấn phải trả lời được cho bất kỳ mốc
+	// nào (test kiểm chứng được), và mốc phải giống hệt mốc mà tầng ứng
+	// dụng đang dùng — `now()` của PostgreSQL là giờ máy chủ database,
+	// có thể lệch giờ máy chủ ứng dụng.
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+authCols+` FROM brand_authorization
 		 WHERE status = 'APPROVED'
-		   AND valid_until > now()
-		   AND valid_until <= now() + make_interval(days => $1)
-		 ORDER BY valid_until`, withinDays)
+		   AND valid_until > $1
+		   AND valid_until <= $1 + make_interval(days => $2)
+		 ORDER BY valid_until`, now, withinDays)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: đọc ủy quyền sắp hết hạn: %w", err)
 	}

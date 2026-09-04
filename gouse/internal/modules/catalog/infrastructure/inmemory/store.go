@@ -216,11 +216,12 @@ func (s *AuthorizationStore) FindActiveForSeller(
 	return domain.RestoreBrandAuthorization(*best), nil
 }
 
-func (s *AuthorizationStore) FindExpiring(_ context.Context, withinDays int) ([]*domain.BrandAuthorization, error) {
+func (s *AuthorizationStore) FindExpiring(
+	_ context.Context, now time.Time, withinDays int,
+) ([]*domain.BrandAuthorization, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	now := time.Now().UTC()
 	window := time.Duration(withinDays) * 24 * time.Hour
 
 	out := make([]*domain.BrandAuthorization, 0)

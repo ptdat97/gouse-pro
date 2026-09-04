@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -35,6 +36,9 @@ import (
 // Mã đơn tổng, tổng tiền cả đơn, các lô khác trong cùng đơn, tên seller
 // khác, email khách, lịch sử mua hàng. Xem `SellerFulfillmentOrder` trong
 // đặc tả.
+// maxTrangGiaoHang khớp `maximum: 100` của tham số Limit dùng chung.
+const maxTrangGiaoHang = 100
+
 type SellerHandler struct {
 	svc *application.Service
 	log *slog.Logger
@@ -140,10 +144,16 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	limit := 50
 	if v := q.Get("limit"); v != "" {
+		// Trần 100 khớp `common.yaml#/parameters/Limit`.
+		//
+		// Bản đầu chặn ở 200 trong khi đặc tả khai tối đa 100 — mã DỄ DÃI
+		// hơn hợp đồng, và kiểu lệch đó không ai thấy cho tới khi một
+		// client sinh từ đặc tả từ chối gửi giá trị mà server vẫn nhận.
 		n, convErr := strconv.Atoi(v)
-		if convErr != nil || n < 1 || n > 200 {
+		if convErr != nil || n < 1 || n > maxTrangGiaoHang {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
-				"limit phải là số nguyên từ 1 đến 200"))
+				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d",
+					maxTrangGiaoHang)))
 			return
 		}
 		limit = n

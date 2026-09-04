@@ -15,6 +15,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -31,6 +32,13 @@ import (
 )
 
 // Handler phục vụ các endpoint quản trị nhà bán.
+// maxPageSize là trần số dòng mỗi trang.
+//
+// Chỉ chặn cận dưới thì `limit=100000000` đi thẳng vào câu SQL và kéo cả
+// bảng vào bộ nhớ. Hàm `limitOr` ở tầng kho lưu trữ CHỈ xử lý cận dưới —
+// nó thay số ≤ 0 bằng mặc định và để nguyên mọi số lớn.
+const maxPageSize = 100
+
 type Handler struct {
 	svc *application.Service
 	log *slog.Logger
@@ -210,10 +218,11 @@ func (h *Handler) listSellers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if v := q.Get("limit"); v != "" {
+		// Chặn CẢ HAI đầu — xem ghi chú ở maxPageSize.
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
+		if err != nil || n < 1 || n > maxPageSize {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
-				"limit phải là số nguyên dương"))
+				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d", maxPageSize)))
 			return
 		}
 		f.Limit = n

@@ -280,7 +280,7 @@ func (s *Service) ApproveAuthorization(
 func (s *Service) FindExpiringAuthorizations(
 	ctx context.Context, withinDays int,
 ) ([]*domain.BrandAuthorization, error) {
-	return s.auths.FindExpiring(ctx, withinDays)
+	return s.auths.FindExpiring(ctx, s.clock.Now(), withinDays)
 }
 
 // ---------------------------------------------------------------- Collection

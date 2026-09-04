@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -80,10 +81,21 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if v := q.Get("limit"); v != "" {
+		// TỪ CHỐI khi vượt trần, không cắt bớt im lặng.
+		//
+		// Đặc tả khai `maximum: 100` cho tham số này, nên một giá trị lớn
+		// hơn là request SAI — và nói thẳng thì client sửa được.
+		//
+		// Cắt bớt im lặng nguy hiểm hơn ở đúng chỗ nó có vẻ hiền lành:
+		// client xin 500, nhận 100, tưởng đã lấy hết và dừng phân trang.
+		// Dữ liệu mất mà không có lỗi nào.
+		//
+		// `Query` vẫn cắt bớt như một lớp phòng thủ cuối — nhưng nó không
+		// còn là chỗ DUY NHẤT xử lý chuyện này.
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
+		if err != nil || n < 1 || n > maxLimit {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
-				"limit phải là số nguyên dương"))
+				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d", maxLimit)))
 			return
 		}
 		f.Limit = n

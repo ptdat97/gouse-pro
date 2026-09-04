@@ -1034,6 +1034,29 @@ Cả hai giờ có hàng rào: test IN RA số module đã kiểm và fail nếu
 hành vi khẳng định có ít nhất một request qua được xác thực.
 
 
+### 2.17 `AuthContext.SellerIDs[0]` — quyết định HOÃN `[04/09]`
+
+Năm module lấy cứng phần tử đầu: `payment` · `marketplace` · `fulfillment`
+· `inventory` · `returns`.
+
+**Hệ quả:** một tài khoản được cấp quyền ở HAI gian hàng chỉ tác động được
+lên gian hàng được cấp SỚM NHẤT (`ORDER BY granted_at`), và không có cách
+nào chọn gian hàng còn lại. Không có lỗi nào báo — mọi request đều thành
+công, chỉ là lên nhầm gian hàng.
+
+**Đã quyết (04/09): GHI LẠI, CHƯA SỬA.** Dữ liệu hiện tại không có tài
+khoản nào thuộc hai gian hàng; grant rác duy nhất đã dọn khi làm PH-17.
+
+**Rủi ro đã chấp nhận:** lỗi vẫn nằm đó và sẽ nổ đúng lúc có người dùng
+thật đầu tiên — tức lúc một nhà bán mở gian hàng thứ hai, và họ sẽ thấy
+thao tác của mình rơi vào gian hàng cũ.
+
+**Khi làm, hướng đã cân nhắc:** header `X-Seller-Id` nêu rõ gian hàng đang
+thao tác; server kiểm nó nằm trong `SellerIDs`; thiếu header mà chỉ có một
+gian hàng thì dùng luôn, có từ hai thì trả 400. Đó là thay đổi hợp đồng
+API nên cần quyết có ý thức, không làm kèm.
+
+
 ### 2.9 Audit authorization (PH-9, PH-10)
 
 Đã có, kiểm ở tầng domain/application chứ không phải ở HTTP:

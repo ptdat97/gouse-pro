@@ -18,6 +18,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -97,10 +98,16 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if v := q.Get("limit"); v != "" {
+		// Chặn CẢ HAI đầu.
+		//
+		// Chỉ chặn cận dưới thì `limit=100000000` đi thẳng vào câu SQL và
+		// kéo cả bảng vào bộ nhớ. Endpoint này chỉ dành cho nhân viên, nên
+		// đây không phải cửa cho người ngoài — nhưng một lần gõ nhầm hay
+		// một script sai là đủ làm sập API, và không có gì cản.
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
+		if err != nil || n < 1 || n > maxPageSize {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
-				"limit phải là số nguyên dương"))
+				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d", maxPageSize)))
 			return
 		}
 		f.Limit = n
