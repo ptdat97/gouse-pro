@@ -2,6 +2,8 @@ package money
 
 import (
 	"fmt"
+	"math"
+	"math/bits"
 
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 )
@@ -30,6 +32,13 @@ func (m Money) Allocate(ratios []int64) ([]Money, error) {
 		if r < 0 {
 			return nil, fmt.Errorf("%w: %d", ErrNegativeRatio, r)
 		}
+		// Tổng tỷ lệ cũng tràn được: mười dòng, mỗi dòng 2 tỷ là đủ.
+		//
+		// Kiểm TRƯỚC khi cộng, vì sau khi tràn thì `totalRatio` âm và mọi
+		// phép sau đó vô nghĩa.
+		if totalRatio > math.MaxInt64-r {
+			return nil, fmt.Errorf("%w: tổng tỷ lệ vượt giới hạn", ErrTranSo)
+		}
 		totalRatio += r
 	}
 	if totalRatio == 0 {
@@ -47,12 +56,34 @@ func (m Money) Allocate(ratios []int64) ([]Money, error) {
 	results := make([]Money, len(ratios))
 	var allocated int64
 	for i, r := range ratios {
-		share := amount * r / totalRatio
+		// Nhân 128 BIT rồi mới chia.
+		//
+		// `amount * r` bằng int64 tràn ở mức hoàn toàn có thật: chia 20 tỷ
+		// theo tỷ lệ 19 tỷ : 1 tỷ cho tích 3,8e20, vượt trần int64
+		// (9,22e18). Kết quả khi ấy KHÔNG báo lỗi gì — nó trả ra
+		// 9,78 tỷ / 10,22 tỷ thay vì 19 tỷ / 1 tỷ.
+		//
+		// Tổng vẫn bằng số gốc, nên phép kiểm hiển nhiên nhất — "tổng các
+		// phần bằng tổng ban đầu" — VẪN XANH. Đó là kiểu hỏng tệ nhất với
+		// tiền: sai âm thầm, và chỉ lộ ra khi ai đó đối chiếu từng dòng.
+		//
+		// Ở một tỷ lệ khác, tràn làm `share` ÂM, `allocated` âm khổng lồ,
+		// và vòng rải phần dư bên dưới chạy tới ~9e18 lần — tiến trình
+		// treo cứng.
+		//
+		// `bits.Mul64` cho tích 128 bit, `bits.Div64` chia nó về 64 bit.
+		// Thương chắc chắn vừa vì `r <= totalRatio`, nên `share <= amount`.
+		hi, lo := bits.Mul64(uint64(amount), uint64(r))
+		share := int64(chia128(hi, lo, uint64(totalRatio)))
 		results[i] = Money{amount: share, currency: m.currency}
 		allocated += share
 	}
 
 	// Phân bổ phần dư: mỗi phần nhận thêm 1 đơn vị cho tới khi hết dư.
+	//
+	// Phần dư của phép chia sàn luôn NHỎ HƠN số phần, nên vòng này chạy
+	// tối đa n-1 lần. Nó chỉ chạy vô tận khi `allocated` sai — tức khi
+	// phép nhân ở trên đã tràn.
 	remainder := amount - allocated
 	for i := int64(0); i < remainder; i++ {
 		idx := int(i) % len(results)
@@ -122,4 +153,20 @@ func (m Money) ApplyRate(rate types.BasisPoints, mode Rounding) Money {
 		result = -result
 	}
 	return Money{amount: result, currency: m.currency}
+}
+
+// chia128 chia số 128 bit (hi:lo) cho y, trả thương 64 bit.
+//
+// `bits.Div64` PANIC khi thương không vừa 64 bit. Ở đây điều đó không xảy
+// ra vì `r <= totalRatio` nên thương `<= amount`, nhưng kiểm vẫn rẻ hơn
+// một lần panic trên đường tính tiền.
+func chia128(hi, lo, y uint64) uint64 {
+	if y == 0 || hi >= y {
+		// Không thể tới đây với dữ liệu hợp lệ. Trả 0 thay vì panic: một
+		// phần bằng 0 làm phần dư gánh lại và tổng vẫn đúng, còn panic
+		// thì giết cả request.
+		return 0
+	}
+	q, _ := bits.Div64(hi, lo, y)
+	return q
 }

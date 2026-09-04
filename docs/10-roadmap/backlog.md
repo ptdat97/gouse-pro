@@ -1057,6 +1057,38 @@ gian hàng thì dùng luôn, có từ hai thì trả 400. Đó là thay đổi h
 API nên cần quyết có ý thức, không làm kèm.
 
 
+### 2.18 Tràn số trong phép chia tiền `[XONG 04/09]`
+
+`money.Allocate` nhân `amount * r` bằng int64. Chia **20 tỷ** theo tỷ lệ
+19 tỷ : 1 tỷ cho tích 3,8e20 — vượt trần int64 (9,22e18).
+
+**Kết quả: 9,78 tỷ / 10,22 tỷ thay vì 19 tỷ / 1 tỷ.** Gần 50/50 thay vì
+95/5.
+
+**Vì sao không ai thấy:** TỔNG vẫn đúng 20 tỷ, vì phần dư được rải bù. Bài
+test hiển nhiên nhất cho phép chia tiền — "tổng các phần bằng tổng ban
+đầu" — VẪN XANH trong khi tiền chia sai gần gấp đôi.
+
+**Hậu quả thật:** `promotion.AllocateToLines` chia giảm giá xuống từng dòng
+hàng, và con số đó là căn cứ hoàn tiền khi khách trả MỘT món. Chia sai
+nghĩa là hoàn sai — đúng mối nguy mà module returns đã dựng hàng rào
+`ErrGiamGiaChuaPhanBo` để tránh, nhưng hàng rào đó chỉ chặn trường hợp
+KHÔNG phân bổ, không chặn phân bổ SAI.
+
+**Ở tỷ lệ khác thì tệ hơn:** tràn làm `share` ÂM, `allocated` âm khổng lồ,
+phần dư thành ~9e18, và vòng rải phần dư chạy tới chừng ấy lần — tiến
+trình TREO. Một request treo giữ luôn kết nối database của nó, nên vài
+request như vậy đủ cạn pool và kéo sập API.
+
+**Sửa:** nhân 128 bit (`bits.Mul64` + `bits.Div64`) rồi mới chia. Thương
+chắc chắn vừa 64 bit vì `r <= totalRatio`. Kèm kiểm tràn khi CỘNG tổng tỷ
+lệ — mười dòng mỗi dòng 2 tỷ là đủ vượt trần, và sau khi tràn thì
+`totalRatio` âm.
+
+Tìm ra bằng cách rà từng lớp lỗi sau khi bộ test đã xanh — không bài test
+nào của dự án chạm tới vùng số này.
+
+
 ### 2.9 Audit authorization (PH-9, PH-10)
 
 Đã có, kiểm ở tầng domain/application chứ không phải ở HTTP:

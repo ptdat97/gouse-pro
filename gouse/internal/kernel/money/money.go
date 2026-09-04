@@ -46,8 +46,15 @@ var (
 	ErrCurrencyMismatch = errors.New("money: khác đơn vị tiền tệ")
 	ErrInvalidCurrency  = errors.New("money: đơn vị tiền tệ không hợp lệ")
 	ErrNegativeRatio    = errors.New("money: tỷ lệ phân bổ không được âm")
-	ErrEmptyRatios      = errors.New("money: danh sách tỷ lệ rỗng")
-	ErrZeroRatioSum     = errors.New("money: tổng tỷ lệ bằng 0")
+
+	// ErrTranSo khi phép tính vượt giới hạn int64.
+	//
+	// Trả LỖI chứ không để tràn im lặng: tràn số trong phép chia tiền
+	// không báo gì cả — nó cho ra con số sai mà TỔNG vẫn đúng, nên phép
+	// kiểm hiển nhiên nhất vẫn xanh.
+	ErrTranSo       = errors.New("money: phép tính vượt giới hạn số nguyên")
+	ErrEmptyRatios  = errors.New("money: danh sách tỷ lệ rỗng")
+	ErrZeroRatioSum = errors.New("money: tổng tỷ lệ bằng 0")
 )
 
 // Money là số tiền bất biến, lưu bằng số nguyên theo đơn vị nhỏ nhất.
