@@ -1131,10 +1131,10 @@ Xếp sau có chủ ý: đo hiệu năng của một hệ thống chưa chứng 
 
 | # | Việc | Trạng thái |
 |---|---|---|
-| PH-15 | Load test đường thanh toán | ⬜ |
-| PH-16 | Giữ hàng đồng thời · đặt đơn đồng thời | 🟡 có test tranh chấp ở tầng inventory |
+| PH-15 | Load test đường thanh toán | ✅ tìm ra lỗi thật: 9% lượt mua bị từ chối khi kho đầy — xem do-tai.md mục 2 |
+| PH-16 | Giữ hàng đồng thời · đặt đơn đồng thời | ✅ 1000 đơn/200 luồng, 0 lỗi — do-tai.md mục 2 |
 | PH-17 | Nhà bán cập nhật tồn kho đồng thời | 🟡 có khóa lạc quan, chưa có load test |
-| PH-18 | Tranh chấp database · connection pool | ⬜ |
+| PH-18 | Tranh chấp database · connection pool | ✅ đo được: pool cạn liên tục nhưng 0 lượt bỏ cuộc — do-tai.md mục 3 |
 | PH-19 | Thông lượng outbox · số worker chạy song song · bão thử lại | ⬜ |
 
 **Bất biến phải chứng minh được, không phải mong đợi:**

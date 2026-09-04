@@ -2,6 +2,8 @@ package checkout
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -149,6 +151,15 @@ func (a *inventoryAdapter) Reserve(
 		TTL:        ttl,
 	})
 	if err != nil {
+		// Dịch tranh chấp sang từ vựng của checkout.
+		//
+		// Cổng do BÊN GỌI khai, nên checkout không được để lỗi của
+		// inventory rò vào tầng application của nó — nhưng phân biệt
+		// "tranh chấp" với "hết hàng" thì phải giữ, vì hai thứ dẫn tới
+		// hai hành động khác nhau.
+		if errors.Is(err, inventory.ErrConflict) {
+			return "", fmt.Errorf("%w: %v", application.ErrTranhChapTonKho, err)
+		}
 		return "", err
 	}
 	return ids.ID(res.ID), nil

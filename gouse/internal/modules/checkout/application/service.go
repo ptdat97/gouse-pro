@@ -37,6 +37,29 @@ var (
 	// ErrOutOfStock khi không giữ đủ hàng cho giỏ.
 	ErrOutOfStock = errors.New("checkout: không đủ hàng")
 
+	// ErrTranhChapTonKho khi KHÔNG giữ được hàng vì tranh chấp đồng thời,
+	// chứ không phải vì hết hàng.
+	//
+	// # Vì sao phải tách khỏi ErrOutOfStock
+	//
+	// Với KHÁCH thì hai thứ giống nhau — "không mua được món này" — nên
+	// thông điệp trả ra vẫn là một. Nhưng với NỀN TẢNG chúng khác hẳn:
+	//
+	//	hết hàng    sự thật nghiệp vụ; thử lại vô ích, hàng không tự có
+	//	tranh chấp  vấn đề năng lực; thử lại ĐƯỢC, hàng vẫn còn nguyên
+	//
+	// Gộp hai thứ vào một nhãn khiến chỉ số nói dối theo hướng nguy hiểm
+	// nhất: nền tảng từ chối bán trong khi kho đầy, và bảng theo dõi ghi
+	// "hết hàng" nên không ai đi tìm nguyên nhân thật.
+	//
+	// Đo tải 04/09 dựng lại đúng chuyện đó: 43/500 lượt bị từ chối vì
+	// "không đủ số lượng" trong khi tồn kho còn hơn 49.000 đơn vị.
+	//
+	// Module inventory ĐÃ tách sẵn (ErrInsufficientStock vs ErrConflict)
+	// và ghi rõ chúng "khác hoàn toàn"; chỗ này chỉ giữ lại phân biệt đó
+	// thay vì làm mất nó.
+	ErrTranhChapTonKho = errors.New("checkout: tranh chấp tồn kho, thử lại được")
+
 	// ErrEmptyCart khi giỏ không có món nào mua được.
 	ErrEmptyCart = errors.New("checkout: giỏ hàng không có món nào mua được")
 )
@@ -105,6 +128,10 @@ type InventoryPort interface {
 
 	// Reserve giữ hàng. Đây là nơi DUY NHẤT trong hệ thống khóa tồn kho
 	// cho khách hàng.
+	//
+	// Cài đặt PHẢI trả ErrTranhChapTonKho khi không giữ được vì tranh
+	// chấp đồng thời, và một lỗi khác khi thật sự hết hàng. Trộn hai thứ
+	// làm chỉ số nói dối — xem chú thích ở ErrTranhChapTonKho.
 	Reserve(ctx context.Context, itemID, checkoutID ids.ID, qty int, ttl time.Duration) (ids.ID, error)
 
 	Release(ctx context.Context, reservationID ids.ID) error
@@ -549,10 +576,13 @@ func (s *Service) reserveAll(
 
 		reservationID, err := s.inventory.Reserve(ctx, itemID, checkoutID, it.Quantity, ttl)
 		if err != nil {
-			// Có thể là tranh chấp: người khác vừa mua mất. Không phân
-			// biệt hai trường hợp ở đây — với khách thì cả hai đều là
-			// "không mua được món này".
-			return nil, reservations, fmt.Errorf("%w: %s: %v",
+			// Gói CẢ HAI lỗi: khách vẫn thấy "không mua được món này"
+			// (ErrOutOfStock giữ nguyên nên tầng HTTP không đổi), nhưng
+			// nguyên nhân thật sống sót để chỉ số phân loại đúng.
+			//
+			// Dùng %v cho lỗi gốc như bản trước là làm mất nguyên nhân:
+			// errors.Is không xuyên qua %v được.
+			return nil, reservations, fmt.Errorf("%w: %s: %w",
 				ErrOutOfStock, it.ProductName, err)
 		}
 		reservations = append(reservations, reservationID)
@@ -1203,6 +1233,11 @@ func (s *Service) CountExpiredPending(ctx context.Context) (int, error) {
 // lượng, nên mỗi lần lỗi là một chuỗi thời gian mới.
 func lyDoThatBai(err error) string {
 	switch {
+	// Kiểm TRANH CHẤP trước: lỗi giữ hàng gói cả hai, và thứ tự ở đây
+	// quyết định nhãn nào được ghi. Để ErrOutOfStock trước thì mọi tranh
+	// chấp lại chui vào nhãn "hết hàng" — đúng chỗ đã sai trước đây.
+	case errors.Is(err, ErrTranhChapTonKho):
+		return "version_conflict"
 	case errors.Is(err, ErrOutOfStock):
 		return "out_of_stock"
 	case errors.Is(err, ErrEmptyCart):

@@ -134,6 +134,13 @@ func main() {
 		moiNguoi = 10
 	}
 
+	// KICH_BAN chọn phép đo. Mặc định giữ nguyên kịch bản cũ để lệnh ghi
+	// trong docs/09-operations/do-tai.md vẫn chạy đúng như tài liệu nói.
+	if os.Getenv("KICH_BAN") == "datdon" {
+		chayDatDon()
+		return
+	}
+
 	offer := timOffer()
 	if offer == "" {
 		fmt.Println("không tìm được offer bán được")

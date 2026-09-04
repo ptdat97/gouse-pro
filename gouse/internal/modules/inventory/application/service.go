@@ -32,7 +32,26 @@ var SystemClock Clock = systemClock{}
 // Chỉ thử lại xung đột phiên bản — lần sau có thể thắng. KHÔNG thử lại khi
 // hết hàng: hàng không tự xuất hiện, thử lại chỉ lãng phí tài nguyên và
 // làm khách chờ lâu hơn trước khi nhận câu trả lời "hết hàng".
-const maxRetries = 3
+//
+// # Con số 8 đến từ ĐO, không phải từ cảm giác
+//
+// Bản đầu là 3 và chưa từng được đo. Phép đo tải 04/09 cho thấy nó quá
+// thấp cho một dòng tồn kho nóng — xem docs/09-operations/do-tai.md mục 2:
+//
+//	maxRetries=3   455/500 đơn thành công, 45 lượt bị TỪ CHỐI
+//	maxRetries=8   500/500 đơn thành công, 0 lượt bị từ chối
+//
+// Trong khi kho còn hơn 49.000 đơn vị. Nghĩa là 9% khách bị từ chối vì
+// tranh chấp khóa, không phải vì hết hàng.
+//
+// Giá phải trả nhỏ và đúng chỗ: thông lượng gần như không đổi (749 → 760
+// đơn/giây), p50 gần như không đổi, p99 tăng ~48ms. Những lượt phải thử
+// lại CHỜ lâu hơn thay vì THẤT BẠI — đổi đúng thứ cần đổi.
+//
+// Đây không phải "dùng thử lại để giấu cuộc đua": tính đúng đắn do khóa
+// lạc quan bảo đảm, và thử lại là cơ chế mà ADR-0013 quy tắc 2 đã chọn
+// cho tranh chấp thưa. Chỉ có con số là chưa được hiệu chỉnh.
+const maxRetries = 8
 
 // Service là tầng application của module inventory.
 type Service struct {
