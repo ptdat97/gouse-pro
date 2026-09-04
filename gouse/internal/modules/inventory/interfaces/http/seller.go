@@ -30,8 +30,29 @@ import (
 // cmd/api là điểm nối duy nhất biết cả hai, cùng mẫu với TokenVerifier và
 // CustomerResolver.
 type OwnerResolver interface {
+	// InventoryOwnerID trả chủ sở hữu tồn kho của một nhà bán.
+	//
+	// PHẢI trả ErrPhamViNhaBanHong khi định danh nhà bán không phân giải
+	// được — sai định dạng, hoặc trỏ tới gian hàng không tồn tại.
 	InventoryOwnerID(ctx context.Context, sellerID string) (string, error)
 }
+
+// ErrPhamViNhaBanHong khi phạm vi nhà bán trong token không dùng được.
+//
+// # Vì sao KHÔNG phải 500
+//
+// Phạm vi hỏng nghĩa là tài khoản được cấp quyền cho một gian hàng không
+// còn (hoặc chưa từng) tồn tại. Đó là dữ liệu phân quyền sai, không phải
+// mã hỏng: máy chủ vẫn chạy đúng, người gọi vẫn gửi đúng.
+//
+// Trả 500 sai theo hai hướng cùng lúc — người dùng thấy "lỗi hệ thống" và
+// đi báo sự cố, còn giám sát đếm nó vào tỷ lệ lỗi máy chủ, che mất một
+// vấn đề phân quyền cần người sửa bằng tay.
+//
+// Tìm ra khi đo tải PH-17: một tài khoản trong dữ liệu phát triển có
+// grant trỏ tới gian hàng không tồn tại, và MỌI lượt gọi của nó trả 500.
+var ErrPhamViNhaBanHong = errors.New(
+	"inventory: phạm vi nhà bán trong token không phân giải được")
 
 // SellerHandler phục vụ endpoint cập nhật tồn kho của nhà bán.
 type SellerHandler struct {
@@ -58,6 +79,15 @@ func (h *SellerHandler) ownerID(r *http.Request, sellerID ids.ID) (ids.ID, error
 	}
 	resolved, err := h.owner.InventoryOwnerID(r.Context(), sellerID.String())
 	if err != nil {
+		if errors.Is(err, ErrPhamViNhaBanHong) {
+			h.log.ErrorContext(r.Context(),
+				"phạm vi nhà bán trong token không phân giải được — "+
+					"kiểm tra bảng phân quyền",
+				"seller_id", sellerID.String())
+			return "", apierror.New(apierror.CodeForbidden,
+				"Tài khoản đang gắn với một gian hàng không còn tồn tại — "+
+					"liên hệ quản trị viên")
+		}
 		return "", err
 	}
 	return ids.ID(resolved), nil

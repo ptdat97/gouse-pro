@@ -42,6 +42,9 @@ type khach struct {
 	cl  *http.Client
 	gio string
 	jar []*http.Cookie
+
+	// them là header thêm vào mọi request — dùng cho token nhà bán.
+	them map[string]string
 }
 
 func moKhach() *khach {
@@ -57,6 +60,9 @@ func (k *khach) goi(method, duong string, than any) (int, map[string]any, time.D
 	req, _ := http.NewRequest(method, goc+duong, r)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", khoa())
+	for k2, v := range k.them {
+		req.Header.Set(k2, v)
+	}
 	for _, c := range k.jar {
 		req.AddCookie(c)
 	}
@@ -136,8 +142,12 @@ func main() {
 
 	// KICH_BAN chọn phép đo. Mặc định giữ nguyên kịch bản cũ để lệnh ghi
 	// trong docs/09-operations/do-tai.md vẫn chạy đúng như tài liệu nói.
-	if os.Getenv("KICH_BAN") == "datdon" {
+	switch os.Getenv("KICH_BAN") {
+	case "datdon":
 		chayDatDon()
+		return
+	case "tonkho":
+		chayTonKho()
 		return
 	}
 

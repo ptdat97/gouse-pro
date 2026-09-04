@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
@@ -88,6 +90,13 @@ func (s *sellerOwner) InventoryOwnerID(
 ) (string, error) {
 	v, err := s.sellers.GetSeller(ctx, sellerID)
 	if err != nil {
+		// Dịch sang từ vựng của cổng: tầng interfaces của inventory không
+		// được biết tới lỗi của module seller (cổng do bên gọi khai), mà
+		// vẫn phải phân biệt được "phạm vi hỏng" với lỗi hạ tầng.
+		if errors.Is(err, seller.ErrInvalidID) || errors.Is(err, seller.ErrNotFound) {
+			return "", fmt.Errorf("%w: %v",
+				inventoryhttp.ErrPhamViNhaBanHong, err)
+		}
 		return "", err
 	}
 	return inventory.OwnerForSeller(v.ID, v.IsInternal), nil

@@ -201,7 +201,100 @@ theo cảm giác, đúng thứ mục này sinh ra để tránh.
 
 ---
 
-## 4. CHƯA đo
+## 4. Nhà bán sửa tồn kho trong lúc khách mua (PH-17)
+
+### Vì sao đo thế này
+
+N nhà bán tranh nhau sửa MỘT dòng là tình huống không có thật: một gian
+hàng có một người quản kho, và họ không bấm Lưu hai trăm lần một giây.
+
+Tình huống thật là hai phía KHÁC NHAU chạm cùng một dòng tồn kho — nhân
+viên kho kiểm kê lúc mười giờ sáng, đúng lúc khách đang đặt hàng. Cả hai
+đi qua khóa lạc quan, và câu hỏi là bên nào thua, thua thế nào.
+
+### Kết quả: nhà bán KHÔNG phải nguyên nhân
+
+| khách | nhà bán | khách bị từ chối | nhà bán 409 | 5xx |
+|---|---|---|---|---|
+| 200×5 | 20×5 | 71/1000 | 0 | 0 |
+| 200×5 | 1×5  | 79/1000 | 0 | 0 |
+| 200×5 | **0** | **91/1000** | — | 0 |
+
+Đối chứng KHÔNG có nhà bán nào ghi lại cho tỉ lệ từ chối **cao hơn** khi
+có 20 nhà bán. Chênh lệch nằm trong nhiễu.
+
+**Kết luận ngược với trực giác: lượt kiểm kê của nhà bán gần như không tốn
+gì cho khách.** Tranh chấp là KHÁCH VỚI KHÁCH trên một dòng tồn kho nóng.
+
+Nhà bán thua tranh chấp nhận đúng **409** (1 lượt ở mức 100 khách), không
+bao giờ 5xx — nhờ bản sửa PH-6.
+
+### Trần của một dòng tồn kho
+
+Đối chứng, không có nhà bán:
+
+| khách song song | thành công | bị từ chối | lượt giữ/giây |
+|---|---|---|---|
+| 20  | 100/100 | 0    | 621  |
+| 50  | 247/250 | 3    | 1004 |
+| 100 | 477/500 | 23   | 1060 |
+| 200 | 909/1000 | 91  | 974  |
+
+Thông lượng chững quanh **~1000 lượt giữ hàng/giây trên một dòng**. Vượt
+qua mức đó, phần thừa KHÔNG xếp hàng mà **bị từ chối**.
+
+Toàn bộ 108 lượt từ chối mang nhãn `version_conflict`, không một lượt
+`out_of_stock` — kho luôn còn hơn 40.000 đơn vị.
+
+### Khóa bi quan XẾP HÀNG, khóa lạc quan LOẠI BỚT
+
+Đặt cạnh mục 1 thì thấy hai cơ chế hành xử khác hẳn nhau khi quá tải:
+
+```text
+giỏ hàng   bi quan   ~3000 lượt/giây, 0 lỗi — request CHỜ
+tồn kho    lạc quan  ~1000 lượt/giây, phần thừa BỊ TỪ CHỐI
+```
+
+Cả hai đều đúng với chỗ chúng đứng. Giỏ hàng là của một người nên hàng đợi
+không bao giờ dài; tồn kho là tài nguyên dùng chung, và cho hàng đợi dài vô
+hạn ở đó nghĩa là giữ kết nối database cho những lượt sẽ hỏng.
+
+Nhưng hệ quả phải biết: **một SKU đơn lẻ có 200 khách mua cùng lúc thì ~9%
+bị từ chối**. Đo ở mục 2 (trải trên nhiều offer) cho 0%. Nghĩa là con số
+này chỉ chạm tới trong một đợt bán chớp nhoáng trên đúng một mẫu.
+
+Chưa xử lý, và ghi ra để quyết định có ý thức: nâng `maxRetries` nữa sẽ
+đẩy tỉ lệ xuống nhưng kéo p99 lên, và hướng đúng cho bán chớp nhoáng là
+tách tồn kho thành nhiều dòng (bucket) — một thay đổi kiến trúc, không
+phải chỉnh tham số.
+
+### Một lỗi tìm được nhờ đo
+
+Lần chạy thử đầu tiên, MỌI lượt gọi của nhà bán trả **500**.
+
+Nguyên nhân: tài khoản mang HAI phạm vi nhà bán, cái đầu trỏ tới gian hàng
+không tồn tại (grant rác từ phiên cũ). `identity.GrantRole` không kiểm tra
+được mã gian hàng — identity ở tầng nền, seller ở tầng nghiệp vụ, gọi
+ngược lên là vi phạm ranh giới — nên grant trỏ vào hư không là chuyện có
+thể xảy ra.
+
+Đã sửa: phạm vi hỏng trả **403** kèm thông điệp nói rõ, không phải 500.
+Dữ liệu phân quyền sai không phải mã hỏng, và 500 khiến người dùng đi báo
+sự cố thay vì gọi quản trị viên, đồng thời che vấn đề trong tỷ lệ lỗi máy
+chủ.
+
+### Chạy lại
+
+```bash
+cd gouse
+export SKU=... OFFER=... SELLER_TOKEN=...
+KICH_BAN=tonkho SONG_SONG=200 SELLER_SONG_SONG=20 MOI_NGUOI=5 go run ./cmd/dotai
+# SELLER_SONG_SONG=0 để chạy đối chứng không có nhà bán
+```
+
+---
+
+## 5. CHƯA đo
 
 Ghi ra để không ai tưởng phần này đã xong:
 
