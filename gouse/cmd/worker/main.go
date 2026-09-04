@@ -124,6 +124,31 @@ const (
 
 	dispatchEventsBatch = 100
 
+	// dispatchEventsMaxLo là số lô tối đa VÉT trong một lượt job.
+	//
+	// # Vì sao cần vét, không chỉ chạy một lô rồi ngủ
+	//
+	// Chạy đúng một lô mỗi nhịp khóa tốc độ rút ở `lô / nhịp` — 100/5s =
+	// 20 event/giây — BẤT KỂ hệ thống rảnh đến đâu. Đo 04/09 cho ra đúng
+	// 20,0 event/giây, phẳng tuyệt đối, trong khi một lô chỉ tốn 182ms.
+	// Tức là bộ phát chạy ở khoảng 3,6% năng lực của chính nó.
+	//
+	// Hệ quả không nằm ở con số mà ở thời gian phục hồi: một đợt bán dồn
+	// 12.000 event cần ~10 phút mới phát hết. Suốt mười phút đó, hàng của
+	// những đơn ĐÃ ĐẶT vẫn nằm ở Reserved — đúng thứ mà cảnh báo độ trễ
+	// của chính job này gọi là "hàng đã bán có thể vẫn ở trạng thái đang
+	// giữ".
+	//
+	// # Vì sao có TRẦN, không vét tới sạch
+	//
+	// Job này chạy trong goroutine riêng và không chồng lấn chính nó, nên
+	// vét lâu không chặn job khác. Nhưng một lượt kéo dài vô hạn thì tín
+	// hiệu dừng không tới được, và triển khai lại sẽ phải chờ.
+	//
+	// 50 lô = 5000 event mỗi lượt: đủ để một đợt dồn lớn rút hết trong vài
+	// nhịp, vẫn kết thúc trong khoảng vài giây.
+	dispatchEventsMaxLo = 50
+
 	// outboxLagAlert là ngưỡng cảnh báo độ trễ.
 	//
 	// Vượt ngưỡng nghĩa là bộ phát đã chết hoặc không theo kịp — và hệ quả
@@ -444,7 +469,8 @@ func serveMetrics(ctx context.Context, port int, log *slog.Logger) {
 // event nằm mãi trong bảng và không việc gì xảy ra sau khi đặt hàng.
 func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
-		daPhat, err := bus.DispatchBatch(ctx, dispatchEventsBatch)
+		daPhat, err := vetOutbox(ctx, dispatchEventsBatch, dispatchEventsMaxLo,
+			bus.DispatchBatch)
 		if err != nil {
 			return fmt.Errorf("phát domain event: %w", err)
 		}
@@ -795,4 +821,47 @@ func (s *sellerOwner) InventoryOwnerID(
 		return "", err
 	}
 	return inventory.OwnerForSeller(v.ID, v.IsInternal), nil
+}
+
+// vetOutbox rút outbox cho tới khi hết việc, chạm trần, hoặc GẶP LỖI.
+//
+// # Vì sao vét, thay vì một lô mỗi nhịp
+//
+// Một lô mỗi nhịp khóa tốc độ rút ở `lô / nhịp`, bất kể hệ thống rảnh đến
+// đâu. Đo 04/09: đúng 20,0 event/giây, phẳng tuyệt đối, trong khi một lô
+// chỉ tốn 182ms — bộ phát chạy ở ~3,6% năng lực của chính nó.
+//
+// # Vì sao dừng khi lô KHÔNG đầy, kể cả chỉ thiếu một
+//
+// `phat` trả về số event phát THÀNH CÔNG. Lô không đầy nghĩa là hoặc hết
+// việc, hoặc có event hỏng — và cả hai đều là lý do để dừng.
+//
+// Trường hợp thứ hai mới là điều quan trọng, và nó suýt bị làm sai:
+// `maxAttempts` = 5, tính theo LƯỢT THỬ chứ không theo thời gian. Nếu vòng
+// này vét tiếp khi có lỗi, một sự cố thoáng qua một giây sẽ đốt hết năm
+// lượt trong vài trăm mili giây và ĐẨY CẢ HÀNG ĐỢI vào dead letter — trong
+// khi chỉ cần chờ vài giây là bên nhận sống lại.
+//
+// Dừng ở lô đầu tiên có lỗi giữ nguyên khoảng cách 5 giây giữa các lượt
+// thử. Đổi lại, một lô có 99 thành công và 1 hỏng cũng dừng vét — chậm
+// hơn một nhịp, và đó là cái giá đúng để trả.
+func vetOutbox(
+	ctx context.Context, coLo, maxLo int,
+	phat func(context.Context, int) (int, error),
+) (int, error) {
+	var tong int
+	for lo := 0; lo < maxLo; lo++ {
+		n, err := phat(ctx, coLo)
+		if err != nil {
+			return tong, err
+		}
+		tong += n
+		if n < coLo {
+			break
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return tong, nil
 }

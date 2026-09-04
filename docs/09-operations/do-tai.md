@@ -294,12 +294,93 @@ KICH_BAN=tonkho SONG_SONG=200 SELLER_SONG_SONG=20 MOI_NGUOI=5 go run ./cmd/dotai
 
 ---
 
-## 5. CHƯA đo
+## 5. Thông lượng outbox (PH-19)
+
+### Điều kiện đo
+
+Các phép đo ở mục 2 và 4 để lại **12.169 event chưa phát** — một đợt dồn
+thật, không phải dựng giả.
+
+### Trước: 20,0 event/giây, phẳng tuyệt đối
+
+| t | còn lại | tốc độ |
+|---|---|---|
+| 0s  | 11.369 | — |
+| 10s | 11.169 | 19,9/giây |
+| 30s | 10.769 | 20,0/giây |
+| 60s | 10.169 | 20,0/giây |
+
+Con số phẳng đến mức không thể là trùng hợp: nó bằng đúng
+`dispatchEventsBatch / dispatchEventsInterval` = 100 / 5s.
+
+Mà một lô chỉ tốn **182ms**. Tức bộ phát chạy ở khoảng **3,6% năng lực của
+chính nó**, và phần còn lại là ngủ.
+
+**Hệ quả không nằm ở con số mà ở thời gian phục hồi.** 11.369 event cần
+~9,5 phút mới phát hết. Suốt thời gian đó, hàng của những đơn ĐÃ ĐẶT vẫn
+nằm ở Reserved. Chính job này tự cảnh báo điều đó trong log:
+
+```
+độ trễ phát event vượt ngưỡng  độ_trễ=1h33m  còn_chờ=11769
+hệ_quả="hàng đã bán có thể vẫn ở trạng thái đang giữ"
+```
+
+### Sau: vét cho tới khi hết việc
+
+Lô đầy nghĩa là còn nữa, nên làm tiếp ngay thay vì ngủ.
+
+```text
+lô 1   5000 event trong 4,019s   1244 event/giây   (chạm trần 50 lô)
+lô 2   4069 event trong 1,554s   2619 event/giây   (rút hết)
+sau đó 13–15ms mỗi nhịp khi rảnh
+```
+
+**9069 event: ~8 giây thay vì ~7,5 phút.** Chi phí lúc rảnh không đổi.
+
+### Chỗ suýt làm sai, và vì sao dừng ở lô đầu tiên có lỗi
+
+Vòng vét dừng khi lô KHÔNG ĐẦY — kể cả khi chỉ thiếu một.
+
+Điều kiện tự nhiên hơn là "còn phát được thì vét tiếp" (`n > 0`), nhưng nó
+sai một cách nguy hiểm: `maxAttempts` = 5 đếm theo **lượt thử**, không theo
+thời gian. Vét tiếp khi có event hỏng thì một sự cố thoáng qua **một giây**
+sẽ đốt hết năm lượt trong vài trăm mili giây và đẩy **cả hàng đợi** vào
+dead letter — trong khi chỉ cần chờ vài giây là bên nhận sống lại.
+
+Dead letter nghĩa là có sự thật nghiệp vụ không bao giờ tới bên nhận. Biến
+một sự cố tạm thời thành mất mát vĩnh viễn là cái giá quá đắt để rút nhanh
+hơn một nhịp.
+
+Giá phải trả của cách làm đúng: một lô có 99 thành công và 1 hỏng cũng
+dừng vét. Chậm hơn một nhịp — đúng thứ nên đánh đổi.
+
+### Trần 50 lô mỗi lượt
+
+Job chạy trong goroutine riêng và không chồng lấn chính nó, nên vét lâu
+không chặn job khác. Nhưng một lượt kéo dài vô hạn thì tín hiệu dừng không
+tới được và triển khai lại phải chờ. Kiểm bằng cách bỏ trần: test treo cho
+tới khi hết giờ.
+
+### Nhiều worker song song
+
+`fetchPending` dùng `FOR UPDATE SKIP LOCKED`, nên chạy nhiều bản sao worker
+là an toàn: mỗi bản lấy phần khác nhau, không bản nào chờ bản nào. Chưa đo
+với nhiều bản sao — với 2619 event/giây từ một bản, chưa có nhu cầu.
+
+### Chạy lại
+
+```bash
+cd gouse && DATABASE_URL=... MODULES_STORAGE=postgres HTTP_PORT=8081 go run ./cmd/worker
+# rồi đếm: SELECT count(*) FROM event_outbox WHERE published_at IS NULL
+```
+
+---
+
+## 6. CHƯA đo
 
 Ghi ra để không ai tưởng phần này đã xong:
 
 | Việc | Vì sao chưa |
 |---|---|
 | Đường đọc danh mục | Chưa có chỉ mục nào được chọn dựa trên số đo, nên đo bây giờ là đo một thứ sẽ đổi |
-| Bộ phát event khi hàng đợi dồn | Cần dựng được tình huống dồn trước đã |
 | Đo trên phần cứng giống production | Chưa có môi trường đó |

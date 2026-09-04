@@ -1135,7 +1135,7 @@ Xếp sau có chủ ý: đo hiệu năng của một hệ thống chưa chứng 
 | PH-16 | Giữ hàng đồng thời · đặt đơn đồng thời | ✅ 1000 đơn/200 luồng, 0 lỗi — do-tai.md mục 2 |
 | PH-17 | Nhà bán cập nhật tồn kho đồng thời | ✅ nhà bán KHÔNG phải nguyên nhân; trần 1 dòng ~1000 lượt/giây — do-tai.md mục 4 |
 | PH-18 | Tranh chấp database · connection pool | ✅ đo được: pool cạn liên tục nhưng 0 lượt bỏ cuộc — do-tai.md mục 3 |
-| PH-19 | Thông lượng outbox · số worker chạy song song · bão thử lại | ⬜ |
+| PH-19 | Thông lượng outbox · số worker chạy song song · bão thử lại | ✅ 20 → 2619 event/giây; phục hồi 7,5 phút → 8 giây — do-tai.md mục 5 |
 
 **Bất biến phải chứng minh được, không phải mong đợi:**
 
