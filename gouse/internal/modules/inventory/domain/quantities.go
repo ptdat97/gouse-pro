@@ -11,7 +11,23 @@ import (
 )
 
 var (
-	ErrNegativeQuantity  = errors.New("inventory: số lượng không được âm")
+	ErrNegativeQuantity = errors.New("inventory: số lượng không được âm")
+
+	// ErrQuaLon khi số lượng vượt sức chứa của cột trong database.
+	//
+	// Cột `quantity_*` là `INT` của PostgreSQL — 32 bit, trần
+	// 2.147.483.647. Go dùng `int` (64 bit trên máy chủ thật), nên một giá
+	// trị lớn hơn ĐI QUA hết mọi kiểm tra ở tầng ứng dụng rồi mới hỏng ở
+	// câu lệnh ghi.
+	//
+	// Hệ quả nếu không chặn: người kiểm kê gõ thừa vài số 0 và nhận về
+	// "Đã có lỗi xảy ra" (500) thay vì một lời nhắc sửa. Họ đi báo sự cố,
+	// còn giám sát đếm nó vào tỷ lệ lỗi máy chủ.
+	//
+	// Đây là ràng buộc LƯU TRỮ, không phải quy tắc kinh doanh: một trần
+	// hợp lý theo nghiệp vụ (ví dụ 10 triệu) là câu hỏi khác, cần người
+	// kinh doanh quyết.
+	ErrQuaLon            = errors.New("inventory: số lượng vượt sức chứa của kho dữ liệu")
 	ErrInsufficientStock = errors.New("inventory: không đủ hàng")
 	ErrInvariantBroken   = errors.New("inventory: tổng các trạng thái không khớp số lượng vật lý")
 )
@@ -287,6 +303,10 @@ func (q Quantities) ArriveFromTransit(qty int) (Quantities, error) {
 // hàng, phải xử lý qua đơn hàng.
 //
 // nil nghĩa là "không khai" và giữ nguyên giá trị đang có.
+// MaxSoLuong là trần mỗi thành phần số lượng, bằng trần của kiểu INT
+// trong PostgreSQL.
+const MaxSoLuong = 2147483647
+
 func (q Quantities) KiemKe(available, damaged *int) (Quantities, error) {
 	if available == nil && damaged == nil {
 		return q, errors.New("inventory: kiểm kê không khai số nào")
@@ -297,11 +317,19 @@ func (q Quantities) KiemKe(available, damaged *int) (Quantities, error) {
 		if *available < 0 {
 			return q, fmt.Errorf("%w: available = %d", ErrNegativeQuantity, *available)
 		}
+		if *available > MaxSoLuong {
+			return q, fmt.Errorf("%w: available = %d, trần %d",
+				ErrQuaLon, *available, MaxSoLuong)
+		}
 		out.available = *available
 	}
 	if damaged != nil {
 		if *damaged < 0 {
 			return q, fmt.Errorf("%w: damaged = %d", ErrNegativeQuantity, *damaged)
+		}
+		if *damaged > MaxSoLuong {
+			return q, fmt.Errorf("%w: damaged = %d, trần %d",
+				ErrQuaLon, *damaged, MaxSoLuong)
 		}
 		out.damaged = *damaged
 	}
@@ -333,6 +361,10 @@ func (q Quantities) AdjustAvailable(delta int) (Quantities, error) {
 	if out.available < 0 {
 		return q, fmt.Errorf("%w: điều chỉnh %d làm available thành %d",
 			ErrNegativeQuantity, delta, out.available)
+	}
+	if out.available > MaxSoLuong {
+		return q, fmt.Errorf("%w: điều chỉnh %d làm available thành %d, trần %d",
+			ErrQuaLon, delta, out.available, MaxSoLuong)
 	}
 	return out, nil
 }

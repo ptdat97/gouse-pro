@@ -1089,6 +1089,29 @@ Tìm ra bằng cách rà từng lớp lỗi sau khi bộ test đã xanh — khô
 nào của dự án chạm tới vùng số này.
 
 
+### 2.19 Số lượng vượt sức chứa cột trả 500 `[XONG 04/09]`
+
+Cột `quantity_*` là `INT` của PostgreSQL — 32 bit, trần 2.147.483.647. Go
+dùng `int` 64 bit trên máy chủ thật, nên giá trị lớn hơn **đi qua hết mọi
+kiểm tra ở tầng ứng dụng** rồi mới hỏng ở câu lệnh ghi.
+
+Người kiểm kê gõ thừa vài số 0 nhận về "Đã có lỗi xảy ra" (500) thay vì
+một lời nhắc sửa. Họ đi báo sự cố, còn giám sát đếm nó vào tỷ lệ lỗi máy
+chủ — che mất lỗi thật.
+
+Cùng lớp với lỗi `limit` không có trần ở mục trước: **ràng buộc tồn tại ở
+tầng dữ liệu nhưng không được nói ra ở tầng nhận đầu vào.**
+
+Hàng rào đặt ở DOMAIN (`Quantities`), không ở handler: mọi đường ghi —
+quản trị viên kiểm kê, nhà bán kiểm kê, và đường thêm sau — đều đi qua đó.
+Đặt ở handler thì đường thứ hai phải nhớ tự chặn.
+
+`MaxSoLuong` là ràng buộc LƯU TRỮ, không phải quy tắc kinh doanh. Một trần
+theo nghiệp vụ (ví dụ 10 triệu đơn vị mỗi SKU) là câu hỏi khác, cần người
+kinh doanh quyết — ghi ra để không ai tưởng con số này đã được cân nhắc
+theo nghiệp vụ.
+
+
 ### 2.9 Audit authorization (PH-9, PH-10)
 
 Đã có, kiểm ở tầng domain/application chứ không phải ở HTTP:

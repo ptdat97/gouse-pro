@@ -254,6 +254,12 @@ func decodeJSON(r *http.Request, dst any) error {
 
 func translateInventory(err error) error {
 	switch {
+	case errors.Is(err, domain.ErrQuaLon):
+		// 400 chứ không phải 500: số quá lớn là lỗi của người gõ, và họ
+		// sửa được. Trả 500 khiến họ đi báo sự cố thay vì sửa con số, và
+		// giám sát đếm nó vào tỷ lệ lỗi máy chủ.
+		return apierror.New(apierror.CodeValidationFailed, err.Error())
+
 	case errors.Is(err, domain.ErrNotFound):
 		// KHÔNG phân biệt "chưa có bản ghi tồn kho" với "tồn kho của người
 		// khác": phân biệt cho phép dò xem đối thủ có bán SKU nào.

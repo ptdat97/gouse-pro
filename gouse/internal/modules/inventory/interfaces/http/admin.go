@@ -183,6 +183,12 @@ func dichLoiKiemKe(err error) error {
 		return apierror.New(apierror.CodeConflict,
 			"SKU này ở kho đó có tồn kho của nhiều chủ sở hữu — "+
 				"nêu rõ inventory_owner_id")
+	case errors.Is(err, domain.ErrQuaLon):
+		// 400 chứ không phải 500: số quá lớn là lỗi của người gõ, và họ
+		// sửa được. Trả 500 khiến họ đi báo sự cố thay vì sửa con số, và
+		// giám sát đếm nó vào tỷ lệ lỗi máy chủ.
+		return apierror.New(apierror.CodeValidationFailed, err.Error())
+
 	case errors.Is(err, domain.ErrNotFound):
 		return apierror.New(apierror.CodeNotFound,
 			"Không có bản ghi tồn kho cho SKU này ở kho đó")
