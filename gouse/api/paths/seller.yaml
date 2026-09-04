@@ -807,14 +807,53 @@ performance:
                       status:
                         type: string
                         enum: [GOOD, WARNING, CRITICAL]
+                sample_size:
+                  type: integer
+                  description: |
+                    Số đơn thực hiện trong kỳ, tức MẪU dùng để tính mọi tỷ
+                    lệ ở trên.
+
+                    Bắt buộc có: "tỷ lệ hủy 5%" mà không nói của bao nhiêu
+                    đơn là một khẳng định không kiểm chứng được, và đó
+                    chính là hộp đen mà endpoint này sinh ra để tránh.
+
+                    Mẫu dưới ngưỡng tối thiểu thì `metrics` TRỐNG — chấm
+                    một gian hàng mới mở là NGHIÊM TRỌNG vì họ hủy đúng
+                    một đơn là bất công.
+                shipping_sla_hours:
+                  type: number
+                  description: |
+                    Thước đo dùng để quyết định một đơn có "đúng hạn" hay
+                    không, tính từ lúc đơn thực hiện được tạo.
+
+                    Trả ra để nhà bán luôn đọc được tiêu chí đang dùng để
+                    chấm mình.
+                not_measured:
+                  type: array
+                  description: |
+                    Những chỉ số đặc tả có khai mà hệ thống CHƯA đo được,
+                    kèm lý do.
+
+                    Trả một phần chỉ số rồi im lặng về phần còn lại tạo ra
+                    đúng thứ hộp đen mà endpoint này sinh ra để tránh —
+                    chỉ khác là ở phía người viết API. Nói thẳng "chưa đo,
+                    vì lý do này" trung thực hơn một con số bịa.
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      reason:
+                        type: string
                 impact:
                   type: object
                   properties:
-                    buy_box_win_rate:
-                      type: number
-                      format: float
                     message:
                       type: string
+                      description: |
+                        Việc NÊN LÀM tiếp theo, không chỉ tình trạng hiện
+                        tại. Nêu đúng MỘT chỉ số tệ nhất: một danh sách
+                        việc cần làm dài thì không ai biết bắt đầu từ đâu.
             example:
               period: LAST_30_DAYS
               metrics:
@@ -826,21 +865,25 @@ performance:
                   value: 0.94
                   threshold: 0.95
                   status: WARNING
+              sample_size: 240
+              shipping_sla_hours: 48
+              not_measured:
                 - name: return_rate_description
-                  value: 0.018
-                  threshold: 0.05
-                  status: GOOD
+                  reason: >-
+                    cần dữ liệu của module returns; đó là module ở tầng khác
+                    nên phải qua một read model chung, chưa dựng
                 - name: average_rating
-                  value: 4.6
-                  threshold: 4.0
-                  status: GOOD
+                  reason: hệ thống chưa có đánh giá của khách
                 - name: inventory_accuracy
-                  value: 0.97
-                  threshold: 0.95
-                  status: GOOD
+                  reason: chưa thống nhất công thức tính lệch kiểm kê
+                - name: buy_box_win_rate
+                  reason: >-
+                    buy box tính tại thời điểm hỏi và không được lưu lại,
+                    nên không có lịch sử để tính tỷ lệ
               impact:
-                buy_box_win_rate: 0.62
-                message: Cải thiện tỷ lệ giao đúng hạn sẽ tăng cơ hội thắng buy box
+                message: >-
+                  Giao đúng hạn đang ở 94%, dưới ngưỡng 95%. Hạn bàn giao là
+                  48 giờ kể từ khi đơn được tạo.
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
 

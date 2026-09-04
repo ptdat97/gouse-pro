@@ -45,6 +45,19 @@ type Repository interface {
 		ctx context.Context, sellerID ids.ID, statuses []FOStatus, limit, offset int,
 	) ([]*FulfillmentOrder, error)
 
+	// DemHieuSuat đếm số liệu hiệu suất của MỘT nhà bán trong một kỳ.
+	//
+	// Trả về số ĐẾM THÔ, không phải tỷ lệ: việc xếp hạng theo ngưỡng nằm ở
+	// domain, nơi kiểm được mà không cần database — và đó là chỗ dễ sai
+	// nhất (hai chỉ số ngược chiều nhau, mẫu nhỏ, chia cho không).
+	//
+	// `sla` là thời hạn bàn giao, truyền vào chứ không cố định trong SQL:
+	// cùng một câu truy vấn phải trả lời được cho bất kỳ ngưỡng nào, nếu
+	// không thì đổi SLA sẽ phải sửa cả câu lệnh.
+	DemHieuSuat(
+		ctx context.Context, sellerID ids.ID, tu, den time.Time, sla time.Duration,
+	) (SoLieuHieuSuat, error)
+
 	// ListByOrder trả mọi đơn thực hiện của một đơn hàng.
 	//
 	// CHỈ dành cho khách hàng và quản trị viên — khách theo dõi được cả ba

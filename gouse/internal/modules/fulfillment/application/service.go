@@ -632,3 +632,116 @@ func lyDoThatBai(err error) string {
 		return "internal"
 	}
 }
+
+// Ky là khoảng thời gian tính hiệu suất.
+type Ky string
+
+const (
+	Ky7Ngay  Ky = "LAST_7_DAYS"
+	Ky30Ngay Ky = domain.KyMacDinh
+	Ky90Ngay Ky = "LAST_90_DAYS"
+)
+
+// KyHopLe kiểm kỳ và trả về độ dài.
+//
+// Tập ĐÓNG, đúng enum của đặc tả: cho phép kỳ tùy ý nghĩa là mở cửa cho
+// một truy vấn quét toàn bộ bảng, và nhà bán không cần điều đó.
+func KyHopLe(k Ky) (time.Duration, bool) {
+	switch k {
+	case Ky7Ngay:
+		return 7 * 24 * time.Hour, true
+	case Ky30Ngay:
+		return 30 * 24 * time.Hour, true
+	case Ky90Ngay:
+		return 90 * 24 * time.Hour, true
+	default:
+		return 0, false
+	}
+}
+
+// HieuSuat là kết quả chấm hiệu suất của một nhà bán.
+type HieuSuat struct {
+	Ky        Ky
+	SLAGio    float64
+	SoLieu    domain.SoLieuHieuSuat
+	ChiSo     []domain.ChiSoHieuSuat
+	ChuaDo    []domain.ChuaDo
+	ThongDiep string
+}
+
+// TinhHieuSuat chấm hiệu suất của MỘT nhà bán trong một kỳ.
+//
+// sellerID lấy từ phạm vi trong token, không phải từ tham số của người
+// gọi: nhà bán không được xem hiệu suất của nhà bán khác.
+func (s *Service) TinhHieuSuat(
+	ctx context.Context, sellerID ids.ID, k Ky,
+) (*HieuSuat, error) {
+	doDai, ok := KyHopLe(k)
+	if !ok {
+		return nil, ErrKyKhongHopLe
+	}
+
+	den := s.clock.Now()
+	tu := den.Add(-doDai)
+
+	so, err := s.repo.DemHieuSuat(ctx, sellerID, tu, den, domain.SLAGiaoHang)
+	if err != nil {
+		return nil, err
+	}
+
+	chiSo := domain.TinhChiSo(so)
+	return &HieuSuat{
+		Ky:        k,
+		SLAGio:    domain.SLAGiaoHang.Hours(),
+		SoLieu:    so,
+		ChiSo:     chiSo,
+		ChuaDo:    domain.ChiSoChuaDo(),
+		ThongDiep: thongDiep(so, chiSo),
+	}, nil
+}
+
+// ErrKyKhongHopLe khi tham số `period` nằm ngoài tập cho phép.
+var ErrKyKhongHopLe = errors.New("fulfillment: kỳ tính hiệu suất không hợp lệ")
+
+// thongDiep nói cho nhà bán biết NÊN LÀM GÌ, không chỉ họ đang ở đâu.
+//
+// Đặc tả: "Seller cần hiểu vì sao mình không thắng buy box và cần làm gì
+// để cải thiện." Một danh sách con số không trả lời vế thứ hai.
+func thongDiep(so domain.SoLieuHieuSuat, chiSo []domain.ChiSoHieuSuat) string {
+	if len(chiSo) == 0 {
+		return fmt.Sprintf(
+			"Chưa đủ dữ liệu để chấm: cần ít nhất %d đơn trong kỳ, hiện có %d.",
+			domain.MauToiThieu, so.TongDon)
+	}
+
+	// Nêu chỉ số TỆ NHẤT, không nêu tất cả: một danh sách việc cần làm dài
+	// thì không ai bắt đầu từ đâu.
+	var tệ *domain.ChiSoHieuSuat
+	for i := range chiSo {
+		c := chiSo[i]
+		if c.TrangThai == domain.ChiSoTot {
+			continue
+		}
+		if tệ == nil || c.TrangThai == domain.ChiSoNghiemTrong {
+			tệ = &chiSo[i]
+		}
+	}
+	if tệ == nil {
+		return "Mọi chỉ số đều đạt ngưỡng."
+	}
+
+	switch tệ.Ten {
+	case "on_time_shipping_rate":
+		return fmt.Sprintf(
+			"Giao đúng hạn đang ở %.0f%%, dưới ngưỡng %.0f%%. "+
+				"Hạn bàn giao là %.0f giờ kể từ khi đơn được tạo.",
+			tệ.GiaTri*100, tệ.Nguong*100, domain.SLAGiaoHang.Hours())
+	case "cancellation_rate":
+		return fmt.Sprintf(
+			"Tỷ lệ hủy đang ở %.1f%%, trên ngưỡng %.1f%%. "+
+				"Mỗi đơn hủy là một khách đã đặt rồi không nhận được hàng.",
+			tệ.GiaTri*100, tệ.Nguong*100)
+	default:
+		return "Có chỉ số chưa đạt ngưỡng."
+	}
+}

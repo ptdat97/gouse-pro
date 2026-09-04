@@ -752,6 +752,7 @@ func RegisterRoutes(
 			mux.Handle("GET /api/v1/seller/fulfillment-orders/{fulfillment_order_id}", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/ship", authed)
 			mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/deliver", authed)
+			mux.Handle("GET /api/v1/seller/performance", authed)
 		}
 
 		// Trả hàng phía nhà bán: cùng ranh giới bảo mật với đơn thực hiện.

@@ -1401,7 +1401,7 @@ có" sẽ đếm được chính xác số đơn nền tảng bán mỗi tháng.
 3. **Lọc `status` và phân trang làm ở tầng HTTP**, không trong truy vấn —
    xem P3-11 và P3-12.
 
-### P1.5 — Seller Center (7/11 xong)
+### P1.5 — Seller Center (11/11 xong) `[XONG 04/09]`
 
 **Đã xong: `listMyOffers` · `createOffer` · `updateOffer` ·
 `updateInventory` · `listMyFulfillmentOrders` · `getMyFulfillmentOrder` ·
@@ -1537,15 +1537,48 @@ thật, thay đổi payload event đòi hỏi worker phải được triển kha
 cùng lúc với bên phát — nếu không, event mới đi qua bên nhận cũ và dữ liệu
 mới bị bỏ im lặng.
 
-### P1.5 — Seller Center: 8 operation còn lại
+### P1.5 — Seller Center: XONG cả 11 operation `[04/09]`
 
-`applyAsSeller` · `listMyOffers` · `createOffer` · `updateOffer` ·
-`updateInventory` · `listMyFulfillmentOrders` · `getMyFulfillmentOrder` ·
-`shipFulfillmentOrder` · `getMyBalance` · `getMySettlement` ·
-`getMyPerformance`
+Bảng cũ ghi "8 operation còn lại" nhưng đã lỗi thời: rà theo route thật
+thì 10/11 đã có. Chỉ còn `getMyPerformance`, làm nốt 04/09.
 
 **Ràng buộc bắt buộc:** mọi truy vấn giới hạn theo `AuthContext.SellerIDs`.
 Seller không được thấy dữ liệu seller khác dù biết định danh.
+
+#### `getMyPerformance` — đo được HAI trong năm chỉ số, và nói thẳng ra
+
+Đặc tả khai năm chỉ số. Rà dữ liệu thật thì chỉ hai chỉ số tính được:
+
+| Chỉ số | Trạng thái |
+|---|---|
+| `cancellation_rate` | ✅ từ `fulfillment_order.status` |
+| `on_time_shipping_rate` | ✅ từ `shipped_at` vs `created_at` + SLA |
+| `return_rate_description` | ❌ cần dữ liệu module returns (tầng khác) |
+| `average_rating` | ❌ hệ thống KHÔNG có bảng đánh giá nào |
+| `inventory_accuracy` | ❌ chưa thống nhất công thức tính lệch |
+| `impact.buy_box_win_rate` | ❌ buy box tính tại chỗ, không lưu lịch sử |
+
+Ba chỉ số thiếu KHÔNG bị bỏ im lặng: chúng nằm trong trường `not_measured`
+của response, kèm lý do. Đặc tả nói rõ mục đích của endpoint là tránh "mô
+hình chấm điểm hộp đen"; trả hai chỉ số rồi im lặng về ba chỉ số còn lại
+tạo ra đúng thứ hộp đen đó, chỉ khác là ở phía người viết API.
+
+`buy_box_win_rate` là chỗ quan trọng nhất phải cưỡng lại: đặc tả đặt nó ở
+mục "tác động", nên một con số ước lượng ở đó sẽ dẫn tới quyết định kinh
+doanh sai. Có test khẳng định nó KHÔNG xuất hiện trong `impact`.
+
+Hai thứ thêm vào response mà đặc tả chưa có, vì thiếu chúng thì con số
+không kiểm chứng được — tức vẫn là hộp đen:
+
+  `sample_size`         tỷ lệ 5% là của bao nhiêu đơn?
+  `shipping_sla_hours`  "đúng hạn" đo theo mốc nào?
+
+Mẫu dưới 10 đơn thì KHÔNG chấm: gian hàng mới mở có 3 đơn, hủy 1, ra 33%
+và bị chấm NGHIÊM TRỌNG — con số đó nói về cỡ mẫu, không nói về chất lượng.
+
+**Cần quyết định sau:** SLA 48 giờ là hằng số công khai do lần này đặt ra,
+chưa qua sản phẩm duyệt. Nó nằm trong response nên đổi được bằng một hằng
+số, nhưng con số đúng là câu hỏi kinh doanh.
 
 ### P1.6 — Admin (8/10 xong)
 

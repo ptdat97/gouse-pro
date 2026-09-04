@@ -57,6 +57,8 @@ func (h *SellerHandler) Register(mux *http.ServeMux) {
 		http.HandlerFunc(h.ship))
 	mux.Handle("POST /api/v1/seller/fulfillment-orders/{fulfillment_order_id}/deliver",
 		http.HandlerFunc(h.deliver))
+	mux.Handle("GET /api/v1/seller/performance",
+		http.HandlerFunc(h.performance))
 }
 
 type foItemJSON struct {
@@ -391,4 +393,97 @@ func (h *SellerHandler) deliver(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.ok(w, r, http.StatusOK, toSellerFO(fo))
+}
+
+type chiSoJSON struct {
+	Name      string  `json:"name"`
+	Value     float64 `json:"value"`
+	Threshold float64 `json:"threshold"`
+	Status    string  `json:"status"`
+}
+
+type chuaDoJSON struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+type hieuSuatJSON struct {
+	Period  string      `json:"period"`
+	Metrics []chiSoJSON `json:"metrics"`
+
+	// SampleSize để nhà bán tự kiểm chứng con số.
+	//
+	// Không có nó thì "tỷ lệ hủy 5%" là một khẳng định không kiểm được:
+	// 5% của bao nhiêu đơn? Và đó chính là hộp đen mà đặc tả cấm.
+	SampleSize int `json:"sample_size"`
+
+	// ShippingSLAHours là thước đo dùng để chấm "đúng hạn".
+	ShippingSLAHours float64 `json:"shipping_sla_hours"`
+
+	// NotMeasured là những chỉ số đặc tả có khai mà hệ thống CHƯA đo được.
+	//
+	// Trả một phần rồi im lặng về phần còn lại tạo ra đúng thứ hộp đen mà
+	// đặc tả sinh ra để tránh — chỉ khác là ở phía người viết API.
+	NotMeasured []chuaDoJSON `json:"not_measured"`
+
+	Impact struct {
+		Message string `json:"message"`
+	} `json:"impact"`
+}
+
+// performance phục vụ GET /api/v1/seller/performance
+// (operationId: getMyPerformance).
+//
+// # Vì sao KHÔNG trả buy_box_win_rate
+//
+// Đặc tả khai trường đó, nhưng buy box được tính tại thời điểm hỏi và
+// không lưu lại, nên không có lịch sử để tính tỷ lệ. Trả một con số ước
+// lượng vào đúng chỗ mà đặc tả gọi là "tác động" sẽ là điều tệ nhất có
+// thể làm ở endpoint này: nhà bán sẽ ra quyết định kinh doanh dựa trên nó.
+//
+// Nó nằm trong `not_measured` kèm lý do.
+func (h *SellerHandler) performance(w http.ResponseWriter, r *http.Request) {
+	sellerID, err := h.sellerID(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	ky := application.Ky30Ngay
+	if v := r.URL.Query().Get("period"); v != "" {
+		ky = application.Ky(v)
+	}
+	if _, ok := application.KyHopLe(ky); !ok {
+		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+			"period phải là LAST_7_DAYS, LAST_30_DAYS hoặc LAST_90_DAYS"))
+		return
+	}
+
+	hs, err := h.svc.TinhHieuSuat(r.Context(), sellerID, ky)
+	if err != nil {
+		h.fail(w, r, translateSeller(err))
+		return
+	}
+
+	ra := hieuSuatJSON{
+		Period:           string(hs.Ky),
+		Metrics:          make([]chiSoJSON, 0, len(hs.ChiSo)),
+		SampleSize:       hs.SoLieu.TongDon,
+		ShippingSLAHours: hs.SLAGio,
+		NotMeasured:      make([]chuaDoJSON, 0, len(hs.ChuaDo)),
+	}
+	for _, c := range hs.ChiSo {
+		ra.Metrics = append(ra.Metrics, chiSoJSON{
+			Name: c.Ten, Value: c.GiaTri,
+			Threshold: c.Nguong, Status: string(c.TrangThai),
+		})
+	}
+	for _, c := range hs.ChuaDo {
+		ra.NotMeasured = append(ra.NotMeasured, chuaDoJSON{
+			Name: c.Ten, Reason: c.LyDo,
+		})
+	}
+	ra.Impact.Message = hs.ThongDiep
+
+	h.ok(w, r, http.StatusOK, ra)
 }

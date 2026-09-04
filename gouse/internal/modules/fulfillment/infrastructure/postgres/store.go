@@ -520,3 +520,36 @@ func defaultCountry(code string) string {
 	}
 	return code
 }
+
+// DemHieuSuat đếm số liệu hiệu suất của một nhà bán.
+//
+// MỘT câu truy vấn thay vì bốn: bốn lần quét cùng một bảng với cùng bộ lọc
+// tốn gấp bốn, và tệ hơn là bốn ảnh chụp ở bốn thời điểm khác nhau — số
+// đếm có thể không nhất quán với nhau.
+//
+// `seller_id = $1` nằm NGAY trong câu SQL, đúng quy tắc của bảng này: bộ
+// lọc ở tầng dữ liệu thì một lần quên ở tầng trên vẫn không lộ được gì.
+func (s *FulfillmentStore) DemHieuSuat(
+	ctx context.Context, sellerID ids.ID, tu, den time.Time, sla time.Duration,
+) (domain.SoLieuHieuSuat, error) {
+	var ra domain.SoLieuHieuSuat
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+		  count(*),
+		  count(*) FILTER (WHERE status = 'CANCELLED'),
+		  count(*) FILTER (WHERE shipped_at IS NOT NULL),
+		  count(*) FILTER (WHERE shipped_at IS NOT NULL
+		                     AND shipped_at <= created_at + $4::interval)
+		  FROM fulfillment_order
+		 WHERE seller_id = $1
+		   AND created_at >= $2
+		   AND created_at < $3`,
+		sellerID.String(), tu, den, sla.String()).
+		Scan(&ra.TongDon, &ra.DonHuy, &ra.DonDaGiao, &ra.DonGiaoDungHan)
+	if err != nil {
+		return domain.SoLieuHieuSuat{}, fmt.Errorf(
+			"fulfillment: đếm hiệu suất nhà bán: %w", err)
+	}
+	return ra, nil
+}
