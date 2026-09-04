@@ -1122,6 +1122,49 @@ Nâng được khi có mặt hàng đếm bằng đơn vị nhỏ (chỉ, cúc, 
 KHÔNG bao giờ vượt được trần lưu trữ — cưỡng chế ở hai nơi độc lập.
 
 
+### 2.20 Mã tiền tệ chữ thường làm giá hiện SAI 100 LẦN `[XONG 04/09]`
+
+Chuỗi lỗi đi thông suốt từ backend tới màn hình khách:
+
+```text
+money.Currency.valid()   chỉ kiểm len == 3  →  "vnd" hợp lệ
+cột currency             CHAR(3), không CHECK chữ hoa  →  lưu được
+giao diện                currency === "VND"  →  "vnd" KHÔNG khớp
+                         →  chia số tiền cho 100
+```
+
+**250.000 ₫ hiện thành 2.500 ₫** — và vẫn kèm ký hiệu ₫ nên trông hoàn
+toàn hợp lệ. Không có lỗi nào, không có cảnh báo nào.
+
+Mã hỏng hơn (`""`, `"€$¥"`) làm `Intl.NumberFormat` NÉM RangeError, và một
+lỗi ném lúc render làm TRẮNG cả trang thay vì hiện một ô sai.
+
+**Sửa hai đầu, có chủ ý:**
+
+- gốc: `money.New` chuẩn hóa chữ hoa (che cả đường ĐỌC LẠI, vì kho lưu trữ
+  dựng Money bằng hàm này), và `valid()` đòi đúng ba chữ cái A–Z
+- giao diện: so sánh sau khi chuẩn hóa, và bọc `try/catch` — giao diện
+  không được hiện sai GIÁ dù nhận vào cái gì
+
+Ba app có ba bản `money()` riêng; bài test chạy CẢ BA qua cùng bộ dữ liệu.
+Sửa một bản mà quên hai bản kia là lỗi rất dễ mắc và không lộ ra ở đâu
+khác — phá để kiểm xác nhận: phá storefront thì admin và seller vẫn xanh.
+
+### 2.21 `npm test` chạy KHÔNG bài nào `[XONG 04/09]`
+
+Script gốc là `npm run test --workspaces --if-present`, mà KHÔNG workspace
+nào có script `test`. Lệnh chạy xong, thoát 0, không chạy bài nào.
+
+Mười bài đơn vị có thật nhưng chỉ tới được bằng `npx playwright test
+--project=unit`. Ai chạy lệnh chuẩn — người mới, hay CI sau này — nhận
+xanh với 0 bài.
+
+Sửa: nối thẳng `playwright test --project=unit` vào script `test`. Phần
+e2e vẫn tách riêng vì nó cần storefront chạy ở cổng 3001.
+
+Kiểm chứng bằng cách thêm một bài cố tình hỏng: `npm test` thoát 1.
+
+
 ### 2.9 Audit authorization (PH-9, PH-10)
 
 Đã có, kiểm ở tầng domain/application chứ không phải ở HTTP:

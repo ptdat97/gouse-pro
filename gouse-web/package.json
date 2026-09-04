@@ -14,7 +14,7 @@
     "types:check": "npm run types && git diff --exit-code packages/types/openapi.d.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && playwright test --project=unit",
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev --workspace=@fc/admin",
     "dev:admin": "npm run dev --workspace=@fc/admin",

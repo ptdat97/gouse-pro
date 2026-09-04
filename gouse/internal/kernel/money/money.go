@@ -13,6 +13,7 @@ package money
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Currency là mã tiền tệ ISO 4217.
@@ -38,8 +39,29 @@ func (c Currency) exponent() int {
 	}
 }
 
+// valid đòi ĐÚNG ba chữ cái HOA — mã ISO 4217.
+//
+// Bản đầu chỉ kiểm `len(c) == 3`, nên "vnd", "12 " hay "€$¥" đều lọt. Hai
+// hệ quả có thật:
+//
+//	"vnd"  giao diện so sánh `currency === "VND"` nên coi nó KHÔNG phải
+//	       VND, chia số tiền cho 100, và hiện 250.000 ₫ thành 2.500 ₫ —
+//	       vẫn kèm ký hiệu ₫ nên trông hoàn toàn hợp lệ
+//	"€$¥"  Intl.NumberFormat NÉM RangeError, và một lỗi ném lúc render
+//	       làm trắng cả trang thay vì hiện dấu gạch
+//
+// Chuẩn hóa nằm ở `New`, kiểm nằm ở đây: hai việc khác nhau, và gộp lại
+// thì không nói được "đã chuẩn hóa rồi vẫn sai".
 func (c Currency) valid() bool {
-	return len(c) == 3
+	if len(c) != 3 {
+		return false
+	}
+	for i := 0; i < 3; i++ {
+		if c[i] < 'A' || c[i] > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 var (
@@ -71,6 +93,14 @@ type Money struct {
 //	New(299000, VND) = 299.000đ
 //	New(29900, USD)  = $299.00
 func New(amount int64, c Currency) (Money, error) {
+	// CHUẨN HÓA trước khi kiểm.
+	//
+	// Đây là biên duy nhất mà mọi Money đi qua — kể cả đường đọc lại từ
+	// database, vì kho lưu trữ dựng Money bằng hàm này. Cột `currency` là
+	// `CHAR(3)` không có ràng buộc chữ hoa, nên dữ liệu cũ có thể mang
+	// chữ thường, và chuẩn hóa ở đây sửa nó khi đọc thay vì bắt mọi nơi
+	// dùng phải tự nhớ.
+	c = Currency(strings.ToUpper(string(c)))
 	if !c.valid() {
 		return Money{}, fmt.Errorf("%w: %q", ErrInvalidCurrency, c)
 	}

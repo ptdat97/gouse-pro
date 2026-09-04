@@ -24,14 +24,34 @@ interface Money {
 export function money(m: Money | undefined | null): string {
   if (!m) return "—";
 
-  const minorUnits = m.currency === "VND" ? 0 : 2;
+  // CHUẨN HÓA chữ hoa trước khi so sánh.
+  //
+  // So sánh phân biệt hoa thường ở đây từng cho ra lỗi tệ nhất mà một
+  // trang bán hàng có thể mắc: `"vnd"` không khớp `"VND"`, nên số tiền bị
+  // chia cho 100 và 250.000 ₫ hiện thành 2.500 ₫ — vẫn kèm ký hiệu ₫ nên
+  // trông hoàn toàn hợp lệ.
+  //
+  // Backend đã chuẩn hóa từ 04/09, nhưng giữ ở đây làm lớp thứ hai: giao
+  // diện không được hiện sai GIÁ dù nhận vào cái gì.
+  const currency = (m.currency ?? "").toUpperCase();
+
+  const minorUnits = currency === "VND" ? 0 : 2;
   const value = minorUnits === 0 ? m.amount : m.amount / 100;
 
-  return new Intl.NumberFormat("vi-VN", {
-    style: "currency",
-    currency: m.currency,
-    minimumFractionDigits: minorUnits,
-  }).format(value);
+  try {
+    return new Intl.NumberFormat("vi-VN", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: minorUnits,
+    }).format(value);
+  } catch {
+    // `Intl.NumberFormat` NÉM RangeError với mã tiền tệ không hợp lệ, và
+    // một lỗi ném lúc render làm TRẮNG cả trang thay vì hiện một ô sai.
+    //
+    // Hiện con số kèm mã thô: người dùng vẫn đọc được, và mã lạ nằm ngay
+    // đó cho người vận hành thấy có gì sai.
+    return `${value.toLocaleString("vi-VN")} ${currency || "?"}`.trim();
+  }
 }
 
 /** Phần vạn → phần trăm. 1000 = "10,00%". */
