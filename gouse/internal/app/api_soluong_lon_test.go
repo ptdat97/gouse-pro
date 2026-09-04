@@ -6,6 +6,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/modules/inventory/domain"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // TestSoLuongVuotSucChuaTra400.
@@ -41,14 +42,14 @@ func TestSoLuongVuotSucChuaTra400(t *testing.T) {
 	}
 
 	// ĐÚNG trần: phải nhận.
-	if got := dat(domain.MaxSoLuong); got.code != http.StatusOK {
+	if got := dat(domain.TranMacDinh); got.code != http.StatusOK {
 		t.Errorf("đúng trần (%d) bị từ chối: HTTP %d — %s",
-			domain.MaxSoLuong, got.code, got.raw)
+			domain.TranMacDinh, got.code, got.raw)
 	}
 
 	// Trần CỘNG MỘT: phải từ chối, và phải là 400.
 	for _, q := range []int64{
-		int64(domain.MaxSoLuong) + 1,
+		int64(domain.TranMacDinh) + 1,
 		3_000_000_000,
 		9_000_000_000_000,
 	} {
@@ -62,5 +63,69 @@ func TestSoLuongVuotSucChuaTra400(t *testing.T) {
 			t.Errorf("số lượng %d trả HTTP %d, cần 400: %s",
 				q, got.code, got.raw)
 		}
+	}
+}
+
+// TestDoiTranSoLuongTuGiaoDienCoHieuLucNgay.
+//
+// Trần số lượng là tham số VẬN HÀNH: mặc định 10 triệu đơn vị cho một SKU
+// tại một kho — con số không kho thời trang nào chạm tới, nên vượt nó gần
+// như chắc chắn là gõ thừa số 0.
+//
+// Nhưng có mặt hàng đếm bằng đơn vị nhỏ (chỉ, cúc, hạt cườm), nên con số
+// phải nâng được mà không cần build lại.
+func TestDoiTranSoLuongTuGiaoDienCoHieuLucNgay(t *testing.T) {
+	a := newAPITest(t)
+	admin := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	kho := a.taoTaiKhoanVaiTro(t, identity.RoleOpsWarehouse)
+	sku, loc, own, _ := a.mauTonKho(t)
+
+	dat := func(q int64) reply {
+		h := khoaIdem()
+		h["Authorization"] = "Bearer " + kho
+		return a.call(http.MethodPost, "/api/v1/admin/inventory/adjustments",
+			map[string]any{
+				"sku_id": sku, "stock_location_id": loc,
+				"inventory_owner_id": own,
+				"reason":             "kiểm kê thử trần sửa được, bài test tự động",
+				"adjustments":        map[string]any{"quantity_available": q},
+			}, h)
+	}
+
+	// Mặc định 10 triệu: 20 triệu bị từ chối.
+	if got := dat(20_000_000); got.code != http.StatusBadRequest {
+		t.Fatalf("20 triệu với trần mặc định: HTTP %d, cần 400 — %s",
+			got.code, got.raw)
+	}
+
+	// Nâng trần lên 50 triệu.
+	if got := a.datCauHinh(t, admin, opsconfig.KeyTranSoLuongSKU, 50_000_000,
+		"nâng trần tồn kho cho mặt hàng đếm bằng đơn vị nhỏ như cúc và chỉ",
+	); got.code != http.StatusOK {
+		t.Fatalf("đổi trần: HTTP %d — %s", got.code, got.raw)
+	}
+
+	// Cùng con số, giờ phải nhận — không cần khởi động lại.
+	if got := dat(20_000_000); got.code != http.StatusOK {
+		t.Errorf("20 triệu sau khi nâng trần lên 50 triệu: HTTP %d — "+
+			"cấu hình không tới được chỗ dùng nó: %s", got.code, got.raw)
+	}
+}
+
+// TestTranSoLuongKhongDatVuotSucChuaDuoc.
+//
+// Sổ đăng ký kẹp `Max` ở trần lưu trữ. Không có nó, một quản trị viên đặt
+// trần nghiệp vụ 5 tỷ sẽ làm mọi con số dưới mức đó ĐI QUA kiểm tra rồi
+// hỏng ở câu lệnh ghi — tức tự tay dựng lại đúng lỗi 500 mà trần này sinh
+// ra để tránh.
+func TestTranSoLuongKhongDatVuotSucChuaDuoc(t *testing.T) {
+	a := newAPITest(t)
+	admin := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+
+	got := a.datCauHinh(t, admin, opsconfig.KeyTranSoLuongSKU, 5_000_000_000,
+		"thử đặt trần nghiệp vụ vượt sức chứa của cột trong database")
+	if got.code != http.StatusBadRequest {
+		t.Errorf("đặt trần 5 tỷ (> sức chứa int32): HTTP %d, cần 400 — %s",
+			got.code, got.raw)
 	}
 }

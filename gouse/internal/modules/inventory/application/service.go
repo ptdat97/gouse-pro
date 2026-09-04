@@ -58,6 +58,7 @@ type Service struct {
 	uow   domain.UnitOfWork
 	repos domain.Repos
 	clock Clock
+	tran  TranPort
 }
 
 // Deps gom các phụ thuộc.
@@ -67,6 +68,9 @@ type Deps struct {
 
 	// Repos dùng cho thao tác CHỈ ĐỌC, không cần giao dịch.
 	Repos domain.Repos
+
+	// Tran cấp trần số lượng nghiệp vụ. Nil thì dùng mặc định của domain.
+	Tran TranPort
 
 	Clock Clock
 }
@@ -80,6 +84,7 @@ func NewService(d Deps) *Service {
 		uow:   d.UnitOfWork,
 		repos: d.Repos,
 		clock: clock,
+		tran:  d.Tran,
 	}
 }
 
@@ -492,7 +497,9 @@ func (s *Service) Adjust(ctx context.Context, in AdjustInput) error {
 	}
 
 	return s.simpleChange(ctx, in.ItemID, qty, domain.MovementAdjust, "", in.Reason, in.PerformedBy,
-		func(i *domain.InventoryItem, t time.Time) error { return i.AdjustAvailable(in.Delta, t) })
+		func(i *domain.InventoryItem, t time.Time) error {
+			return i.AdjustAvailable(in.Delta, s.tranSoLuong(), t)
+		})
 }
 
 // FindOwnedItem tìm bản ghi tồn kho CỦA MỘT CHỦ SỞ HỮU cụ thể.
@@ -583,7 +590,7 @@ func (s *Service) SetAvailable(ctx context.Context, in SetAvailableInput) error 
 		var saved *domain.InventoryItem
 		return s.mutate(ctx, r, item, mutation{
 			apply: func(i *domain.InventoryItem, t time.Time) error {
-				return i.AdjustAvailable(delta, t)
+				return i.AdjustAvailable(delta, s.tranSoLuong(), t)
 			},
 			movement:    domain.MovementAdjust,
 			quantity:    qty,
@@ -633,6 +640,23 @@ func (s *Service) TimItemKiemKe(
 	default:
 		return nil, ErrItemNhapNhang
 	}
+}
+
+// TranPort đọc trần số lượng NGHIỆP VỤ đang áp dụng.
+//
+// Cổng do BÊN GỌI khai: module inventory nói nó cần một con số, không nói
+// con số đến từ đâu. Nil thì dùng mặc định — module vẫn chạy đúng khi
+// chưa nối dây phần cấu hình.
+type TranPort interface {
+	TranSoLuong() int
+}
+
+// tranSoLuong trả trần đang áp dụng, hoặc 0 để domain tự dùng mặc định.
+func (s *Service) tranSoLuong() int {
+	if s.tran == nil {
+		return 0
+	}
+	return s.tran.TranSoLuong()
 }
 
 // CountInput là một lần kiểm kê thủ công của quản trị viên.
@@ -689,7 +713,7 @@ func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error
 		var saved *domain.InventoryItem
 		err = s.mutate(ctx, r, item, mutation{
 			apply: func(i *domain.InventoryItem, t time.Time) error {
-				return i.KiemKe(in.Available, in.Damaged, t)
+				return i.KiemKe(in.Available, in.Damaged, s.tranSoLuong(), t)
 			},
 			movement:    domain.MovementAdjust,
 			quantity:    lechKiemKe(truoc, in),

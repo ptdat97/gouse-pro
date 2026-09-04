@@ -63,6 +63,27 @@ chuyện bình thường khi triển khai lại.
 Một tham số không có biên là một tham số ai đó sẽ đặt bằng 0 và làm sập một
 thứ ở xa. Cỡ mẫu 0 nghĩa là chấm mọi gian hàng dù chỉ có một đơn.
 
+**Biên của một tham số có thể chính là một ràng buộc VẬT LÝ.**
+`inventory.max_quantity_per_sku` là trần NGHIỆP VỤ (mặc định 10 triệu), và
+nó không bao giờ được vượt trần LƯU TRỮ — cột `quantity_*` là `INT` của
+PostgreSQL, 32 bit.
+
+Hai trần đó khác loại nhau và phải giữ tách bạch:
+
+```text
+trần lưu trữ    2.147.483.647   SỰ THẬT về nơi lưu, không ai chọn
+trần nghiệp vụ     10.000.000   LỰA CHỌN, sửa từ giao diện
+```
+
+Đặt trần nghiệp vụ cao hơn trần lưu trữ nghĩa là con số đi qua hết kiểm
+tra rồi mới hỏng ở câu lệnh ghi — tự tay dựng lại đúng lỗi 500 mà trần này
+sinh ra để tránh.
+
+**Cưỡng chế ở HAI nơi độc lập:** `Max` trong sổ đăng ký, và một phép kẹp
+trong domain. Domain không tin vào sổ đăng ký, vì nó phải đúng với bất kỳ
+giá trị nào bên gọi đưa vào — kể cả khi nối dây sai, hoặc khi có bên gọi
+thứ hai không đi qua cấu hình.
+
 ### 4. Đọc KHÔNG BAO GIỜ trả lỗi, và KHÔNG khóa
 
 Tham số được đọc trên đường phục vụ request. `Doc` trả về giá trị mặc định

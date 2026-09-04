@@ -303,11 +303,38 @@ func (q Quantities) ArriveFromTransit(qty int) (Quantities, error) {
 // hàng, phải xử lý qua đơn hàng.
 //
 // nil nghĩa là "không khai" và giữ nguyên giá trị đang có.
-// MaxSoLuong là trần mỗi thành phần số lượng, bằng trần của kiểu INT
-// trong PostgreSQL.
-const MaxSoLuong = 2147483647
+// MaxLuuTru là trần CỨNG của cột `quantity_*`, bằng trần kiểu INT của
+// PostgreSQL (32 bit).
+//
+// Đây là SỰ THẬT về nơi lưu, không phải lựa chọn. Vượt nó thì câu lệnh ghi
+// hỏng và người dùng nhận 500.
+const MaxLuuTru = 2147483647
 
-func (q Quantities) KiemKe(available, damaged *int) (Quantities, error) {
+// TranMacDinh là trần NGHIỆP VỤ dùng khi bên gọi không nêu.
+//
+// Thấp hơn hẳn trần lưu trữ có chủ ý: 10 triệu đơn vị cho MỘT SKU tại MỘT
+// kho đã là con số không kho thời trang nào chạm tới, nên vượt nó gần như
+// chắc chắn là gõ thừa số 0. Bắt ngay lúc nhập rẻ hơn nhiều so với để một
+// con số vô lý nằm trong kho và làm sai mọi báo cáo tồn.
+const TranMacDinh = 10_000_000
+
+// tran chọn trần thực dùng, và KẸP nó trong trần lưu trữ.
+//
+// Kẹp ở đây chứ không chỉ tin vào sổ đăng ký cấu hình: domain phải đúng
+// với BẤT KỲ giá trị nào bên gọi đưa vào, kể cả khi phần nối dây sai hoặc
+// khi có bên gọi thứ hai không đi qua cấu hình.
+func tran(t int) int {
+	if t <= 0 {
+		return TranMacDinh
+	}
+	if t > MaxLuuTru {
+		return MaxLuuTru
+	}
+	return t
+}
+
+func (q Quantities) KiemKe(available, damaged *int, tranNghiepVu int) (Quantities, error) {
+	max := tran(tranNghiepVu)
 	if available == nil && damaged == nil {
 		return q, errors.New("inventory: kiểm kê không khai số nào")
 	}
@@ -317,9 +344,9 @@ func (q Quantities) KiemKe(available, damaged *int) (Quantities, error) {
 		if *available < 0 {
 			return q, fmt.Errorf("%w: available = %d", ErrNegativeQuantity, *available)
 		}
-		if *available > MaxSoLuong {
+		if *available > max {
 			return q, fmt.Errorf("%w: available = %d, trần %d",
-				ErrQuaLon, *available, MaxSoLuong)
+				ErrQuaLon, *available, max)
 		}
 		out.available = *available
 	}
@@ -327,9 +354,9 @@ func (q Quantities) KiemKe(available, damaged *int) (Quantities, error) {
 		if *damaged < 0 {
 			return q, fmt.Errorf("%w: damaged = %d", ErrNegativeQuantity, *damaged)
 		}
-		if *damaged > MaxSoLuong {
+		if *damaged > max {
 			return q, fmt.Errorf("%w: damaged = %d, trần %d",
-				ErrQuaLon, *damaged, MaxSoLuong)
+				ErrQuaLon, *damaged, max)
 		}
 		out.damaged = *damaged
 	}
@@ -352,7 +379,7 @@ var ErrKiemKeKhongDoi = errors.New("inventory: kiểm kê không làm đổi s�
 // delta có thể ÂM. Đây là phép duy nhất cho phép đặt số lượng tùy ý, nên
 // quy tắc 7 (mục 12) yêu cầu mọi lần gọi phải kèm lý do và người thực hiện
 // — việc đó được cưỡng chế ở tầng application, không phải ở đây.
-func (q Quantities) AdjustAvailable(delta int) (Quantities, error) {
+func (q Quantities) AdjustAvailable(delta, tranNghiepVu int) (Quantities, error) {
 	if delta == 0 {
 		return q, errors.New("inventory: điều chỉnh bằng 0 không có tác dụng")
 	}
@@ -362,9 +389,9 @@ func (q Quantities) AdjustAvailable(delta int) (Quantities, error) {
 		return q, fmt.Errorf("%w: điều chỉnh %d làm available thành %d",
 			ErrNegativeQuantity, delta, out.available)
 	}
-	if out.available > MaxSoLuong {
+	if max := tran(tranNghiepVu); out.available > max {
 		return q, fmt.Errorf("%w: điều chỉnh %d làm available thành %d, trần %d",
-			ErrQuaLon, delta, out.available, MaxSoLuong)
+			ErrQuaLon, delta, out.available, max)
 	}
 	return out, nil
 }

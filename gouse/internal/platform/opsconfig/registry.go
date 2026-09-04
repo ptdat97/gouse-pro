@@ -51,7 +51,18 @@ const (
 	KeyNguongHuyDon      = "fulfillment.max_cancellation_rate"
 	KeyNguongGiaoDungHan = "fulfillment.min_on_time_rate"
 	KeyMauToiThieu       = "fulfillment.min_sample_size"
+
+	KeyTranSoLuongSKU = "inventory.max_quantity_per_sku"
 )
+
+// TranLuuTruSoLuong là trần CỨNG của cột `quantity_*` trong database.
+//
+// Cột là `INT` của PostgreSQL — 32 bit. Đây là SỰ THẬT về nơi lưu, không
+// phải lựa chọn: đặt cao hơn thì câu lệnh ghi hỏng và người dùng nhận 500.
+//
+// Nó là trần của trần: tham số nghiệp vụ bên dưới không bao giờ được vượt
+// con số này, và `Max` trong sổ đăng ký cưỡng chế điều đó.
+const TranLuuTruSoLuong = 2147483647
 
 // ThamSo mô tả một tham số vận hành.
 type ThamSo struct {
@@ -101,6 +112,17 @@ var soDangKy = map[string]ThamSo{
 		MacDinh: 0.95, Min: 0, Max: 1,
 		MoTa:  "Tỷ lệ giao đúng hạn TỐI THIỂU để được coi là đạt.",
 		HeQua: "Ngưỡng cao hơn làm nhiều gian hàng chuyển sang CẢNH BÁO.",
+	},
+	KeyTranSoLuongSKU: {
+		Khoa: KeyTranSoLuongSKU, Kieu: KieuSoNguyen,
+		MacDinh: 10_000_000, Min: 1, Max: TranLuuTruSoLuong,
+		MoTa: "Số lượng tối đa cho MỘT SKU tại MỘT kho, dùng khi kiểm kê " +
+			"hoặc điều chỉnh thủ công.",
+		HeQua: "Đây là trần NGHIỆP VỤ, đặt thấp hơn trần lưu trữ " +
+			"(2.147.483.647) có chủ ý: nó bắt lỗi gõ thừa số 0 ngay lúc " +
+			"nhập, thay vì để một con số vô lý nằm trong kho và làm sai " +
+			"mọi báo cáo tồn. Nâng lên chỉ khi có mặt hàng thật sự đếm " +
+			"bằng đơn vị nhỏ (chỉ, cúc, hạt cườm).",
 	},
 	KeyMauToiThieu: {
 		Khoa: KeyMauToiThieu, Kieu: KieuSoNguyen,

@@ -1106,10 +1106,20 @@ Hàng rào đặt ở DOMAIN (`Quantities`), không ở handler: mọi đường
 quản trị viên kiểm kê, nhà bán kiểm kê, và đường thêm sau — đều đi qua đó.
 Đặt ở handler thì đường thứ hai phải nhớ tự chặn.
 
-`MaxSoLuong` là ràng buộc LƯU TRỮ, không phải quy tắc kinh doanh. Một trần
-theo nghiệp vụ (ví dụ 10 triệu đơn vị mỗi SKU) là câu hỏi khác, cần người
-kinh doanh quyết — ghi ra để không ai tưởng con số này đã được cân nhắc
-theo nghiệp vụ.
+**Cập nhật 04/09:** đã tách thành HAI trần theo quyết định của người dùng.
+
+```text
+MaxLuuTru       2.147.483.647   sự thật về cột INT, không sửa được
+trần nghiệp vụ     10.000.000   mặc định, SỬA ĐƯỢC từ giao diện quản trị
+```
+
+Trần nghiệp vụ thấp hơn hẳn có chủ ý: 10 triệu đơn vị cho một SKU tại một
+kho là con số không kho thời trang nào chạm tới, nên vượt nó gần như chắc
+chắn là gõ thừa số 0 — bắt ngay lúc nhập rẻ hơn nhiều so với để một con số
+vô lý nằm trong kho và làm sai mọi báo cáo tồn.
+
+Nâng được khi có mặt hàng đếm bằng đơn vị nhỏ (chỉ, cúc, hạt cườm), nhưng
+KHÔNG bao giờ vượt được trần lưu trữ — cưỡng chế ở hai nơi độc lập.
 
 
 ### 2.9 Audit authorization (PH-9, PH-10)

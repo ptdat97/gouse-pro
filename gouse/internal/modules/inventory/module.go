@@ -14,6 +14,7 @@ import (
 	inventoryhttp "github.com/fashion-commerce/platform/internal/modules/inventory/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // Module là cài đặt của API công khai.
@@ -41,6 +42,12 @@ type Config struct {
 
 	// Clock cho phép test kiểm soát thời gian.
 	Clock application.Clock
+
+	// OpsConfig cấp trần số lượng NGHIỆP VỤ, sửa được lúc chạy.
+	//
+	// Nil thì domain dùng mặc định đã biên dịch — module vẫn chạy đúng khi
+	// chưa nối dây phần cấu hình, và khi database không đọc được.
+	OpsConfig *opsconfig.Store
 }
 
 // New khởi tạo module inventory.
@@ -55,11 +62,15 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	pool := cfg.DB.Pool()
-	return &Module{svc: application.NewService(application.Deps{
+	deps := application.Deps{
 		UnitOfWork: inventorypg.NewUnitOfWork(pool),
 		Repos:      inventorypg.Repos(pool),
 		Clock:      cfg.Clock,
-	})}, nil
+	}
+	if cfg.OpsConfig != nil {
+		deps.Tran = &tranAdapter{cfg: cfg.OpsConfig}
+	}
+	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
@@ -487,4 +498,16 @@ func (m *Module) ReleaseCommittedInEventTx(
 		ReferenceID: ids.ID(req.ReferenceID),
 		PerformedBy: ids.ID(req.PerformedBy),
 	}))
+}
+
+// tranAdapter dịch tham số vận hành sang từ vựng của inventory.
+//
+// Cổng do bên gọi khai, nên tầng application của inventory không biết tới
+// `opsconfig` — nó chỉ biết mình cần một con số.
+type tranAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.TranPort = (*tranAdapter)(nil)
+
+func (a *tranAdapter) TranSoLuong() int {
+	return a.cfg.DocSoNguyen(opsconfig.KeyTranSoLuongSKU)
 }

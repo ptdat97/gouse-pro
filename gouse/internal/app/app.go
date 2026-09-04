@@ -197,8 +197,10 @@ func Build(
 		}
 
 		inventoryModule, err = inventory.New(inventory.Config{
-			Storage: "postgres",
-			DB:      db,
+			// Trần số lượng nghiệp vụ sửa được từ giao diện quản trị.
+			OpsConfig: opsConfigStore,
+			Storage:   "postgres",
+			DB:        db,
 		})
 		if err != nil {
 			return Modules{}, err

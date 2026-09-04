@@ -225,14 +225,18 @@ func (i *InventoryItem) ArriveFromTransit(qty int, now time.Time) error {
 	return i.apply(func(q Quantities) (Quantities, error) { return q.ArriveFromTransit(qty) }, now)
 }
 
-func (i *InventoryItem) AdjustAvailable(delta int, now time.Time) error {
-	return i.apply(func(q Quantities) (Quantities, error) { return q.AdjustAvailable(delta) }, now)
+func (i *InventoryItem) AdjustAvailable(delta, tranNghiepVu int, now time.Time) error {
+	return i.apply(func(q Quantities) (Quantities, error) {
+		return q.AdjustAvailable(delta, tranNghiepVu)
+	}, now)
 }
 
 // KiemKe đặt số khả dụng và số hỏng theo kết quả đếm. Xem Quantities.KiemKe.
-func (i *InventoryItem) KiemKe(available, damaged *int, now time.Time) error {
+func (i *InventoryItem) KiemKe(
+	available, damaged *int, tranNghiepVu int, now time.Time,
+) error {
 	return i.apply(func(q Quantities) (Quantities, error) {
-		return q.KiemKe(available, damaged)
+		return q.KiemKe(available, damaged, tranNghiepVu)
 	}, now)
 }
 

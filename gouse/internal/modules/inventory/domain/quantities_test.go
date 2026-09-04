@@ -235,7 +235,7 @@ func TestHetHangVaSapHetHang(t *testing.T) {
 func TestDieuChinhThuCong(t *testing.T) {
 	q := mustQty(t, 10, 0, 0, 0, 0, 0)
 
-	tang, err := q.AdjustAvailable(5)
+	tang, err := q.AdjustAvailable(5, 0)
 	if err != nil {
 		t.Fatalf("AdjustAvailable(+5): %v", err)
 	}
@@ -243,7 +243,7 @@ func TestDieuChinhThuCong(t *testing.T) {
 		t.Errorf("available = %d, mong 15", tang.Available())
 	}
 
-	giam, err := q.AdjustAvailable(-4)
+	giam, err := q.AdjustAvailable(-4, 0)
 	if err != nil {
 		t.Fatalf("AdjustAvailable(-4): %v", err)
 	}
@@ -252,11 +252,11 @@ func TestDieuChinhThuCong(t *testing.T) {
 	}
 
 	// Không được làm thành âm.
-	if _, err := q.AdjustAvailable(-11); !errors.Is(err, domain.ErrNegativeQuantity) {
+	if _, err := q.AdjustAvailable(-11, 0); !errors.Is(err, domain.ErrNegativeQuantity) {
 		t.Errorf("lỗi = %v, mong ErrNegativeQuantity", err)
 	}
 	// Điều chỉnh 0 là vô nghĩa.
-	if _, err := q.AdjustAvailable(0); err == nil {
+	if _, err := q.AdjustAvailable(0, 0); err == nil {
 		t.Error("điều chỉnh 0 phải báo lỗi")
 	}
 }
