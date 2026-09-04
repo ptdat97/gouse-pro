@@ -6,10 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"testing"
-
-	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
 // mienTruXungDot là những module CỐ Ý không ánh xạ ErrVersionConflict ở
@@ -174,35 +171,15 @@ func TestSuaHoSoSongSongKhongTra500(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.dangKyVaDangNhap(emailMoi("songsong"))
 
-	const n = 8
-
-	// Sinh khóa TRƯỚC khi thả: ids.MustNew dùng nguồn ngẫu nhiên dùng
-	// chung, gọi trong goroutine sẽ làm nhiễu chính thứ đang đo.
-	khoa := make([]string, n)
-	for i := range khoa {
-		khoa[i] = ids.MustNew(ids.PrefixRequest).String()
-	}
-
-	ketQua := make([]reply, n)
-	var batDau sync.WaitGroup
-	var xong sync.WaitGroup
-	batDau.Add(1)
-	xong.Add(n)
-
-	for i := 0; i < n; i++ {
-		go func(i int) {
-			defer xong.Done()
-			batDau.Wait()
-			ketQua[i] = a.call(http.MethodPatch, "/api/v1/me",
-				map[string]any{"name": "Tên Mới", "phone": "0900777888"},
-				map[string]string{
-					"Authorization":   "Bearer " + tok,
-					"Idempotency-Key": khoa[i],
-				})
-		}(i)
-	}
-	batDau.Done()
-	xong.Wait()
+	// Dùng helper song song CHỤP ẢNH cookie, không gọi `a.call` trong
+	// goroutine.
+	//
+	// Bản đầu tự dựng vòng lặp gọi thẳng `a.call`, và đó là ĐUA DỮ LIỆU
+	// thật: `a.call` ghi vào hũ cookie dùng chung của apiTest. Nó chỉ lộ
+	// ra khi chạy `-race` trên CẢ gói, không phải khi chạy riêng bài này.
+	ketQua := a.goiSongSongCoHeader(8, http.MethodPatch, "/api/v1/me",
+		map[string]any{"name": "Tên Mới", "phone": "0900777888"},
+		map[string]string{"Authorization": "Bearer " + tok})
 
 	var quaDuocXacThuc int
 	for i, r := range ketQua {

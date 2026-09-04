@@ -229,6 +229,11 @@ paths:
   /api/v1/admin/audit-log:
     $ref: './paths/admin.yaml#/audit_log'
 
+  /api/v1/admin/config:
+    $ref: './paths/admin.yaml#/ops_config'
+  /api/v1/admin/config/{key}:
+    $ref: './paths/admin.yaml#/ops_config_item'
+
   # ----------------------------------------------------------------- Webhooks
   /api/v1/webhooks/payment/{provider}:
     $ref: './paths/webhooks.yaml#/payment_webhook'

@@ -47,6 +47,12 @@ var maTranQuyen = []nhomQuyen{
 	{"nhật ký kiểm toán", "/api/v1/admin/audit-log",
 		[]string{identity.RoleAdmin}},
 
+	// Hẹp hơn mọi nhóm khác có lý do: những tham số này quyết định cách hệ
+	// thống chấm điểm nhà bán. Người muốn lách một ngưỡng rất cần quyền
+	// này, nên nó ở nhóm nhỏ nhất.
+	{"cấu hình vận hành", "/api/v1/admin/config",
+		[]string{identity.RoleAdmin}},
+
 	{"kiểm kê tồn kho — vận hành kho", "/api/v1/admin/inventory",
 		[]string{identity.RoleAdmin, identity.RoleOpsWarehouse}},
 

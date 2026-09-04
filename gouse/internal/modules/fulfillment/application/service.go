@@ -137,11 +137,15 @@ type Service struct {
 	repo   domain.Repository
 	clock  Clock
 	events EventPublisher
+	nguong NguongPort
 }
 
 type Deps struct {
 	Repo  domain.Repository
 	Clock Clock
+
+	// Nguong có thể nil: khi đó dùng ngưỡng mặc định đã biên dịch.
+	Nguong NguongPort
 
 	// Events có thể nil: khi đó module vẫn hoạt động nhưng KHÔNG phát
 	// event, và trạng thái tổng hợp của đơn hàng sẽ không được cập nhật.
@@ -153,7 +157,7 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{repo: d.Repo, clock: clock, events: d.Events}
+	return &Service{repo: d.Repo, clock: clock, events: d.Events, nguong: d.Nguong}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -659,6 +663,15 @@ func KyHopLe(k Ky) (time.Duration, bool) {
 	}
 }
 
+// NguongPort đọc bộ ngưỡng đang áp dụng.
+//
+// Cổng do BÊN GỌI khai: module fulfillment nói nó cần biết ngưỡng, không
+// nói ngưỡng đến từ đâu. Nil thì dùng mặc định đã biên dịch — hệ thống
+// phải chạy đúng kể cả khi chưa nối dây phần cấu hình.
+type NguongPort interface {
+	Nguong() domain.Nguong
+}
+
 // HieuSuat là kết quả chấm hiệu suất của một nhà bán.
 type HieuSuat struct {
 	Ky        Ky
@@ -684,19 +697,24 @@ func (s *Service) TinhHieuSuat(
 	den := s.clock.Now()
 	tu := den.Add(-doDai)
 
-	so, err := s.repo.DemHieuSuat(ctx, sellerID, tu, den, domain.SLAGiaoHang)
+	ng := domain.NguongMacDinh()
+	if s.nguong != nil {
+		ng = s.nguong.Nguong()
+	}
+
+	so, err := s.repo.DemHieuSuat(ctx, sellerID, tu, den, ng.SLAGiaoHang)
 	if err != nil {
 		return nil, err
 	}
 
-	chiSo := domain.TinhChiSo(so)
+	chiSo := domain.TinhChiSo(so, ng)
 	return &HieuSuat{
 		Ky:        k,
-		SLAGio:    domain.SLAGiaoHang.Hours(),
+		SLAGio:    ng.SLAGiaoHang.Hours(),
 		SoLieu:    so,
 		ChiSo:     chiSo,
 		ChuaDo:    domain.ChiSoChuaDo(),
-		ThongDiep: thongDiep(so, chiSo),
+		ThongDiep: thongDiep(so, chiSo, ng),
 	}, nil
 }
 
@@ -707,11 +725,13 @@ var ErrKyKhongHopLe = errors.New("fulfillment: kỳ tính hiệu suất không h
 //
 // Đặc tả: "Seller cần hiểu vì sao mình không thắng buy box và cần làm gì
 // để cải thiện." Một danh sách con số không trả lời vế thứ hai.
-func thongDiep(so domain.SoLieuHieuSuat, chiSo []domain.ChiSoHieuSuat) string {
+func thongDiep(
+	so domain.SoLieuHieuSuat, chiSo []domain.ChiSoHieuSuat, ng domain.Nguong,
+) string {
 	if len(chiSo) == 0 {
 		return fmt.Sprintf(
 			"Chưa đủ dữ liệu để chấm: cần ít nhất %d đơn trong kỳ, hiện có %d.",
-			domain.MauToiThieu, so.TongDon)
+			ng.MauToiThieu, so.TongDon)
 	}
 
 	// Nêu chỉ số TỆ NHẤT, không nêu tất cả: một danh sách việc cần làm dài
@@ -735,7 +755,7 @@ func thongDiep(so domain.SoLieuHieuSuat, chiSo []domain.ChiSoHieuSuat) string {
 		return fmt.Sprintf(
 			"Giao đúng hạn đang ở %.0f%%, dưới ngưỡng %.0f%%. "+
 				"Hạn bàn giao là %.0f giờ kể từ khi đơn được tạo.",
-			tệ.GiaTri*100, tệ.Nguong*100, domain.SLAGiaoHang.Hours())
+			tệ.GiaTri*100, tệ.Nguong*100, ng.SLAGiaoHang.Hours())
 	case "cancellation_rate":
 		return fmt.Sprintf(
 			"Tỷ lệ hủy đang ở %.1f%%, trên ngưỡng %.1f%%. "+

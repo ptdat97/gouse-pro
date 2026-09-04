@@ -1267,3 +1267,149 @@ ReplenishmentSuggestion:
             $ref: '../components/common.yaml#/schemas/Money'
           estimated_lost_sales:
             $ref: '../components/common.yaml#/schemas/Money'
+
+ops_config:
+  get:
+    tags: [Admin]
+    summary: Tham số vận hành
+    description: |
+      Danh sách tham số vận hành sửa được lúc chạy, kèm giá trị hiện tại,
+      biên cho phép, và **hệ quả khi đổi**.
+
+      # Vì sao chỉ MỘT SỐ hằng số có ở đây
+
+      Hệ thống có hai loại hằng số trông giống hệt nhau:
+
+      - **chính sách kinh doanh** — "hạn giao là 48 giờ". Người kinh doanh
+        quyết, và đổi được từ đây.
+      - **kiểm soát đúng đắn** — "lý do tối thiểu 20 ký tự". Bảo vệ hệ
+        thống, và **không** có ở đây.
+
+      Loại thứ hai không bao giờ được đưa vào: một kiểm soát tự nới lỏng
+      được từ giao diện quản trị thì không còn là kiểm soát.
+
+      Danh sách khóa là tập ĐÓNG khai trong mã nguồn — không có đường nào
+      thêm tham số mới từ giao diện.
+    operationId: listOpsConfig
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Danh sách tham số
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/OpsConfigItem'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+ops_config_item:
+  put:
+    tags: [Admin]
+    summary: Đổi một tham số vận hành
+    description: |
+      **Mọi lần đổi đều ghi nhật ký thao tác** kèm `reason`, giá trị CŨ và
+      giá trị MỚI.
+
+      Đổi tham số vận hành ảnh hưởng tới người NGOÀI công ty: hạ hạn giao
+      hàng làm hàng loạt gian hàng đột ngột bị chấm là giao trễ, và điểm đó
+      ảnh hưởng tới việc họ thắng buy box. Một lần đổi không có người chịu
+      trách nhiệm và không có lý do thì không giải thích được khi nhà bán
+      khiếu nại.
+
+      Khóa không có trong sổ đăng ký trả **404** — sổ đăng ký là tập ĐÓNG.
+    operationId: setOpsConfig
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [value, reason]
+            additionalProperties: false
+            properties:
+              value:
+                type: number
+              reason:
+                type: string
+                minLength: 20
+                description: |
+                  Tối thiểu 20 ký tự và không được là chuỗi rác — cùng
+                  ngưỡng với mọi thao tác nhạy cảm khác.
+    responses:
+      '200':
+        description: Đã đổi
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                value:
+                  type: number
+                previous_value:
+                  type: number
+                  description: |
+                    Giá trị TRƯỚC khi đổi. "Đổi thành 24" không trả lời
+                    được câu hỏi quan trọng nhất khi điều tra: đổi từ
+                    bao nhiêu?
+      '400':
+        description: Giá trị ngoài biên, sai kiểu, hoặc thiếu lý do
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+OpsConfigItem:
+  type: object
+  properties:
+    key:
+      type: string
+    type:
+      type: string
+      enum: [duration, ratio, int]
+    value:
+      type: number
+    default:
+      type: number
+    min:
+      type: number
+    max:
+      type: number
+    is_default:
+      type: boolean
+      description: |
+        Chưa ai đặt giá trị này. Phân biệt với "đặt trùng đúng giá trị mặc
+        định" — hai chuyện khác nhau khi đi tìm ai đã đổi gì.
+    description:
+      type: string
+    impact:
+      type: string
+      description: |
+        Điều gì xảy ra khi đổi. Bắt buộc hiện trên giao diện: người đổi con
+        số hiếm khi là người viết đoạn mã đọc nó.
+    updated_at:
+      type: string
+    updated_by:
+      type: string
+    reason:
+      type: string

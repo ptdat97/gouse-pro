@@ -45,6 +45,7 @@ Deprecated — không còn áp dụng
 | [0012](0012-inventory-ownership.md) | Chủ sở hữu tồn kho suy ra từ nhà bán | Accepted | Commerce, Marketplace, Inventory |
 | [0013](0013-write-transaction-boundary.md) | Ranh giới giao dịch bao trọn phép đọc-rồi-ghi | Accepted | Cart, Checkout, Order |
 | [0014](0014-ma-hoa-truong-nhay-cam.md) | Mã hóa trường nhạy cảm bằng AES-256-GCM | Accepted | Seller, Platform |
+| [0015](0015-cau-hinh-van-hanh.md) | Cấu hình vận hành sửa được lúc chạy — sổ đăng ký ĐÓNG | Accepted | Platform, Admin |
 
 ## Quy trình thêm ADR mới
 

@@ -1576,9 +1576,10 @@ không kiểm chứng được — tức vẫn là hộp đen:
 Mẫu dưới 10 đơn thì KHÔNG chấm: gian hàng mới mở có 3 đơn, hủy 1, ra 33%
 và bị chấm NGHIÊM TRỌNG — con số đó nói về cỡ mẫu, không nói về chất lượng.
 
-**Cần quyết định sau:** SLA 48 giờ là hằng số công khai do lần này đặt ra,
-chưa qua sản phẩm duyệt. Nó nằm trong response nên đổi được bằng một hằng
-số, nhưng con số đúng là câu hỏi kinh doanh.
+**SLA 48 giờ giờ SỬA ĐƯỢC từ giao diện quản trị** `[04/09]` — không cần
+build lại. Xem [ADR-0015](../adr/0015-cau-hinh-van-hanh.md). Con số mặc
+định vẫn là 48 và vẫn chưa qua sản phẩm duyệt, nhưng nó không còn khóa
+cứng trong mã.
 
 ### P1.6 — Admin (8/10 xong)
 

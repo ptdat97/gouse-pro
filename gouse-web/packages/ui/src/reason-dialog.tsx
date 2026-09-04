@@ -84,6 +84,16 @@ export interface ReasonDialogProps {
 
   submitting?: boolean;
   onConfirm: (reason: string) => void;
+
+  /**
+   * Trường phụ của thao tác, hiện TRƯỚC ô lý do.
+   *
+   * Vài thao tác cần thêm dữ liệu chứ không chỉ xác nhận — ví dụ đổi một
+   * tham số thì cần cả giá trị mới. Đặt chúng trong cùng hộp thoại giữ
+   * "nhập giá trị" và "giải trình vì sao" là MỘT thao tác: tách ra hai
+   * bước thì lý do dễ trở thành thứ gõ cho xong ở bước sau.
+   */
+  children?: React.ReactNode;
 }
 
 export function ReasonDialog({
@@ -97,6 +107,7 @@ export function ReasonDialog({
   serverError,
   submitting = false,
   onConfirm,
+  children,
 }: ReasonDialogProps) {
   const [reason, setReason] = React.useState("");
   const [touched, setTouched] = React.useState(false);
@@ -140,6 +151,8 @@ export function ReasonDialog({
               if (!error) onConfirm(reason.trim());
             }}
           >
+            {children}
+
             <Field
               label="Lý do (bắt buộc)"
               htmlFor="reason"

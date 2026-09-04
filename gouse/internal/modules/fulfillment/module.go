@@ -16,6 +16,7 @@ import (
 	fulfillmenthttp "github.com/fashion-commerce/platform/internal/modules/fulfillment/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // Module là cài đặt của API công khai.
@@ -43,6 +44,12 @@ type Config struct {
 	// thái tổng hợp của đơn hàng không bao giờ được cập nhật, và khách
 	// thấy đơn mãi ở trạng thái "đang xử lý" dù hàng đã giao.
 	Events *eventbus.Outbox
+
+	// OpsConfig cấp ngưỡng chấm hiệu suất sửa được lúc chạy.
+	//
+	// Nil thì dùng ngưỡng mặc định đã biên dịch — module vẫn chạy đúng khi
+	// chưa nối dây phần cấu hình, và khi database không đọc được.
+	OpsConfig *opsconfig.Store
 }
 
 // New khởi tạo module fulfillment.
@@ -62,6 +69,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Events != nil {
 		deps.Events = &eventPublisher{outbox: cfg.Events}
+	}
+	if cfg.OpsConfig != nil {
+		deps.Nguong = &nguongAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -330,4 +340,21 @@ func (m *Module) RegisterWebhookRoutes(
 
 func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
 	fulfillmenthttp.NewSellerHandler(m.svc, log).Register(mux)
+}
+
+// nguongAdapter dịch tham số vận hành sang từ vựng của fulfillment.
+//
+// Cổng do bên gọi khai, nên tầng application của fulfillment không biết
+// tới `opsconfig` — nó chỉ biết mình cần một bộ ngưỡng.
+type nguongAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.NguongPort = (*nguongAdapter)(nil)
+
+func (a *nguongAdapter) Nguong() domain.Nguong {
+	return domain.Nguong{
+		SLAGiaoHang: a.cfg.DocThoiLuong(opsconfig.KeySLAGiaoHang),
+		HuyDon:      a.cfg.Doc(opsconfig.KeyNguongHuyDon),
+		GiaoDungHan: a.cfg.Doc(opsconfig.KeyNguongGiaoDungHan),
+		MauToiThieu: a.cfg.DocSoNguyen(opsconfig.KeyMauToiThieu),
+	}
 }

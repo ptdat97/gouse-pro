@@ -67,6 +67,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 	"github.com/fashion-commerce/platform/internal/platform/metrics"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 	"github.com/fashion-commerce/platform/internal/platform/privacy"
 	"github.com/fashion-commerce/platform/internal/platform/token"
 	"github.com/fashion-commerce/platform/internal/platform/webhook"
@@ -152,11 +153,21 @@ func Build(
 		ownBrandSellerID string
 		sellerModule     *seller.Module
 		auditRecorder    *audit.Recorder
+		opsConfigStore   *opsconfig.Store
 	)
 	if cfg.Modules.Storage == "postgres" {
 		// Audit log là năng lực platform (ADR-0011), không phải module —
 		// nên nó được khởi tạo ở đây và trao cho những nơi cần ghi vết.
 		auditRecorder = audit.NewRecorder(db.Pool())
+
+		// Tham số vận hành sửa được lúc chạy.
+		//
+		// Tạo TRƯỚC các module dùng nó: module nhận store lúc khởi tạo,
+		// và nil nghĩa là dùng ngưỡng mặc định đã biên dịch.
+		//
+		// Nạp lỗi KHÔNG chặn khởi động — mọi tham số rơi về mặc định, đúng
+		// bằng hành vi của hệ thống trước khi có tính năng này.
+		opsConfigStore = opsconfig.NewStore(ctx, db.Pool())
 
 		// Bộ phát hành access token. Khóa được kiểm tra độ dài ở CẢ config
 		// lẫn token — config chặn sớm với thông báo hướng dẫn được, token
@@ -431,6 +442,9 @@ func Build(
 			Storage: "postgres",
 			DB:      db,
 			Events:  eventbus.NewOutbox(db.Pool()),
+
+			// Ngưỡng chấm hiệu suất nhà bán sửa được từ giao diện quản trị.
+			OpsConfig: opsConfigStore,
 		})
 		if err != nil {
 			return Modules{}, err
@@ -551,6 +565,7 @@ func Build(
 		promotion:   promotionModule,
 		inventory:   inventoryModule,
 		audit:       auditRecorder,
+		opsConfig:   opsConfigStore,
 	}, nil
 }
 
@@ -573,6 +588,9 @@ type Modules struct {
 	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
 	// cũng cần nối route nên đi cùng chỗ này.
 	audit *audit.Recorder
+
+	// opsConfig giữ tham số vận hành sửa được lúc chạy.
+	opsConfig *opsconfig.Store
 }
 
 // registerRoutes gắn các route vào mux.
@@ -873,6 +891,32 @@ func RegisterRoutes(
 					httpserver.Auth(identityModule),
 					httpserver.RequireRole("ADMIN", "OPS_SUPPORT"),
 				))
+		}
+
+		// Cấu hình vận hành: CHỈ vai trò ADMIN.
+		//
+		// Hẹp hơn mọi nhóm khác, và có lý do: những tham số này quyết định
+		// cách hệ thống chấm điểm nhà bán. Người vận hành hàng hóa không
+		// cần đổi chúng, còn người muốn lách một ngưỡng thì lại rất cần —
+		// nên quyền đổi để ở nhóm nhỏ nhất.
+		if m.opsConfig != nil && auditRecorder != nil {
+			cfgMux := http.NewServeMux()
+			(&opsConfigHandler{
+				cfg: m.opsConfig, audit: auditRecorder, log: log,
+			}).Register(cfgMux)
+
+			authedCfg := httpserver.Chain(
+				cfgMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN"),
+			)
+			mux.Handle("GET /api/v1/admin/config", authedCfg)
+			mux.Handle("PUT /api/v1/admin/config/{key}", httpserver.Chain(
+				cfgMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN"),
+				httpserver.RequireIdempotencyKey(),
+			))
 		}
 
 		// Điều chỉnh tồn kho thủ công: ADMIN và OPS_WAREHOUSE.

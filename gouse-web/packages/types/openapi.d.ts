@@ -1669,6 +1669,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tham số vận hành
+         * @description Danh sách tham số vận hành sửa được lúc chạy, kèm giá trị hiện tại,
+         *     biên cho phép, và **hệ quả khi đổi**.
+         *
+         *     # Vì sao chỉ MỘT SỐ hằng số có ở đây
+         *
+         *     Hệ thống có hai loại hằng số trông giống hệt nhau:
+         *
+         *     - **chính sách kinh doanh** — "hạn giao là 48 giờ". Người kinh doanh
+         *       quyết, và đổi được từ đây.
+         *     - **kiểm soát đúng đắn** — "lý do tối thiểu 20 ký tự". Bảo vệ hệ
+         *       thống, và **không** có ở đây.
+         *
+         *     Loại thứ hai không bao giờ được đưa vào: một kiểm soát tự nới lỏng
+         *     được từ giao diện quản trị thì không còn là kiểm soát.
+         *
+         *     Danh sách khóa là tập ĐÓNG khai trong mã nguồn — không có đường nào
+         *     thêm tham số mới từ giao diện.
+         */
+        get: operations["listOpsConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/config/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Đổi một tham số vận hành
+         * @description **Mọi lần đổi đều ghi nhật ký thao tác** kèm `reason`, giá trị CŨ và
+         *     giá trị MỚI.
+         *
+         *     Đổi tham số vận hành ảnh hưởng tới người NGOÀI công ty: hạ hạn giao
+         *     hàng làm hàng loạt gian hàng đột ngột bị chấm là giao trễ, và điểm đó
+         *     ảnh hưởng tới việc họ thắng buy box. Một lần đổi không có người chịu
+         *     trách nhiệm và không có lý do thì không giải thích được khi nhà bán
+         *     khiếu nại.
+         *
+         *     Khóa không có trong sổ đăng ký trả **404** — sổ đăng ký là tập ĐÓNG.
+         */
+        put: operations["setOpsConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/payment/{provider}": {
         parameters: {
             query?: never;
@@ -2764,6 +2829,29 @@ export interface components {
                 estimated_excess_risk?: components["schemas"]["Money"];
                 estimated_lost_sales?: components["schemas"]["Money"];
             }[];
+        };
+        OpsConfigItem: {
+            key?: string;
+            /** @enum {string} */
+            type?: "duration" | "ratio" | "int";
+            value?: number;
+            default?: number;
+            min?: number;
+            max?: number;
+            /**
+             * @description Chưa ai đặt giá trị này. Phân biệt với "đặt trùng đúng giá trị mặc
+             *     định" — hai chuyện khác nhau khi đi tìm ai đã đổi gì.
+             */
+            is_default?: boolean;
+            description?: string;
+            /**
+             * @description Điều gì xảy ra khi đổi. Bắt buộc hiện trên giao diện: người đổi con
+             *     số hiếm khi là người viết đoạn mã đọc nó.
+             */
+            impact?: string;
+            updated_at?: string;
+            updated_by?: string;
+            reason?: string;
         };
     };
     responses: {
@@ -7154,6 +7242,93 @@ export interface operations {
                 };
             };
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listOpsConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách tham số */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["OpsConfigItem"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    setOpsConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    value: number;
+                    /**
+                     * @description Tối thiểu 20 ký tự và không được là chuỗi rác — cùng
+                     *     ngưỡng với mọi thao tác nhạy cảm khác.
+                     */
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Đã đổi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        key?: string;
+                        value?: number;
+                        /**
+                         * @description Giá trị TRƯỚC khi đổi. "Đổi thành 24" không trả lời
+                         *     được câu hỏi quan trọng nhất khi điều tra: đổi từ
+                         *     bao nhiêu?
+                         */
+                        previous_value?: number;
+                    };
+                };
+            };
+            /** @description Giá trị ngoài biên, sai kiểu, hoặc thiếu lý do */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     receivePaymentWebhook: {

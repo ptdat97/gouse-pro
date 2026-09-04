@@ -30,6 +30,11 @@ const NAV: NavItem[] = [
   { href: "/sellers", label: "Nhà bán", roles: ["OPS_MERCHANDISING"] },
   { href: "/orders", label: "Đơn hàng", roles: ["OPS_SUPPORT"] },
   { href: "/audit-log", label: "Nhật ký thao tác", roles: [] },
+
+  // CHỈ ADMIN: những tham số này quyết định cách hệ thống chấm điểm nhà
+  // bán, nên quyền đổi để ở nhóm nhỏ nhất. Danh sách rỗng nghĩa là chỉ
+  // ADMIN thấy — xem chú thích ở đầu tệp.
+  { href: "/config", label: "Cấu hình vận hành", roles: [] },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

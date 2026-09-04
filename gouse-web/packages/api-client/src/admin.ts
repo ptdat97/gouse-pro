@@ -160,3 +160,34 @@ export function listAuditLog(
 ): Promise<AuditLog> {
   return api.get<AuditLog>("/api/v1/admin/audit-log", filter);
 }
+
+// ------------------------------------------------------- Cấu hình vận hành
+
+export type OpsConfigList = Ok<operations["listOpsConfig"]>;
+export type OpsConfigItem = NonNullable<OpsConfigList["data"]>[number];
+export type OpsConfigSet = Ok<operations["setOpsConfig"]>;
+
+export function listOpsConfig(api: ApiClient): Promise<OpsConfigList> {
+  return api.get<OpsConfigList>("/api/v1/admin/config");
+}
+
+/**
+ * Đổi một tham số vận hành.
+ *
+ * `reason` BẮT BUỘC, tối thiểu 20 ký tự — backend từ chối nếu thiếu.
+ *
+ * Đổi tham số vận hành ảnh hưởng tới người NGOÀI công ty: hạ hạn giao hàng
+ * làm hàng loạt gian hàng đột ngột bị chấm là giao trễ. Một lần đổi không
+ * có lý do thì không giải thích được khi nhà bán khiếu nại.
+ */
+export function setOpsConfig(
+  api: ApiClient,
+  key: string,
+  value: number,
+  reason: string,
+): Promise<OpsConfigSet> {
+  return api.put<OpsConfigSet>(`/api/v1/admin/config/${encodeURIComponent(key)}`, {
+    value,
+    reason,
+  });
+}

@@ -25,6 +25,32 @@ const (
 	NguongGiaoDungHan = 0.95 // tỷ lệ giao đúng hạn TỐI THIỂU
 )
 
+// Nguong là bộ ngưỡng đang áp dụng.
+//
+// Gom thành MỘT kiểu thay vì ba tham số rời: ba con số float truyền liền
+// nhau là chỗ dễ đảo thứ tự nhất, và đảo `HuyDon` với `GiaoDungHan` cho ra
+// kết luận ngược hẳn mà trình biên dịch không nói gì.
+type Nguong struct {
+	SLAGiaoHang time.Duration
+	HuyDon      float64
+	GiaoDungHan float64
+	MauToiThieu int
+}
+
+// NguongMacDinh là bộ ngưỡng dùng khi chưa ai đặt.
+//
+// Vẫn nằm ở đây, không chuyển hết sang cấu hình: hệ thống phải chạy đúng
+// khi database không đọc được, và "chạy đúng" nghĩa là dùng đúng con số đã
+// thống nhất khi viết hợp đồng API.
+func NguongMacDinh() Nguong {
+	return Nguong{
+		SLAGiaoHang: SLAGiaoHang,
+		HuyDon:      NguongHuyDon,
+		GiaoDungHan: NguongGiaoDungHan,
+		MauToiThieu: MauToiThieu,
+	}
+}
+
 // TrangThaiChiSo là kết luận về một chỉ số.
 type TrangThaiChiSo string
 
@@ -68,28 +94,35 @@ type SoLieuHieuSuat struct {
 // số đó không nói lên điều gì về chất lượng — nó nói về việc mẫu quá nhỏ.
 // Chấm một gian hàng mới mở là NGHIÊM TRỌNG vì họ hủy đúng một đơn là kiểu
 // bất công mà đặc tả sinh ra để tránh.
-func TinhChiSo(s SoLieuHieuSuat) []ChiSoHieuSuat {
+//
+// # Vì sao NHẬN ngưỡng thay vì đọc hằng số
+//
+// Ba con số này là CHÍNH SÁCH KINH DOANH, sửa được từ giao diện quản trị
+// (xem platform/opsconfig). Domain không đọc cấu hình — nó nhận vào và
+// tính, nên vẫn kiểm được mà không cần database, và vẫn đúng với bất kỳ
+// bộ ngưỡng nào.
+func TinhChiSo(s SoLieuHieuSuat, ng Nguong) []ChiSoHieuSuat {
 	var ra []ChiSoHieuSuat
 
-	if s.TongDon >= MauToiThieu {
+	if s.TongDon >= ng.MauToiThieu {
 		tyLeHuy := float64(s.DonHuy) / float64(s.TongDon)
 		ra = append(ra, ChiSoHieuSuat{
 			Ten:    "cancellation_rate",
 			GiaTri: tyLeHuy,
-			Nguong: NguongHuyDon,
+			Nguong: ng.HuyDon,
 			// Vượt ngưỡng là NGHIÊM TRỌNG, không phải cảnh báo: mỗi đơn
 			// hủy là một khách đã trả tiền rồi không nhận được hàng.
-			TrangThai: xepHangNguocNguong(tyLeHuy, NguongHuyDon),
+			TrangThai: xepHangNguocNguong(tyLeHuy, ng.HuyDon),
 		})
 	}
 
-	if s.DonDaGiao >= MauToiThieu {
+	if s.DonDaGiao >= ng.MauToiThieu {
 		tyLeDungHan := float64(s.DonGiaoDungHan) / float64(s.DonDaGiao)
 		ra = append(ra, ChiSoHieuSuat{
 			Ten:       "on_time_shipping_rate",
 			GiaTri:    tyLeDungHan,
-			Nguong:    NguongGiaoDungHan,
-			TrangThai: xepHangTheoNguong(tyLeDungHan, NguongGiaoDungHan),
+			Nguong:    ng.GiaoDungHan,
+			TrangThai: xepHangTheoNguong(tyLeDungHan, ng.GiaoDungHan),
 		})
 	}
 

@@ -82,10 +82,22 @@ func TestMoiDuongCanQuyenDeuDuocKiem(t *testing.T) {
 //
 // Danh sách kiểm dùng mã có thật (`ord_01J9…`) để gọi được, còn mã nguồn
 // dùng mẫu (`{order_id}`). Chuẩn hóa cả hai về một dạng mới so sánh được.
+var (
+	// maULID khớp một định danh có tiền tố: `ord_01J9X...`.
+	maULID = regexp.MustCompile(`^[a-z]+_[0-9A-Za-z]{20,}$`)
+
+	// maKhoaCauHinh khớp khóa tham số vận hành: `fulfillment.min_sample_size`.
+	//
+	// Dấu CHẤM là dấu hiệu đủ đặc thù: không đoạn đường nào khác trong API
+	// này chứa dấu chấm, còn mọi khóa cấu hình đều có dạng `module.tên`.
+	maKhoaCauHinh = regexp.MustCompile(`^[a-z_]+\.[a-z_]+$`)
+)
+
 func mauDuong(p string) string {
 	phan := strings.Split(p, "/")
 	for i, x := range phan {
-		if strings.HasPrefix(x, "{") || regexp.MustCompile(`^[a-z]+_[0-9A-Za-z]{20,}$`).MatchString(x) {
+		if strings.HasPrefix(x, "{") || maULID.MatchString(x) ||
+			maKhoaCauHinh.MatchString(x) {
 			phan[i] = "{}"
 		}
 	}

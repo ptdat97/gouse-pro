@@ -24,7 +24,7 @@ func timChiSo(ds []domain.ChiSoHieuSuat, ten string) (domain.ChiSoHieuSuat, bool
 func TestMauQuaNhoThiKhongCham(t *testing.T) {
 	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
 		TongDon: 3, DonHuy: 1, DonDaGiao: 2, DonGiaoDungHan: 1,
-	})
+	}, domain.NguongMacDinh())
 	if len(ds) != 0 {
 		t.Errorf("mẫu 3 đơn vẫn bị chấm %d chỉ số — gian hàng mới mở hủy "+
 			"một đơn sẽ bị đánh giá NGHIÊM TRỌNG: %+v", len(ds), ds)
@@ -35,7 +35,7 @@ func TestMauQuaNhoThiKhongCham(t *testing.T) {
 func TestDuMauThiCham(t *testing.T) {
 	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
 		TongDon: 100, DonHuy: 2, DonDaGiao: 90, DonGiaoDungHan: 88,
-	})
+	}, domain.NguongMacDinh())
 	if len(ds) != 2 {
 		t.Fatalf("cần 2 chỉ số, có %d: %+v", len(ds), ds)
 	}
@@ -58,7 +58,7 @@ func TestHaiChiSoNguocChieuNhau(t *testing.T) {
 	// Hủy 10% — RẤT xấu. Giao đúng hạn 10% — cũng RẤT xấu.
 	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
 		TongDon: 100, DonHuy: 10, DonDaGiao: 100, DonGiaoDungHan: 10,
-	})
+	}, domain.NguongMacDinh())
 
 	huy, ok := timChiSo(ds, "cancellation_rate")
 	if !ok {
@@ -84,7 +84,7 @@ func TestVungCanhBao(t *testing.T) {
 	// 92% đúng hạn: dưới ngưỡng 95% nhưng trên 90% × 95% = 85,5%.
 	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
 		TongDon: 100, DonHuy: 0, DonDaGiao: 100, DonGiaoDungHan: 92,
-	})
+	}, domain.NguongMacDinh())
 	dungHan, _ := timChiSo(ds, "on_time_shipping_rate")
 	if dungHan.TrangThai != domain.ChiSoCanhBao {
 		t.Errorf("đúng hạn 92%% xếp %s, cần WARNING — không có vùng đệm thì "+
@@ -99,7 +99,7 @@ func TestVungCanhBao(t *testing.T) {
 func TestKhongChiaChoKhong(t *testing.T) {
 	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
 		TongDon: 50, DonHuy: 50, DonDaGiao: 0, DonGiaoDungHan: 0,
-	})
+	}, domain.NguongMacDinh())
 	if _, co := timChiSo(ds, "on_time_shipping_rate"); co {
 		t.Error("không có đơn nào đã giao mà vẫn tính tỷ lệ đúng hạn")
 	}

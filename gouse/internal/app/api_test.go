@@ -381,8 +381,28 @@ func (a *apiTest) dungPhienSanHoanTat(email, dienThoai string) string {
 
 // goiSongSongKhoaRieng giống goiSongSong nhưng mỗi lượt một khóa
 // idempotency RIÊNG: mô phỏng N lần bấm thật, không phải một lần bị gửi lặp.
+// goiSongSongKhoaRieng giống goiSongSongCoHeader nhưng không gửi header
+// nào ngoài Idempotency-Key.
 func (a *apiTest) goiSongSongKhoaRieng(
 	n int, method, path string, body any,
+) []reply {
+	a.t.Helper()
+	return a.goiSongSongCoHeader(n, method, path, body, nil)
+}
+
+// goiSongSongCoHeader gọi song song, mỗi lượt một khóa idempotency RIÊNG,
+// và mang thêm header do bên gọi đưa (thường là token).
+//
+// # Vì sao KHÔNG dùng `a.call` trong goroutine
+//
+// `a.call` ghi vào hũ cookie dùng chung của apiTest. Gọi nó từ nhiều
+// goroutine là ĐUA DỮ LIỆU thật — bộ dò race bắt được, và nó cũng vô nghĩa
+// về mặt ngữ nghĩa: nhiều request song song không chia sẻ được một phiên
+// đang thay đổi.
+//
+// Hàm này CHỤP ẢNH cookie trước khi thả, và không ghi ngược lại.
+func (a *apiTest) goiSongSongCoHeader(
+	n int, method, path string, body any, them map[string]string,
 ) []reply {
 	a.t.Helper()
 
@@ -414,6 +434,9 @@ func (a *apiTest) goiSongSongKhoaRieng(
 			req := httptest.NewRequest(method, path, bytes.NewReader(than))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", khoa[i])
+			for k, v := range them {
+				req.Header.Set(k, v)
+			}
 			for name, val := range chup {
 				req.AddCookie(&http.Cookie{Name: name, Value: val})
 			}
