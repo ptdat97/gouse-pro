@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/fashion-commerce/platform/internal/modules/identity"
@@ -231,4 +232,208 @@ func TestCauHinhChiSoDangKyMoiHienRa(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestCauHinhGhiVetHongThiKhongDoi.
+//
+// Ghi vết và ghi giá trị nằm trong CÙNG một giao dịch. Nếu chúng tách rời,
+// ghi vết xong mà ghi giá trị hỏng sẽ để lại một dòng nhật ký nói tham số
+// ĐÃ đổi — trong khi nó chưa đổi. Nhật ký kiểm toán nói dối còn tệ hơn
+// không có nhật ký, vì người điều tra tin vào nó.
+//
+// # Tiêm lỗi ở ĐÚNG bước ghi
+//
+// Bản đầu của bài này đổi tên cả bảng `ops_config`. Không dùng được: lệnh
+// hỏng đầu tiên là lệnh ĐỌC giá trị cũ, chạy TRƯỚC cả lúc ghi vết — nên
+// hai cách làm (ghi vết trong và ngoài giao dịch) cho ra cùng kết quả, và
+// bài test không phân biệt được. Phá để kiểm đã chỉ ra điều đó.
+//
+// Trigger chỉ chặn INSERT: đọc vẫn chạy, ghi vết vẫn chạy, chỉ lệnh ghi
+// giá trị hỏng — đúng khoảng mà bài này cần đo.
+func TestCauHinhGhiVetHongThiKhongDoi(t *testing.T) {
+	a := newAPITest(t)
+	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	ctx := context.Background()
+
+	dem := func() int {
+		var n int
+		_ = a.db.Pool().QueryRow(ctx,
+			`SELECT count(*) FROM audit_log WHERE action = 'ops_config.set'`).
+			Scan(&n)
+		return n
+	}
+	truoc := dem()
+
+	if _, err := a.db.Pool().Exec(ctx, `
+		CREATE OR REPLACE FUNCTION chan_ghi_cauhinh() RETURNS trigger AS $$
+		BEGIN
+			RAISE EXCEPTION 'tiêm lỗi: từ chối ghi tham số';
+		END $$ LANGUAGE plpgsql`); err != nil {
+		t.Fatalf("tạo hàm chặn: %v", err)
+	}
+	if _, err := a.db.Pool().Exec(ctx, `
+		CREATE TRIGGER chan_ghi_cauhinh BEFORE INSERT ON ops_config
+		FOR EACH ROW EXECUTE FUNCTION chan_ghi_cauhinh()`); err != nil {
+		t.Fatalf("tạo trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := a.db.Pool().Exec(context.Background(),
+			`DROP TRIGGER IF EXISTS chan_ghi_cauhinh ON ops_config`); err != nil {
+			t.Fatalf("gỡ trigger: %v", err)
+		}
+	})
+
+	h := khoaIdem()
+	h["Authorization"] = "Bearer " + tok
+	res := a.call(http.MethodPut,
+		"/api/v1/admin/config/"+opsconfig.KeyNguongHuyDon,
+		map[string]any{
+			"value":  0.07,
+			"reason": "nới ngưỡng hủy theo thỏa thuận với nhóm vận hành quý này",
+		}, h)
+	if res.code < 400 {
+		t.Fatalf("ghi giá trị hỏng mà vẫn báo thành công: %s", res.raw)
+	}
+
+	if sau := dem(); sau != truoc {
+		t.Errorf("ghi giá trị HỎNG mà vẫn còn %d vết mới — nhật ký nói "+
+			"tham số đã đổi trong khi nó chưa đổi", sau-truoc)
+	}
+}
+
+// TestCauHinhHaiNguoiDoiCungLucVetVanDUNG.
+//
+// Giá trị CŨ đi vào vết kiểm toán. Hai quản trị viên đổi cùng một tham số
+// cùng lúc mà không khóa thì CẢ HAI cùng đọc giá trị cũ giống nhau, và một
+// trong hai dòng nhật ký ghi sai điểm xuất phát — "đổi từ 48 thành 36"
+// trong khi thực tế nó đi từ 24.
+//
+// Bài này khẳng định hai dòng vết tạo thành một CHUỖI: giá trị cũ của lượt
+// sau phải bằng giá trị mới của lượt trước.
+func TestCauHinhHaiNguoiDoiCungLucVetVanDung(t *testing.T) {
+	a := newAPITest(t)
+	tok, actorID := a.taoTaiKhoanVaiTroCoID(t, identity.RoleAdmin)
+	ctx := context.Background()
+	a.khoiPhucCauHinh(t, opsconfig.KeySLAGiaoHang)
+
+	const macDinh = 48.0
+	moi := []float64{24, 36}
+
+	var xong sync.WaitGroup
+	for _, v := range moi {
+		xong.Add(1)
+		go func(v float64) {
+			defer xong.Done()
+			h := khoaIdem()
+			h["Authorization"] = "Bearer " + tok
+			a.call(http.MethodPut,
+				"/api/v1/admin/config/"+opsconfig.KeySLAGiaoHang,
+				map[string]any{
+					"value":  v,
+					"reason": "đổi hạn giao trong bài kiểm thử hai người cùng sửa",
+				}, h)
+		}(v)
+	}
+	xong.Wait()
+
+	rows, err := a.db.Pool().Query(ctx, `
+		SELECT (metadata->>'gia_tri_cu')::float8,
+		       (metadata->>'gia_tri_moi')::float8
+		  FROM audit_log
+		 WHERE action = 'ops_config.set'
+		   AND resource_id = $1
+		   -- Lọc theo NGƯỜI THỰC HIỆN của riêng bài này: nhật ký là bảng
+		   -- dùng chung, và bài khác cũng đổi đúng tham số này.
+		   AND actor_id = $2
+		 ORDER BY occurred_at`, opsconfig.KeySLAGiaoHang, actorID)
+	if err != nil {
+		t.Fatalf("đọc vết: %v", err)
+	}
+	defer rows.Close()
+
+	var cu, mo []float64
+	for rows.Next() {
+		var c, m float64
+		if err := rows.Scan(&c, &m); err != nil {
+			t.Fatalf("đọc dòng vết: %v", err)
+		}
+		cu = append(cu, c)
+		mo = append(mo, m)
+	}
+	if len(cu) != 2 {
+		t.Fatalf("có %d vết, cần 2", len(cu))
+	}
+
+	// Khẳng định theo TÍNH CHẤT CHUỖI, không theo thứ tự thời gian.
+	//
+	// `occurred_at` mặc định là `now()`, mà trong PostgreSQL đó là thời
+	// điểm BẮT ĐẦU giao dịch — không phải lúc ghi. Khóa tuần tự hóa phần
+	// THÂN giao dịch, nên giao dịch thứ hai có thể bắt đầu trước khi giao
+	// dịch thứ nhất xong, và sắp theo cột đó cho ra thứ tự sai.
+	//
+	// Tính chất đúng và không phụ thuộc thứ tự: MỘT vết đi từ mặc định,
+	// vết còn lại đi từ giá trị mà vết kia vừa đặt.
+	var tuMacDinh, tuVetKia int
+	for i := range cu {
+		if cu[i] == macDinh {
+			tuMacDinh++
+			continue
+		}
+		for j := range mo {
+			if j != i && cu[i] == mo[j] {
+				tuVetKia++
+			}
+		}
+	}
+	if tuMacDinh != 1 || tuVetKia != 1 {
+		t.Errorf("hai vết KHÔNG tạo thành chuỗi: cũ=%v mới=%v\n"+
+			"đúng ra một vết đi từ %v và vết kia đi từ giá trị vết đầu "+
+			"vừa đặt. Cả hai cùng đọc một điểm xuất phát nghĩa là không "+
+			"có khóa, và nhật ký ghi sai lịch sử.", cu, mo, macDinh)
+	}
+}
+
+// TestCauHinhDocKhongKhoa: đọc tham số phải an toàn khi chạy song song.
+//
+// Đường đọc chạy trên MỌI request tính hiệu suất, nên nó phải chịu được
+// đọc song song với ghi. Bài này chạy dưới `-race`.
+func TestCauHinhDocKhongKhoa(t *testing.T) {
+	a := newAPITest(t)
+	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	store := a.mods.opsConfig
+	if store == nil {
+		t.Skip("chưa nối cấu hình vận hành")
+	}
+
+	var xong sync.WaitGroup
+	dung := make(chan struct{})
+
+	// Nhiều goroutine ĐỌC liên tục.
+	for i := 0; i < 8; i++ {
+		xong.Add(1)
+		go func() {
+			defer xong.Done()
+			for {
+				select {
+				case <-dung:
+					return
+				default:
+					_ = store.Doc(opsconfig.KeySLAGiaoHang)
+					_ = store.DocSoNguyen(opsconfig.KeyMauToiThieu)
+				}
+			}
+		}()
+	}
+
+	// Trong lúc đó, GHI qua đường HTTP thật.
+	for i := 0; i < 3; i++ {
+		res := a.datCauHinh(t, tok, opsconfig.KeySLAGiaoHang, float64(24+i),
+			"đổi hạn giao trong bài kiểm thử đọc ghi song song")
+		if res.code != http.StatusOK {
+			t.Errorf("đổi lần %d: HTTP %d — %s", i, res.code, res.raw)
+		}
+	}
+
+	close(dung)
+	xong.Wait()
 }

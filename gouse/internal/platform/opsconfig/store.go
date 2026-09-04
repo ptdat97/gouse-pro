@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -54,8 +56,16 @@ type GiaTri struct {
 type Store struct {
 	pool *pgxpool.Pool
 
-	mu  sync.RWMutex
-	dem map[string]float64
+	// dem là bộ đệm ĐỌC KHÔNG KHÓA.
+	//
+	// Con trỏ nguyên tử tới một map CHỈ ĐỌC, thay vì RWMutex quanh một map
+	// sửa tại chỗ. Đường đọc chạy trên MỌI request tính hiệu suất; một
+	// mutex dùng chung ở đó là điểm tranh chấp cho một thứ gần như không
+	// bao giờ đổi.
+	//
+	// Ghi thì thay CẢ map, không sửa map đang có — nên người đọc luôn thấy
+	// một ảnh chụp nhất quán, không thấy trạng thái nửa chừng.
+	dem atomic.Pointer[map[string]float64]
 }
 
 // NewStore tạo store và nạp bộ đệm lần đầu.
@@ -63,7 +73,9 @@ type Store struct {
 // Nạp lỗi KHÔNG làm hỏng khởi động: mọi tham số rơi về mặc định, và đó
 // đúng là hành vi của hệ thống trước khi có gói này.
 func NewStore(ctx context.Context, pool *pgxpool.Pool) *Store {
-	s := &Store{pool: pool, dem: map[string]float64{}}
+	s := &Store{pool: pool}
+	rong := map[string]float64{}
+	s.dem.Store(&rong)
 	_ = s.NapLai(ctx)
 	return s
 }
@@ -109,9 +121,7 @@ func (s *Store) NapLai(ctx context.Context) error {
 		return fmt.Errorf("opsconfig: duyệt tham số: %w", err)
 	}
 
-	s.mu.Lock()
-	s.dem = moi
-	s.mu.Unlock()
+	s.dem.Store(&moi)
 	return nil
 }
 
@@ -129,9 +139,11 @@ func (s *Store) Doc(khoa string) float64 {
 		return t.MacDinh
 	}
 
-	s.mu.RLock()
-	v, co := s.dem[khoa]
-	s.mu.RUnlock()
+	dem := s.dem.Load()
+	if dem == nil {
+		return t.MacDinh
+	}
+	v, co := (*dem)[khoa]
 	if !co {
 		return t.MacDinh
 	}
@@ -214,11 +226,42 @@ type DatInput struct {
 	LyDo   string
 }
 
-// Dat ghi một giá trị mới VÀ nạp lại bộ đệm.
+// Tx là phần giao dịch mà bên gọi cần để ghi vết trong CÙNG giao dịch.
 //
-// Bên gọi (tầng app) chịu trách nhiệm ghi vết kiểm toán trong cùng giao
-// dịch — gói này không biết tới audit để giữ platform trung lập.
-func (s *Store) Dat(ctx context.Context, in DatInput) error {
+// Interface tối thiểu, khai ở đây: gói này không import `audit` để giữ
+// platform không có phụ thuộc chéo không cần thiết.
+type Tx interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// Dat ghi một giá trị mới, chạy `ghiVet` trong CÙNG giao dịch, rồi nạp lại
+// bộ đệm.
+//
+// # Vì sao ghi vết phải nằm TRONG giao dịch
+//
+// Bản đầu ghi vết bằng `audit.Write` (ngoài giao dịch) rồi mới ghi giá
+// trị. Tài liệu của chính `audit.Write` nói rõ nó CHỈ dành cho thao tác
+// đọc, và "với thao tác GHI, dùng WriteTx".
+//
+// Hậu quả của cách làm sai: ghi vết xong mà ghi giá trị hỏng thì nhật ký
+// còn lại một dòng nói rằng tham số đã đổi — trong khi nó chưa đổi. Nhật
+// ký kiểm toán nói dối còn tệ hơn không có nhật ký, vì người điều tra tin
+// vào nó.
+//
+// # Vì sao KHÓA theo khóa tham số
+//
+// Giá trị CŨ đi vào vết kiểm toán. Hai quản trị viên đổi cùng một tham số
+// cùng lúc mà không khóa thì cả hai cùng đọc giá trị cũ giống nhau, và một
+// trong hai dòng nhật ký ghi sai điểm xuất phát — "đổi từ 48 thành 36"
+// trong khi thực tế nó đi từ 24.
+//
+// `pg_advisory_xact_lock` khóa theo TÊN KHÓA chứ không theo hàng, nên nó
+// đúng cả khi hàng chưa tồn tại — trường hợp mà `SELECT … FOR UPDATE`
+// không khóa được gì.
+func (s *Store) Dat(
+	ctx context.Context, in DatInput,
+	ghiVet func(ctx context.Context, tx Tx, giaTriCu float64) error,
+) error {
 	t, ok := Tham(in.Khoa)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrKhongCoKhoa, in.Khoa)
@@ -236,7 +279,38 @@ func (s *Store) Dat(ctx context.Context, in DatInput) error {
 		return errors.New("opsconfig: chưa có kết nối database")
 	}
 
-	_, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("opsconfig: mở giao dịch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext($1))`, in.Khoa); err != nil {
+		return fmt.Errorf("opsconfig: giành khóa tham số: %w", err)
+	}
+
+	// Đọc giá trị cũ TRONG giao dịch, sau khi đã giành khóa.
+	cu := t.MacDinh
+	var doc float64
+	switch err := tx.QueryRow(ctx,
+		`SELECT gia_tri FROM ops_config WHERE khoa = $1`, in.Khoa).
+		Scan(&doc); {
+	case err == nil:
+		cu = doc
+	case errors.Is(err, pgx.ErrNoRows):
+		// Chưa ai đặt: giá trị cũ là mặc định.
+	default:
+		return fmt.Errorf("opsconfig: đọc giá trị cũ: %w", err)
+	}
+
+	if ghiVet != nil {
+		if err := ghiVet(ctx, tx, cu); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO ops_config (khoa, gia_tri, sua_luc, sua_boi, ly_do)
 		VALUES ($1, $2, now(), $3, $4)
 		ON CONFLICT (khoa) DO UPDATE
@@ -244,9 +318,12 @@ func (s *Store) Dat(ctx context.Context, in DatInput) error {
 		       sua_luc = EXCLUDED.sua_luc,
 		       sua_boi = EXCLUDED.sua_boi,
 		       ly_do   = EXCLUDED.ly_do`,
-		in.Khoa, in.GiaTri, in.SuaBoi, in.LyDo)
-	if err != nil {
+		in.Khoa, in.GiaTri, in.SuaBoi, in.LyDo); err != nil {
 		return fmt.Errorf("opsconfig: ghi tham số: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("opsconfig: xác nhận giao dịch: %w", err)
 	}
 
 	// Nạp lại NGAY, không đợi chu kỳ: người vừa đổi sẽ tải lại trang và

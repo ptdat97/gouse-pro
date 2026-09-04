@@ -593,6 +593,13 @@ type Modules struct {
 	opsConfig *opsconfig.Store
 }
 
+// OpsConfig trả bộ tham số vận hành cho GỐC TIẾN TRÌNH.
+//
+// Cần phơi ra vì vòng nạp lại định kỳ phải chạy ở cmd/, không phải trong
+// Build: Build chạy lại ở mỗi bài test tích hợp, và mỗi lần sẽ thả thêm
+// một goroutine không ai dừng.
+func (m Modules) OpsConfig() *opsconfig.Store { return m.opsConfig }
+
 // registerRoutes gắn các route vào mux.
 //
 // Khi có module nghiệp vụ, mỗi module tự đăng ký route của mình ở đây —

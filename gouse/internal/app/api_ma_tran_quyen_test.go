@@ -180,6 +180,18 @@ func coTrong(ds []string, x string) bool {
 // Vai trò nhà bán cần PHẠM VI là một gian hàng; vai trò quản trị thì không.
 func (a *apiTest) taoTaiKhoanVaiTro(t *testing.T, vaiTro string) string {
 	t.Helper()
+	tok, _ := a.taoTaiKhoanVaiTroCoID(t, vaiTro)
+	return tok
+}
+
+// taoTaiKhoanVaiTroCoID trả cả TOKEN và MÃ NGƯỜI DÙNG.
+//
+// Bài test nào khẳng định trên nhật ký thao tác đều cần mã này: nhật ký là
+// bảng dùng CHUNG, nên lọc theo hành động thôi sẽ đếm cả vết của bài khác.
+func (a *apiTest) taoTaiKhoanVaiTroCoID(
+	t *testing.T, vaiTro string,
+) (string, string) {
+	t.Helper()
 	ctx := context.Background()
 
 	email := emailMoi("vt-" + strings.ToLower(vaiTro))
@@ -208,7 +220,7 @@ func (a *apiTest) taoTaiKhoanVaiTro(t *testing.T, vaiTro string) string {
 	if tok == "" {
 		t.Fatalf("đăng nhập %s: %s", vaiTro, res.raw)
 	}
-	return tok
+	return tok, u.ID
 }
 
 // mauSellerID lấy một gian hàng có thật để làm phạm vi.

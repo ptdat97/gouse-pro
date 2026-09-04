@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/app"
 	"github.com/fashion-commerce/platform/internal/platform/config"
@@ -36,6 +37,13 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// opsConfigReloadInterval là nhịp nạp lại tham số vận hành.
+//
+// 30 giây: những tham số này là chính sách kinh doanh, đổi vài lần một
+// tháng. Một khoảng lệch nửa phút giữa các bản sao không gây hại, còn nạp
+// dày hơn là thêm truy vấn cho một thứ gần như không bao giờ đổi.
+const opsConfigReloadInterval = 30 * time.Second
 
 func run() error {
 	cfg, err := config.Load()
@@ -95,6 +103,16 @@ func run() error {
 	m, err := app.Build(ctx, cfg, log, db)
 	if err != nil {
 		return err
+	}
+
+	// Giữ bộ đệm tham số vận hành tươi khi chạy NHIỀU BẢN SAO.
+	//
+	// Ghi tham số chỉ nạp lại bộ đệm của tiến trình ĐANG GHI. Không có
+	// vòng này, một bản sao khác sẽ dùng giá trị cũ MÃI MÃI — tính năng
+	// trông như chạy được vì bản vừa đổi thấy đúng, còn những bản kia thì
+	// không, và không có gì báo.
+	if oc := m.OpsConfig(); oc != nil {
+		go oc.ChayNapLaiDinhKy(ctx, opsConfigReloadInterval)
 	}
 
 	mux := http.NewServeMux()

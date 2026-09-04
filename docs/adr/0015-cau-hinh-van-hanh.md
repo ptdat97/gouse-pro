@@ -63,13 +63,18 @@ chuyện bình thường khi triển khai lại.
 Một tham số không có biên là một tham số ai đó sẽ đặt bằng 0 và làm sập một
 thứ ở xa. Cỡ mẫu 0 nghĩa là chấm mọi gian hàng dù chỉ có một đơn.
 
-### 4. Đọc KHÔNG BAO GIỜ trả lỗi
+### 4. Đọc KHÔNG BAO GIỜ trả lỗi, và KHÔNG khóa
 
 Tham số được đọc trên đường phục vụ request. `Doc` trả về giá trị mặc định
 đã biên dịch khi bộ đệm trống hoặc database không đọc được.
 
 Hệ thống chạy tiếp bằng con số cũ — đúng bằng hành vi trước khi có tính
 năng này. Hỏng theo hướng an toàn.
+
+Bộ đệm là `atomic.Pointer` tới một map CHỈ ĐỌC, không phải RWMutex quanh
+một map sửa tại chỗ: đường đọc chạy trên mọi request tính hiệu suất, và
+một mutex dùng chung ở đó là điểm tranh chấp cho một thứ gần như không bao
+giờ đổi. Ghi thì thay CẢ map, nên người đọc luôn thấy ảnh chụp nhất quán.
 
 ### 5. Mọi lần đổi ghi nhật ký, kèm giá trị CŨ
 
@@ -84,8 +89,13 @@ không giải thích được khi họ khiếu nại.
 Giá trị CŨ nằm trong vết: "đổi thành 24" không trả lời được câu hỏi quan
 trọng nhất khi điều tra — đổi từ bao nhiêu?
 
-Ghi vết TRƯỚC khi đổi; ghi vết hỏng thì KHÔNG đổi. Cùng thứ tự với
-`order.GetOrderAsAdmin` và `customer.GetAsAdmin`.
+Ghi vết và ghi giá trị nằm trong **CÙNG một giao dịch**, và giá trị cũ đọc
+dưới `pg_advisory_xact_lock` theo tên khóa.
+
+Khóa theo TÊN chứ không theo hàng vì hàng có thể chưa tồn tại — trường hợp
+mà `SELECT … FOR UPDATE` không khóa được gì. Không có nó, hai quản trị viên
+đổi cùng lúc sẽ cùng đọc một điểm xuất phát, và một trong hai dòng nhật ký
+ghi sai lịch sử: "đổi từ 48 thành 36" trong khi thực tế nó đi từ 24.
 
 ### 6. Quyền: CHỈ `ADMIN`
 

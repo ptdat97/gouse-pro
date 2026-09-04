@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -150,33 +151,45 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Giá trị CŨ đi vào vết kiểm toán.
+	// Ghi vết và ghi giá trị trong CÙNG giao dịch.
 	//
-	// "Đổi thành 24" không trả lời được câu hỏi quan trọng nhất khi điều
-	// tra: đổi từ bao nhiêu?
-	cu := h.cfg.Doc(khoa)
-
-	if err := h.audit.Write(r.Context(), audit.Entry{
-		ActorType:    audit.ActorUser,
-		ActorID:      ac.UserID,
-		Action:       "ops_config.set",
-		ResourceType: audit.ResourceConfig,
-		ResourceID:   khoa,
-		Reason:       lyDo,
-		RequestID:    logger.RequestIDFromContext(r.Context()),
-		Metadata: map[string]any{
-			"gia_tri_cu":  cu,
-			"gia_tri_moi": req.Value,
+	// Bản đầu ghi vết trước bằng `audit.Write` rồi mới đổi giá trị. Tài
+	// liệu của chính `audit.Write` nói nó CHỈ dành cho thao tác đọc, và
+	// "với thao tác GHI, dùng WriteTx" — tôi đã dùng sai.
+	//
+	// Hậu quả: ghi vết xong mà ghi giá trị hỏng thì nhật ký còn lại một
+	// dòng nói tham số ĐÃ đổi trong khi nó chưa đổi. Nhật ký nói dối tệ
+	// hơn không có nhật ký, vì người điều tra tin vào nó.
+	//
+	// Dùng WriteSensitive chứ không WriteTx: đây đúng là thao tác nhạy
+	// cảm, và nó cưỡng chế lý do thêm một lần ở chốt cuối.
+	var cu float64
+	err := h.cfg.Dat(r.Context(),
+		opsconfig.DatInput{
+			Khoa: khoa, GiaTri: req.Value,
+			SuaBoi: ac.UserID, LyDo: lyDo,
 		},
-	}); err != nil {
-		h.fail(w, r, err)
-		return
-	}
-
-	if err := h.cfg.Dat(r.Context(), opsconfig.DatInput{
-		Khoa: khoa, GiaTri: req.Value,
-		SuaBoi: ac.UserID, LyDo: lyDo,
-	}); err != nil {
+		func(ctx context.Context, tx opsconfig.Tx, giaTriCu float64) error {
+			cu = giaTriCu
+			// Giá trị CŨ đi vào vết, và đọc dưới khóa nên nó ĐÚNG kể cả
+			// khi hai quản trị viên đổi cùng lúc. "Đổi thành 24" không
+			// trả lời được câu hỏi quan trọng nhất khi điều tra: đổi từ
+			// bao nhiêu?
+			return h.audit.WriteSensitive(ctx, tx, audit.Entry{
+				ActorType:    audit.ActorUser,
+				ActorID:      ac.UserID,
+				Action:       "ops_config.set",
+				ResourceType: audit.ResourceConfig,
+				ResourceID:   khoa,
+				Reason:       lyDo,
+				RequestID:    logger.RequestIDFromContext(ctx),
+				Metadata: map[string]any{
+					"gia_tri_cu":  giaTriCu,
+					"gia_tri_moi": req.Value,
+				},
+			})
+		})
+	if err != nil {
 		h.fail(w, r, dichLoiCauHinh(err))
 		return
 	}
