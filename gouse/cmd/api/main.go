@@ -62,7 +62,14 @@ func run() error {
 	// khách hàng.
 	var db *database.DB
 	if cfg.Modules.Storage == "postgres" {
-		db, err = database.Open(ctx, database.Config{DSN: cfg.Database.DSN})
+		tracer := database.NewQueryTracer("api")
+		if err := metrics.Registry.Register(tracer); err != nil {
+			return fmt.Errorf("đăng ký chỉ số truy vấn database: %w", err)
+		}
+		db, err = database.Open(ctx, database.Config{
+			DSN:    cfg.Database.DSN,
+			Tracer: tracer,
+		})
 		if err != nil {
 			return err
 		}

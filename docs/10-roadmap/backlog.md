@@ -1161,7 +1161,7 @@ Thiết kế đã có ở [observability.md](../09-operations/observability.md);
 | PH-22 | **Correlation ID xuyên tiến trình** | ✅ mặc định ở outbox + kế thừa qua bên nhận |
 | PH-23 | **Metrics** | ✅ Prometheus, `/metrics` ở cả API và worker |
 | PH-24 | Độ trễ · tỷ lệ lỗi | ✅ histogram theo mẫu route và mã trạng thái |
-| PH-25 | Metrics database (pool, thời gian truy vấn) | 🟢 pool xong + 3 cảnh báo; thời gian truy vấn chưa |
+| PH-25 | Metrics database (pool, thời gian truy vấn) | ✅ pool + thời gian truy vấn, 5 cảnh báo |
 | PH-26 | Metrics outbox (tồn đọng, độ trễ, số lần thử lại) | ✅ 3 gauge + đếm thất bại theo bên nhận |
 | PH-30 | **Worker chết thì chỉ số outbox đứng yên** | ✅ nhịp tim + độ trễ job + đếm lỗi job |
 | PH-27 | Đếm thất bại nghiệp vụ | ✅ payment và fulfillment đã nối, có test đọc registry thật |

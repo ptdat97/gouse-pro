@@ -242,3 +242,50 @@ groups:
           description: >-
             Chưa ai phải chờ, nhưng không còn chỗ cho một đợt tải cao điểm.
           runbook: docs/09-operations/observability.md
+
+      # ---------------------------------------------------------------
+      # Truy vấn chậm
+      # ---------------------------------------------------------------
+      #
+      # Tách ĐỌC và GHI thành hai luật, vì hai thứ dẫn tới hai hướng điều
+      # tra khác hẳn nhau: đọc chậm thường là thiếu chỉ mục, ghi chậm
+      # thường là tranh chấp khóa. Gộp một luật thì người trực nhận cảnh
+      # báo mà không biết bắt đầu từ đâu.
+      #
+      # Dùng phân vị 95 chứ không phải trung bình: trung bình bị vài truy
+      # vấn nhanh kéo xuống và giấu mất phần đuôi — mà phần đuôi mới là
+      # thứ khách cảm nhận được.
+      - alert: DatabaseReadSlow
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (le) (rate(
+              gouse_db_query_duration_seconds_bucket{operation="select"}[5m])))
+          > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Phân vị 95 của truy vấn ĐỌC vượt 500ms"
+          description: >-
+            Thường là thiếu chỉ mục hoặc bảng đã lớn hơn lúc thiết kế. Dùng
+            `pg_stat_statements` để biết truy vấn nào — chỉ số này chỉ nói
+            có vấn đề, không nói ở câu nào.
+          runbook: docs/09-operations/observability.md
+
+      - alert: DatabaseWriteSlow
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (le) (rate(
+              gouse_db_query_duration_seconds_bucket{operation=~"insert|update|delete"}[5m])))
+          > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Phân vị 95 của truy vấn GHI vượt 500ms"
+          description: >-
+            Thường là tranh chấp khóa. Xem cùng lúc với
+            `gouse_business_failures_total{reason="version_conflict"}`: hai
+            con số cùng tăng nghĩa là đang có tranh chấp thật, chứ không
+            phải database chậm chung.
+          runbook: docs/09-operations/observability.md

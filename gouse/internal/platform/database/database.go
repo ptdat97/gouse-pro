@@ -45,6 +45,14 @@ type Config struct {
 
 	// ConnectTimeout giới hạn thời gian chờ khi mở kết nối.
 	ConnectTimeout time.Duration
+
+	// Tracer đo thời gian mỗi câu lệnh. Bỏ trống thì không đo.
+	//
+	// Tùy chọn chứ không mặc định, vì nó là quyết định của GỐC TIẾN TRÌNH:
+	// chỉ số phải đăng ký vào registry, mà đăng ký hai lần cùng một tên là
+	// lỗi. Bật mặc định thì mọi test tự mở pool đều kéo theo ràng buộc đó
+	// mà không cần tới.
+	Tracer *QueryTracer
 }
 
 // Mặc định hợp lý cho một tiến trình API.
@@ -97,6 +105,13 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 	poolCfg.MaxConnLifetime = orDefaultDuration(cfg.MaxConnLifetime, defaultMaxConnLifetime)
 	poolCfg.MaxConnIdleTime = orDefaultDuration(cfg.MaxConnIdleTime, defaultMaxConnIdleTime)
 	poolCfg.ConnConfig.ConnectTimeout = orDefaultDuration(cfg.ConnectTimeout, defaultConnectTimeout)
+
+	// Gán tracer TRƯỚC khi tạo pool: pgx đọc cấu hình một lần lúc dựng, nên
+	// gán sau sẽ không có tác dụng và im lặng — đúng kiểu hỏng khiến người
+	// ta đi tìm ở chỗ khác.
+	if cfg.Tracer != nil {
+		poolCfg.ConnConfig.Tracer = cfg.Tracer
+	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {

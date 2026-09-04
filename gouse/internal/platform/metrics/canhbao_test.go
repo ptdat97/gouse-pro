@@ -1,10 +1,12 @@
 package metrics_test
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -86,27 +88,42 @@ func TestNhanJobTrongCanhBaoKhopCauHinhThuThap(t *testing.T) {
 func TestMoiChiSoTrongCanhBaoDeuCoTrongCode(t *testing.T) {
 	canhBao := doc(t, "alerts.yml")
 
-	// Quét MỌI nơi khai tên chỉ số, không riêng metrics.go.
+	// Quét CẢ CÂY internal/ để tìm tên chỉ số.
 	//
-	// Giả định "mọi chỉ số nằm trong metrics.go" đã hết đúng từ khi
-	// platform/database tự khai collector của nó. Một bài quét chỉ nhìn
-	// một tệp sẽ báo thiếu cho chỉ số CÓ THẬT, và sửa nó bằng cách nới
-	// điều kiện là đúng thứ làm bài test này vô dụng.
-	nguonChiSo := []string{
-		"metrics.go",
-		"../database/metrics.go",
-	}
-
+	// Bản trước liệt kê tay từng tệp, và trong một buổi tôi phải sửa danh
+	// sách đó HAI lần vì thêm tệp chỉ số mới. Danh sách thủ công ở đây
+	// không sai một cách âm thầm — bài test kêu ngay — nhưng nó biến việc
+	// thêm chỉ số thành việc phải nhớ sửa một tệp không liên quan, và
+	// người sửa dễ chọn cách nhanh hơn: nới điều kiện cho qua.
 	phat := map[string]bool{}
-	for _, tep := range nguonChiSo {
-		nguon, err := os.ReadFile(tep)
+	tenChiSo := regexp.MustCompile(`"(gouse_[a-z_]+)"`)
+	err := filepath.WalkDir("..", func(duong string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("đọc %s: %v", tep, err)
+			return err
 		}
-		for _, m := range regexp.MustCompile(`"(gouse_[a-z_]+)"`).
-			FindAllStringSubmatch(string(nguon), -1) {
+		if d.IsDir() || !strings.HasSuffix(duong, ".go") ||
+			strings.HasSuffix(duong, "_test.go") {
+			return nil
+		}
+		nguon, err := os.ReadFile(duong)
+		if err != nil {
+			return err
+		}
+		for _, m := range tenChiSo.FindAllStringSubmatch(string(nguon), -1) {
 			phat[m[1]] = true
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("quét mã nguồn: %v", err)
+	}
+
+	// Chống xanh rỗng: quét hỏng (sai đường dẫn, regexp lệch) sẽ cho tập
+	// RỖNG, và khi đó mọi chỉ số đều bị báo thiếu — dễ thấy. Nhưng quét ra
+	// một tập nhỏ bất thường thì không ai để ý, nên khẳng định luôn.
+	if len(phat) < 10 {
+		t.Fatalf("chỉ tìm thấy %d tên chỉ số trong internal/ — "+
+			"bộ quét nhiều khả năng đang hỏng", len(phat))
 	}
 
 	for _, m := range regexp.MustCompile(`\b(gouse_[a-z_]+)`).
