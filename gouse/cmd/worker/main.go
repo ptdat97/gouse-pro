@@ -179,6 +179,13 @@ func run() error {
 	defer db.Close()
 	log.Info("đã kết nối database")
 
+	// Phơi trạng thái pool cho Prometheus. Xem ghi chú ở cmd/api/main.go
+	// về việc vì sao đăng ký ở gốc tiến trình.
+	if err := metrics.Registry.Register(
+		database.NewPoolCollector(db, "worker")); err != nil {
+		return fmt.Errorf("đăng ký chỉ số pool database: %w", err)
+	}
+
 	inventoryModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: db})
 	if err != nil {
 		return err

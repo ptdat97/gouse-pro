@@ -23,6 +23,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
+	"github.com/fashion-commerce/platform/internal/platform/metrics"
 )
 
 // version được đặt lúc build qua -ldflags.
@@ -67,6 +68,16 @@ func run() error {
 		}
 		defer db.Close()
 		log.Info("đã kết nối database")
+
+		// Phơi trạng thái pool cho Prometheus.
+		//
+		// Đăng ký ở GỐC TIẾN TRÌNH chứ không trong app.Build: Build chạy
+		// lại ở mỗi bài test tích hợp, và đăng ký cùng một collector nhiều
+		// lần vào một registry sẽ lỗi. Gốc tiến trình chạy đúng một lần.
+		if err := metrics.Registry.Register(
+			database.NewPoolCollector(db, "api")); err != nil {
+			return fmt.Errorf("đăng ký chỉ số pool database: %w", err)
+		}
 	}
 
 	// Dựng module và nối route qua internal/app.

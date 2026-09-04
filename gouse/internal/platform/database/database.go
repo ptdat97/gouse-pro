@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -64,6 +65,15 @@ var ErrNoDSN = errors.New("database: thiếu DSN")
 // trực tiếp vào pgx — đổi driver sau này chỉ sửa package này.
 type DB struct {
 	pool *pgxpool.Pool
+
+	// daDong đánh dấu pool đã đóng.
+	//
+	// pgxpool KHÔNG phơi ra trạng thái này, mà `Stat()` sau khi đóng vẫn
+	// trả về một bộ số (toàn 0) chứ không báo lỗi. Bộ thu thập chỉ số cần
+	// phân biệt được hai chuyện: pool rảnh và pool đã chết. Xem metrics.go.
+	//
+	// atomic vì Close có thể chạy song song với một lần scrape.
+	daDong atomic.Bool
 }
 
 // Open mở pool kết nối và kiểm chứng bằng một lần ping.
@@ -112,9 +122,13 @@ func (db *DB) Pool() *pgxpool.Pool { return db.pool }
 // Close đóng toàn bộ kết nối.
 func (db *DB) Close() {
 	if db.pool != nil {
+		db.daDong.Store(true)
 		db.pool.Close()
 	}
 }
+
+// DaDong cho biết pool đã đóng chưa.
+func (db *DB) DaDong() bool { return db.daDong.Load() }
 
 // Ping kiểm tra kết nối còn sống không.
 //

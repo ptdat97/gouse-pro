@@ -182,3 +182,63 @@ groups:
           description: >-
             Xem nhãn `reason` để biết loại: hết hàng là chuyện thường lúc
             cao điểm, `internal` thì không.
+
+  - name: gouse-database
+    rules:
+      # ---------------------------------------------------------------
+      # Pool kết nối cạn
+      # ---------------------------------------------------------------
+      #
+      # Đây là kiểu hỏng KHÓ THẤY NHẤT trong nhóm này, và là lý do nhóm
+      # tồn tại: pool cạn KHÔNG sinh ra lỗi. Request chỉ đứng chờ.
+      #
+      # Bảng theo dõi khi đó nói dối một cách thuyết phục — tỷ lệ 5xx vẫn
+      # đẹp, tỷ lệ 200 vẫn đẹp, chỉ có độ trễ tăng và không ai biết vì sao.
+      # Người trực đi tìm ở truy vấn chậm, ở CPU, ở mạng, trong khi nguyên
+      # nhân là con số MaxConns đặt quá thấp.
+      - alert: DatabasePoolWaiting
+        expr: rate(gouse_db_pool_empty_acquire_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Request đang phải chờ để lấy kết nối database"
+          description: >-
+            Hơn 1 lượt/giây phải chờ vì pool đã cạn, kéo dài 5 phút. Chưa
+            có ai bị từ chối, nhưng độ trễ đã tăng. Kiểm `MaxConns` so với
+            `max_connections` của PostgreSQL trước khi đi tìm truy vấn chậm.
+          runbook: docs/09-operations/observability.md
+
+      # Bước tiếp theo của cùng một vấn đề, và là lúc khách đã bị ảnh hưởng.
+      #
+      # Ngưỡng đặt sát 0 CÓ CHỦ Ý: chờ lâu tới mức hết hạn nghĩa là đã có
+      # người không mua được hàng vì hạ tầng, không phải vì nghiệp vụ.
+      - alert: DatabasePoolExhausted
+        expr: rate(gouse_db_pool_canceled_acquire_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Có request bỏ cuộc vì không lấy được kết nối database"
+          description: >-
+            Khách đang bị từ chối vì hết kết nối, không phải vì nghiệp vụ.
+            Con số này bình thường phải bằng 0.
+          runbook: docs/09-operations/observability.md
+
+      # Pool gần chạm trần: cảnh báo SỚM, trước khi hai luật trên kêu.
+      #
+      # Dùng tỷ lệ chứ không phải con số tuyệt đối, vì trần khác nhau giữa
+      # api và worker — một ngưỡng cứng sẽ hoặc kêu suốt ở bên này hoặc
+      # không bao giờ kêu ở bên kia.
+      - alert: DatabasePoolNearLimit
+        expr: >-
+          gouse_db_pool_connections{state="acquired"}
+            / gouse_db_pool_max_connections > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pool kết nối database dùng trên 90% trần"
+          description: >-
+            Chưa ai phải chờ, nhưng không còn chỗ cho một đợt tải cao điểm.
+          runbook: docs/09-operations/observability.md

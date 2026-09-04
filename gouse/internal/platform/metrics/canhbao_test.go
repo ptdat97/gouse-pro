@@ -86,15 +86,27 @@ func TestNhanJobTrongCanhBaoKhopCauHinhThuThap(t *testing.T) {
 func TestMoiChiSoTrongCanhBaoDeuCoTrongCode(t *testing.T) {
 	canhBao := doc(t, "alerts.yml")
 
-	nguon, err := os.ReadFile("metrics.go")
-	if err != nil {
-		t.Fatalf("đọc metrics.go: %v", err)
+	// Quét MỌI nơi khai tên chỉ số, không riêng metrics.go.
+	//
+	// Giả định "mọi chỉ số nằm trong metrics.go" đã hết đúng từ khi
+	// platform/database tự khai collector của nó. Một bài quét chỉ nhìn
+	// một tệp sẽ báo thiếu cho chỉ số CÓ THẬT, và sửa nó bằng cách nới
+	// điều kiện là đúng thứ làm bài test này vô dụng.
+	nguonChiSo := []string{
+		"metrics.go",
+		"../database/metrics.go",
 	}
 
 	phat := map[string]bool{}
-	for _, m := range regexp.MustCompile(`"(gouse_[a-z_]+)"`).
-		FindAllStringSubmatch(string(nguon), -1) {
-		phat[m[1]] = true
+	for _, tep := range nguonChiSo {
+		nguon, err := os.ReadFile(tep)
+		if err != nil {
+			t.Fatalf("đọc %s: %v", tep, err)
+		}
+		for _, m := range regexp.MustCompile(`"(gouse_[a-z_]+)"`).
+			FindAllStringSubmatch(string(nguon), -1) {
+			phat[m[1]] = true
+		}
 	}
 
 	for _, m := range regexp.MustCompile(`\b(gouse_[a-z_]+)`).
