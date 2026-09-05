@@ -2266,7 +2266,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-1 | **Test HTTP cho auth và audit-log** | Hiện chỉ kiểm chứng bằng curl thủ công |
 | P3-2 | **Sửa test suite chập chờn** | ✅ xong — xem ghi chú dưới bảng |
 | P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | Sau P1 |
-| P3-4 | Rate limit (`429` + `X-RateLimit-*`) | Đặc tả đã khai báo, chưa cài |
+| P3-4 | Rate limit (`429` + `X-RateLimit-*`) | ✅ xong — xem ghi chú dưới bảng |
 | P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | Tăng cường SAU phát hành — chủ dự án đã gỡ khỏi điều kiện chặn (15/08) |
 | P3-6 | Observability: metrics, tracing | |
 | P3-7 | Chính sách lưu trữ `audit_log` | Bảng chỉ tăng; chờ có số liệu thật |
@@ -2286,6 +2286,34 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | `MarkOutOfStock` là code chết — event `inventory.depleted` chưa ai phát |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
+
+**P3-4 — đã xong (05/09).** `429` và `Retry-After` vốn đã có; phần thiếu
+là bộ `X-RateLimit-Limit / -Remaining / -Reset`.
+
+**CORS đã khai ba tiêu đề đó trong `Access-Control-Expose-Headers` từ
+trước** — trình duyệt sẵn sàng đọc thứ chưa ai gửi.
+
+**Gắn cho MỌI lượt, không riêng lượt bị chặn.** Đó mới là công dụng: client
+thấy hạn mức cạn dần thì tự giãn nhịp, thay vì gõ tới khi ăn 429 rồi mới
+biết. Phá thử bằng cách chỉ gắn ở nhánh 429 — bài test đỏ ngay từ lượt đầu.
+
+**Đường ĐĂNG NHẬP cố ý KHÔNG có bộ tiêu đề này.** Bộ đếm ở đó đếm lượt
+THẤT BẠI, và nói "còn 2 lượt nữa" là đưa cho kẻ rải mật khẩu đúng ngân
+sách để đi chậm mà không bao giờ chạm ngưỡng. Không nói thì nó phải tự dò,
+mà dò nghĩa là ăn 429 — tức là lộ diện. Người dùng thật không mất gì: đăng
+nhập đúng thì không chạm hạn mức, và khi bị chặn vẫn có `Retry-After`.
+
+**`Retry-After` sửa lại cho đúng cửa sổ TRƯỢT.** Trước đây luôn báo trọn
+độ dài cửa sổ. Nhưng chỗ trống đầu tiên xuất hiện khi lượt CŨ NHẤT rơi ra,
+nên bị chặn ở giây thứ 55 của cửa sổ 60 giây thì chỉ cần chờ 5 giây, không
+phải 60. Báo dư là bắt người bị chặn oan ngồi đợi lâu hơn cần thiết.
+
+**`X-RateLimit-Reset` là Unix timestamp** theo đúng đặc tả đã khai. Đặc tả
+nay ghi thêm: client nên chờ theo `Retry-After` (số giây tương đối, miễn
+nhiễm lệch đồng hồ) chứ đừng chờ theo mốc tuyệt đối đó.
+
+**Vẫn còn giới hạn đã biết:** bộ đếm nằm trong bộ nhớ, N bản sao = N lần
+hạn mức — xem P3-16, và nó cần Redis nên chưa làm.
 
 **P3-20 — đã xong (05/09).** Bỏ `buy_box_offer` và `other_offers_count`
 khỏi `ProductDetail` trong đặc tả, kèm lý do ngay tại chỗ.

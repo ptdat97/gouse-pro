@@ -2852,7 +2852,20 @@ export interface components {
         };
     };
     responses: {
-        /** @description Vượt giới hạn tốc độ. */
+        /**
+         * @description Vượt giới hạn tốc độ.
+         *
+         *     **`Retry-After` luôn có; bộ `X-RateLimit-*` thì KHÔNG.** Đường đăng
+         *     nhập đếm lượt THẤT BẠI, và nói ra ngân sách còn lại là đưa cho kẻ
+         *     rải mật khẩu đúng thứ nó cần để đi chậm mà không chạm ngưỡng — nên
+         *     đường đó chỉ trả `Retry-After`.
+         *
+         *     `Retry-After` là SỐ GIÂY tương đối và tính theo cửa sổ TRƯỢT: chỗ
+         *     trống xuất hiện khi lượt cũ nhất rơi ra khỏi cửa sổ, không phải khi
+         *     hết trọn một cửa sổ nữa. Dùng nó để chờ, đừng dùng
+         *     `X-RateLimit-Reset` — mốc đó là thời gian tuyệt đối nên lệch theo
+         *     đồng hồ máy khách.
+         */
         TooManyRequests: {
             headers: {
                 "X-Request-ID": components["headers"]["X-Request-ID"];
