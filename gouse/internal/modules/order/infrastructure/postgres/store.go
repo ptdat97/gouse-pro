@@ -390,14 +390,19 @@ func (s *OrderStore) findOne(ctx context.Context, where string, args ...any) (*d
 }
 
 func (s *OrderStore) ListByCustomer(
-	ctx context.Context, customerID ids.ID, limit, offset int,
+	ctx context.Context, customerID ids.ID, status domain.Status, limit, offset int,
 ) ([]*domain.Order, error) {
+	// `$2 = '' OR status = $2` giữ MỘT câu truy vấn cho cả hai trường hợp.
+	//
+	// Dựng câu lệnh động theo nhánh sẽ có hai đường đi, và đường ít dùng
+	// hơn là đường không ai kiểm.
 	rows, err := s.pool.Query(ctx, `SELECT`+orderCols+`
 		  FROM "order"
 		 WHERE customer_id = $1
+		   AND ($2 = '' OR status = $2)
 		 ORDER BY placed_at DESC
-		 LIMIT $2 OFFSET $3`,
-		customerID.String(), limitOr(limit, 20), max0(offset))
+		 LIMIT $3 OFFSET $4`,
+		customerID.String(), string(status), limitOr(limit, 20), max0(offset))
 	if err != nil {
 		return nil, fmt.Errorf("order: liệt kê đơn của khách: %w", err)
 	}

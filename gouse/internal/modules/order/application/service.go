@@ -312,11 +312,22 @@ func (s *Service) GetOrderByNumber(ctx context.Context, number string) (*domain.
 	return s.orders.FindByOrderNumber(ctx, number)
 }
 
+// ListCustomerOrders trả lịch sử đơn của một khách.
+//
+// `status` rỗng nghĩa là mọi trạng thái. Chuỗi không hợp lệ trả
+// ErrTrangThaiKhongHopLe — KHÔNG lặng lẽ trả danh sách rỗng, vì rỗng trông
+// giống "khách chưa có đơn nào" chứ không giống "bạn gõ sai".
 func (s *Service) ListCustomerOrders(
-	ctx context.Context, customerID ids.ID, limit, offset int,
+	ctx context.Context, customerID ids.ID, status domain.Status, limit, offset int,
 ) ([]*domain.Order, error) {
-	return s.orders.ListByCustomer(ctx, customerID, limit, offset)
+	if status != "" && !status.HopLe() {
+		return nil, fmt.Errorf("%w: %q", ErrTrangThaiKhongHopLe, status)
+	}
+	return s.orders.ListByCustomer(ctx, customerID, status, limit, offset)
 }
+
+// ErrTrangThaiKhongHopLe khi bộ lọc `status` nằm ngoài tập đã khai.
+var ErrTrangThaiKhongHopLe = errors.New("order: trạng thái lọc không hợp lệ")
 
 // ---------------------------------------------------------------- Khách hàng
 

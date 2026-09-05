@@ -21,6 +21,8 @@ package http
 // lấy lô giao thì CHƯA TỒN TẠI — xem backlog P1.8.
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -103,9 +105,26 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Lọc trạng thái đi THẲNG vào truy vấn.
+	//
+	// Trước đây lọc sau khi đọc, và hệ quả không nhỏ: bản ghi bị loại vẫn
+	// tính vào trang, nên một trang trả ít hơn `limit`. Khi CẢ trang bị
+	// loại thì `data` rỗng trong lúc `has_more` vẫn true — client thường
+	// coi trang rỗng là hết dữ liệu và dừng, nên khách mất phần lịch sử
+	// còn lại.
+	wanted := domain.Status(strings.TrimSpace(r.URL.Query().Get("status")))
+
 	// Lấy DƯ MỘT bản ghi để biết còn trang sau không, thay vì chạy thêm
 	// một truy vấn COUNT trên toàn bộ lịch sử mua hàng.
-	orders, err := h.svc.ListCustomerOrders(r.Context(), customerID, limit+1, offset)
+	orders, err := h.svc.ListCustomerOrders(
+		r.Context(), customerID, wanted, limit+1, offset)
+	if errors.Is(err, application.ErrTrangThaiKhongHopLe) {
+		// 400 chứ không phải danh sách rỗng: rỗng trông giống "khách chưa
+		// có đơn nào" chứ không giống "bạn gõ sai trạng thái".
+		h.failCustomer(w, r, apierror.New(apierror.CodeValidationFailed,
+			fmt.Sprintf("status phải là một trong: %s", tenTrangThai())))
+		return
+	}
 	if err != nil {
 		h.failCustomer(w, r, translate(err))
 		return
@@ -116,16 +135,8 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 		orders = orders[:limit]
 	}
 
-	// Lọc theo trạng thái ở tầng này là TẠM THỜI và có hệ quả: bản ghi bị
-	// loại vẫn tính vào trang, nên một trang có thể trả ít hơn `limit`.
-	// Lọc đúng chỗ là trong truy vấn — xem backlog P3-11.
-	wanted := strings.TrimSpace(r.URL.Query().Get("status"))
-
 	data := make([]summaryJSON, 0, len(orders))
 	for _, o := range orders {
-		if wanted != "" && string(o.Status()) != wanted {
-			continue
-		}
 		data = append(data, toSummary(o))
 	}
 
@@ -455,4 +466,17 @@ func toCustomerDetail(o *domain.Order) customerDetailJSON {
 	}
 
 	return out
+}
+
+// tenTrangThai liệt kê trạng thái hợp lệ cho thông báo lỗi.
+//
+// Lấy từ domain chứ không chép tay: chép tay thì thêm một trạng thái mới
+// sẽ để thông báo lỗi nói thiếu, và người tích hợp đi tìm cái không có.
+func tenTrangThai() string {
+	ds := domain.MoiTrangThai()
+	ten := make([]string, 0, len(ds))
+	for _, s := range ds {
+		ten = append(ten, string(s))
+	}
+	return strings.Join(ten, ", ")
 }

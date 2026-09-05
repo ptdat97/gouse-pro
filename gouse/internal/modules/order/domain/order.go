@@ -63,6 +63,33 @@ const (
 	StatusCompleted          Status = "COMPLETED"
 )
 
+// HopLe cho biết chuỗi này có phải một trạng thái đơn hàng hay không.
+//
+// Tập ĐÓNG, và cần nó vì bộ lọc `?status=` nhận chuỗi từ người gọi. Đẩy
+// thẳng chuỗi lạ xuống truy vấn thì nó trả về 0 dòng — trông giống "khách
+// chưa có đơn nào" chứ không giống "bạn gõ sai trạng thái".
+func (s Status) HopLe() bool {
+	switch s {
+	case StatusPendingPayment, StatusPaid, StatusProcessing,
+		StatusPartiallyShipped, StatusShipped, StatusPartiallyDelivered,
+		StatusDelivered, StatusPartiallyCancelled, StatusCancelled,
+		StatusCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+// MoiTrangThai liệt kê mọi trạng thái, dùng cho thông báo lỗi và test.
+func MoiTrangThai() []Status {
+	return []Status{
+		StatusPendingPayment, StatusPaid, StatusProcessing,
+		StatusPartiallyShipped, StatusShipped, StatusPartiallyDelivered,
+		StatusDelivered, StatusPartiallyCancelled, StatusCancelled,
+		StatusCompleted,
+	}
+}
+
 // IsFinal cho biết đơn đã kết thúc, không đổi trạng thái nữa.
 func (s Status) IsFinal() bool {
 	return s == StatusCompleted || s == StatusCancelled

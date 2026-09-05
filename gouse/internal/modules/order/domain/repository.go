@@ -44,7 +44,16 @@ type Repository interface {
 	FindBySourceCheckout(ctx context.Context, checkoutID ids.ID) (*Order, error)
 
 	// ListByCustomer trả lịch sử đơn của một khách.
-	ListByCustomer(ctx context.Context, customerID ids.ID, limit, offset int) ([]*Order, error)
+	//
+	// `status` rỗng nghĩa là MỌI trạng thái.
+	//
+	// Lọc nằm TRONG truy vấn, không phải sau khi đọc. Lọc sau khi đọc làm
+	// bản ghi bị loại vẫn tính vào trang: một trang trả ít hơn `limit`, và
+	// khi cả trang bị loại thì `data` rỗng trong lúc `has_more` vẫn true —
+	// client thường coi trang rỗng là hết dữ liệu và dừng phân trang.
+	ListByCustomer(
+		ctx context.Context, customerID ids.ID, status Status, limit, offset int,
+	) ([]*Order, error)
 
 	// List trả đơn theo bộ lọc, cho giao diện quản trị.
 	//

@@ -4353,6 +4353,11 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
                 cursor?: components["parameters"]["Cursor"];
+                /**
+                 * @description Bỏ trống nghĩa là mọi trạng thái. Giá trị ngoài tập đã khai trả
+                 *     `400` kèm danh sách giá trị hợp lệ — KHÔNG trả danh sách rỗng,
+                 *     vì rỗng trông giống "chưa có đơn nào" chứ không giống "gõ sai".
+                 */
                 status?: components["schemas"]["OrderStatus"];
             };
             header?: never;
@@ -4373,6 +4378,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };

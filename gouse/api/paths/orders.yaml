@@ -18,6 +18,10 @@ orders:
       - $ref: '../components/common.yaml#/parameters/Cursor'
       - name: status
         in: query
+        description: |
+          Bỏ trống nghĩa là mọi trạng thái. Giá trị ngoài tập đã khai trả
+          `400` kèm danh sách giá trị hợp lệ — KHÔNG trả danh sách rỗng,
+          vì rỗng trông giống "chưa có đơn nào" chứ không giống "gõ sai".
         schema:
           $ref: '../components/schemas.yaml#/OrderStatus'
     responses:
@@ -34,6 +38,8 @@ orders:
                     $ref: '../components/schemas.yaml#/OrderSummary'
                 pagination:
                   $ref: '../components/common.yaml#/schemas/CursorPagination'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
       '401':
         $ref: '../components/common.yaml#/responses/Unauthorized'
 

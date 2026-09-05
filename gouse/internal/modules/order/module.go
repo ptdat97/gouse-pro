@@ -363,7 +363,8 @@ func (m *Module) ListCustomerOrders(
 	if err != nil {
 		return nil, ErrInvalidID
 	}
-	orders, err := m.svc.ListCustomerOrders(ctx, id, limit, offset)
+	// Mặt public của module chưa lọc trạng thái: chưa có bên gọi nào cần.
+	orders, err := m.svc.ListCustomerOrders(ctx, id, "", limit, offset)
 	if err != nil {
 		return nil, translateErr(err)
 	}

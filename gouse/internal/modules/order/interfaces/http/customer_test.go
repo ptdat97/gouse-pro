@@ -63,13 +63,21 @@ func (r *fakeRepo) FindBySourceCheckout(_ context.Context, _ ids.ID) (*domain.Or
 }
 
 func (r *fakeRepo) ListByCustomer(
-	_ context.Context, customerID ids.ID, limit, offset int,
+	_ context.Context, customerID ids.ID, status domain.Status, limit, offset int,
 ) ([]*domain.Order, error) {
 	var mine []*domain.Order
 	for _, o := range r.orders {
-		if o.CustomerID() == customerID {
-			mine = append(mine, o)
+		// Lọc trạng thái NGAY ở đây, giống câu SQL thật.
+		//
+		// Bản giả lọc khác bản thật thì test xanh trên một hành vi không
+		// tồn tại — đúng thứ bản giả sinh ra để tránh.
+		if o.CustomerID() != customerID {
+			continue
 		}
+		if status != "" && o.Status() != status {
+			continue
+		}
+		mine = append(mine, o)
 	}
 	if offset >= len(mine) {
 		return nil, nil

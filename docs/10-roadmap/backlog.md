@@ -1609,8 +1609,8 @@ có" sẽ đếm được chính xác số đơn nền tảng bán mỗi tháng.
 2. **`refund` KHÔNG có trong response hủy đơn.** Số tiền hoàn thuộc
    `payment`. Đoán một con số tệ hơn không trả gì: khách đọc "hoàn trong 3
    ngày" rồi chờ, trong khi không gì cam kết con số đó.
-3. **Lọc `status` và phân trang làm ở tầng HTTP**, không trong truy vấn —
-   xem P3-11 và P3-12.
+3. **Phân trang làm ở tầng HTTP**, không trong truy vấn — xem P3-12.
+   Lọc `status` đã đưa vào truy vấn, xem P3-11.
 
 ### P1.5 — Seller Center (11/11 xong) `[XONG 04/09]`
 
@@ -2274,7 +2274,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-8 | **Phí vận chuyển thật** thay bảng cứng trong checkout | Cần `fulfillment.EstimateShipping()` (checkout.md §7) |
 | P3-9 | **Nối `payment_method` vào đơn hàng** | Hiện được kiểm tra rồi bỏ qua; đơn luôn `PENDING_PAYMENT` |
 | P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | Cần cả bốn module thật; có từ trước P1.3 |
-| P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | Hiện lọc sau khi đọc: một trang có thể trả ít hơn `limit` |
+| P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | ✅ xong — xem ghi chú dưới bảng |
 | P3-12 | Phân trang theo KHÓA thay vì offset | `next_cursor` hiện là offset mã hóa; đơn mới xen vào có thể làm lặp bản ghi |
 | P3-13 | **Dữ liệu mẫu MUA ĐƯỢC**: seed cho offer + tồn kho | ✅ xong — xem ghi chú dưới bảng |
 | P3-14 | **Tùy chọn khách hàng** (số đo cơ thể, size ưa thích) | Cần thiết kế lưu trữ MÃ HÓA trước; đặc tả tự yêu cầu điều đó |
@@ -2287,6 +2287,39 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | `MarkOutOfStock` là code chết — event `inventory.depleted` chưa ai phát |
 | P3-20 | `SKU.buy_box_offer` trong đặc tả không bao giờ được trả | Cùng lớp với lỗi `availability` đã sửa: trường không `required` nên không ai phát hiện |
+
+**P3-11 — đã xong (05/09).** Lọc `status` của `listMyOrders` đi thẳng vào
+truy vấn: `AND ($2 = '' OR status = $2)`, một câu lệnh cho cả hai trường
+hợp thay vì dựng SQL động theo nhánh — nhánh ít dùng hơn là nhánh không ai
+kiểm.
+
+**Hậu quả thật tệ hơn dòng mô tả cũ trong bảng.** "Một trang trả ít hơn
+`limit`" mới là trường hợp nhẹ. Khi CẢ trang bị loại thì `data` rỗng trong
+lúc `has_more` vẫn `true`, và client thường coi trang rỗng là hết dữ liệu
+rồi dừng phân trang — khách mất phần lịch sử còn lại mà không có lỗi nào
+báo. Kiểm chứng bằng cách khôi phục lối lọc cũ: `{"data":[],"pagination":
+{"next_cursor":"1","has_more":true}}`.
+
+**Trạng thái gõ sai nay trả 400** kèm danh sách giá trị hợp lệ, chứ không
+phải danh sách rỗng — rỗng trông giống "khách chưa có đơn nào" chứ không
+giống "bạn gõ sai". Tập trạng thái đóng nằm ở domain (`Status.HopLe`),
+không phải ở handler.
+
+**Ba lỗi trong CHÍNH BỘ TEST, tìm ra nhờ phá code thật.** Bản test đầu vẫn
+XANH khi lối lọc cũ được khôi phục — tức là nó không chứng minh gì:
+
+1. SQL dựng dữ liệu huỷ 3 đơn MỚI NHẤT, tức một khối liền nhau, chứ không
+   xen kẽ như chú thích nói. Trang đầu khi đó toàn `CANCELLED`, nên lọc
+   trong truy vấn và lọc sau khi đọc cho ra CÙNG kết quả.
+2. `UPDATE ... WHERE guest_email = lower($2)` không khớp bản ghi nào:
+   `guest_email` lưu NGUYÊN VĂN chuỗi khách gửi, còn `customer.email` mới
+   là cột lưu chữ thường. Không đơn nào được gắn vào khách, và bài test
+   chạy trên danh sách rỗng.
+3. `placed_at` của các đơn quá sát nhau, trong khi truy vấn sắp theo cột
+   đó — thứ tự do PostgreSQL tuỳ chọn.
+
+Nay dữ liệu xen kẽ một-một, `placed_at` cách nhau hẳn một phút, và có chốt
+chặn: dựng xong mà không đủ 2 đơn mỗi trạng thái thì `t.Fatalf` ngay.
 
 **P3-19 — đã xong (20/08).** `GET /api/v1/sellers?ids=` tra hồ sơ nhà bán
 theo LÔ, công khai, không cần đăng nhập.
