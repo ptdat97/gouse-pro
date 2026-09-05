@@ -1165,6 +1165,43 @@ e2e vẫn tách riêng vì nó cần storefront chạy ở cổng 3001.
 Kiểm chứng bằng cách thêm một bài cố tình hỏng: `npm test` thoát 1.
 
 
+### 2.22 Trang thanh toán tự mâu thuẫn về thời gian `[XONG 05/09]`
+
+Hai chỗ cùng suy ra một sự thật, bằng hai phép tính riêng:
+
+```text
+trang    new Date(expires_at).getTime() - now  →  msLeft <= 0
+format   countdown(expires_at)                 →  "00:00"
+```
+
+`expires_at` hỏng hoặc thiếu làm `msLeft` thành **NaN**, mà `NaN <= 0` là
+**false** — nên trang coi phiên CHƯA hết hạn và mở hết nút, trong khi đồng
+hồ hiện **"00:00"**.
+
+Khách đọc "Hàng được giữ cho bạn trong 00:00" rồi vẫn bấm tiếp được, và
+không biết tin cái nào.
+
+**Sửa ở gốc, không vá triệu chứng:** thêm `msConLai()` trả `number | null`
+làm nguồn DUY NHẤT; cả đồng hồ, cờ hết hạn và lớp "sắp hết giờ" cùng đọc
+nó. Hai chỗ tự tính riêng thì chúng bất đồng được — và đã bất đồng.
+
+`null` KHÁC 0 có chủ ý: không biết thì bên gọi tự quyết, chứ không bị ép
+coi là đã hết hạn. Trả 0 sẽ KHÓA hết nút vì một mốc thời gian không đọc
+được, chứ không phải vì phiên thật sự hết.
+
+### 2.23 Quy tắc đếm món trong giỏ chưa có gì ghim `[XONG 05/09]`
+
+"Đếm DÒNG chứ không cộng số lượng" là quyết định sản phẩm — `3` nghĩa là
+ba món KHÁC nhau, không phải ba cái cùng một áo.
+
+Nó chỉ nằm trong một chú thích. Một lần "sửa cho đúng hơn" là đủ để nó
+biến mất, và không gì báo.
+
+Đã ghim bằng test, kèm hàng rào cho giỏ rỗng: badge nằm ở thanh điều hướng
+nên hiện trên MỌI trang — một lỗi ném ở đó làm trắng toàn bộ ứng dụng, chứ
+không riêng trang giỏ hàng.
+
+
 ### 2.9 Audit authorization (PH-9, PH-10)
 
 Đã có, kiểm ở tầng domain/application chứ không phải ở HTTP:

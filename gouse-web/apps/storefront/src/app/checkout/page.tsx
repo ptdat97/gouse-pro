@@ -13,7 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 
-import { countdown, money } from "@/lib/format";
+import { countdown, money, msConLai } from "@/lib/format";
 import { useShop } from "@/lib/shop";
 
 /**
@@ -175,8 +175,18 @@ export default function CheckoutPage() {
 
   if (!checkout) return <p className="muted">Đang giữ hàng cho bạn…</p>;
 
-  const msLeft = new Date(checkout.expires_at).getTime() - now;
-  const expired = msLeft <= 0;
+  // Dùng CHUNG nguồn với đồng hồ đếm ngược.
+  //
+  // Trước đây trang tự tính, và khi `expires_at` hỏng thì `msLeft` là NaN:
+  // `NaN <= 0` là false nên trang coi phiên CHƯA hết hạn và cho bấm tiếp,
+  // trong khi đồng hồ hiện "00:00". Hai chỗ cùng suy ra một sự thật rồi
+  // bất đồng.
+  //
+  // `null` nghĩa là KHÔNG BIẾT — không coi là đã hết hạn, vì chặn khách
+  // vì một mốc thời gian không đọc được thì tệ hơn để họ thử.
+  void now; // `now` chỉ để buộc render lại mỗi giây
+  const msLeft = msConLai(checkout.expires_at);
+  const expired = msLeft !== null && msLeft <= 0;
 
   async function step(fn: () => Promise<Checkout>) {
     setBusy(true);
@@ -245,7 +255,7 @@ export default function CheckoutPage() {
       <p>
         Hàng được giữ cho bạn trong{" "}
         <span
-          className={`countdown${msLeft < 120_000 ? " countdown--urgent" : ""}`}
+          className={`countdown${msLeft !== null && msLeft < 120_000 ? " countdown--urgent" : ""}`}
         >
           {countdown(checkout.expires_at)}
         </span>

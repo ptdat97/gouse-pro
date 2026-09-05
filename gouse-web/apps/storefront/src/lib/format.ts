@@ -71,10 +71,45 @@ export function dateTime(iso: string | undefined | null): string {
  * Phiên giữ tồn kho 15 phút. Khách PHẢI thấy đồng hồ đếm ngược: hết hạn mà
  * không báo trước thì họ điền xong địa chỉ mới biết mình mất chỗ.
  */
+/**
+ * Mili giây còn lại tới `expiresAt`, hoặc `null` khi KHÔNG BIẾT.
+ *
+ * Một nguồn sự thật duy nhất cho cả đồng hồ đếm ngược lẫn cờ "đã hết hạn".
+ * Hai chỗ tự tính riêng thì chúng bất đồng được — và đã bất đồng: trang
+ * thanh toán tính `new Date(...).getTime() - now` rồi so `<= 0`, trong khi
+ * `countdown` gộp giá trị hỏng thành "00:00".
+ *
+ * `null` KHÁC 0: không biết thì bên gọi tự quyết, chứ không bị ép coi là
+ * đã hết hạn.
+ */
+export function msConLai(expiresAt: string | undefined): number | null {
+  if (!expiresAt) return null;
+  const moc = new Date(expiresAt).getTime();
+  if (Number.isNaN(moc)) return null;
+  return moc - Date.now();
+}
+
+/**
+ * Thời gian còn lại của phiên thanh toán, dạng "12:34".
+ *
+ * Phiên giữ tồn kho 15 phút. Khách PHẢI thấy đồng hồ đếm ngược: hết hạn mà
+ * không báo trước thì họ điền xong địa chỉ mới biết mình mất chỗ.
+ *
+ * # "—" và "00:00" nói hai chuyện KHÁC nhau
+ *
+ * `null` là KHÔNG BIẾT (thiếu mốc, hoặc mốc không đọc được); `00:00` là ĐÃ
+ * HẾT HẠN. Bản đầu gộp cả hai thành "00:00", và điều đó tạo ra một trang
+ * tự mâu thuẫn: `expires_at` hỏng làm `msLeft` thành NaN, mà `NaN <= 0` là
+ * false — nên trang coi phiên CHƯA hết hạn, cho bấm tiếp, trong khi đồng
+ * hồ hiện "00:00".
+ *
+ * Khách đọc được "Hàng được giữ cho bạn trong 00:00" và không biết tin cái
+ * nào.
+ */
 export function countdown(expiresAt: string | undefined): string {
-  if (!expiresAt) return "—";
-  const ms = new Date(expiresAt).getTime() - Date.now();
-  if (Number.isNaN(ms) || ms <= 0) return "00:00";
+  const ms = msConLai(expiresAt);
+  if (ms === null) return "—";
+  if (ms <= 0) return "00:00";
 
   const total = Math.floor(ms / 1000);
   const mm = String(Math.floor(total / 60)).padStart(2, "0");

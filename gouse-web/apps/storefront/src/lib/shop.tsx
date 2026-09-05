@@ -211,7 +211,7 @@ export function useShop(): ShopValue {
  * Đếm DÒNG chứ không cộng số lượng: "3" trên biểu tượng giỏ nghĩa là ba
  * món khác nhau, hợp trực giác hơn "3" khi khách mua ba cái cùng một áo.
  */
-function countItems(cart: Cart | null): number {
+export function countItems(cart: Cart | null): number {
   if (!cart?.cart?.groups) return 0;
   return cart.cart.groups.reduce(
     (n, g) => n + (g.items?.length ?? 0),
