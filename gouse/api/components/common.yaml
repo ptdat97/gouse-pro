@@ -309,7 +309,16 @@ parameters:
   Cursor:
     name: cursor
     in: query
-    description: Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+    description: |
+      Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+
+      **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+      bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+      tự dựng, tự cộng hay tự diễn giải.
+
+      Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+      lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+      lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
     schema:
       type: string
 

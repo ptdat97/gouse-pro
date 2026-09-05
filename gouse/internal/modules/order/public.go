@@ -65,7 +65,13 @@ type API interface {
 	GetOrder(ctx context.Context, orderID string) (*OrderView, error)
 	GetOrderByNumber(ctx context.Context, number string) (*OrderView, error)
 
-	ListCustomerOrders(ctx context.Context, customerID string, limit, offset int) ([]OrderView, error)
+	// ListCustomerOrders trả TRANG ĐẦU lịch sử đơn của một khách.
+	//
+	// Không có tham số đọc tiếp, và đó là chủ ý: mặt public này chưa có bên
+	// gọi nào. Bày ra API phân trang chưa ai dùng thì hoặc phải bịa hình
+	// dạng con trỏ, hoặc phải giữ lại offset — mà offset chính là lỗi P3-12
+	// vừa sửa. Khi có bên gọi thật cần trang sau, thêm con trỏ lúc đó.
+	ListCustomerOrders(ctx context.Context, customerID string, limit int) ([]OrderView, error)
 
 	// ApplyFulfillmentProgress tính lại trạng thái tổng hợp của đơn.
 	//

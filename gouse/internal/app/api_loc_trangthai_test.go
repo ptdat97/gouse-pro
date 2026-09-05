@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/url"
 	"testing"
@@ -22,6 +23,22 @@ import (
 // Trả về token và trạng thái của nhóm đơn KHÔNG bị huỷ, để bài test lọc
 // theo trạng thái có thật thay vì một chuỗi đoán mò.
 func (a *apiTest) dungNhieuDon(t *testing.T, n int) (string, string) {
+	t.Helper()
+	d := a.dungNhieuDonCoEmail(t, n)
+	return d.token, d.trangThaiConLai
+}
+
+// donDaDung gom những gì bài test cần sau khi dựng dữ liệu. Trả struct thay
+// vì bốn giá trị trần: `(string, string, string, string)` thì đổi chỗ hai
+// tham số là lỗi âm thầm, trình biên dịch không bắt được.
+type donDaDung struct {
+	token           string
+	email           string
+	maKhach         string
+	trangThaiConLai string
+}
+
+func (a *apiTest) dungNhieuDonCoEmail(t *testing.T, n int) donDaDung {
 	t.Helper()
 	ctx := context.Background()
 
@@ -89,7 +106,9 @@ func (a *apiTest) dungNhieuDon(t *testing.T, n int) (string, string) {
 			"nhất 2 mỗi bên thì bộ lọc mới có gì để lọc",
 			soHuy, soConLai, conLai)
 	}
-	return tok, conLai
+	return donDaDung{
+		token: tok, email: email, maKhach: customerID, trangThaiConLai: conLai,
+	}
 }
 
 // TestLocTrangThaiKhongLamTrangTraThieu.
@@ -179,5 +198,203 @@ func TestLocTrangThaiLaTra400(t *testing.T) {
 	// Không lọc thì vẫn phải chạy bình thường.
 	if res := a.call(http.MethodGet, "/api/v1/orders", nil, bearer(tok)); res.code != http.StatusOK {
 		t.Errorf("không lọc: HTTP %d — %s", res.code, res.raw)
+	}
+}
+
+// themDonMoiNhat tạo thêm MỘT đơn cho khách đã có, và đặt `placed_at` sau
+// mọi đơn cũ — tức là đơn này đứng ĐẦU danh sách sắp theo `placed_at DESC`.
+//
+// Đây là tình huống thật, không phải dựng để bắt lỗi: khách mở trang lịch
+// sử, xem trang 1, rồi đặt thêm một đơn trước khi bấm "xem thêm".
+func (a *apiTest) themDonMoiNhat(t *testing.T, email, customerID string) {
+	t.Helper()
+	ctx := context.Background()
+
+	maPhien := a.dungPhienSanHoanTat(email, "0900444555")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
+		map[string]any{"payment_method": "COD"}, khoaIdem())
+	if res.code != http.StatusCreated && res.code != http.StatusOK {
+		t.Fatalf("đơn mới: HTTP %d — %s", res.code, res.raw)
+	}
+	don, _ := res.body["order"].(map[string]any)
+	maDon, _ := don["id"].(string)
+
+	if _, err := a.db.Pool().Exec(ctx,
+		`UPDATE "order" SET customer_id = $1, placed_at = now() WHERE id = $2`,
+		customerID, maDon); err != nil {
+		t.Fatalf("gắn đơn mới: %v", err)
+	}
+}
+
+// docTrang trả danh sách id của một trang, kèm con trỏ đi tiếp.
+func (a *apiTest) docTrang(t *testing.T, tok, truyVan string) ([]string, string) {
+	t.Helper()
+	res := a.call(http.MethodGet, "/api/v1/orders?"+truyVan, nil, bearer(tok))
+	if res.code != http.StatusOK {
+		t.Fatalf("đọc trang %q: HTTP %d — %s", truyVan, res.code, res.raw)
+	}
+	ds, _ := res.body["data"].([]any)
+	ids := make([]string, 0, len(ds))
+	for _, x := range ds {
+		m, _ := x.(map[string]any)
+		id, _ := m["id"].(string)
+		ids = append(ids, id)
+	}
+	pg, _ := res.body["pagination"].(map[string]any)
+	con, _ := pg["next_cursor"].(string)
+	return ids, con
+}
+
+// TestPhanTrangKhongLapBanGhi.
+//
+// # Lỗi
+//
+// `next_cursor` là SỐ THỨ TỰ bỏ qua (offset) chứ không phải khoá. Giữa hai
+// lần đọc mà có đơn mới xen vào đầu danh sách, mọi bản ghi bị đẩy lùi một
+// bậc, nên trang sau đọc lại bản ghi mà trang trước đã trả.
+//
+// Khách thấy CÙNG một đơn hai lần trong lịch sử mua hàng. Tệ hơn: nếu một
+// đơn rời khỏi tập lọc giữa chừng thì chiều ngược lại xảy ra — một đơn bị
+// NHẢY QUA và không bao giờ hiện ra.
+func TestPhanTrangKhongLapBanGhi(t *testing.T) {
+	a := newAPITest(t)
+	d := a.dungNhieuDonCoEmail(t, 6)
+	tok := d.token
+
+	trang1, con := a.docTrang(t, tok, "limit=3")
+	if len(trang1) != 3 || con == "" {
+		t.Fatalf("trang 1 có %d đơn, con trỏ %q — cần 3 đơn và còn trang sau",
+			len(trang1), con)
+	}
+
+	// Khách đặt thêm một đơn TRƯỚC khi bấm "xem thêm".
+	a.themDonMoiNhat(t, d.email, d.maKhach)
+
+	trang2, _ := a.docTrang(t, tok, "limit=3&cursor="+url.QueryEscape(con))
+
+	da := map[string]bool{}
+	for _, id := range trang1 {
+		da[id] = true
+	}
+	for _, id := range trang2 {
+		if da[id] {
+			t.Errorf("đơn %s xuất hiện ở CẢ trang 1 và trang 2 — con trỏ là "+
+				"offset, nên đơn mới xen vào đầu đẩy mọi bản ghi lùi một "+
+				"bậc\ntrang 1: %v\ntrang 2: %v", id, trang1, trang2)
+		}
+	}
+}
+
+// TestPhanTrangDiHetDanhSach: đi hết mọi trang phải gặp MỖI đơn đúng MỘT lần.
+//
+// Lặp bản ghi thì khách còn nhìn thấy và nghi ngờ. Chiều ngược lại — bản
+// ghi bị NHẢY QUA — thì im lặng hoàn toàn: đơn đó biến mất khỏi lịch sử mà
+// không ai biết để đi tìm. Bài này bắt cả hai chiều.
+func TestPhanTrangDiHetDanhSach(t *testing.T) {
+	a := newAPITest(t)
+	d := a.dungNhieuDonCoEmail(t, 7)
+
+	dem := map[string]int{}
+	truyVan, soTrang := "limit=2", 0
+	for {
+		ids, con := a.docTrang(t, d.token, truyVan)
+		for _, id := range ids {
+			dem[id]++
+		}
+		soTrang++
+		if soTrang > 20 {
+			t.Fatal("đi quá 20 trang cho 7 đơn — con trỏ không tiến")
+		}
+		if con == "" {
+			break
+		}
+		truyVan = "limit=2&cursor=" + url.QueryEscape(con)
+	}
+
+	if len(dem) != 7 {
+		t.Errorf("đi hết các trang gặp %d đơn khác nhau, cần 7 — có đơn bị "+
+			"nhảy qua", len(dem))
+	}
+	for id, n := range dem {
+		if n != 1 {
+			t.Errorf("đơn %s xuất hiện %d lần khi đi hết danh sách", id, n)
+		}
+	}
+	// Chống test rỗng ruột: 7 đơn với limit=2 phải là 4 trang.
+	if soTrang != 4 {
+		t.Errorf("đi %d trang cho 7 đơn với limit=2, cần 4", soTrang)
+	}
+}
+
+// TestConTroBiaTra400: con trỏ bịa phải báo lỗi, không lặng lẽ đọc từ đầu.
+//
+// Đọc từ đầu là kiểu hỏng xấu nhất ở đây: client tưởng đang đọc trang 5,
+// nhận lại trang 1, rồi lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+func TestConTroBiaTra400(t *testing.T) {
+	a := newAPITest(t)
+	tok := a.dangKyVaDangNhap(emailMoi("contro"))
+
+	// Con trỏ mang id của thực thể KHÁC: đúng định dạng, sai kiểu.
+	saiKieu := base64.RawURLEncoding.EncodeToString(
+		[]byte("1757000000000000|off_01ARZ3NDEKTSV4RRFFQ69G5FAV"))
+
+	for _, xau := range []string{
+		"0", "3", "khong-phai-base64!!", "MTIz", saiKieu,
+		base64.RawURLEncoding.EncodeToString([]byte("abc|ord_01ARZ3NDEKTSV4RRFFQ69G5FAV")),
+	} {
+		res := a.call(http.MethodGet,
+			"/api/v1/orders?cursor="+url.QueryEscape(xau), nil, bearer(tok))
+		if res.code != http.StatusBadRequest {
+			t.Errorf("cursor %q: HTTP %d, cần 400 — %s", xau, res.code, res.raw)
+		}
+	}
+}
+
+// TestPhanTrangKhiTrungMocThoiGian: nhiều đơn CÙNG một `placed_at`.
+//
+// Đây là lý do mốc phải gồm CẢ `id`, không riêng `placed_at`. Trùng mốc
+// không phải chuyện hiếm dựng ra để bắt lỗi: đơn tạo trong cùng một
+// transaction dùng chung `now()` của PostgreSQL, và nhập liệu hàng loạt
+// thì cả lô chung một mốc.
+//
+// Nếu chỉ so `placed_at`, trang sau hỏi "đơn nào CŨ HƠN mốc" và loại sạch
+// những đơn cùng mốc — kể cả đơn chưa ai đọc. Danh sách đứt giữa chừng và
+// không có lỗi nào báo.
+func TestPhanTrangKhiTrungMocThoiGian(t *testing.T) {
+	a := newAPITest(t)
+	d := a.dungNhieuDonCoEmail(t, 7)
+
+	// Dồn MỌI đơn về đúng một mốc thời gian.
+	if _, err := a.db.Pool().Exec(context.Background(),
+		`UPDATE "order" SET placed_at = timestamptz '2026-09-01 10:00:00+07'
+		  WHERE customer_id = $1`, d.maKhach); err != nil {
+		t.Fatalf("dồn mốc thời gian: %v", err)
+	}
+
+	dem := map[string]int{}
+	truyVan, soTrang := "limit=2", 0
+	for {
+		ids, con := a.docTrang(t, d.token, truyVan)
+		for _, id := range ids {
+			dem[id]++
+		}
+		soTrang++
+		if soTrang > 20 {
+			t.Fatal("đi quá 20 trang cho 7 đơn — con trỏ không tiến")
+		}
+		if con == "" {
+			break
+		}
+		truyVan = "limit=2&cursor=" + url.QueryEscape(con)
+	}
+
+	if len(dem) != 7 {
+		t.Errorf("7 đơn cùng một `placed_at`, đi hết các trang chỉ gặp %d — "+
+			"mốc bỏ qua `id` nên đơn cùng mốc bị loại sạch", len(dem))
+	}
+	for id, n := range dem {
+		if n != 1 {
+			t.Errorf("đơn %s xuất hiện %d lần", id, n)
+		}
 	}
 }

@@ -2959,7 +2959,17 @@ export interface components {
         RequestId: string;
         /** @description Số bản ghi tối đa mỗi trang. */
         Limit: number;
-        /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+        /**
+         * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+         *
+         *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+         *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+         *     tự dựng, tự cộng hay tự diễn giải.
+         *
+         *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+         *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+         *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+         */
         Cursor: string;
         /**
          * @description Sắp xếp theo `field:asc` hoặc `field:desc`, nhiều trường phân tách bằng dấu phẩy.
@@ -3131,7 +3141,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 /**
                  * @description Sắp xếp theo `field:asc` hoặc `field:desc`, nhiều trường phân tách bằng dấu phẩy.
@@ -3354,7 +3374,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 rating?: number;
             };
@@ -3483,7 +3513,17 @@ export interface operations {
                 type?: "PRODUCT" | "BRAND" | "CREATOR" | "CONTENT" | "ALL";
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -3518,7 +3558,17 @@ export interface operations {
                 feed_type?: "FOR_YOU" | "TRENDING" | "NEW_ARRIVALS" | "FOLLOWING";
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -4351,7 +4401,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 /**
                  * @description Bỏ trống nghĩa là mọi trạng thái. Giá trị ngoài tập đã khai trả
@@ -4895,7 +4955,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -5099,7 +5169,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 status?: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" | "SUSPENDED" | "ARCHIVED";
             };
@@ -5349,7 +5429,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 status?: components["schemas"]["FulfillmentStatus"];
                 /** @description Chỉ đơn quá hạn cam kết xử lý (SLA). */
@@ -5831,7 +5921,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 status?: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "REJECTED" | "TAKEN_DOWN" | "ARCHIVED";
             };
@@ -5999,7 +6099,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -6303,7 +6413,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 status?: "APPLIED" | "PENDING_REVIEW" | "APPROVED" | "ACTIVE" | "REJECTED" | "SUSPENDED" | "ON_VACATION" | "TERMINATED";
                 seller_type?: "INTERNAL" | "INDIVIDUAL" | "BUSINESS" | "LOCAL_BRAND" | "STRATEGIC_PARTNER";
@@ -6910,7 +7030,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Chỉ đề xuất có mâu thuẫn MOQ/dự báo. */
                 has_conflict?: boolean;
@@ -7055,7 +7185,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Tra cứu chính xác theo mã đơn. */
                 order_number?: string;
@@ -7210,7 +7350,17 @@ export interface operations {
             query?: {
                 /** @description Số bản ghi tối đa mỗi trang. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`. */
+                /**
+                 * @description Con trỏ trang tiếp, lấy từ `pagination.next_cursor`.
+                 *
+                 *     **Chuỗi ĐỤC.** Hình dạng bên trong là chuyện của máy chủ và đổi được
+                 *     bất cứ lúc nào — client chỉ được truyền lại nguyên văn, không được
+                 *     tự dựng, tự cộng hay tự diễn giải.
+                 *
+                 *     Con trỏ sai định dạng trả `400`, không lặng lẽ đọc lại từ đầu: đọc
+                 *     lại từ đầu làm client tưởng đang ở trang sau, nhận về trang đầu, rồi
+                 *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
+                 */
                 cursor?: components["parameters"]["Cursor"];
                 resource_type?: "LEDGER" | "INVENTORY" | "SELLER" | "CREATOR" | "CUSTOMER" | "CONTENT" | "ORDER" | "CONFIG";
                 action?: string;

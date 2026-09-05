@@ -390,19 +390,40 @@ func (s *OrderStore) findOne(ctx context.Context, where string, args ...any) (*d
 }
 
 func (s *OrderStore) ListByCustomer(
-	ctx context.Context, customerID ids.ID, status domain.Status, limit, offset int,
+	ctx context.Context, customerID ids.ID, status domain.Status,
+	limit int, moc *domain.MocPhanTrang,
 ) ([]*domain.Order, error) {
 	// `$2 = '' OR status = $2` giữ MỘT câu truy vấn cho cả hai trường hợp.
 	//
 	// Dựng câu lệnh động theo nhánh sẽ có hai đường đi, và đường ít dùng
-	// hơn là đường không ai kiểm.
+	// hơn là đường không ai kiểm. Điều kiện mốc đọc tiếp cũng vậy: `$4 IS
+	// NULL` tắt nó đi thay vì ghép thêm chuỗi SQL.
+	var mocTG *time.Time
+	var mocID *string
+	if moc != nil {
+		t, id := moc.PlacedAt, moc.ID.String()
+		mocTG, mocID = &t, &id
+	}
+
+	// So sánh CẢ CẶP `(placed_at, id)` chứ không riêng `placed_at`: hai đơn
+	// cùng micro-giây có chung mốc, và nếu ranh giới trang rơi vào đó thì
+	// so theo một cột hoặc bỏ sót hoặc lặp các đơn cùng mốc.
+	//
+	// `ORDER BY` phải khớp ĐÚNG thứ tự của phép so sánh, nếu không "cũ hơn
+	// mốc" và "đứng sau mốc" là hai tập khác nhau và phân trang lủng.
+	//
+	// Index `order_customer_idx (customer_id, placed_at DESC)` phục vụ
+	// thẳng dạng này — đây là chỗ khóa hơn hẳn offset: offset vẫn phải đọc
+	// rồi bỏ đi `offset` bản ghi đầu, còn khóa thì nhảy thẳng tới nơi.
 	rows, err := s.pool.Query(ctx, `SELECT`+orderCols+`
 		  FROM "order"
 		 WHERE customer_id = $1
 		   AND ($2 = '' OR status = $2)
-		 ORDER BY placed_at DESC
-		 LIMIT $3 OFFSET $4`,
-		customerID.String(), string(status), limitOr(limit, 20), max0(offset))
+		   AND ($4::timestamptz IS NULL
+		        OR (placed_at, id) < ($4::timestamptz, $5::text))
+		 ORDER BY placed_at DESC, id DESC
+		 LIMIT $3`,
+		customerID.String(), string(status), limitOr(limit, 20), mocTG, mocID)
 	if err != nil {
 		return nil, fmt.Errorf("order: liệt kê đơn của khách: %w", err)
 	}

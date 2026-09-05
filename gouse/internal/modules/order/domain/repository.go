@@ -51,8 +51,12 @@ type Repository interface {
 	// bản ghi bị loại vẫn tính vào trang: một trang trả ít hơn `limit`, và
 	// khi cả trang bị loại thì `data` rỗng trong lúc `has_more` vẫn true —
 	// client thường coi trang rỗng là hết dữ liệu và dừng phân trang.
+	//
+	// Đọc tiếp theo KHÓA (`moc`) chứ không theo số thứ tự bỏ qua. `moc`
+	// nil nghĩa là đọc từ đầu. Xem MocPhanTrang để biết vì sao.
 	ListByCustomer(
-		ctx context.Context, customerID ids.ID, status Status, limit, offset int,
+		ctx context.Context, customerID ids.ID, status Status,
+		limit int, moc *MocPhanTrang,
 	) ([]*Order, error)
 
 	// List trả đơn theo bộ lọc, cho giao diện quản trị.

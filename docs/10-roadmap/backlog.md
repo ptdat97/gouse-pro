@@ -1609,8 +1609,7 @@ có" sẽ đếm được chính xác số đơn nền tảng bán mỗi tháng.
 2. **`refund` KHÔNG có trong response hủy đơn.** Số tiền hoàn thuộc
    `payment`. Đoán một con số tệ hơn không trả gì: khách đọc "hoàn trong 3
    ngày" rồi chờ, trong khi không gì cam kết con số đó.
-3. **Phân trang làm ở tầng HTTP**, không trong truy vấn — xem P3-12.
-   Lọc `status` đã đưa vào truy vấn, xem P3-11.
+3. **Lọc `status` và phân trang đều đã vào truy vấn** — xem P3-11, P3-12.
 
 ### P1.5 — Seller Center (11/11 xong) `[XONG 04/09]`
 
@@ -2275,7 +2274,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-9 | **Nối `payment_method` vào đơn hàng** | Hiện được kiểm tra rồi bỏ qua; đơn luôn `PENDING_PAYMENT` |
 | P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | Cần cả bốn module thật; có từ trước P1.3 |
 | P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | ✅ xong — xem ghi chú dưới bảng |
-| P3-12 | Phân trang theo KHÓA thay vì offset | `next_cursor` hiện là offset mã hóa; đơn mới xen vào có thể làm lặp bản ghi |
+| P3-12 | Phân trang theo KHÓA thay vì offset | ✅ xong — xem ghi chú dưới bảng |
 | P3-13 | **Dữ liệu mẫu MUA ĐƯỢC**: seed cho offer + tồn kho | ✅ xong — xem ghi chú dưới bảng |
 | P3-14 | **Tùy chọn khách hàng** (số đo cơ thể, size ưa thích) | Cần thiết kế lưu trữ MÃ HÓA trước; đặc tả tự yêu cầu điều đó |
 | P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | Chặn P1.9: khách từng đặt hàng vãng lai chưa đăng ký được bằng email đó |
@@ -2287,6 +2286,57 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | `MarkOutOfStock` là code chết — event `inventory.depleted` chưa ai phát |
 | P3-20 | `SKU.buy_box_offer` trong đặc tả không bao giờ được trả | Cùng lớp với lỗi `availability` đã sửa: trường không `required` nên không ai phát hiện |
+
+**P3-12 — đã xong (05/09).** `listMyOrders` phân trang theo KHÓA
+`(placed_at, id)`, không còn theo offset.
+
+**Lỗi đã tái hiện trước khi sửa**, không phải suy luận. Đọc trang 1
+(`limit=3`), đặt thêm một đơn, rồi đọc trang 2 bằng con trỏ trả về:
+
+```text
+trang 1: [...AATSEY0BAKYRPM71KS ...AKNFSJQZVJJBBP90XJ ...AV6J0RDFNWJP5KAYZ0]
+trang 2: [...AV6J0RDFNWJP5KAYZ0 ...B3ASYJPJ6SQB1M5J2R ...B8WCPJH1WVM4FW9APP]
+```
+
+Đơn cuối trang 1 quay lại làm đơn đầu trang 2. Offset đếm theo VỊ TRÍ
+trong danh sách sắp `placed_at DESC`, nên đơn mới chèn vào đầu đẩy mọi bản
+ghi lùi một bậc. Chiều ngược lại tệ hơn vì im lặng: bản ghi rời khỏi tập
+lọc thì một đơn bị NHẢY QUA và không bao giờ hiện ra.
+
+**Mốc phải gồm CẢ `id`, không riêng `placed_at`.** Đơn tạo trong cùng một
+transaction dùng chung `now()` của PostgreSQL, và nhập liệu hàng loạt thì
+cả lô chung một mốc. So riêng `placed_at` thì trang sau hỏi "đơn nào cũ
+hơn mốc" và loại sạch những đơn cùng mốc — kể cả đơn chưa ai đọc. Phá thử
+đúng chỗ này: 7 đơn cùng mốc, đi hết các trang chỉ gặp 2.
+
+`ORDER BY` cũng phải khớp ĐÚNG thứ tự phép so sánh. Bỏ `id DESC` khỏi
+`ORDER BY` mà vẫn so theo cặp thì vừa lặp vừa sót.
+
+**Không ký con trỏ, có cân nhắc.** Mốc chỉ chọn vị trí trong danh sách đơn
+của CHÍNH người gọi — `customer_id` luôn lấy từ token, không từ request —
+nên sửa mốc cùng lắm nhảy tới chỗ khác trong lịch sử của chính mình. Con
+trỏ sai định dạng trả `400` chứ không đọc lại từ đầu: đọc lại từ đầu làm
+client tưởng đang ở trang sau, nhận về trang đầu, rồi lặp vô hạn.
+
+**Index `order_customer_idx (customer_id, placed_at DESC)` có sẵn** và
+phục vụ thẳng dạng truy vấn này. Đây là chỗ khóa hơn hẳn offset kể cả khi
+dữ liệu đứng yên: offset vẫn phải đọc rồi bỏ đi `offset` bản ghi đầu.
+
+**Mặt public của module bỏ luôn tham số phân trang** (`ListCustomerOrders`
+giờ chỉ nhận `limit`). Nó chưa có bên gọi nào; bày ra API phân trang chưa
+ai dùng thì hoặc phải bịa hình dạng con trỏ, hoặc phải giữ offset — mà
+offset chính là lỗi vừa sửa.
+
+**Một chú thích đã bị SỬA LẠI vì không kiểm chứng được.** Bản đầu viết
+rằng ghi mốc theo nano-giây sẽ làm bản ghi ở ranh giới trang lặp hoặc biến
+mất. Phá thử: đổi sang nano-giây, không bài test nào đỏ — và đúng là
+không thể đỏ, vì `placed_at` luôn đọc lên từ PostgreSQL nên đã tròn
+micro-giây sẵn. Chú thích nay nói đúng lý do thật: micro-giây khớp độ phân
+giải của `timestamptz`, thế thôi.
+
+**Đặc tả đã mô tả đúng từ đầu** ("offset… gây lặp/nhảy bản ghi") — lại là
+phần cài đặt lệch khỏi hợp đồng, giống hệt P3-11. Bổ sung vào đặc tả: con
+trỏ là chuỗi ĐỤC, client không được tự dựng hay tự cộng.
 
 **P3-11 — đã xong (05/09).** Lọc `status` của `listMyOrders` đi thẳng vào
 truy vấn: `AND ($2 = '' OR status = $2)`, một câu lệnh cho cả hai trường

@@ -314,16 +314,19 @@ func (s *Service) GetOrderByNumber(ctx context.Context, number string) (*domain.
 
 // ListCustomerOrders trả lịch sử đơn của một khách.
 //
+// `moc` nil nghĩa là đọc từ đầu; khác nil là đọc tiếp sau bản ghi đó.
+//
 // `status` rỗng nghĩa là mọi trạng thái. Chuỗi không hợp lệ trả
 // ErrTrangThaiKhongHopLe — KHÔNG lặng lẽ trả danh sách rỗng, vì rỗng trông
 // giống "khách chưa có đơn nào" chứ không giống "bạn gõ sai".
 func (s *Service) ListCustomerOrders(
-	ctx context.Context, customerID ids.ID, status domain.Status, limit, offset int,
+	ctx context.Context, customerID ids.ID, status domain.Status,
+	limit int, moc *domain.MocPhanTrang,
 ) ([]*domain.Order, error) {
 	if status != "" && !status.HopLe() {
 		return nil, fmt.Errorf("%w: %q", ErrTrangThaiKhongHopLe, status)
 	}
-	return s.orders.ListByCustomer(ctx, customerID, status, limit, offset)
+	return s.orders.ListByCustomer(ctx, customerID, status, limit, moc)
 }
 
 // ErrTrangThaiKhongHopLe khi bộ lọc `status` nằm ngoài tập đã khai.

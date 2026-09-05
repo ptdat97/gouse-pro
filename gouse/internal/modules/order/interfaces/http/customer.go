@@ -21,6 +21,7 @@ package http
 // lấy lô giao thì CHƯA TỒN TẠI — xem backlog P1.8.
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -99,7 +100,7 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, offset, err := page(r)
+	limit, moc, err := page(r)
 	if err != nil {
 		h.failCustomer(w, r, err)
 		return
@@ -117,7 +118,7 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 	// Lấy DƯ MỘT bản ghi để biết còn trang sau không, thay vì chạy thêm
 	// một truy vấn COUNT trên toàn bộ lịch sử mua hàng.
 	orders, err := h.svc.ListCustomerOrders(
-		r.Context(), customerID, wanted, limit+1, offset)
+		r.Context(), customerID, wanted, limit+1, moc)
 	if errors.Is(err, application.ErrTrangThaiKhongHopLe) {
 		// 400 chứ không phải danh sách rỗng: rỗng trông giống "khách chưa
 		// có đơn nào" chứ không giống "bạn gõ sai trạng thái".
@@ -145,7 +146,10 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 		Pagination: paginationJSON{HasMore: hasMore},
 	}
 	if hasMore {
-		next := strconv.Itoa(offset + limit)
+		// Mốc là KHÓA của bản ghi cuối trang này, không phải số đã đọc.
+		// Đơn mới về giữa hai lần đọc nằm ở đầu danh sách, tức phần khách
+		// đã xem — nó không đẩy phần chưa đọc đi đâu cả.
+		next := maHoaMoc(orders[len(orders)-1])
 		res.Pagination.NextCursor = &next
 	}
 
@@ -363,29 +367,76 @@ func (h *CustomerHandler) owns(r *http.Request, o *domain.Order) bool {
 // làm được — và đặc tả coi `next_cursor` là chuỗi mờ nên client không thấy
 // khác biệt. Hệ quả có thật: đơn mới đặt xen vào giữa hai lần lật trang có
 // thể làm một đơn xuất hiện hai lần. Xem backlog P3-12.
-func page(r *http.Request) (limit, offset int, err error) {
+func page(r *http.Request) (limit int, moc *domain.MocPhanTrang, err error) {
 	q := r.URL.Query()
 
 	limit = defaultPageSize
 	if v := q.Get("limit"); v != "" {
 		n, convErr := strconv.Atoi(v)
 		if convErr != nil || n < 1 || n > maxPageSize {
-			return 0, 0, apierror.Newf(apierror.CodeValidationFailed,
+			return 0, nil, apierror.Newf(apierror.CodeValidationFailed,
 				"limit phải là số nguyên từ 1 đến %d", maxPageSize)
 		}
 		limit = n
 	}
 
 	if v := q.Get("cursor"); v != "" {
-		n, convErr := strconv.Atoi(v)
-		if convErr != nil || n < 0 {
-			return 0, 0, apierror.New(apierror.CodeValidationFailed,
-				"cursor không hợp lệ")
+		moc, err = giaiMaMoc(v)
+		if err != nil {
+			return 0, nil, err
 		}
-		offset = n
 	}
 
-	return limit, offset, nil
+	return limit, moc, nil
+}
+
+// maHoaMoc gói mốc đọc tiếp thành một chuỗi cho client.
+//
+// Client phải coi đây là chuỗi ĐỤC: hình dạng bên trong là chuyện của máy
+// chủ và đổi được bất cứ lúc nào. Base64 không phải để giấu — nó chỉ ngăn
+// việc chuỗi lọt ra ngoài rồi có người dựa vào định dạng ấy.
+//
+// KHÔNG ký chuỗi này, và đó là quyết định có cân nhắc: mốc chỉ chọn vị trí
+// trong danh sách đơn của CHÍNH người gọi, vì `customer_id` luôn lấy từ
+// token chứ không từ request. Người dùng sửa mốc thì cùng lắm nhảy tới một
+// chỗ khác trong lịch sử của chính họ — không có gì để lộ.
+//
+// Mốc thời gian ghi theo MICRO-giây cho khớp ĐÚNG độ phân giải của
+// `timestamptz`. Không phải để tránh lỗi: giá trị này luôn đọc lên từ
+// PostgreSQL nên đã tròn micro-giây sẵn, và ghi theo nano-giây cũng quay
+// vòng đúng — đã thử đổi sang nano và không bài test nào đỏ. Chọn
+// micro-giây vì nó nói thẳng ra giả định đó, thay vì mang theo ba chữ số
+// vĩnh viễn bằng 0.
+func maHoaMoc(o *domain.Order) string {
+	return base64.RawURLEncoding.EncodeToString(fmt.Appendf(nil, "%d|%s",
+		o.PlacedAt().UnixMicro(), o.ID().String()))
+}
+
+func giaiMaMoc(v string) (*domain.MocPhanTrang, error) {
+	hong := apierror.New(apierror.CodeValidationFailed, "cursor không hợp lệ")
+
+	tho, err := base64.RawURLEncoding.DecodeString(v)
+	if err != nil {
+		return nil, hong
+	}
+	truoc, sau, co := strings.Cut(string(tho), "|")
+	if !co {
+		return nil, hong
+	}
+	micro, err := strconv.ParseInt(truoc, 10, 64)
+	if err != nil {
+		return nil, hong
+	}
+	// Kiểm CẢ tiền tố: mốc mang id của thực thể khác (offer, sku…) là
+	// cursor bịa, và bịa thì phải trả 400 chứ không phải lặng lẽ đọc ra
+	// một trang rỗng trông như "hết đơn".
+	id, err := ids.Parse(sau, ids.PrefixOrder)
+	if err != nil {
+		return nil, hong
+	}
+	return &domain.MocPhanTrang{
+		PlacedAt: time.UnixMicro(micro).UTC(), ID: id,
+	}, nil
 }
 
 func (h *CustomerHandler) okCustomer(

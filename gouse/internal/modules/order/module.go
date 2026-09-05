@@ -357,14 +357,14 @@ func (m *Module) GetOrderByNumber(ctx context.Context, number string) (*OrderVie
 }
 
 func (m *Module) ListCustomerOrders(
-	ctx context.Context, customerID string, limit, offset int,
+	ctx context.Context, customerID string, limit int,
 ) ([]OrderView, error) {
 	id, err := ids.Parse(customerID, ids.PrefixCustomer)
 	if err != nil {
 		return nil, ErrInvalidID
 	}
 	// Mặt public của module chưa lọc trạng thái: chưa có bên gọi nào cần.
-	orders, err := m.svc.ListCustomerOrders(ctx, id, "", limit, offset)
+	orders, err := m.svc.ListCustomerOrders(ctx, id, "", limit, nil)
 	if err != nil {
 		return nil, translateErr(err)
 	}

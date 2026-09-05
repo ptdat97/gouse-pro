@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"testing"
 	"time"
 
@@ -63,7 +64,8 @@ func (r *fakeRepo) FindBySourceCheckout(_ context.Context, _ ids.ID) (*domain.Or
 }
 
 func (r *fakeRepo) ListByCustomer(
-	_ context.Context, customerID ids.ID, status domain.Status, limit, offset int,
+	_ context.Context, customerID ids.ID, status domain.Status,
+	limit int, moc *domain.MocPhanTrang,
 ) ([]*domain.Order, error) {
 	var mine []*domain.Order
 	for _, o := range r.orders {
@@ -79,10 +81,27 @@ func (r *fakeRepo) ListByCustomer(
 		}
 		mine = append(mine, o)
 	}
-	if offset >= len(mine) {
-		return nil, nil
+
+	// Sắp và cắt theo KHÓA, y như câu SQL: `placed_at DESC, id DESC` rồi
+	// lấy phần đứng sau mốc. Bản giả cắt theo chỉ số thì nó vẫn "chạy
+	// được" với con trỏ sai định dạng, và test mất luôn khả năng phát hiện.
+	sort.Slice(mine, func(i, j int) bool {
+		if !mine[i].PlacedAt().Equal(mine[j].PlacedAt()) {
+			return mine[i].PlacedAt().After(mine[j].PlacedAt())
+		}
+		return mine[i].ID().String() > mine[j].ID().String()
+	})
+	if moc != nil {
+		var sau []*domain.Order
+		for _, o := range mine {
+			if o.PlacedAt().Before(moc.PlacedAt) ||
+				(o.PlacedAt().Equal(moc.PlacedAt) &&
+					o.ID().String() < moc.ID.String()) {
+				sau = append(sau, o)
+			}
+		}
+		mine = sau
 	}
-	mine = mine[offset:]
 	if limit > 0 && len(mine) > limit {
 		mine = mine[:limit]
 	}
@@ -399,10 +418,25 @@ func TestPhanTrangBaoDungConTrangSau(t *testing.T) {
 		t.Error("has_more = false, muốn true — còn một đơn chưa trả")
 	}
 
+	// Con trỏ là KHÓA của bản ghi cuối, không phải số đã đọc. Bài này từng
+	// ghi thẳng `cursor=2` — đúng với hợp đồng cũ, và chính chỗ đó bắt được
+	// việc offset không còn được nhận nữa.
+	con, _ := pg["next_cursor"].(string)
+	if con == "" {
+		t.Fatal("còn trang sau mà không có next_cursor")
+	}
+	if con == "2" {
+		t.Error("next_cursor vẫn là offset — client sẽ đọc lặp khi có đơn mới")
+	}
+
 	// Trang cuối: hết dữ liệu thì has_more phải tắt.
 	_, body = do(t, h, asCustomer(
-		httptest.NewRequest("GET", "/api/v1/orders?limit=2&cursor=2", nil), customerID))
+		httptest.NewRequest("GET", "/api/v1/orders?limit=2&cursor="+con, nil),
+		customerID))
 	if pg := body["pagination"].(map[string]any); pg["has_more"] != false {
 		t.Error("has_more = true ở trang cuối")
+	}
+	if got := len(body["data"].([]any)); got != 1 {
+		t.Errorf("trang cuối có %d đơn, muốn 1", got)
 	}
 }
