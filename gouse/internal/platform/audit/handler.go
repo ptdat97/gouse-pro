@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
@@ -101,23 +102,21 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		f.Limit = n
 	}
 
-	// Đặc tả khai báo `format: date` — chỉ ngày, không giờ.
+	// Đặc tả khai báo `format: date` — chỉ ngày, không giờ. Mốc ngày cắt
+	// theo GIỜ NGHIỆP VỤ (UTC+7), không phải UTC: xem types.MuiGioNghiepVu.
 	var err error
-	if f.From, err = parseDate(q.Get("from")); err != nil {
+	if f.From, err = types.PhanTichNgay(q.Get("from")); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"from phải theo định dạng YYYY-MM-DD"))
 		return
 	}
-	if f.To, err = parseDate(q.Get("to")); err != nil {
+	if f.To, err = types.PhanTichNgay(q.Get("to")); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"to phải theo định dạng YYYY-MM-DD"))
 		return
 	}
 	if !f.To.IsZero() {
-		// "đến ngày 31/08" phải bao gồm CẢ NGÀY 31, không phải dừng lúc
-		// 00:00 sáng hôm đó — nếu không, nhân viên lọc theo tháng sẽ mất
-		// toàn bộ bản ghi của ngày cuối tháng mà không biết.
-		f.To = f.To.Add(24*time.Hour - time.Nanosecond)
+		f.To = types.CuoiNgay(f.To)
 	}
 
 	records, next, err := h.rec.Query(r.Context(), f)
@@ -149,14 +148,6 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			HasMore:    next != "",
 		},
 	})
-}
-
-// parseDate đọc ngày dạng YYYY-MM-DD. Chuỗi rỗng trả về thời điểm zero.
-func parseDate(s string) (time.Time, error) {
-	if s == "" {
-		return time.Time{}, nil
-	}
-	return time.Parse("2006-01-02", s)
 }
 
 func (h *Handler) ok(w http.ResponseWriter, r *http.Request, body any) {

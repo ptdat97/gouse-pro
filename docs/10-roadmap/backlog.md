@@ -2263,7 +2263,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 
 | # | Việc | Ghi chú |
 |---|---|---|
-| P3-1 | **Test HTTP cho auth và audit-log** | Hiện chỉ kiểm chứng bằng curl thủ công |
+| P3-1 | **Test HTTP cho auth và audit-log** | ✅ xong — dòng ghi chú cũ đã lạc hậu; xem ghi chú dưới bảng |
 | P3-2 | **Sửa test suite chập chờn** | ✅ xong — xem ghi chú dưới bảng |
 | P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | Sau P1 |
 | P3-4 | Rate limit (`429` + `X-RateLimit-*`) | ✅ xong — xem ghi chú dưới bảng |
@@ -2286,6 +2286,50 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | ✅ xong — bỏ hẳn trạng thái đó; xem ghi chú dưới bảng |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
+
+**P3-1 — đã xong (05/09).** Dòng "chỉ kiểm chứng bằng curl thủ công" đã
+lạc hậu từ lâu: đường auth có `api_auth_test.go`,
+`api_gioihan_dangnhap_test.go`, `api_dem_thatbai_test.go`,
+`api_ma_tran_quyen_test.go`, `api_phamvi_hong_test.go`; endpoint audit-log
+đã được khóa về xác thực, vai trò và trần trang.
+
+**Phần THẬT SỰ còn thiếu là bộ lọc theo NGÀY của endpoint** — và viết bài
+cho nó lộ ra một lỗi.
+
+**Lỗi: mốc ngày cắt theo UTC trong khi nghiệp vụ chạy ở UTC+7.**
+`parseDate` dùng `time.Parse` không kèm múi giờ. Một thao tác lúc 03:00
+sáng 20/08 giờ Việt Nam được lưu là 20:00 UTC ngày 19/08, nên bộ lọc ngày
+20/08 KHÔNG trả nó — trong khi trang quản trị hiển thị chính bản ghi đó là
+"20/08 03:00" (`Intl.DateTimeFormat` dùng giờ máy). Lọc và hiển thị nói hai
+điều khác nhau trên cùng một màn hình.
+
+Với nhật ký kiểm toán, thứ tồn tại để điều tra sự cố, mất bảy giờ đầu mỗi
+ngày là khiếm khuyết thật: "cho tôi xem mọi việc đã xảy ra hôm đó" im lặng
+bỏ sót ca đêm.
+
+**Chủ dự án chọn hướng: mốc ngày tính theo giờ Việt Nam.** Không đổi hợp
+đồng (`format: date` giữ nguyên), không đổi giao diện.
+
+**Lỗi có ở HAI endpoint**, cùng một hàm `parseDate` chép đôi:
+`GET /admin/audit-log` và `GET /admin/orders`. Gộp về
+`types.PhanTichNgay` + `types.CuoiNgay` trong kernel.
+
+**Dùng `FixedZone` chứ không `LoadLocation("Asia/Ho_Chi_Minh")`**, có lý
+do: `LoadLocation` cần cơ sở dữ liệu múi giờ trên máy chủ, mà ảnh container
+tối giản thường không có — xử lý cẩu thả là rơi về UTC, tức đúng lỗi này
+quay lại nhưng CHỈ ở môi trường triển khai. Việt Nam giữ +07:00 từ 1975 và
+không có giờ mùa hè, nên múi giờ cố định là mô tả đúng.
+
+**Kiểm chứng bằng cách phá, và một lần phá SAI đã dạy được điều gì đó.**
+Đưa handler đơn hàng về `time.Parse` làm một bài test đỏ — nhưng đọc kỹ thì
+nó đỏ vì `time.Parse("")` báo lỗi với chuỗi rỗng (bộ lọc tùy chọn thành bắt
+buộc), KHÔNG phải vì múi giờ. Tức là phần nối dây của endpoint đơn hàng vẫn
+chưa được kiểm. Đã viết bài riêng cho nó, rồi phá lại bằng một hàm giữ
+nguyên xử lý chuỗi rỗng và chỉ đổi múi giờ — lần này đỏ đúng lý do.
+
+Bốn bài đơn vị cho `types.PhanTichNgay`/`CuoiNgay`, trong đó có bài khóa
+giả định "múi giờ không đổi theo mùa" — đổi sang một múi giờ CÓ giờ mùa hè
+thì mốc ngày lệch một tiếng trong nửa năm, kiểu lỗi chỉ lộ theo mùa.
 
 **P3-23 — đã xong (05/09).** BỎ `OUT_OF_STOCK` khỏi `Offer.status`, chứ
 không cài nốt event. Chủ dự án quyết hướng này.

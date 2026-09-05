@@ -26,6 +26,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/order/application"
 	"github.com/fashion-commerce/platform/internal/modules/order/domain"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
@@ -114,20 +115,19 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var err error
-	if f.From, err = parseDate(q.Get("from")); err != nil {
+	// Mốc ngày cắt theo GIỜ NGHIỆP VỤ (UTC+7) — xem types.MuiGioNghiepVu.
+	if f.From, err = types.PhanTichNgay(q.Get("from")); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"from phải theo định dạng YYYY-MM-DD"))
 		return
 	}
-	if f.To, err = parseDate(q.Get("to")); err != nil {
+	if f.To, err = types.PhanTichNgay(q.Get("to")); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"to phải theo định dạng YYYY-MM-DD"))
 		return
 	}
 	if !f.To.IsZero() {
-		// "đến ngày 31/08" phải bao gồm CẢ NGÀY 31 — nếu không, nhân viên
-		// lọc theo tháng mất sạch đơn của ngày cuối tháng mà không biết.
-		f.To = f.To.Add(24*time.Hour - time.Nanosecond)
+		f.To = types.CuoiNgay(f.To)
 	}
 
 	orders, err := h.svc.ListOrders(r.Context(), f)
@@ -353,13 +353,6 @@ func parseOrderID(raw string) (ids.ID, error) {
 			"order_id không đúng định dạng")
 	}
 	return id, nil
-}
-
-func parseDate(s string) (time.Time, error) {
-	if s == "" {
-		return time.Time{}, nil
-	}
-	return time.Parse("2006-01-02", s)
 }
 
 func decodeJSON(r *http.Request, dst any) error {

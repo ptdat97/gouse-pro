@@ -7220,7 +7220,21 @@ export interface operations {
                 order_number?: string;
                 status?: string;
                 seller_id?: components["schemas"]["Id"];
+                /**
+                 * @description Ngày bắt đầu, tính theo **giờ nghiệp vụ (UTC+7)**, bao gồm cả
+                 *     ngày này.
+                 */
                 from?: string;
+                /**
+                 * @description Ngày kết thúc, tính theo **giờ nghiệp vụ (UTC+7)**, bao gồm TRỌN
+                 *     ngày này (tới 23:59:59.999999 giờ Việt Nam).
+                 *
+                 *     Mốc ngày cắt theo giờ Việt Nam chứ không theo UTC, vì đó là điều
+                 *     người dùng mong đợi: một thao tác lúc 03:00 sáng 20/08 giờ Việt
+                 *     Nam nằm trong bộ lọc ngày 20/08. Cắt theo UTC thì nó rơi sang
+                 *     ngày 19/08 và biến mất khỏi kết quả, dù giao diện vẫn hiển thị
+                 *     bản ghi đó là "20/08 03:00".
+                 */
                 to?: string;
             };
             header?: never;
@@ -7384,7 +7398,21 @@ export interface operations {
                 resource_type?: "LEDGER" | "INVENTORY" | "SELLER" | "CREATOR" | "CUSTOMER" | "CONTENT" | "ORDER" | "CONFIG";
                 action?: string;
                 actor_id?: string;
+                /**
+                 * @description Ngày bắt đầu, tính theo **giờ nghiệp vụ (UTC+7)**, bao gồm cả
+                 *     ngày này.
+                 */
                 from?: string;
+                /**
+                 * @description Ngày kết thúc, tính theo **giờ nghiệp vụ (UTC+7)**, bao gồm TRỌN
+                 *     ngày này (tới 23:59:59.999999 giờ Việt Nam).
+                 *
+                 *     Mốc ngày cắt theo giờ Việt Nam chứ không theo UTC, vì đó là điều
+                 *     người dùng mong đợi: một thao tác lúc 03:00 sáng 20/08 giờ Việt
+                 *     Nam nằm trong bộ lọc ngày 20/08. Cắt theo UTC thì nó rơi sang
+                 *     ngày 19/08 và biến mất khỏi kết quả, dù giao diện vẫn hiển thị
+                 *     bản ghi đó là "20/08 03:00".
+                 */
                 to?: string;
             };
             header?: never;
