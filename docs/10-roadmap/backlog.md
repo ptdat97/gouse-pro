@@ -2284,8 +2284,48 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | ✅ xong (20/08) — `GET /api/v1/sellers?ids=` |
 | P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | ✅ xong (20/08) — xem ghi chú dưới bảng |
 | P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
-| P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | `MarkOutOfStock` là code chết — event `inventory.depleted` chưa ai phát |
+| P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | ✅ xong — bỏ hẳn trạng thái đó; xem ghi chú dưới bảng |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
+
+**P3-23 — đã xong (05/09).** BỎ `OUT_OF_STOCK` khỏi `Offer.status`, chứ
+không cài nốt event. Chủ dự án quyết hướng này.
+
+**Vì sao không cài `inventory.depleted`.** Cửa hàng HÔM NAY đã đúng:
+`ProductOffer.IsSellable = offer ACTIVE && còn hàng`, tính lúc đọc. Thêm
+một trạng thái dẫn xuất vào offer là lưu một sự thật ở hai nơi — chính chú
+thích của struct `Offer` đã viết "hai nơi cùng lưu một sự thật thì sớm
+muộn chúng lệch nhau", rồi enum lại đi ngược.
+
+**Và cài nó sẽ THÊM một kiểu hỏng chưa từng có.** Event chết sau 5 lần thử
+là bị `dead_lettered_at` vĩnh viễn. Một `inventory.replenished` chết thì
+offer kẹt `OUT_OF_STOCK`, mà `IsSellable = o.IsSellable() && coHang` nên
+offer thành KHÔNG BÁN ĐƯỢC dù kho đầy hàng — nhà bán mất doanh thu, không
+lỗi nào báo. Hôm nay điều đó không thể xảy ra.
+
+**Yêu cầu sản phẩm không mất gì.** "Hết hàng vẫn hiển thị để khách đăng ký
+nhận thông báo" (design-system.md 4.1) vẫn đúng: offer hết hàng ở trạng
+thái `ACTIVE` nên vẫn hiện, chỉ `is_sellable` tắt.
+`TestHetHangThiOfferKhongConBanDuoc` đã khóa đúng ba điều đó — hiện, không
+mua được, không thắng buy box. Phá `IsVisibleToCustomer` → đỏ ngay.
+
+**Migration 000040 SIẾT ràng buộc CHECK.** Sửa mỗi code là chưa đủ: ràng
+buộc cũ vẫn cho ghi `'OUT_OF_STOCK'`, và một bản ghi như vậy lọt vào thì
+domain không còn trạng thái tương ứng — offer vừa không bán được vừa không
+hiển thị, âm thầm biến mất khỏi trang. Siết lại biến hỏng-âm-thầm-lúc-đọc
+thành lỗi-ồn-ào-lúc-ghi. Kiểm trên database thật: INSERT
+`status='OUT_OF_STOCK'` bị từ chối, `'ACTIVE'` qua. 0 bản ghi cần đổi, đúng
+như dự đoán — giá trị này chưa bao giờ được ghi.
+
+**Cùng bị xóa:** `Offer.MarkOutOfStock`, `Offer.MarkBackInStock`,
+`Service.MarkOutOfStock`, `Service.MarkBackInStock` — toàn bộ là code chết.
+
+**Phát hiện ngoài phạm vi, CHƯA làm:** `SellerOffer.is_sellable` được đặt
+bằng `o.Status() == StatusActive`, tức KHÔNG tính tồn kho — trong khi chú
+thích của chính trường đó dặn "đừng suy lại từ status ở giao diện". Nghĩa
+là Seller Center chưa bao giờ có tín hiệu "hết hàng", cả trước lẫn sau thay
+đổi này; bỏ nhãn `OUT_OF_STOCK` không lấy mất gì đang chạy. Việc còn nợ:
+cho danh sách offer của nhà bán thấy tồn kho, hoặc cho `is_sellable` ở góc
+nhìn nhà bán tính cả tồn kho như góc nhìn khách.
 
 **P3-4 — đã xong (05/09).** `429` và `Retry-After` vốn đã có; phần thiếu
 là bộ `X-RateLimit-Limit / -Remaining / -Reset`.

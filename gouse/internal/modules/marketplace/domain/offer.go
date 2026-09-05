@@ -52,12 +52,29 @@ func (c Condition) valid() bool {
 type Status string
 
 const (
-	StatusDraft      Status = "DRAFT"
-	StatusActive     Status = "ACTIVE"
-	StatusOutOfStock Status = "OUT_OF_STOCK"
-	StatusSuspended  Status = "SUSPENDED"
-	StatusArchived   Status = "ARCHIVED"
+	StatusDraft     Status = "DRAFT"
+	StatusActive    Status = "ACTIVE"
+	StatusSuspended Status = "SUSPENDED"
+	StatusArchived  Status = "ARCHIVED"
 )
+
+// KHÔNG có OUT_OF_STOCK ở đây, có chủ ý (P3-23).
+//
+// Hết hàng là sự thật của INVENTORY, không phải của offer. Chép nó vào
+// `Offer.status` là lưu một sự thật ở hai nơi, và hai nơi thì sớm muộn
+// lệch nhau — chính chú thích của struct Offer bên dưới đã viết ra điều
+// đó, rồi enum này lại đi ngược.
+//
+// Câu "khách bấm mua được không" đã có câu trả lời ĐẦY ĐỦ và tính lúc
+// đọc: `ProductOffer.IsSellable = offer ACTIVE && còn hàng`. Một nguồn,
+// không có gì để lệch.
+//
+// Giá trị này chưa bao giờ tới được: không ai gọi `MarkOutOfStock`, và
+// event `inventory.depleted` chỉ tồn tại trong chú thích. Cài nốt nó sẽ
+// THÊM một kiểu hỏng chưa từng có: event `replenished` chết sau 5 lần thử
+// là bị dead-letter vĩnh viễn, offer kẹt OUT_OF_STOCK, và vì
+// `IsSellable = o.IsSellable() && coHang` nên offer thành KHÔNG BÁN ĐƯỢC
+// dù kho đầy hàng — nhà bán mất doanh thu mà không có lỗi nào báo.
 
 // canTransitionTo mã hóa vòng đời offer.
 func (s Status) canTransitionTo(next Status) bool {
@@ -65,10 +82,7 @@ func (s Status) canTransitionTo(next Status) bool {
 	case StatusDraft:
 		return next == StatusActive || next == StatusArchived
 	case StatusActive:
-		return next == StatusOutOfStock || next == StatusSuspended || next == StatusArchived
-	case StatusOutOfStock:
-		// Nhập hàng về thì bán lại được.
-		return next == StatusActive || next == StatusSuspended || next == StatusArchived
+		return next == StatusSuspended || next == StatusArchived
 	case StatusSuspended:
 		return next == StatusActive || next == StatusArchived
 	case StatusArchived:
@@ -79,32 +93,33 @@ func (s Status) canTransitionTo(next Status) bool {
 	return false
 }
 
-// IsSellable cho biết offer có bán được không.
+// IsSellable cho biết TRẠNG THÁI offer có cho bán không.
 //
-// Chỉ ACTIVE mới bán được: OUT_OF_STOCK vẫn hiển thị (cho khách đăng ký
-// nhận thông báo) nhưng không đặt hàng được.
+// KHÔNG phải câu trả lời cuối cùng cho "khách bấm mua được không": nó
+// không biết gì về tồn kho. Câu đầy đủ là `ProductOffer.IsSellable`, bằng
+// hàm này VÀ còn hàng.
 func (s Status) IsSellable() bool { return s == StatusActive }
 
 // IsVisibleToCustomer cho biết offer có hiện trên trang sản phẩm không.
 //
-// KHÁC IsSellable: hết hàng vẫn HIỂN THỊ, chỉ không đặt được.
+// Hết hàng vẫn HIỂN THỊ, chỉ không đặt được — yêu cầu này KHÔNG mất đi khi
+// bỏ OUT_OF_STOCK khỏi enum: offer hết hàng vẫn ở trạng thái ACTIVE, nên
+// vẫn hiện, và `ProductOffer.IsSellable` mới là thứ tắt nút mua.
 //
-// Lý do (design-system.md mục 4.1): khách cần biết sản phẩm CÓ tổ hợp
-// màu/size đó để đăng ký nhận thông báo. Ẩn đi thì họ tưởng nền tảng không
-// bán, và nhu cầu đó không bao giờ được ghi nhận.
+// Lý do của yêu cầu (design-system.md mục 4.1): khách cần biết sản phẩm CÓ
+// tổ hợp màu/size đó để đăng ký nhận thông báo. Ẩn đi thì họ tưởng nền
+// tảng không bán, và nhu cầu đó không bao giờ được ghi nhận.
 //
 // DRAFT, SUSPENDED, ARCHIVED thì ẩn: hiện một mức giá không đặt được là
 // trải nghiệm tệ hơn không hiện gì.
-func (s Status) IsVisibleToCustomer() bool {
-	return s == StatusActive || s == StatusOutOfStock
-}
+func (s Status) IsVisibleToCustomer() bool { return s == StatusActive }
 
 // Offer là lời chào bán của MỘT seller cho MỘT SKU.
 //
 // VÌ SAO OFFER KHÔNG CHỨA SỐ LƯỢNG TỒN KHO (mục 3 của đặc tả):
 //
-//	Nguồn sự thật về số lượng là InventoryItem. Offer.status = OUT_OF_STOCK
-//	là dữ liệu DẪN XUẤT, cập nhật qua event.
+//	Nguồn sự thật về số lượng là InventoryItem, và offer KHÔNG chép lại —
+//	kể cả dưới dạng một trạng thái dẫn xuất (xem ghi chú ở enum Status).
 //
 //	Lý do: một offer có thể được phục vụ từ nhiều kho; tồn kho thay đổi tần
 //	suất rất cao và sẽ làm bẩn aggregate Offer; và hai nơi cùng lưu một sự
@@ -296,22 +311,6 @@ func (o *Offer) AllowsQuantity(qty int) bool {
 
 // Activate đưa offer lên bán.
 func (o *Offer) Activate(now time.Time) error {
-	return o.transition(StatusActive, now)
-}
-
-// MarkOutOfStock đánh dấu hết hàng.
-//
-// Do module inventory phát event `inventory.depleted`, KHÔNG phải seller
-// tự đặt: số lượng tồn kho là sự thật của inventory.
-func (o *Offer) MarkOutOfStock(now time.Time) error {
-	return o.transition(StatusOutOfStock, now)
-}
-
-// MarkBackInStock đưa offer trở lại bán sau khi có hàng.
-func (o *Offer) MarkBackInStock(now time.Time) error {
-	if o.status != StatusOutOfStock {
-		return ErrInvalidStatus
-	}
 	return o.transition(StatusActive, now)
 }
 

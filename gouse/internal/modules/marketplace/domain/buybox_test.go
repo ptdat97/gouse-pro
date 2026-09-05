@@ -54,21 +54,56 @@ func TestSellerKhongHoatDongKhongThangBuyBox(t *testing.T) {
 	}
 }
 
-// Offer không bán được (hết hàng, đình chỉ) cũng không thắng.
+// Offer có TRẠNG THÁI không bán được thì không thắng, dù giá và hiệu suất
+// đều tốt hơn.
+//
+// Ba trạng thái dưới đây là TẤT CẢ các trạng thái không bán được còn lại
+// sau khi bỏ OUT_OF_STOCK khỏi enum (P3-23). Hết hàng nay không phải một
+// trạng thái của offer nữa: nó bị loại ở tầng ứng dụng, nơi biết tồn kho —
+// xem TestHetHangThiOfferKhongConBanDuoc trong module_test.go.
 func TestChiOfferBanDuocMoiThangBuyBox(t *testing.T) {
-	hetHang := newOffer(t, 100000, 24)
-	if err := hetHang.MarkOutOfStock(testNow); err != nil {
-		t.Fatalf("MarkOutOfStock: %v", err)
+	ca := map[string]func(*domain.Offer) error{
+		"nháp":     func(o *domain.Offer) error { return nil },
+		"đình chỉ": func(o *domain.Offer) error { return o.Suspend(testNow) },
+		"lưu trữ":  func(o *domain.Offer) error { return o.Archive(testNow) },
 	}
-	conHang := newOffer(t, 300000, 24)
 
-	got := domain.SelectBuyBox([]domain.BuyBoxCandidate{
-		candidate(hetHang, true, 100),
-		candidate(conHang, true, 50),
-	}, domain.DefaultWeights)
+	for ten, dat := range ca {
+		t.Run(ten, func(t *testing.T) {
+			var khongBan *domain.Offer
+			if ten == "nháp" {
+				// DRAFT: dựng thẳng, KHÔNG Activate.
+				o, err := domain.NewOffer(domain.NewOfferParams{
+					SKUID:             ids.MustNew(ids.PrefixSKU),
+					SellerID:          ids.MustNew(ids.PrefixSeller),
+					Price:             vnd(100000),
+					HandlingTimeHours: 24,
+					Now:               testNow,
+				})
+				if err != nil {
+					t.Fatalf("NewOffer: %v", err)
+				}
+				khongBan = o
+			} else {
+				khongBan = newOffer(t, 100000, 24)
+				if err := dat(khongBan); err != nil {
+					t.Fatalf("đặt trạng thái %s: %v", ten, err)
+				}
+			}
+			if khongBan.IsSellable() {
+				t.Fatalf("%s vẫn IsSellable — bài test không kiểm được gì", ten)
+			}
 
-	if got.Winner == nil || got.Winner.ID() != conHang.ID() {
-		t.Error("offer hết hàng đã thắng buy box")
+			banDuoc := newOffer(t, 300000, 24)
+			got := domain.SelectBuyBox([]domain.BuyBoxCandidate{
+				candidate(khongBan, true, 100),
+				candidate(banDuoc, true, 50),
+			}, domain.DefaultWeights)
+
+			if got.Winner == nil || got.Winner.ID() != banDuoc.ID() {
+				t.Errorf("offer %s đã thắng buy box dù giá rẻ hơn", ten)
+			}
+		})
 	}
 }
 

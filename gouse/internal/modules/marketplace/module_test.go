@@ -496,9 +496,9 @@ func TestChuOfferVanSuaDuocOfferCuaMinh(t *testing.T) {
 //
 // # Vì sao `Offer.IsSellable()` một mình là KHÔNG đủ
 //
-// Nó chỉ nhìn trạng thái offer. Offer vẫn ACTIVE khi kho đã sạch, vì chưa
-// có gì chuyển nó sang OUT_OF_STOCK — event `inventory.depleted` mới chỉ
-// tồn tại trong chú thích, không ai phát và không ai nghe.
+// Nó chỉ nhìn trạng thái offer. Offer hết hàng vẫn ở trạng thái ACTIVE, và
+// đó là CHỦ Ý (P3-23): tồn kho là sự thật của module inventory, offer không
+// chép lại — kể cả dưới dạng một trạng thái dẫn xuất.
 //
 // Hậu quả đã kiểm chứng trên hệ thống thật trước khi sửa: đưa tồn kho về
 // 0, cửa hàng vẫn ghi "Còn hàng" và nút "Thêm vào giỏ" vẫn bấm được. Khách

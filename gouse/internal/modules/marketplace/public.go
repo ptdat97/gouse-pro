@@ -99,8 +99,8 @@ type OfferView struct {
 
 	// IsSellable: khách đặt hàng được không.
 	//
-	// Chỉ ACTIVE mới bán được. OUT_OF_STOCK vẫn hiển thị (cho khách đăng
-	// ký nhận thông báo) nhưng không đặt hàng được.
+	// Offer ACTIVE **và** còn hàng. Offer hết hàng vẫn ACTIVE và vẫn hiện
+	// trên trang (cho khách đăng ký nhận thông báo), chỉ là cờ này tắt.
 	IsSellable bool
 }
 

@@ -169,7 +169,7 @@ offers:
         in: query
         schema:
           type: string
-          enum: [DRAFT, ACTIVE, OUT_OF_STOCK, SUSPENDED, ARCHIVED]
+          enum: [DRAFT, ACTIVE, SUSPENDED, ARCHIVED]
     responses:
       '200':
         description: Danh sách offer

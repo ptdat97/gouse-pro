@@ -53,15 +53,18 @@ export function foTone(s: string | undefined): Tone {
   }
 }
 
-/** Nhãn cho trạng thái offer. */
+/**
+ * Nhãn cho trạng thái offer.
+ *
+ * KHÔNG có "Hết hàng" ở đây: hết hàng không phải trạng thái của lời chào
+ * bán mà là sự thật của tồn kho. Offer hết hàng vẫn `ACTIVE` — xem P3-23.
+ */
 export function offerStatusLabel(s: string | undefined): string {
   switch (s) {
     case "DRAFT":
       return "Nháp";
     case "ACTIVE":
       return "Đang bán";
-    case "OUT_OF_STOCK":
-      return "Hết hàng";
     case "SUSPENDED":
       return "Bị tạm ngưng";
     case "ARCHIVED":

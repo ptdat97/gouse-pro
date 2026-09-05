@@ -320,7 +320,15 @@ Offer:
         và trạng thái nhà bán, và suy ở hai nơi thì hai nơi sẽ lệch.
     status:
       type: string
-      enum: [DRAFT, ACTIVE, OUT_OF_STOCK, SUSPENDED, ARCHIVED]
+      description: |
+        **KHÔNG có `OUT_OF_STOCK`.** Hết hàng là sự thật của tồn kho, không
+        phải một trạng thái của lời chào bán: offer hết hàng vẫn `ACTIVE`
+        và vẫn hiển thị (để khách biết có tổ hợp màu/size đó), chỉ là
+        `is_sellable` tắt.
+
+        Lưu nó thành trạng thái riêng là để một sự thật ở hai nơi, và hai
+        nơi thì sớm muộn lệch nhau — xem P3-23 trong backlog.
+      enum: [DRAFT, ACTIVE, SUSPENDED, ARCHIVED]
 
 SellerOffer:
   type: object
@@ -360,7 +368,7 @@ SellerOffer:
       description: Vắng mặt nghĩa là không giới hạn.
     status:
       type: string
-      enum: [DRAFT, ACTIVE, OUT_OF_STOCK, SUSPENDED, ARCHIVED]
+      enum: [DRAFT, ACTIVE, SUSPENDED, ARCHIVED]
     is_sellable:
       type: boolean
       description: |

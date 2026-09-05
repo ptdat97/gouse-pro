@@ -373,8 +373,9 @@ func (s *Service) SuspendOffersOfSeller(ctx context.Context, sellerID ids.ID) (i
 	now := s.clock.Now()
 	count := 0
 	for _, o := range offers {
-		// Chỉ đụng tới offer đang bán hoặc hết hàng; đã lưu trữ thì bỏ qua.
-		if o.Status() != domain.StatusActive && o.Status() != domain.StatusOutOfStock {
+		// Chỉ đụng tới offer đang bán; nháp, đã đình chỉ hay đã lưu trữ
+		// thì bỏ qua.
+		if o.Status() != domain.StatusActive {
 			continue
 		}
 		if err := o.Suspend(now); err != nil {
@@ -386,23 +387,6 @@ func (s *Service) SuspendOffersOfSeller(ctx context.Context, sellerID ids.ID) (i
 		count++
 	}
 	return count, nil
-}
-
-// MarkOutOfStock đánh dấu offer hết hàng.
-//
-// Do event `inventory.depleted` kích hoạt — số lượng tồn kho là sự thật
-// của module inventory, không phải của marketplace.
-func (s *Service) MarkOutOfStock(ctx context.Context, offerID ids.ID) (*domain.Offer, error) {
-	return s.change(ctx, offerID, func(o *domain.Offer, now time.Time) error {
-		return o.MarkOutOfStock(now)
-	})
-}
-
-// MarkBackInStock đưa offer trở lại bán sau khi có hàng.
-func (s *Service) MarkBackInStock(ctx context.Context, offerID ids.ID) (*domain.Offer, error) {
-	return s.change(ctx, offerID, func(o *domain.Offer, now time.Time) error {
-		return o.MarkBackInStock(now)
-	})
 }
 
 // ---------------------------------------------------------------- Buy box
@@ -512,9 +496,9 @@ type ProductOffer struct {
 	// IsSellable: khách BẤM MUA ĐƯỢC không.
 	//
 	// KHÁC `Offer.IsSellable()`, và khác một cách quan trọng: hàm kia chỉ
-	// nhìn trạng thái offer, không biết gì về tồn kho — offer vẫn ACTIVE
-	// khi kho đã sạch, vì chưa có gì chuyển nó sang OUT_OF_STOCK (event
-	// `inventory.depleted` mới chỉ có trong chú thích).
+	// nhìn trạng thái offer, không biết gì về tồn kho — offer hết hàng vẫn
+	// ở trạng thái ACTIVE, có chủ ý (P3-23: tồn kho là sự thật của
+	// inventory, offer không chép lại).
 	//
 	// Cờ này là quy tắc ĐẦY ĐỦ: offer đang bán VÀ còn hàng. Cùng điều
 	// kiện buy box đã dùng để loại người thắng khi hết hàng — hai chỗ

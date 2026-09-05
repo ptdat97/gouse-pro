@@ -2145,8 +2145,17 @@ export interface components {
              *     và trạng thái nhà bán, và suy ở hai nơi thì hai nơi sẽ lệch.
              */
             is_sellable: boolean;
-            /** @enum {string} */
-            status: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" | "SUSPENDED" | "ARCHIVED";
+            /**
+             * @description **KHÔNG có `OUT_OF_STOCK`.** Hết hàng là sự thật của tồn kho, không
+             *     phải một trạng thái của lời chào bán: offer hết hàng vẫn `ACTIVE`
+             *     và vẫn hiển thị (để khách biết có tổ hợp màu/size đó), chỉ là
+             *     `is_sellable` tắt.
+             *
+             *     Lưu nó thành trạng thái riêng là để một sự thật ở hai nơi, và hai
+             *     nơi thì sớm muộn lệch nhau — xem P3-23 trong backlog.
+             * @enum {string}
+             */
+            status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "ARCHIVED";
         };
         /**
          * Format: date-time
@@ -2596,7 +2605,7 @@ export interface components {
             /** @description Vắng mặt nghĩa là không giới hạn. */
             max_order_quantity?: number;
             /** @enum {string} */
-            status: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" | "SUSPENDED" | "ARCHIVED";
+            status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "ARCHIVED";
             /**
              * @description Khách mua được hay không. **Đừng suy ra từ `status` ở giao diện**:
              *     quy tắc còn phụ thuộc seller có bị đình chỉ không, và suy ở hai nơi
@@ -5191,7 +5200,7 @@ export interface operations {
                  *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
                  */
                 cursor?: components["parameters"]["Cursor"];
-                status?: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" | "SUSPENDED" | "ARCHIVED";
+                status?: "DRAFT" | "ACTIVE" | "SUSPENDED" | "ARCHIVED";
             };
             header?: never;
             path?: never;
