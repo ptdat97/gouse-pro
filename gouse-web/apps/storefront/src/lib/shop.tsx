@@ -16,6 +16,8 @@ import {
 } from "@fc/api-client";
 import * as React from "react";
 
+import { ThuTuLuot } from "./thu-tu-luot";
+
 /**
  * Trạng thái cửa hàng dùng chung: client gọi API và giỏ hàng.
  *
@@ -92,18 +94,34 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  // Chỉ nhận kết quả của lượt MỚI NHẤT.
+  //
+  // Không có nó, một kịch bản rất thường: trang vừa tải nên `getCart` đang
+  // chạy chậm; khách bấm "Thêm vào giỏ"; lời gọi thêm xong TRƯỚC; rồi
+  // `getCart` cũ về sau và ghi đè bằng giỏ CHƯA có món vừa thêm.
+  //
+  // Quy tắc nằm ở `ThuTuLuot` — logic thuần, kiểm được không cần dựng cây
+  // React.
+  const thuTu = React.useRef(new ThuTuLuot());
+
   const run = React.useCallback(
     async (fn: () => Promise<Cart>) => {
+      const conMoiNhat = thuTu.current.batDau();
       setCartError(null);
       try {
-        setCart(await fn());
+        const moi = await fn();
+        if (!conMoiNhat()) return;
+        setCart(moi);
       } catch (e) {
+        if (!conMoiNhat()) return;
         // Lỗi giỏ hàng KHÔNG được làm trắng trang: khách vẫn duyệt hàng
         // được, và giỏ cũ trên màn hình vẫn đúng cho tới lần sửa sau.
         setCartError(
           isApiError(e) ? e.message : "Không kết nối được máy chủ",
         );
       } finally {
+        // Cờ "đang tải" thì luôn tắt, kể cả với lượt đã cũ: nó nói về
+        // việc CÓ ĐANG CHỜ hay không.
         setCartLoading(false);
       }
     },

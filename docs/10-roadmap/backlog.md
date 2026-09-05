@@ -1202,6 +1202,49 @@ nên hiện trên MỌI trang — một lỗi ném ở đó làm trắng toàn b
 không riêng trang giỏ hàng.
 
 
+### 2.24 Giỏ hàng: phản hồi cũ ghi đè phản hồi mới `[XONG 05/09]`
+
+`ShopProvider.run()` gọi `setCart(await fn())` không có gì bảo đảm thứ tự.
+
+Kịch bản rất thường: trang vừa tải nên `GET /cart` chạy chậm; khách bấm
+"Thêm vào giỏ"; lời gọi thêm xong TRƯỚC; rồi `GET /cart` cũ về sau và ghi
+đè bằng giỏ CHƯA có món vừa thêm.
+
+Khách thấy món mình vừa thêm biến mất dù máy chủ đã ghi nhận. Họ bấm thêm
+lần nữa — và giờ có **hai** món trong giỏ.
+
+Đúng hình dạng lỗi "đọc-rồi-ghi" ở backend, chỉ khác là cuộc đua nằm giữa
+hai phản hồi MẠNG chứ không phải hai giao dịch database.
+
+**Sửa:** `ThuTuLuot` — chỉ nhận kết quả của lượt mới nhất. Tách khỏi
+component có chủ ý: quy tắc là logic thuần, kiểm được không cần dựng cây
+React.
+
+#### Khoảng trống còn lại, và vì sao
+
+Phá để kiểm cho thấy: gỡ quy tắc khỏi `run()` thì **không test đơn vị nào
+đỏ** — đơn vị được kiểm, nhưng VIỆC DÙNG nó thì không.
+
+Lấp đúng khoảng đó cần render `ShopProvider` bằng React. Đã thử: thêm
+`@testing-library/react` + `jsdom` và dựng môi trường DOM, nhưng bộ chạy
+Playwright BIẾN ĐỔI JSX trong `.tsx` sang định dạng component-testing của
+nó, nên `ShopProvider` trả về một object `{__pw_type, …}` chứ không phải
+React element. Hỏng ngay ở lời gọi `render` đầu tiên.
+
+Đã gỡ ba phụ thuộc đó ra — giữ lại mà không dùng được thì chỉ là nợ.
+
+Bù tạm bằng một bài QUÉT MÃ NGUỒN: `run()` phải có hai chỗ bỏ lượt cũ (một
+cho đường thành công, một cho đường lỗi). Yếu hơn hẳn — nó thấy đoạn mã có
+mặt, không thấy nó chạy đúng — nhưng bắt được kiểu hỏng thực tế nhất: ai
+đó dọn `run()` và bỏ mất hai dòng kiểm.
+
+**Cần quyết:** muốn kiểm HÀNH VI của component thì phải chọn một bộ chạy
+render được React — `vitest + jsdom`, hoặc Playwright component testing.
+Cả hai đều đi ngược ghi chú trong `playwright.config.ts` ("một bộ chạy ít
+hơn là một cấu hình ít hơn để lệch nhau"), nên đó là quyết định có ý thức,
+không phải việc làm kèm.
+
+
 ### 2.9 Audit authorization (PH-9, PH-10)
 
 Đã có, kiểm ở tầng domain/application chứ không phải ở HTTP:
