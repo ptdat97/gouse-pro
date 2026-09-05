@@ -2053,6 +2053,41 @@ export interface components {
             }[];
         };
         /**
+         * @description Chi tiết sản phẩm. Ba trường đặc thù thời trang —
+         *     `material_composition`, `size_chart`, `size_recommendation` —
+         *     tác động **trực tiếp** tới tỷ lệ hoàn hàng.
+         */
+        ProductDetail: {
+            id: components["schemas"]["Id"];
+            name: string;
+            description?: string;
+            brand: components["schemas"]["BrandRef"];
+            collection?: components["schemas"]["CollectionRef"];
+            category_id?: components["schemas"]["Id"];
+            /** @enum {string} */
+            product_type?: "TOP" | "BOTTOM" | "DRESS" | "OUTERWEAR" | "SHOES" | "BAG" | "ACCESSORY";
+            /** @enum {string} */
+            gender_target?: "MEN" | "WOMEN" | "UNISEX" | "KIDS";
+            /** @description Khách không biết chất liệu sẽ mua nhầm → hoàn hàng. */
+            material_composition?: components["schemas"]["MaterialComposition"];
+            /** @example Giặt máy ở 30°C, không dùng chất tẩy */
+            care_instructions?: string;
+            origin_country?: string;
+            images?: components["schemas"]["Image"][];
+            variants: components["schemas"]["Variant"][];
+            /** @description Số đo thực tế giúp khách chọn đúng size. */
+            size_chart?: components["schemas"]["SizeChart"];
+            /**
+             * @description Gợi ý size dựa trên lịch sử mua của khách. Chỉ có với khách đã
+             *     đăng nhập và có dữ liệu. Cơ chế giảm trực tiếp tỷ lệ hoàn hàng.
+             */
+            size_recommendation?: {
+                suggested_size?: string;
+                /** @enum {string} */
+                reason?: "PREVIOUS_PURCHASE" | "BODY_MEASUREMENTS" | "RETURN_HISTORY";
+            } | null;
+        };
+        /**
          * @description Số tiền. **Luôn kèm đơn vị tiền tệ** — không bao giờ trả về số trần.
          *
          *     `amount` là **số nguyên** theo đơn vị nhỏ nhất của tiền tệ:
@@ -2112,44 +2147,6 @@ export interface components {
             is_sellable: boolean;
             /** @enum {string} */
             status: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" | "SUSPENDED" | "ARCHIVED";
-        };
-        /**
-         * @description Chi tiết sản phẩm. Ba trường đặc thù thời trang —
-         *     `material_composition`, `size_chart`, `size_recommendation` —
-         *     tác động **trực tiếp** tới tỷ lệ hoàn hàng.
-         */
-        ProductDetail: {
-            id: components["schemas"]["Id"];
-            name: string;
-            description?: string;
-            brand: components["schemas"]["BrandRef"];
-            collection?: components["schemas"]["CollectionRef"];
-            category_id?: components["schemas"]["Id"];
-            /** @enum {string} */
-            product_type?: "TOP" | "BOTTOM" | "DRESS" | "OUTERWEAR" | "SHOES" | "BAG" | "ACCESSORY";
-            /** @enum {string} */
-            gender_target?: "MEN" | "WOMEN" | "UNISEX" | "KIDS";
-            /** @description Khách không biết chất liệu sẽ mua nhầm → hoàn hàng. */
-            material_composition?: components["schemas"]["MaterialComposition"];
-            /** @example Giặt máy ở 30°C, không dùng chất tẩy */
-            care_instructions?: string;
-            origin_country?: string;
-            images?: components["schemas"]["Image"][];
-            variants: components["schemas"]["Variant"][];
-            /** @description Số đo thực tế giúp khách chọn đúng size. */
-            size_chart?: components["schemas"]["SizeChart"];
-            /**
-             * @description Gợi ý size dựa trên lịch sử mua của khách. Chỉ có với khách đã
-             *     đăng nhập và có dữ liệu. Cơ chế giảm trực tiếp tỷ lệ hoàn hàng.
-             */
-            size_recommendation?: {
-                suggested_size?: string;
-                /** @enum {string} */
-                reason?: "PREVIOUS_PURCHASE" | "BODY_MEASUREMENTS" | "RETURN_HISTORY";
-            } | null;
-            /** @description Offer hiển thị mặc định, chọn theo công thức buy box công khai. */
-            buy_box_offer?: components["schemas"]["Offer"];
-            other_offers_count?: number;
         };
         /**
          * Format: date-time

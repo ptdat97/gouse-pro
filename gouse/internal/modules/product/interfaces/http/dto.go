@@ -6,10 +6,17 @@ package http
 //
 // GHI CHÚ QUAN TRỌNG — những trường CHƯA có:
 //
-//	price_from, compare_at_price  → module pricing (giai đoạn 2.3)
-//	available, buy_box_offer      → module inventory + marketplace (giai đoạn 3)
+//	price_from, compare_at_price  → tra qua listBuyBoxPrices
+//	available, buy_box_offer      → tra qua /products/{id}/offers
 //	rating                        → module review (Phase 2)
 //	size_recommendation           → cần lịch sử mua hàng (Phase 2)
+//
+// Hai dòng đầu KHÔNG phải "chưa làm" — chúng sẽ không bao giờ nằm ở đây.
+// Giá và buy box thuộc về OFFER, và `product` cùng tầng với `marketplace`
+// nên không gọi được. Buy box còn quyết theo SKU nữa: một chiếc áo có size
+// S, M, L thì mỗi size là một cuộc cạnh tranh riêng, người thắng có thể
+// khác nhau — nên "buy box của sản phẩm" không có nghĩa. Đặc tả đã bỏ hai
+// trường đó (P3-20).
 //
 // Chúng được BỎ QUA thay vì trả giá trị bịa (0 đồng, available: true).
 // Giá bịa hiển thị lên trang là sai lệch cho khách; `available: true` khi

@@ -2285,7 +2285,42 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | ✅ xong (20/08) — xem ghi chú dưới bảng |
 | P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | `MarkOutOfStock` là code chết — event `inventory.depleted` chưa ai phát |
-| P3-20 | `SKU.buy_box_offer` trong đặc tả không bao giờ được trả | Cùng lớp với lỗi `availability` đã sửa: trường không `required` nên không ai phát hiện |
+| P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
+
+**P3-20 — đã xong (05/09).** Bỏ `buy_box_offer` và `other_offers_count`
+khỏi `ProductDetail` trong đặc tả, kèm lý do ngay tại chỗ.
+
+**Dòng cũ trong bảng ghi sai chỗ:** hai trường nằm ở `ProductDetail`, không
+phải `SKUSummary`. `SKUSummary` vốn sạch — nó đã có sẵn chú thích giải
+thích vì sao KHÔNG có `available`.
+
+**Và đây không phải "trường chưa cài".** Buy box quyết theo SKU:
+`GetBuyBox(skuID)`. Một chiếc áo có SKU size S, M, L; mỗi size là một cuộc
+cạnh tranh riêng giữa các nhà bán và người thắng có thể KHÁC nhau. Trường
+buy box ở mức sản phẩm buộc máy chủ chọn bừa winner của một size rồi trình
+bày nó như winner của cả sản phẩm — sai với khách đang xem size khác.
+`other_offers_count` cũng vậy: đếm offer của size nào?
+
+Nghĩa là cài trường này vào sẽ tạo ra một lỗi mới, chứ không phải trả nốt
+món nợ cũ. Cùng nhóm quyết định với `price_from` (2.10): dữ liệu offer
+không nhồi vào danh mục.
+
+**Cửa hàng vốn đã làm đúng** — `products/[productId]/page.tsx` lọc offer
+theo `sku_id` của size đang chọn rồi lấy `is_buy_box` trong đó. Không có
+client nào mất gì khi bỏ hai trường: chúng chưa bao giờ được trả.
+
+Ghim ở HAI tầng để không ai "cài nốt trường đặc tả còn thiếu": kiểm hợp
+đồng ở `api_contract_test.go` và bài đơn vị ở `handler_test.go`. Phá thử
+bằng cách trả `buy_box_offer` trong `productDetail` — cả hai đỏ.
+
+Chú thích trong `dto.go` cũng sửa lại: nó ghi `buy_box_offer → module
+inventory + marketplace (giai đoạn 3)`, đọc như một lời hứa sẽ làm sau.
+
+**Còn lại trong nhóm này, CHƯA làm:** `size_recommendation` vẫn nằm trong
+đặc tả và chưa bao giờ được trả. Khác hai trường trên ở chỗ nó là quyết
+định sản phẩm, không phải ranh giới module — và "gợi ý size theo lịch sử
+mua" nằm đúng vào nhóm tính năng chủ dự án đã gạch khỏi phạm vi. Cần chủ
+dự án quyết: bỏ khỏi đặc tả, hay giữ như việc còn nợ.
 
 **P3-12 — đã xong (05/09).** `listMyOrders` phân trang theo KHÓA
 `(placed_at, id)`, không còn theo offset.

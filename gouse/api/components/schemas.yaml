@@ -171,12 +171,25 @@ ProductDetail:
         reason:
           type: string
           enum: [PREVIOUS_PURCHASE, BODY_MEASUREMENTS, RETURN_HISTORY]
-    buy_box_offer:
-      allOf:
-        - $ref: '#/Offer'
-      description: Offer hiển thị mặc định, chọn theo công thức buy box công khai.
-    other_offers_count:
-      type: integer
+    # KHÔNG có `buy_box_offer` và `other_offers_count` ở đây, có chủ ý.
+    #
+    # Buy box được quyết theo SKU, không theo sản phẩm. Một chiếc áo có SKU
+    # size S, M, L; mỗi size là một cuộc cạnh tranh riêng giữa các nhà bán
+    # và có thể có người thắng KHÁC nhau. Một trường "buy box của sản phẩm"
+    # buộc máy chủ phải chọn bừa winner của một size nào đó rồi trình bày
+    # nó như winner của cả sản phẩm — sai với khách xem size khác.
+    #
+    # Cùng lý do đó, `other_offers_count` ở mức sản phẩm không trả lời được
+    # câu hỏi nào: đếm offer của size nào?
+    #
+    # Nguồn đúng là `GET /api/v1/products/{product_id}/offers` — trả offer
+    # kèm `sku_id` và `is_buy_box`, nên trang lọc theo size khách đang chọn
+    # rồi lấy winner của ĐÚNG size đó. Cửa hàng đã làm vậy sẵn.
+    #
+    # Cùng nhóm quyết định với `price_from` (xem 2.10 trong backlog): dữ
+    # liệu của offer không nhồi vào danh mục, vì `product` cùng tầng với
+    # `marketplace` nên không gọi được, và vì mọi lời gọi sản phẩm sẽ phải
+    # kéo theo truy vấn offer kể cả nơi không hiển thị giá.
 
 Variant:
   type: object

@@ -176,9 +176,14 @@ func TestChiTietSanPhamKhopDacTa(t *testing.T) {
 	}
 
 	// KHÔNG được bịa trường thuộc module khác.
-	for _, notYet := range []string{"price_from", "buy_box_offer", "rating"} {
-		if _, ok := body[notYet]; ok {
-			t.Errorf("trả trường %q khi module sở hữu chưa tồn tại", notYet)
+	//
+	// `price_from` và `buy_box_offer` không phải "chưa làm": chúng thuộc
+	// về offer và sẽ không bao giờ nằm ở đây. Buy box còn quyết theo SKU
+	// nữa — mỗi size là một cuộc cạnh tranh riêng — nên "buy box của sản
+	// phẩm" không có nghĩa. Đặc tả đã bỏ hai trường đó (P3-20).
+	for _, khongThuoc := range []string{"price_from", "buy_box_offer", "rating"} {
+		if _, ok := body[khongThuoc]; ok {
+			t.Errorf("trả trường %q — không thuộc module product", khongThuoc)
 		}
 	}
 	if _, ok := sku["available"]; ok {

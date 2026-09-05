@@ -108,6 +108,22 @@ func TestResponseCoDuTruongDacTaHua(t *testing.T) {
 		if _, ok := sku["size"].(string); !ok {
 			t.Errorf("sku.size kiểu %T, cần chuỗi", sku["size"])
 		}
+
+		// KHÔNG có buy box ở mức SẢN PHẨM, có chủ ý (P3-20).
+		//
+		// Buy box quyết theo SKU: áo có size S, M, L thì mỗi size là một
+		// cuộc cạnh tranh riêng và người thắng có thể khác nhau. Trường ở
+		// mức sản phẩm buộc máy chủ chọn bừa winner của một size rồi trình
+		// bày như winner của cả sản phẩm.
+		//
+		// Ghim ở đây để lần sau ai đó "cài nốt trường đặc tả còn thiếu"
+		// thì bài này đỏ, kèm lý do vì sao đừng cài.
+		for _, k := range []string{"buy_box_offer", "other_offers_count"} {
+			if _, co := got.body[k]; co {
+				t.Errorf("chi tiết sản phẩm trả %q — buy box quyết theo SKU, "+
+					"phải lấy qua /products/{id}/offers", k)
+			}
+		}
 	})
 
 	t.Run("Offer", func(t *testing.T) {
