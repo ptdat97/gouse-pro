@@ -13,7 +13,7 @@ import * as React from "react";
 
 import { Shell } from "@/components/shell";
 import { money } from "@/lib/format";
-import { offerStatusLabel } from "@/lib/status";
+import { offerBadge } from "@/lib/status";
 import { useSession } from "@/lib/session";
 
 type Offer = NonNullable<MyOffers["data"]>[number];
@@ -184,6 +184,8 @@ function OfferCard({ offer, onChanged }: { offer: Offer; onChanged: () => void }
   const [note, setNote] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
+  const badge = offerBadge(offer.status, offer.is_sellable);
+
   async function run<T>(fn: () => Promise<T>, ok: (result: T) => string) {
     setBusy(true);
     setError(null);
@@ -203,11 +205,17 @@ function OfferCard({ offer, onChanged }: { offer: Offer; onChanged: () => void }
     <section className="panel">
       <p>
         <strong>{money(offer.price)}</strong>{" "}
-        <Badge tone={offer.status === "ACTIVE" ? "success" : "neutral"}>
-          {offerStatusLabel(offer.status)}
-        </Badge>
+        <Badge tone={badge.tone}>{badge.label}</Badge>
       </p>
       <p className="muted">SKU {offer.sku_id}</p>
+
+      {offer.status === "ACTIVE" && !offer.is_sellable && (
+        <Alert tone="warning">
+          Khách KHÔNG mua được món này. Thường là đã hết hàng — cập nhật kho
+          ở ô bên dưới. Nếu kho vẫn còn, tài khoản nhà bán của bạn đang bị
+          tạm ngưng.
+        </Alert>
+      )}
 
       {error && <Alert tone="danger">{error}</Alert>}
       {note && <Alert tone="success">{note}</Alert>}

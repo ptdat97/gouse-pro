@@ -286,7 +286,40 @@ func (o *Offer) CreatedAt() time.Time   { return o.createdAt }
 func (o *Offer) UpdatedAt() time.Time   { return o.updatedAt }
 
 // IsSellable cho biết khách đặt hàng được không.
+//
+// CHỈ nhìn trạng thái offer. Câu trả lời ĐẦY ĐỦ là `CanCustomerBuy` —
+// đừng dùng hàm này để bật/tắt nút mua.
 func (o *Offer) IsSellable() bool { return o.status.IsSellable() }
+
+// CanCustomerBuy là quy tắc ĐẦY ĐỦ cho "khách bấm mua được không".
+//
+// # Vì sao quy tắc này phải nằm ở ĐÚNG MỘT chỗ
+//
+// Nó có ba đầu vào thuộc ba module khác nhau — trạng thái offer
+// (marketplace), tồn kho (inventory), trạng thái nhà bán (seller) — nên
+// mỗi nơi cần trả lời đều bị cám dỗ tự ghép lấy phần mình có. Đã xảy ra
+// đúng như vậy, ba nơi ba câu trả lời:
+//
+//	buy box          status + nhà bán + tồn kho   (đúng)
+//	trang sản phẩm   status + tồn kho             (thiếu nhà bán)
+//	Seller Center    status                        (thiếu cả hai)
+//
+// Hậu quả của dòng thứ hai: đình chỉ một nhà bán KHÔNG đổi trạng thái
+// offer của họ (`seller.Suspend` chỉ sửa aggregate Seller), nên offer vẫn
+// ACTIVE — nhãn "Đề xuất" biến mất vì buy box đã loại họ, trong khi nút
+// "Thêm vào giỏ" vẫn sáng. Hai câu trả lời khác nhau cho cùng một câu
+// hỏi, trong cùng một response.
+//
+// Hậu quả của dòng thứ ba: Seller Center chưa bao giờ có tín hiệu "hết
+// hàng" hay "tài khoản đang bị đình chỉ" — nhà bán thấy `is_sellable:
+// true` trong khi khách không mua được.
+//
+// `inStock` là câu trả lời của inventory, `sellerActive` của seller.
+// Hàm này KHÔNG tự đi hỏi: domain không gọi module khác. Bên gọi tra theo
+// LÔ rồi truyền vào.
+func CanCustomerBuy(o *Offer, inStock, sellerActive bool) bool {
+	return o != nil && o.IsSellable() && inStock && sellerActive
+}
 
 // IsVisibleToCustomer cho biết offer có hiện trên trang sản phẩm không.
 func (o *Offer) IsVisibleToCustomer() bool { return o.status.IsVisibleToCustomer() }

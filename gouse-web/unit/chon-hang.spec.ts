@@ -30,7 +30,10 @@ function offer(skuId: string, sellable: boolean) {
     handling_time_hours: 24,
     is_buy_box: true,
     is_sellable: sellable,
-    status: sellable ? ("ACTIVE" as const) : ("OUT_OF_STOCK" as const),
+    // Offer hết hàng vẫn ACTIVE — `OUT_OF_STOCK` không còn là trạng thái
+    // của lời chào bán (P3-23), và dữ liệu giả dùng một mã đã bị bỏ khỏi
+    // enum sẽ dạy bài test một hình dạng API không tồn tại.
+    status: "ACTIVE" as const,
   };
 }
 

@@ -31,8 +31,13 @@ func newOffer(t *testing.T, price int64, handling int) *domain.Offer {
 	return o
 }
 
+// candidate dựng ứng viên CÒN HÀNG — mặc định của phần lớn bài test, vốn
+// đang thử các quy tắc khác (giá, thời gian xử lý, trạng thái nhà bán).
+// Bài thử riêng điều kiện tồn kho tự dựng lấy.
 func candidate(o *domain.Offer, active bool, perf int) domain.BuyBoxCandidate {
-	return domain.BuyBoxCandidate{Offer: o, SellerActive: active, PerformanceScore: perf}
+	return domain.BuyBoxCandidate{
+		Offer: o, SellerActive: active, InStock: true, PerformanceScore: perf,
+	}
 }
 
 // RÀNG BUỘC BẮT BUỘC (mục 4): seller không hoạt động thì offer KHÔNG được
@@ -117,7 +122,7 @@ func TestKhongUngVienHopLeTraNil(t *testing.T) {
 		case "toàn seller đình chỉ":
 			list = []domain.BuyBoxCandidate{candidate(dinhChi, false, 50)}
 		case "toàn nil":
-			list = []domain.BuyBoxCandidate{{Offer: nil, SellerActive: true}}
+			list = []domain.BuyBoxCandidate{{Offer: nil, SellerActive: true, InStock: true}}
 		}
 		if got := domain.SelectBuyBox(list, domain.DefaultWeights); got.Winner != nil {
 			t.Errorf("%s: mong nil, nhận %v", ten, got.Winner.ID())
@@ -226,5 +231,38 @@ func TestMotOfferDuyNhatThangVoiDiemToiDa(t *testing.T) {
 	}
 	if got.OtherCount != 0 {
 		t.Errorf("số offer cạnh tranh = %d, mong 0", got.OtherCount)
+	}
+}
+
+// RÀNG BUỘC BẮT BUỘC (mục 4): SKU hết hàng thì KHÔNG offer nào thắng buy
+// box, kể cả offer ACTIVE của nhà bán đang hoạt động với giá tốt nhất.
+//
+// Điều kiện này TỪNG nằm ở tầng application — nó lọc hẳn SKU hết hàng
+// trước khi dựng ứng viên, nên domain không biết gì về tồn kho và
+// `SelectBuyBox` phải chép lại một phần quy tắc "khách mua được không".
+// Đưa vào đây để cả ba nơi dùng chung `CanCustomerBuy`.
+func TestHetHangThiKhongAiThangBuyBox(t *testing.T) {
+	reNhat := newOffer(t, 100000, 24)
+	datHon := newOffer(t, 200000, 24)
+
+	hetHang := []domain.BuyBoxCandidate{
+		{Offer: reNhat, SellerActive: true, InStock: false, PerformanceScore: 100},
+		{Offer: datHon, SellerActive: true, InStock: false, PerformanceScore: 100},
+	}
+	if got := domain.SelectBuyBox(hetHang, domain.DefaultWeights); got.Winner != nil {
+		t.Errorf("hết hàng mà vẫn có người thắng: %v", got.Winner.ID())
+	}
+
+	// Còn hàng thì vẫn chọn được — nếu không, bài trên xanh vì lý do khác.
+	conHang := []domain.BuyBoxCandidate{
+		candidate(reNhat, true, 100),
+		candidate(datHon, true, 100),
+	}
+	got := domain.SelectBuyBox(conHang, domain.DefaultWeights)
+	if got.Winner == nil {
+		t.Fatal("còn hàng mà không ai thắng — bài test không kiểm được gì")
+	}
+	if got.Winner.ID() != reNhat.ID() {
+		t.Errorf("người thắng = %v, mong offer rẻ nhất", got.Winner.ID())
 	}
 }

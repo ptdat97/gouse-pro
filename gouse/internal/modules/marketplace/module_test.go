@@ -552,3 +552,63 @@ func TestHetHangThiOfferKhongConBanDuoc(t *testing.T) {
 		t.Error("hết hàng mà vẫn thắng buy box")
 	}
 }
+
+// TestNhaBanBiDinhChiThiOfferKhongConBanDuoc khóa nửa còn lại của cùng
+// một quy tắc mà TestHetHangThiOfferKhongConBanDuoc đã khóa một nửa.
+//
+// Đặc tả của `Offer.is_sellable` (components/schemas.yaml) viết rõ:
+//
+//	"Đừng suy lại từ `status` ở giao diện: quy tắc còn phụ thuộc tồn kho
+//	 VÀ TRẠNG THÁI NHÀ BÁN"
+//
+// Tồn kho đã được tính (P3-23). Trạng thái nhà bán thì CHƯA — và đình chỉ
+// một nhà bán KHÔNG đổi trạng thái offer của họ (`seller.Suspend` chỉ sửa
+// aggregate Seller), nên offer vẫn ACTIVE, vẫn hiện, vẫn `is_sellable`.
+//
+// Đây đúng dấu hiệu nội tại mà chú thích của `ProductOffer.IsSellable` mô
+// tả: buy box loại nhà bán bị đình chỉ (`SelectBuyBox` kiểm `SellerActive`)
+// còn `is_sellable` thì không — nhãn "Đề xuất" biến mất trong khi nút
+// "Thêm vào giỏ" vẫn sáng. Hai câu trả lời khác nhau cho cùng một câu hỏi,
+// trong cùng một response.
+func TestNhaBanBiDinhChiThiOfferKhongConBanDuoc(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	productID := ids.MustNew(ids.PrefixProduct)
+	skuID := ids.MustNew(ids.PrefixSKU)
+	h.product.skus = []ids.ID{skuID}
+
+	h.createOffer(t, skuID, ids.MustNew(ids.PrefixSeller), 100000)
+	h.inv.available[skuID] = 5
+
+	// Nhà bán hoạt động: mua được và thắng buy box.
+	list, err := h.svc.ListProductOffers(ctx, productID, ids.ID(""))
+	if err != nil {
+		t.Fatalf("ListProductOffers: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("số offer = %d, cần 1", len(list))
+	}
+	if !list[0].IsSellable || !list[0].IsBuyBox {
+		t.Fatal("nhà bán hoạt động mà offer không bán được — bài test không kiểm được gì")
+	}
+
+	// Nhà bán bị đình chỉ. Kho vẫn đầy hàng, offer vẫn ACTIVE.
+	h.seller.active = false
+
+	list, err = h.svc.ListProductOffers(ctx, productID, ids.ID(""))
+	if err != nil {
+		t.Fatalf("ListProductOffers: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("số offer = %d, cần 1", len(list))
+	}
+	if list[0].IsSellable {
+		t.Error("nhà bán bị đình chỉ mà vẫn báo mua được")
+	}
+
+	// Và hai cờ phải NHẤT QUÁN — đây là chỗ lỗi tự lộ ra.
+	if list[0].IsBuyBox {
+		t.Error("nhà bán bị đình chỉ mà vẫn thắng buy box")
+	}
+}

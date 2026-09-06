@@ -104,8 +104,12 @@ type sellerOfferJSON struct {
 
 	// IsSellable là câu trả lời cho "khách mua được không".
 	//
-	// KHÔNG suy ra từ `status` ở giao diện: quy tắc còn phụ thuộc seller
-	// có bị đình chỉ không, và suy ở hai nơi thì hai nơi sẽ lệch.
+	// KHÔNG suy ra từ `status` ở giao diện: quy tắc còn phụ thuộc tồn kho
+	// và việc seller có bị đình chỉ không, và suy ở hai nơi thì hai nơi sẽ
+	// lệch. Chính tầng này từng vi phạm đúng câu đó.
+	//
+	// `status: ACTIVE` kèm `is_sellable: false` là tín hiệu HẾT HÀNG (hoặc
+	// tài khoản đang bị đình chỉ) — giao diện nhà bán đọc cặp này.
 	IsSellable bool `json:"is_sellable"`
 
 	CreatedAt string `json:"created_at"`
@@ -140,7 +144,7 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
-	list, err := h.svc.GetOffersBySeller(r.Context(), sellerID, limit, 0)
+	list, err := h.svc.ListSellerOffers(r.Context(), sellerID, limit, 0)
 	if err != nil {
 		h.fail(w, r, apierror.From(err))
 		return
@@ -152,11 +156,11 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 	wanted := strings.TrimSpace(r.URL.Query().Get("status"))
 
 	data := make([]sellerOfferJSON, 0, len(list))
-	for _, o := range list {
-		if wanted != "" && string(o.Status()) != wanted {
+	for _, so := range list {
+		if wanted != "" && string(so.Offer.Status()) != wanted {
 			continue
 		}
-		data = append(data, toSellerOffer(o))
+		data = append(data, toSellerOffer(so.Offer, so.IsSellable))
 	}
 	h.ok(w, r, http.StatusOK, listOffersResponse{Data: data})
 }
@@ -274,7 +278,7 @@ func (h *SellerHandler) create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.ok(w, r, http.StatusCreated, offerResponse{Offer: toSellerOffer(o)})
+	h.ok(w, r, http.StatusCreated, offerResponse{Offer: h.toSellerOfferNow(r, o)})
 }
 
 type updateOfferRequest struct {
@@ -361,7 +365,7 @@ func (h *SellerHandler) update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.ok(w, r, http.StatusOK, offerResponse{Offer: toSellerOffer(o)})
+	h.ok(w, r, http.StatusOK, offerResponse{Offer: h.toSellerOfferNow(r, o)})
 }
 
 // ---------------------------------------------------------------- Hỗ trợ
@@ -441,7 +445,31 @@ func toMoney(m money.Money) moneyJSON {
 	return moneyJSON{Amount: m.Amount(), Currency: string(m.Currency())}
 }
 
-func toSellerOffer(o *domain.Offer) sellerOfferJSON {
+// toSellerOfferNow chuyển MỘT offer sang JSON, tra cờ bán được tại chỗ.
+//
+// Tra hỏng thì trả `is_sellable: false` và GHI LOG, chứ không làm hỏng cả
+// lời gọi: seller vừa tạo hay vừa sửa offer thành công, nuốt kết quả đó vì
+// một lượt tra phụ là mất việc đã làm được. Sai về phía THẬN TRỌNG — báo
+// "chưa bán được" khi chưa chắc, để giao diện không hứa nhầm.
+func (h *SellerHandler) toSellerOfferNow(
+	r *http.Request, o *domain.Offer,
+) sellerOfferJSON {
+	sellable, err := h.svc.SellableNow(r.Context(), o)
+	if err != nil {
+		h.log.WarnContext(r.Context(), "không tra được cờ bán được",
+			"error", err, "offer_id", o.ID())
+		sellable = false
+	}
+	return toSellerOffer(o, sellable)
+}
+
+// toSellerOffer chuyển offer sang JSON.
+//
+// `isSellable` được TRUYỀN VÀO chứ không suy tại chỗ: quy tắc đầy đủ cần
+// tồn kho và trạng thái nhà bán, hai thứ tầng này không có và không nên đi
+// lấy. Bản trước tự suy `o.Status() == StatusActive` — đúng cái mà đặc tả
+// của trường này dặn đừng làm.
+func toSellerOffer(o *domain.Offer, isSellable bool) sellerOfferJSON {
 	out := sellerOfferJSON{
 		ID:                o.ID().String(),
 		SKUID:             o.SKUID().String(),
@@ -452,7 +480,7 @@ func toSellerOffer(o *domain.Offer) sellerOfferJSON {
 		MinOrderQuantity:  o.MinOrderQuantity(),
 		MaxOrderQuantity:  o.MaxOrderQuantity(),
 		Status:            string(o.Status()),
-		IsSellable:        o.Status() == domain.StatusActive,
+		IsSellable:        isSellable,
 		CreatedAt:         o.CreatedAt().UTC().Format(time.RFC3339),
 	}
 	if !o.CompareAt().IsZero() {

@@ -56,6 +56,14 @@ type BuyBoxCandidate struct {
 	// buy box, kể cả khi giá tốt nhất.
 	SellerActive bool
 
+	// InStock: SKU còn hàng không.
+	//
+	// Trước đây tầng application LỌC hẳn SKU hết hàng trước khi dựng ứng
+	// viên, nên điều kiện này vô hình ở domain. Đưa vào đây để `SelectBuyBox`
+	// dùng CHUNG `CanCustomerBuy` với trang sản phẩm và Seller Center —
+	// ba nơi cùng một quy tắc thì không có gì để lệch.
+	InStock bool
+
 	// PerformanceScore trong khoảng [0, 100]. Chưa có module chấm điểm
 	// hiệu suất (Phase 2) thì dùng giá trị mặc định.
 	PerformanceScore int
@@ -80,9 +88,11 @@ type BuyBoxResult struct {
 
 // SelectBuyBox chọn offer hiển thị mặc định cho một SKU.
 //
-// RÀNG BUỘC BẮT BUỘC (mục 4) — ứng viên bị loại nếu:
+// RÀNG BUỘC BẮT BUỘC (mục 4) — ứng viên bị loại nếu khách không mua được
+// nó, theo đúng `CanCustomerBuy`:
 //   - Offer không ở trạng thái bán được
 //   - Seller không hoạt động
+//   - SKU hết hàng
 //
 // Trả về nil nếu không ứng viên nào hợp lệ.
 //
@@ -91,7 +101,7 @@ type BuyBoxResult struct {
 func SelectBuyBox(candidates []BuyBoxCandidate, w BuyBoxWeights) BuyBoxResult {
 	eligible := make([]BuyBoxCandidate, 0, len(candidates))
 	for _, c := range candidates {
-		if c.Offer == nil || !c.Offer.IsSellable() || !c.SellerActive {
+		if !CanCustomerBuy(c.Offer, c.InStock, c.SellerActive) {
 			continue
 		}
 		eligible = append(eligible, c)

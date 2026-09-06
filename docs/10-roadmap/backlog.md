@@ -2286,6 +2286,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | ✅ xong — bỏ hẳn trạng thái đó; xem ghi chú dưới bảng |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
+| P3-24 | **"Khách mua được không" có BA câu trả lời khác nhau** | ✅ xong (06/09) — xem ghi chú dưới bảng |
 
 **P3-1 — đã xong (05/09).** Dòng "chỉ kiểm chứng bằng curl thủ công" đã
 lạc hậu từ lâu: đường auth có `api_auth_test.go`,
@@ -2363,13 +2364,72 @@ như dự đoán — giá trị này chưa bao giờ được ghi.
 **Cùng bị xóa:** `Offer.MarkOutOfStock`, `Offer.MarkBackInStock`,
 `Service.MarkOutOfStock`, `Service.MarkBackInStock` — toàn bộ là code chết.
 
-**Phát hiện ngoài phạm vi, CHƯA làm:** `SellerOffer.is_sellable` được đặt
-bằng `o.Status() == StatusActive`, tức KHÔNG tính tồn kho — trong khi chú
-thích của chính trường đó dặn "đừng suy lại từ status ở giao diện". Nghĩa
-là Seller Center chưa bao giờ có tín hiệu "hết hàng", cả trước lẫn sau thay
-đổi này; bỏ nhãn `OUT_OF_STOCK` không lấy mất gì đang chạy. Việc còn nợ:
-cho danh sách offer của nhà bán thấy tồn kho, hoặc cho `is_sellable` ở góc
-nhìn nhà bán tính cả tồn kho như góc nhìn khách.
+**Phát hiện ngoài phạm vi — nay ĐÃ LÀM, xem P3-24 dưới đây.**
+`SellerOffer.is_sellable` được đặt bằng `o.Status() == StatusActive`, tức
+KHÔNG tính tồn kho — trong khi chú thích của chính trường đó dặn "đừng suy
+lại từ status ở giao diện". Nghĩa là Seller Center chưa bao giờ có tín hiệu
+"hết hàng", cả trước lẫn sau thay đổi này; bỏ nhãn `OUT_OF_STOCK` không lấy
+mất gì đang chạy.
+
+### P3-24 — "khách mua được không" có BA câu trả lời khác nhau `[XONG 06/09]`
+
+Đi trả nốt món nợ P3-23 ghi lại ở trên, và hóa ra nó lớn hơn một dòng gán.
+
+**Quy tắc có ba đầu vào thuộc ba module** — trạng thái offer
+(`marketplace`), tồn kho (`inventory`), trạng thái nhà bán (`seller`) — nên
+mỗi nơi cần trả lời đều tự ghép lấy phần mình có. Đếm ra ba bản:
+
+```text
+buy box          status + nhà bán + tồn kho   đúng
+trang sản phẩm   status + tồn kho             THIẾU nhà bán
+Seller Center    status                        THIẾU cả hai
+```
+
+**Dòng thứ hai là lỗi CHƯA ai ghi:** đình chỉ một nhà bán không đổi trạng
+thái offer của họ (`seller.Suspend` chỉ sửa aggregate Seller), nên offer vẫn
+`ACTIVE`, vẫn hiện, vẫn `is_sellable: true`. Đúng dấu hiệu mà chú thích của
+`ProductOffer.IsSellable` đã mô tả cho trường hợp hết hàng — nhãn "Đề xuất"
+biến mất trong khi nút "Thêm vào giỏ" vẫn sáng — chỉ là ở vế nhà bán thì
+chưa ai đi kiểm. Đặc tả của `Offer.is_sellable` vốn đã khai đủ cả ba đầu
+vào, nên đây là cài đặt lệch hợp đồng, không phải đặc tả thiếu.
+
+Giỏ hàng KHÔNG bị ảnh hưởng: `cart` tra `SellerActive` riêng và đã chặn
+đúng. Nên hậu quả dừng ở chỗ khách bấm mua rồi mới bị giỏ báo không mua
+được, không có tiền nào chảy sai.
+
+**Cách sửa: một hàm, ba nơi gọi.** `domain.CanCustomerBuy(offer, inStock,
+sellerActive)`. `SelectBuyBox` nay nhận thêm `InStock` trên ứng viên thay vì
+để tầng application lọc trước — để cả ba đi qua CÙNG một hàm thì không còn
+gì để lệch. Thêm `application.ListSellerOffers` và `SellableNow` để tầng
+HTTP của nhà bán KHÔNG phải tự ghép quy tắc (nó không có hai đầu vào kia, và
+đó chính là lý do nó ghép sai).
+
+**Tra nhà bán dùng chung một bộ nhớ đệm với buy box.** Bản đầu để mỗi bên tự
+tra, tức hỏi database hai lần cùng một câu trong cùng một request — trên
+đúng đường nóng nhất của cửa hàng. `buyBoxes` nay nhận cache từ bên gọi.
+
+**Kiểm chứng bằng cách phá, bốn lần, mỗi lần một tầng:**
+
+- Trả `toSellerOffer` về `status == ACTIVE` → bài API đỏ ở CẢ hai kịch bản
+  hết hàng và đình chỉ.
+- Trả `ListProductOffers` về `IsSellable() && coHang` → đỏ ở kịch bản đình
+  chỉ, và đỏ từ phía NGƯỢC LẠI: lần này nhà bán nói `false` còn khách nói
+  `true`. Bất biến bắt được lỗi từ cả hai đầu.
+- Bỏ `is_sellable` khỏi huy hiệu Seller Center → bài đơn vị TS đỏ.
+- Bỏ nốt ở giao diện rồi chạy trình duyệt → e2e đỏ đúng hình dạng lỗi cũ:
+  offer hết sạch hàng vẫn đeo huy hiệu xanh "Đang bán".
+
+**Kiểm trên hệ thống THẬT** (API + worker + hai giao diện, PostgreSQL có dữ
+liệu): đưa tồn kho một SKU về 0 qua chính endpoint của nhà bán, rồi đọc cả
+hai endpoint — `status=ACTIVE, is_sellable=false` ở cả hai, offer vẫn hiện.
+12/12 bài e2e xanh.
+
+**Việc còn nợ, CHƯA làm:** `AvailableForSKUs` trả tổng theo SKU chứ không
+tách theo chủ sở hữu, nên nhà bán A hết hàng vẫn `is_sellable: true` khi nhà
+bán B còn hàng cho cùng SKU. Giữ nguyên có chủ ý ở thay đổi này — tách ở góc
+nhìn nhà bán mà không tách ở góc nhìn khách là dựng lại đúng chỗ lệch vừa
+xóa. Sửa đúng phải đổi cả hai cùng lúc, và cần quyết định nghiệp vụ trước:
+buy box hôm nay cũng chọn theo tồn kho mức SKU.
 
 **P3-4 — đã xong (05/09).** `429` và `Retry-After` vốn đã có; phần thiếu
 là bộ `X-RateLimit-Limit / -Remaining / -Reset`.

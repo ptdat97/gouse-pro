@@ -372,9 +372,21 @@ SellerOffer:
     is_sellable:
       type: boolean
       description: |
-        Khách mua được hay không. **Đừng suy ra từ `status` ở giao diện**:
-        quy tắc còn phụ thuộc seller có bị đình chỉ không, và suy ở hai nơi
-        thì hai nơi sẽ lệch.
+        Khách mua được hay không — **cùng một câu hỏi và cùng một câu trả
+        lời với `Offer.is_sellable` của trang công khai**. Người bán hỏi
+        "hàng của tôi bán được không" thì phải nhận đúng câu khách nhận
+        được, không phải một phiên bản dễ dãi hơn.
+
+        **Đừng suy ra từ `status` ở giao diện**: quy tắc còn phụ thuộc tồn
+        kho VÀ việc seller có bị đình chỉ không, và suy ở hai nơi thì hai
+        nơi sẽ lệch. Chính máy chủ đã từng vi phạm đúng câu này — trường
+        được tính bằng `status == ACTIVE`, nên Seller Center không bao giờ
+        có tín hiệu hết hàng.
+
+        **`status: ACTIVE` kèm `is_sellable: false` là tín hiệu HẾT HÀNG**
+        (hoặc tài khoản nhà bán đang bị đình chỉ). Đó là cặp giá trị giao
+        diện nhà bán phải đọc: hết hàng KHÔNG phải một trạng thái của offer
+        (xem `Offer.status`), nên `status` một mình không nói lên điều đó.
     created_at:
       $ref: './common.yaml#/schemas/Timestamp'
 

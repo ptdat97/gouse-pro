@@ -312,4 +312,61 @@ test.describe("Trung tâm người bán", () => {
 
     expect(loi.map((l) => l.mo_ta)).toEqual([]);
   });
+
+  /**
+   * Hết hàng phải NHÌN THẤY ĐƯỢC trên màn hình nhà bán.
+   *
+   * # Vì sao chỉ trình duyệt bắt được lỗi này
+   *
+   * Đây đúng loại thứ hai trong bảng ở `e2e/README.md`: máy chủ trả một
+   * trường, giao diện không đọc nó, và mọi tầng đều xanh. `is_sellable`
+   * có trong đặc tả, có trong kiểu TypeScript, có trong phản hồi thật —
+   * mà màn hình này chỉ đọc `status`, nên một offer hết sạch hàng vẫn đeo
+   * huy hiệu xanh "Đang bán". Backend xanh, TypeScript xanh, nhà bán
+   * không biết mình đã ngừng bán được hàng.
+   *
+   * # Vì sao đưa tồn kho về 0 qua CHÍNH giao diện
+   *
+   * Ô kiểm kê là đường nhà bán thật đi. Gọi tắt API rồi tải lại trang sẽ
+   * bỏ qua đúng thứ cần kiểm: danh sách có tự cập nhật sau khi ghi không.
+   */
+  test("hết hàng hiện thành tín hiệu trên thẻ offer", async ({ page }) => {
+    const loi = watchApi(page);
+
+    await dangNhap(page);
+    await page.goto("/offers");
+    await expect(
+      page.getByRole("heading", { name: "Hàng đang bán" }),
+    ).toBeVisible({ timeout: 15_000 });
+
+    const the = page.locator("section.panel").filter({ hasText: /SKU sku_/ }).first();
+    await expect(the).toBeVisible({ timeout: 15_000 });
+
+    // Đưa về 0 qua ô kiểm kê, rồi TRẢ LẠI ở cuối bài: bộ test này chạy
+    // trên stack chung, để lại một offer hết hàng là bẫy cho bài sau.
+    await the.getByLabel("Số lượng đã đếm").fill("0");
+    await the.getByLabel("Lý do").fill("E2E kiem chung tin hieu het hang");
+    await the.getByRole("button", { name: "Cập nhật kho" }).click();
+    await expect(the.getByText(/Tồn kho hiện tại: 0/)).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // Huy hiệu KHÔNG còn nói "Đang bán", và lời nhắc phải nêu việc cần làm.
+    await expect(the.getByText("Đang bán")).toBeHidden({ timeout: 15_000 });
+    await expect(the.getByText(/Khách KHÔNG mua được món này/)).toBeVisible();
+
+    // Nhập hàng lại thì tín hiệu phải TẮT — nếu không, nó là nhãn dán
+    // vĩnh viễn chứ không phải trạng thái.
+    await the.getByLabel("Số lượng đã đếm").fill("50");
+    await the.getByLabel("Lý do").fill("E2E tra lai ton kho sau kiem chung");
+    await the.getByRole("button", { name: "Cập nhật kho" }).click();
+    await expect(the.getByText(/Tồn kho hiện tại: 50/)).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(the.getByText(/Khách KHÔNG mua được món này/)).toBeHidden({
+      timeout: 15_000,
+    });
+
+    expect(loi.map((l) => l.mo_ta)).toEqual([]);
+  });
 });

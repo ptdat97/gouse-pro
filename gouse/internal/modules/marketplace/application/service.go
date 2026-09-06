@@ -410,6 +410,17 @@ func (s *Service) GetBuyBox(ctx context.Context, skuID ids.ID) (domain.BuyBoxRes
 func (s *Service) GetBuyBoxes(
 	ctx context.Context, skuIDs []ids.ID,
 ) (map[ids.ID]domain.BuyBoxResult, error) {
+	return s.buyBoxes(ctx, skuIDs, newSellerActiveCache(s.seller))
+}
+
+// buyBoxes nhận SẴN bộ nhớ đệm trạng thái nhà bán.
+//
+// `ListProductOffers` cần đúng những trạng thái nhà bán mà buy box vừa
+// tra. Để mỗi bên tự tra là hỏi database hai lần cùng một câu trong cùng
+// một request — và đây là đường nóng nhất của cửa hàng.
+func (s *Service) buyBoxes(
+	ctx context.Context, skuIDs []ids.ID, sellerActive *sellerActiveCache,
+) (map[ids.ID]domain.BuyBoxResult, error) {
 	out := make(map[ids.ID]domain.BuyBoxResult, len(skuIDs))
 	if len(skuIDs) == 0 {
 		return out, nil
@@ -429,10 +440,6 @@ func (s *Service) GetBuyBoxes(
 		}
 	}
 
-	// Trạng thái seller: hỏi MỘT LẦN cho mỗi seller, không hỏi lại cho
-	// từng offer của cùng seller.
-	sellerActive := map[ids.ID]bool{}
-
 	for _, skuID := range skuIDs {
 		offers := offersBySKU[skuID]
 		if len(offers) == 0 {
@@ -442,29 +449,23 @@ func (s *Service) GetBuyBoxes(
 		// Hết hàng thì KHÔNG offer nào thắng buy box, kể cả offer ACTIVE:
 		// hiển thị "mua ngay" rồi báo hết hàng ở bước thanh toán là trải
 		// nghiệm tệ nhất.
-		if s.inventory != nil && available[skuID] <= 0 {
-			continue
-		}
+		//
+		// Điều kiện này nay đi vào ứng viên chứ không lọc trước vòng lặp:
+		// `SelectBuyBox` phải thấy ĐỦ ba đầu vào để dùng chung
+		// `CanCustomerBuy` với hai nơi còn lại.
+		coHang := s.inventory == nil || available[skuID] > 0
 
 		candidates := make([]domain.BuyBoxCandidate, 0, len(offers))
 		for _, o := range offers {
-			sellerID := o.SellerID()
-			active, known := sellerActive[sellerID]
-			if !known {
-				if s.seller != nil {
-					active, err = s.seller.IsActive(ctx, sellerID)
-					if err != nil {
-						return nil, fmt.Errorf("kiểm tra nhà bán: %w", err)
-					}
-				} else {
-					active = true
-				}
-				sellerActive[sellerID] = active
+			active, activeErr := sellerActive.get(ctx, o.SellerID())
+			if activeErr != nil {
+				return nil, activeErr
 			}
 
 			candidates = append(candidates, domain.BuyBoxCandidate{
 				Offer:        o,
 				SellerActive: active,
+				InStock:      coHang,
 				// Chưa có module chấm điểm hiệu suất (Phase 2).
 				PerformanceScore: domain.DefaultPerformanceScore,
 			})
@@ -475,6 +476,39 @@ func (s *Service) GetBuyBoxes(
 		}
 	}
 	return out, nil
+}
+
+// sellerActiveCache tra trạng thái nhà bán MỘT LẦN cho mỗi nhà bán.
+//
+// Một sản phẩm 12 tổ hợp màu/size của cùng một nhà bán là 12 lượt hỏi cho
+// một câu trả lời. Bộ nhớ đệm sống trong đúng một lời gọi — trạng thái nhà
+// bán đổi giữa hai request thì request sau thấy giá trị mới.
+//
+// `seller` nil (test, hoặc bản dựng chưa nối module) thì coi như đang hoạt
+// động: đó là hành vi đã có từ trước, giữ nguyên.
+type sellerActiveCache struct {
+	port  SellerPort
+	known map[ids.ID]bool
+}
+
+func newSellerActiveCache(port SellerPort) *sellerActiveCache {
+	return &sellerActiveCache{port: port, known: map[ids.ID]bool{}}
+}
+
+func (c *sellerActiveCache) get(ctx context.Context, sellerID ids.ID) (bool, error) {
+	if active, ok := c.known[sellerID]; ok {
+		return active, nil
+	}
+	active := true
+	if c.port != nil {
+		var err error
+		active, err = c.port.IsActive(ctx, sellerID)
+		if err != nil {
+			return false, fmt.Errorf("kiểm tra nhà bán: %w", err)
+		}
+	}
+	c.known[sellerID] = active
+	return active, nil
 }
 
 // ---------------------------------------------------------------- Đọc
@@ -500,10 +534,11 @@ type ProductOffer struct {
 	// ở trạng thái ACTIVE, có chủ ý (P3-23: tồn kho là sự thật của
 	// inventory, offer không chép lại).
 	//
-	// Cờ này là quy tắc ĐẦY ĐỦ: offer đang bán VÀ còn hàng. Cùng điều
-	// kiện buy box đã dùng để loại người thắng khi hết hàng — hai chỗ
-	// trong cùng một response mà trả lời khác nhau là chuyện đã xảy ra:
-	// nhãn "Đề xuất" biến mất trong khi nút "Thêm vào giỏ" vẫn sáng.
+	// Cờ này là quy tắc ĐẦY ĐỦ — `domain.CanCustomerBuy`: offer đang bán
+	// VÀ còn hàng VÀ nhà bán đang hoạt động. ĐÚNG hàm mà buy box dùng để
+	// loại ứng viên, nên hai chỗ trong cùng một response không thể trả lời
+	// khác nhau nữa. Cả hai vế đều đã lệch thật một lần: hết hàng (P3-23)
+	// và nhà bán bị đình chỉ.
 	IsSellable bool
 }
 
@@ -535,6 +570,14 @@ func (s *Service) ListProductOffers(
 		return nil, err
 	}
 
+	// Trạng thái nhà bán: đầu vào thứ ba của `CanCustomerBuy`, và cũng là
+	// thứ buy box cần. Dựng bộ nhớ đệm ở đây rồi ĐƯA CHO buy box dùng
+	// chung — mỗi bên tự tra là hỏi database hai lần cùng một câu.
+	//
+	// Trước đây chỉ buy box hỏi tới nó, nên đình chỉ một nhà bán làm nhãn
+	// "Đề xuất" biến mất mà nút "Thêm vào giỏ" vẫn sáng.
+	sellerActive := newSellerActiveCache(s.seller)
+
 	// Buy box tính RIÊNG cho từng SKU — mỗi tổ hợp màu/size có người thắng
 	// của nó — nhưng tra MỘT LẦN cho cả danh sách.
 	//
@@ -542,7 +585,7 @@ func (s *Service) ListProductOffers(
 	// gọi lại tra tồn kho cùng trạng thái nhà bán từ đầu: một sản phẩm 12
 	// tổ hợp màu/size là 12 lượt đi-về cho dữ liệu lấy được bằng một lượt.
 	// Bản theo lô đã có sẵn, chỉ là chưa dùng.
-	boxes, err := s.GetBuyBoxes(ctx, skuIDs)
+	boxes, err := s.buyBoxes(ctx, skuIDs, sellerActive)
 	if err != nil {
 		return nil, err
 	}
@@ -581,10 +624,14 @@ func (s *Service) ListProductOffers(
 			if !o.IsVisibleToCustomer() {
 				continue
 			}
+			active, activeErr := sellerActive.get(ctx, o.SellerID())
+			if activeErr != nil {
+				return nil, activeErr
+			}
 			out = append(out, ProductOffer{
 				Offer:      o,
 				IsBuyBox:   box.Winner != nil && box.Winner.ID() == o.ID(),
-				IsSellable: o.IsSellable() && coHang,
+				IsSellable: domain.CanCustomerBuy(o, coHang, active),
 			})
 		}
 	}
@@ -616,6 +663,112 @@ func (s *Service) GetOffersBySeller(
 		return nil, errors.New("marketplace: bắt buộc phải có định danh nhà bán")
 	}
 	return s.offers.FindBySeller(ctx, sellerID, limit, offset)
+}
+
+// SellerOffer là offer nhìn từ phía NHÀ BÁN, kèm câu trả lời mà bản thân
+// offer không tự trả lời được.
+type SellerOffer struct {
+	Offer *domain.Offer
+
+	// IsSellable: KHÁCH mua được offer này không.
+	//
+	// Cùng câu hỏi và cùng quy tắc (`domain.CanCustomerBuy`) với
+	// `ProductOffer.IsSellable` của trang sản phẩm — cố ý. Nhà bán hỏi
+	// "hàng của tôi bán được không" thì câu trả lời phải là câu KHÁCH
+	// nhận được, không phải một phiên bản dễ dãi hơn.
+	//
+	// Trước đây tầng HTTP tự suy `o.Status() == StatusActive`, tức bỏ qua
+	// cả tồn kho lẫn trạng thái nhà bán — trong khi đặc tả của chính
+	// trường đó dặn "đừng suy ra từ status". Hệ quả: Seller Center chưa
+	// bao giờ có tín hiệu "hết hàng" hay "tài khoản đang bị đình chỉ".
+	IsSellable bool
+}
+
+// SellableNow trả lời "khách mua được offer này không" cho MỘT offer.
+//
+// Dùng ở đường trả về sau khi tạo hoặc sửa offer, nơi chỉ có một bản ghi.
+// Danh sách thì dùng `ListSellerOffers` — nó tra theo lô.
+func (s *Service) SellableNow(ctx context.Context, o *domain.Offer) (bool, error) {
+	if o == nil {
+		return false, nil
+	}
+
+	coHang := true
+	if s.inventory != nil {
+		available, err := s.inventory.AvailableForSKUs(ctx, []ids.ID{o.SKUID()})
+		if err != nil {
+			return false, fmt.Errorf("tra tồn kho: %w", err)
+		}
+		coHang = available[o.SKUID()] > 0
+	}
+
+	active := true
+	if s.seller != nil {
+		var err error
+		active, err = s.seller.IsActive(ctx, o.SellerID())
+		if err != nil {
+			return false, fmt.Errorf("kiểm tra nhà bán: %w", err)
+		}
+	}
+
+	return domain.CanCustomerBuy(o, coHang, active), nil
+}
+
+// ListSellerOffers trả offer của MỘT nhà bán kèm cờ bán được.
+//
+// Tra theo LÔ: một lượt cho tồn kho của mọi SKU, một lượt cho trạng thái
+// nhà bán — không phải mỗi offer một lượt.
+func (s *Service) ListSellerOffers(
+	ctx context.Context, sellerID ids.ID, limit, offset int,
+) ([]SellerOffer, error) {
+	offers, err := s.GetOffersBySeller(ctx, sellerID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	if len(offers) == 0 {
+		return nil, nil
+	}
+
+	// Tồn kho theo SKU, cùng nguồn và cùng độ chi tiết với trang sản phẩm.
+	//
+	// `AvailableForSKUs` trả tổng theo SKU, không tách theo chủ sở hữu —
+	// giữ nguyên như vậy là CÓ CHỦ Ý: tách ở đây thì nhà bán lại thấy một
+	// con số khác với con số quyết định nút mua của khách, tức là dựng lại
+	// đúng chỗ lệch vừa xóa.
+	skuIDs := make([]ids.ID, 0, len(offers))
+	seen := make(map[ids.ID]bool, len(offers))
+	for _, o := range offers {
+		if !seen[o.SKUID()] {
+			seen[o.SKUID()] = true
+			skuIDs = append(skuIDs, o.SKUID())
+		}
+	}
+
+	available := map[ids.ID]int{}
+	if s.inventory != nil {
+		available, err = s.inventory.AvailableForSKUs(ctx, skuIDs)
+		if err != nil {
+			return nil, fmt.Errorf("tra tồn kho: %w", err)
+		}
+	}
+
+	active := true
+	if s.seller != nil {
+		active, err = s.seller.IsActive(ctx, sellerID)
+		if err != nil {
+			return nil, fmt.Errorf("kiểm tra nhà bán: %w", err)
+		}
+	}
+
+	out := make([]SellerOffer, 0, len(offers))
+	for _, o := range offers {
+		coHang := s.inventory == nil || available[o.SKUID()] > 0
+		out = append(out, SellerOffer{
+			Offer:      o,
+			IsSellable: domain.CanCustomerBuy(o, coHang, active),
+		})
+	}
+	return out, nil
 }
 
 // GetCommissionRate trả TỶ LỆ hoa hồng, KHÔNG tính số tiền.
