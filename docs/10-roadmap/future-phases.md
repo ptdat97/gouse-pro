@@ -529,8 +529,8 @@ Nguy hiểm hơn hẳn ba nhóm sau: code trông như đã có, nên không ai �
 
 | Miền | Thực tế |
 |---|---|
-| **Thuế** | `TaxAmount` có mặt ở checkout, order, sổ cái, và được ĐÓNG BĂNG vào đơn. `SetTax` chỉ được gọi từ một bài test, với giá trị 0. **Không có gì tính thuế.** Xem PH-40 trong backlog. |
-| **Phí vận chuyển** | Biểu CỨNG 30k/60k trong `checkout/application`. Đã có tên: P3-8, đang làm. |
+| **Thuế** | ✅ ĐÃ SỬA 06/09 (PH-40) — một tầng, mặc định 8%, sửa được lúc chạy. Trước đó `SetTax` chỉ được gọi từ một bài test với giá trị 0. |
+| **Phí vận chuyển** | ✅ ĐÃ SỬA 06/09 (P3-8) — theo từng nguồn hàng, kèm ngưỡng miễn phí 499.000đ. Vẫn chưa theo khoảng cách/khối lượng vì thiếu dữ liệu. |
 
 Cùng một hình dạng với `payment_method` trước P3-9: một trường đi qua mọi
 tầng mà không ai điền. Khác biệt là thuế có hệ quả PHÁP LÝ, không chỉ vận
@@ -574,8 +574,8 @@ chính của đợt rà: chúng chưa từng bị bác bỏ, chúng chưa từng
 ### 6.5 Đề xuất — và lý do KHÔNG đề xuất nhiều hơn
 
 ```text
-NGAY (đã có tên, đang trong phase)   P3-8 phí vận chuyển thật
-                                      PH-40 thuế — MỚI, xem backlog
+ĐÃ LÀM 06/09                          P3-8 phí vận chuyển theo nguồn
+                                      PH-40 thuế một tầng 8%
 
 SAU khi đóng phase, trước Phase 2     adapter nhà cung cấp thật
                                       (payment + shipping) — mọi tích hợp

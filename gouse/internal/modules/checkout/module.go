@@ -22,6 +22,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // Module là cài đặt của API công khai.
@@ -55,6 +56,10 @@ type Config struct {
 	// Bắt buộc: thiếu nó thì không giữ hàng đúng chủ được, mà giữ nhầm
 	// chủ là trừ hàng của người khác — im lặng, ở cả hai sổ sách.
 	Seller seller.API
+
+	// OpsConfig cấp thuế suất và ngưỡng miễn phí ship, sửa được lúc chạy
+	// (ADR-0015). Thiếu nó thì dùng MẶC ĐỊNH trong sổ đăng ký, không phải 0.
+	OpsConfig *opsconfig.Store
 
 	// Fulfillment ước tính PHÍ VẬN CHUYỂN (checkout.md mục 7).
 	//
@@ -129,6 +134,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Fulfillment != nil {
 		deps.Shipping = &shippingAdapter{api: cfg.Fulfillment}
+	}
+	if cfg.OpsConfig != nil {
+		deps.ChinhSach = &chinhSachAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil

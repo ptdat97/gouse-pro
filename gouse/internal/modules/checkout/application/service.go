@@ -306,6 +306,19 @@ type UocTinhPhiGiao struct {
 	Total int64
 }
 
+// ChinhSachPort cấp hai con số kinh doanh sửa được lúc chạy (ADR-0015).
+//
+// Khai ở đây thay vì đọc thẳng `opsconfig`: tầng application không cần
+// biết cấu hình nằm ở đâu, và bản giả trong test đặt được giá trị mà không
+// phải dựng cả một kho cấu hình.
+type ChinhSachPort interface {
+	// ThueSuatBP là thuế suất theo phần vạn (800 = 8%).
+	ThueSuatBP() int32
+
+	// NguongMienPhiShip là tiền hàng tối thiểu để miễn phí vận chuyển.
+	NguongMienPhiShip() int64
+}
+
 // PaymentPort là những gì checkout CẦN từ payment.
 type PaymentPort interface {
 	// TaoIntent ghi số tiền hệ thống CHỜ THU cho một đơn trả trước.
@@ -413,6 +426,7 @@ type Service struct {
 	orders      OrderPort
 	payments    PaymentPort
 	shipping    ShippingPort
+	chinhSach   ChinhSachPort
 	promotions  PromotionPort
 	clock       Clock
 	events      EventPublisher
@@ -467,6 +481,13 @@ type Deps struct {
 	// TỪ CHỐI thay vì đoán một con số.
 	Shipping ShippingPort
 
+	// ChinhSach cấp thuế suất và ngưỡng miễn phí ship. Thiếu nó thì dùng
+	// MẶC ĐỊNH trong `opsconfig` — không phải 0.
+	//
+	// Rơi về 0 sẽ làm mọi đơn không có thuế và mọi đơn được miễn phí ship,
+	// im lặng. Thà dùng con số mặc định đã được cân nhắc.
+	ChinhSach ChinhSachPort
+
 	// Promotions có thể nil: phiên thanh toán vẫn chạy, chỉ là không áp
 	// được mã giảm giá. Không chặn cả luồng mua hàng vì một tính năng phụ.
 	Promotions PromotionPort
@@ -492,6 +513,7 @@ func NewService(d Deps) *Service {
 		orders:      d.Orders,
 		payments:    d.Payments,
 		shipping:    d.Shipping,
+		chinhSach:   d.ChinhSach,
 		promotions:  d.Promotions,
 		clock:       clock,
 		events:      d.Events,
@@ -842,30 +864,17 @@ func (s *Service) SetShippingMethod(
 	}
 
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
-		// MỖI NHÀ BÁN LÀ MỘT NGUỒN — thực tế là một kiện hàng.
-		//
-		// `SellerIDs()` đã lọc trùng, nên giỏ 10 món của cùng một nhà bán
-		// vẫn là một kiện và một lần phí.
-		nguon := c.SellerIDs()
-		if len(nguon) == 0 {
+		if len(c.SellerIDs()) == 0 {
 			return ErrEmptyCart
 		}
-		sources := make([]string, 0, len(nguon))
-		for _, sid := range nguon {
-			sources = append(sources, sid.String())
-		}
 
-		uoc, err := s.shipping.EstimateShipping(ctx,
-			string(method), sources, string(c.Currency()))
-		if err != nil {
+		// Ghi phương thức TRƯỚC, rồi để `apDungTien` tính cả phí lẫn
+		// thuế: nó đọc phương thức từ chính phiên, nên hai đường (chọn
+		// cách giao, đổi mã giảm giá) đi qua đúng một phép tính.
+		if err := c.SetShipping(string(method), money.Money{}, now); err != nil {
 			return err
 		}
-
-		fee, err := money.New(uoc.Total, c.Currency())
-		if err != nil {
-			return err
-		}
-		return c.SetShipping(string(method), fee, now)
+		return s.apDungTien(ctx, c, false, now)
 	})
 }
 
@@ -906,24 +915,21 @@ func (s *Service) ApplyCouponCode(
 		return nil, err
 	}
 
-	updated, err := s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
-		return c.ApplyDiscount(code, discount, now)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Miễn phí ship là đặt phí về 0, không phải cộng thêm vào số tiền giảm
-	// — gộp hai thứ làm hóa đơn không giải thích được.
-	if freeShipping && updated.ShippingFee().IsPositive() {
-		zero, err := money.New(0, updated.ShippingFee().Currency())
-		if err != nil {
-			return nil, err
+	// Áp giảm giá VÀ tính lại phí/thuế trong CÙNG một lần ghi.
+	//
+	// Giảm giá đổi thì tiền hàng đổi, và tiền hàng quyết định cả ngưỡng
+	// miễn phí ship lẫn số thuế. Ghi giảm giá rồi mới tính lại ở lần ghi
+	// thứ hai để lại một khoảng thời gian mà ba con số không khớp nhau —
+	// và nếu lần ghi thứ hai hỏng, khoảng đó là vĩnh viễn.
+	//
+	// `freeShipping` là miễn phí do MÃ cấp, khác với miễn phí do đạt
+	// ngưỡng. Cùng kết quả, hai lý do; hóa đơn cần phân biệt được.
+	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
+		if err := c.ApplyDiscount(code, discount, now); err != nil {
+			return err
 		}
-		return s.SetShipping(ctx, id, updated.ShippingMethod(), zero)
-	}
-
-	return updated, nil
+		return s.apDungTien(ctx, c, freeShipping, now)
+	})
 }
 
 // ErrPromotionUnavailable khi chưa nối module promotion.
@@ -932,7 +938,13 @@ var ErrPromotionUnavailable = errors.New("checkout: chưa nối module khuyến 
 // RemoveDiscount gỡ mã giảm giá.
 func (s *Service) RemoveDiscount(ctx context.Context, id ids.ID) (*domain.Checkout, error) {
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
-		return c.RemoveDiscount(now)
+		if err := c.RemoveDiscount(now); err != nil {
+			return err
+		}
+		// Gỡ mã làm tiền hàng TĂNG lại — đơn có thể vừa vượt qua ngưỡng
+		// miễn phí ship, và thuế chắc chắn đổi. Không tính lại là để lại
+		// số thuế của một đơn không còn tồn tại.
+		return s.apDungTien(ctx, c, false, now)
 	})
 }
 

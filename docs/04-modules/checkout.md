@@ -168,7 +168,40 @@ Tổng hợp:
 
 **Quyết định trải nghiệm:** hiển thị thời gian giao **riêng cho từng nhóm hàng**, không gộp thành một con số. Khách cần biết món nào đến trước.
 
-**Chính sách miễn phí vận chuyển:** áp dụng trên tổng đơn hay trên từng seller? Đây là quyết định kinh doanh cần ghi rõ. Khuyến nghị: áp dụng trên **tổng đơn** để khuyến khích mua nhiều, nền tảng chịu phần chênh lệch.
+**Chính sách miễn phí vận chuyển — ĐÃ QUYẾT (06/09/2026):** áp dụng trên **tổng đơn**, ngưỡng mặc định **499.000đ**, sửa được lúc chạy qua `checkout.free_shipping_threshold` (ADR-0015). Nền tảng chịu phần chênh lệch.
+
+Ngưỡng xét trên **tiền hàng SAU giảm giá** — số khách thực trả cho hàng, chưa gồm phí ship và thuế. Xét trên subtotal *trước* giảm giá thì một mã giảm 200.000đ biến đơn 400.000đ thành đơn được miễn phí ship, tức nền tảng chịu cả hai khoản cho một đơn nhỏ hơn ngưỡng.
+
+So sánh là `>=`: đơn đúng 499.000đ **được** miễn. Khách nhìn con số quảng cáo rồi mua vừa đúng bằng nó là hành vi phổ biến; để họ trượt vì một đồng là cách chắc chắn để nhận một khiếu nại đúng.
+
+Miễn phí do **mã giảm giá** cấp là một đường khác, không đi qua ngưỡng — cùng kết quả nhưng khác lý do, và hóa đơn cần phân biệt được.
+
+---
+
+## 7b. Thuế
+
+**ĐÃ QUYẾT (06/09/2026):** thuế **một tầng**, áp cho mọi mặt hàng, thuế suất mặc định **8%** và sửa được lúc chạy qua `checkout.tax_rate_bp` (phần vạn: 800 = 8%).
+
+```text
+tiền hàng = subtotal − giảm giá
+phí ship  = 0 nếu tiền hàng ≥ ngưỡng, ngược lại = phí theo từng nguồn
+thuế      = thuế suất × (tiền hàng + phí ship)
+tổng      = tiền hàng + phí ship + thuế
+```
+
+**Thuế CỘNG THÊM, không gộp trong giá niêm yết.** Đây là giả định cần biết: giá hiển thị trên cửa hàng là giá **chưa gồm thuế**, và tổng tiền khách trả cao hơn tổng giá niêm yết 8%. Nếu chính sách thật là giá đã gồm VAT thì đây là thay đổi khác hẳn — phải tách ngược thuế ra khỏi giá, không phải cộng vào.
+
+**Thuế tính trên CẢ phí vận chuyển.** Vận chuyển là dịch vụ chịu thuế, không phải khoản thu hộ. Tính thuế chỉ trên tiền hàng ra số thấp hơn thực tế phải nộp.
+
+**Làm tròn NỬA LÊN** (`money.RoundHalfUp`), khác hoa hồng và phí vốn làm tròn xuống. Hai quy tắc cho hai loại số khác nhau; trộn chúng làm đối soát ra hai kết quả cho cùng một đơn.
+
+**Ba con số phụ thuộc nhau theo đúng thứ tự trên**, nên chỉ có MỘT hàm đặt cả phí lẫn thuế (`Checkout.ApDungPhiVaThue`), và mọi đường ghi tiền — chọn cách giao, áp mã, gỡ mã — đều gọi lại nó. Để mỗi đường tự cập nhật một mảnh là cách chắc chắn để ba con số lệch nhau, và lệch ở đây nghĩa là khách bị thu sai tiền.
+
+**Đổi thuế suất KHÔNG sửa lại đơn cũ.** Đơn đã đặt giữ số thuế tại thời điểm đặt — tiền trên đơn là hợp đồng đã đóng băng.
+
+### Còn thiếu
+
+Thuế **một tầng** nghĩa là chưa có: thuế suất theo loại hàng, miễn thuế theo nhóm khách, và câu hỏi marketplace "nền tảng hay nhà bán xuất hóa đơn". Câu cuối quyết định thuế thuộc `order` hay `seller`; hôm nay nó nằm ở `order` vì một tầng thì hai cách cho cùng kết quả.
 
 ---
 

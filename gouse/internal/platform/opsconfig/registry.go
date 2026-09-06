@@ -53,6 +53,9 @@ const (
 	KeyMauToiThieu       = "fulfillment.min_sample_size"
 
 	KeyTranSoLuongSKU = "inventory.max_quantity_per_sku"
+
+	KeyThueSuat          = "checkout.tax_rate_bp"
+	KeyNguongMienPhiShip = "checkout.free_shipping_threshold"
 )
 
 // TranLuuTruSoLuong là trần CỨNG của cột `quantity_*` trong database.
@@ -123,6 +126,26 @@ var soDangKy = map[string]ThamSo{
 			"nhập, thay vì để một con số vô lý nằm trong kho và làm sai " +
 			"mọi báo cáo tồn. Nâng lên chỉ khi có mặt hàng thật sự đếm " +
 			"bằng đơn vị nhỏ (chỉ, cúc, hạt cườm).",
+	},
+	KeyThueSuat: {
+		Khoa: KeyThueSuat, Kieu: KieuSoNguyen,
+		MacDinh: 800, Min: 0, Max: 10000,
+		MoTa: "Thuế suất tính theo PHẦN VẠN (800 = 8%). Một tầng, áp cho " +
+			"mọi mặt hàng và cho cả phí vận chuyển.",
+		HeQua: "Đây là con số đi vào TỔNG TIỀN khách trả và vào sổ cái. " +
+			"Đổi nó KHÔNG sửa lại đơn cũ — đơn đã đặt giữ thuế suất tại " +
+			"thời điểm đặt, vì tiền trên đơn là hợp đồng đã đóng băng. " +
+			"Đặt về 0 nghĩa là không thu thuế, và hóa đơn xuất ra sẽ ghi 0.",
+	},
+	KeyNguongMienPhiShip: {
+		Khoa: KeyNguongMienPhiShip, Kieu: KieuSoNguyen,
+		MacDinh: 499_000, Min: 0, Max: 1_000_000_000,
+		MoTa: "Tiền hàng TỐI THIỂU (sau giảm giá, chưa gồm phí ship và " +
+			"thuế) để được miễn phí vận chuyển. Áp trên TỔNG ĐƠN.",
+		HeQua: "Đặt về 0 là MIỄN PHÍ SHIP CHO MỌI ĐƠN — kể cả đơn 10.000đ " +
+			"gửi từ ba nhà bán, tức nền tảng chịu ba lần phí. Đó là một " +
+			"lựa chọn hợp lệ trong đợt khuyến mãi, nhưng gõ nhầm một số 0 " +
+			"thì không có gì chặn lại.",
 	},
 	KeyMauToiThieu: {
 		Khoa: KeyMauToiThieu, Kieu: KieuSoNguyen,

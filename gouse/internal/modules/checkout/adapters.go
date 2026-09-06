@@ -18,6 +18,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // Các adapter dưới đây nối cổng ra của tầng application với API công khai
@@ -439,4 +440,20 @@ func (a *shippingAdapter) EstimateShipping(
 		return application.UocTinhPhiGiao{}, err
 	}
 	return application.UocTinhPhiGiao{Total: res.Total}, nil
+}
+
+// chinhSachAdapter đọc thuế suất và ngưỡng miễn phí ship từ `opsconfig`.
+//
+// Tầng application KHÔNG import `opsconfig` — nó chỉ biết mình cần hai con
+// số. Cùng mẫu với `nguongAdapter` của fulfillment.
+type chinhSachAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
+
+func (a *chinhSachAdapter) ThueSuatBP() int32 {
+	return int32(a.cfg.Doc(opsconfig.KeyThueSuat))
+}
+
+func (a *chinhSachAdapter) NguongMienPhiShip() int64 {
+	return int64(a.cfg.Doc(opsconfig.KeyNguongMienPhiShip))
 }

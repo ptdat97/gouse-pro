@@ -562,7 +562,7 @@ phải vì code đúng, và chỉ có phá mới phân biệt được hai thứ
 | PH-6 | Chuẩn hóa retry / xử lý thất bại | ✅ ba tầng, có test cưỡng chế — xem 2.16 |
 | PH-7 | **Event versioning** — quy tắc + test tự động | ✅ xong 06/09 — ADR-0016, bên nhận khai phiên bản, lệch thì HOÃN; xem 2.8 |
 | PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | ✅ tiêm lỗi ở tầng DB, tìm ra và bịt một khe hở thật — xem 2.15 |
-| PH-40 | **Thuế luôn bằng 0** — `SetTax` không có bên gọi nào ở production | ⬜ MỚI 06/09 — cần chủ dự án quyết chính sách thuế trước; xem 2.2b |
+| PH-40 | **Thuế luôn bằng 0** — `SetTax` không có bên gọi nào ở production | ✅ xong 06/09 — chủ dự án quyết: một tầng, mặc định 8%, sửa được lúc chạy; xem 2.2b |
 
 ### 2.2b PH-40 — thuế luôn bằng 0, và không có gì báo `[MỚI 06/09]`
 
@@ -586,21 +586,56 @@ và đó là chuyện của cơ quan thuế chứ không phải của đội v�
 sai lại nằm trong một cuốn sổ BẤT BIẾN (ADR-0008) — sửa phải ghi bút toán
 đảo cho từng đơn.
 
-**CHƯA sửa, và cần quyết định của chủ dự án trước.** Ít nhất ba câu chưa
-có câu trả lời trong docs, và chọn sai câu nào cũng phải làm lại:
+**ĐÃ SỬA 06/09 — chủ dự án quyết: thuế MỘT TẦNG, mặc định 8%, sửa được
+lúc chạy** (`checkout.tax_rate_bp`, phần vạn). Cùng đợt: miễn phí vận
+chuyển áp trên TỔNG ĐƠN, ngưỡng mặc định 499.000đ
+(`checkout.free_shipping_threshold`). Đặc tả ở
+[checkout.md mục 7 và 7b](../04-modules/checkout.md).
+
+**Thứ tự tính, và vì sao nó phải nằm ở MỘT chỗ:**
 
 ```text
-VAT gộp trong giá niêm yết, hay cộng thêm khi thanh toán?
-Thuế suất theo loại hàng (thời trang 8% hay 10%?) — ai giữ bảng đó?
-Marketplace: nền tảng hay nhà bán là bên xuất hóa đơn?
+tiền hàng = subtotal − giảm giá
+phí ship  = 0 nếu tiền hàng ≥ ngưỡng, ngược lại = phí theo từng nguồn
+thuế      = thuế suất × (tiền hàng + phí ship)
 ```
 
-Câu thứ ba là câu nặng nhất: nó quyết định thuế thuộc về `order` hay
-`seller`, và đổi câu trả lời sau khi đã cài là đổi mô hình sổ cái.
+Ba con số PHỤ THUỘC NHAU theo đúng thứ tự đó. Giảm giá đổi thì ngưỡng miễn
+phí ship phải xét lại, và phí ship đổi thì thuế phải tính lại. Nên chỉ có
+MỘT hàm đặt cả hai (`Checkout.ApDungPhiVaThue`), và cả ba đường ghi tiền —
+chọn cách giao, áp mã, gỡ mã — đều gọi lại nó. Để mỗi đường tự cập nhật
+một mảnh là cách chắc chắn để ba con số lệch nhau.
 
-**Việc trước mắt, KHÔNG cần quyết định gì:** làm cho sự vắng mặt này ồn
-ào. Hôm nay không có chỉ số, không có log, không có test nào cho biết thuế
-chưa bao giờ được tính.
+**Áp mã giảm giá nay ghi MỘT LẦN thay vì hai.** Bản cũ ghi giảm giá rồi
+mới đặt phí ở lần ghi thứ hai; nếu lần thứ hai hỏng, phiên nằm lại với ba
+con số không khớp — vĩnh viễn.
+
+**Ba quyết định nhỏ, mỗi cái có phá để kiểm chứng:**
+
+```text
+thuế tính trên CẢ phí ship    phá → "thuế 8000, mong 10400, thiếu 2.400/đơn"
+ngưỡng xét SAU giảm giá        phá → "phí 0, mong 30000"
+làm tròn NỬA LÊN               phá → "thuế 1000, mong 1001"
+```
+
+Vận chuyển là dịch vụ chịu thuế, không phải khoản thu hộ. Ngưỡng xét trên
+subtotal TRƯỚC giảm giá thì một mã giảm 200.000đ biến đơn 400.000đ thành
+đơn được miễn phí ship. Và `RoundHalfUp` là quy tắc kernel đã ghi sẵn cho
+thuế, khác `RoundDown` của hoa hồng — trộn hai quy tắc làm đối soát ra hai
+kết quả cho cùng một đơn.
+
+**Phá lại đúng lỗi gốc để chắc bài test có giá trị:** bỏ lời gọi đặt thuế
+→ `"thuế trên ĐƠN = 0, mong 10400"`. Đó chính là trạng thái PH-40 mô tả.
+
+**Giả định cần biết: giá niêm yết là giá CHƯA gồm thuế.** Docs không nói
+giá đã gồm VAT ở đâu, và `Total()` cộng thuế vào, nên đây là mô hình cộng
+thêm. Nếu chính sách thật là giá đã gồm VAT thì đó là thay đổi khác hẳn —
+phải tách ngược thuế ra khỏi giá. Ghi ở đây để nếu sai thì sai ồn ào.
+
+**CÒN THIẾU, do "một tầng":** thuế suất theo loại hàng, miễn thuế theo
+nhóm khách, và câu hỏi marketplace "nền tảng hay nhà bán xuất hóa đơn".
+Câu cuối quyết định thuế thuộc `order` hay `seller`; hôm nay nó nằm ở
+`order` vì một tầng thì hai cách cho cùng kết quả.
 
 ### 2.3 PH — Security
 

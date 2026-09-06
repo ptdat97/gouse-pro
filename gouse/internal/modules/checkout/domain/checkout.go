@@ -37,12 +37,18 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("checkout: không tìm thấy")
-	ErrNoLines         = errors.New("checkout: phiên thanh toán phải có ít nhất một món")
-	ErrNoCustomer      = errors.New("checkout: phải có khách đã đăng ký hoặc email khách vãng lai")
-	ErrExpired         = errors.New("checkout: phiên thanh toán đã hết hạn")
-	ErrInvalidStatus   = errors.New("checkout: chuyển trạng thái không hợp lệ")
-	ErrNoAddress       = errors.New("checkout: phải có địa chỉ giao hàng")
+	ErrNotFound      = errors.New("checkout: không tìm thấy")
+	ErrNoLines       = errors.New("checkout: phiên thanh toán phải có ít nhất một món")
+	ErrNoCustomer    = errors.New("checkout: phải có khách đã đăng ký hoặc email khách vãng lai")
+	ErrExpired       = errors.New("checkout: phiên thanh toán đã hết hạn")
+	ErrInvalidStatus = errors.New("checkout: chuyển trạng thái không hợp lệ")
+	ErrNoAddress     = errors.New("checkout: phải có địa chỉ giao hàng")
+
+	// ErrKhacDonViTienTe: một khoản tiền khác đơn vị tiền tệ của phiên.
+	//
+	// Cộng hai con số khác đơn vị ra một số vô nghĩa, và nó vô nghĩa một
+	// cách IM LẶNG — phép cộng vẫn chạy.
+	ErrKhacDonViTienTe = errors.New("checkout: khác đơn vị tiền tệ của phiên")
 	ErrTooManyExtends  = errors.New("checkout: đã hết số lần gia hạn")
 	ErrMissingIdemKey  = errors.New("checkout: thiếu khóa idempotency")
 	ErrAlreadyComplete = errors.New("checkout: phiên thanh toán đã hoàn tất")

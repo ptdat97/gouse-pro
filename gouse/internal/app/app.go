@@ -409,7 +409,13 @@ func Build(
 			Promotion:   promotionModule,
 			Payment:     paymentModule,
 			Fulfillment: fulfillmentModule,
-			Events:      eventbus.NewOutbox(db.Pool()),
+
+			// Thuế suất và ngưỡng miễn phí ship sửa được từ giao diện
+			// quản trị — hai con số KINH DOANH, đúng loại mà ADR-0015 cho
+			// vào sổ đăng ký.
+			OpsConfig: opsConfigStore,
+
+			Events: eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
 			return Modules{}, err

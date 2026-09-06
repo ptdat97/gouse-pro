@@ -396,12 +396,19 @@ func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
 		return don.ShippingFee.Value
 	}
 
+	// Mọi đơn ở đây phải nằm DƯỚI ngưỡng miễn phí vận chuyển (mặc định
+	// 499.000đ), nếu không phí về 0 và bài test không đo được gì.
+	//
+	// Bản đầu dùng 300.000đ + 450.000đ = 750.000đ và đỏ ngay khi ngưỡng
+	// được cài — một cách hay để bài test tự nhắc rằng nó phụ thuộc vào
+	// một con số chính sách. Ngưỡng có bài riêng:
+	// `TestMienPhiVanChuyenKhiDatNguong`.
 	motNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
-		line(shopA, skuA, 300_000, 1),
+		line(shopA, skuA, 100_000, 1),
 	})
 	haiNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
-		line(shopA, skuA, 300_000, 1),
-		line(shopB, skuB, 450_000, 1),
+		line(shopA, skuA, 100_000, 1),
+		line(shopB, skuB, 120_000, 1),
 	})
 
 	if motNhaBan <= 0 {
@@ -418,11 +425,99 @@ func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
 
 	// Nhiều MÓN của CÙNG một nhà bán vẫn là MỘT kiện — không nhân lên.
 	haiMonMotNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
-		line(shopA, skuA, 300_000, 2),
+		line(shopA, skuA, 100_000, 2),
 	})
 	if haiMonMotNhaBan != motNhaBan {
 		t.Errorf("hai món cùng một nhà bán thu %d, một món thu %d — "+
 			"cùng nhà bán thì cùng một kiện, phí không được nhân theo SỐ MÓN",
 			haiMonMotNhaBan, motNhaBan)
 	}
+}
+
+// TestThueVaMienPhiShipDiVaoDON — hai chính sách của chủ dự án, kiểm ở
+// mức số tiền ĐÃ ĐÓNG BĂNG trên đơn (PH-40 + P3-8).
+//
+// # Vì sao cần bài này khi domain đã có test
+//
+// Test domain chứng minh phép tính đúng. Bài này chứng minh con số đó đi
+// hết chuỗi — qua `SetShippingMethod`, `CompleteCheckout`, vào
+// `Order.TaxAmount` và `Order.ShippingFee`.
+//
+// Đó là hai việc khác nhau, và khoảng cách giữa chúng chính là chỗ PH-40
+// đã nằm im: `SetTax` tồn tại đủ ba tầng và KHÔNG AI GỌI, nên thuế luôn
+// bằng 0 trong khi domain hoàn toàn có khả năng tính đúng.
+func TestThueVaMienPhiShipDiVaoDon(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	shop := ids.MustNew(ids.PrefixSeller)
+	skuID := ids.MustNew(ids.PrefixSKU)
+	w.stockFor(skuID, w.ownerOf(shop), 50)
+
+	datDon := func(t *testing.T, gia int64, sl int) (phi, thue, tong int64) {
+		t.Helper()
+		cartID := ids.MustNew(ids.PrefixCart)
+		w.cart.put(checkoutapp.CartSnapshot{
+			CartID:     cartID,
+			CustomerID: ids.MustNew(ids.PrefixCustomer),
+			GuestEmail: "khach@example.com",
+			Currency:   money.VND,
+			Items:      []checkoutapp.CartItemSnapshot{line(shop, skuID, gia, sl)},
+		})
+
+		c, err := w.checkout.StartCheckout(ctx,
+			checkoutapp.StartCheckoutInput{CartID: cartID})
+		if err != nil {
+			t.Fatalf("StartCheckout: %v", err)
+		}
+		if _, err := w.checkout.SetShippingAddress(ctx, c.ID(), address()); err != nil {
+			t.Fatalf("SetShippingAddress: %v", err)
+		}
+		if _, err := w.checkout.SetShippingMethod(ctx, c.ID(), "STANDARD"); err != nil {
+			t.Fatalf("SetShippingMethod: %v", err)
+		}
+		res, err := w.checkout.CompleteCheckout(ctx, c.ID(),
+			ids.MustNew(ids.PrefixRequest).String(), "COD")
+		if err != nil {
+			t.Fatalf("CompleteCheckout: %v", err)
+		}
+		don, err := w.ord.GetOrder(ctx, res.OrderID.String())
+		if err != nil {
+			t.Fatalf("GetOrder: %v", err)
+		}
+		w.drain()
+		return don.ShippingFee.Value, don.TaxAmount.Value, don.Total.Value
+	}
+
+	t.Run("dưới ngưỡng: có phí ship, thuế trên cả phí", func(t *testing.T) {
+		// tiền hàng 100.000 · phí 30.000 · thuế 8% × 130.000 = 10.400
+		phi, thue, tong := datDon(t, 100_000, 1)
+
+		if phi != 30_000 {
+			t.Errorf("phí ship = %d, mong 30000 (dưới ngưỡng 499.000)", phi)
+		}
+		if thue != 10_400 {
+			t.Errorf("thuế trên ĐƠN = %d, mong 10400 — thuế bằng 0 ở đây "+
+				"đúng là PH-40: domain tính được mà không ai gọi", thue)
+		}
+		if tong != 140_400 {
+			t.Errorf("tổng = %d, mong 140400", tong)
+		}
+	})
+
+	t.Run("đạt ngưỡng: miễn phí ship, vẫn có thuế", func(t *testing.T) {
+		// tiền hàng 500.000 ≥ 499.000 → phí 0 · thuế 8% × 500.000 = 40.000
+		phi, thue, tong := datDon(t, 500_000, 1)
+
+		if phi != 0 {
+			t.Errorf("phí ship = %d, mong 0 — đơn 500.000đ đạt ngưỡng "+
+				"499.000đ", phi)
+		}
+		if thue != 40_000 {
+			t.Errorf("thuế = %d, mong 40000 = 8%% × 500.000 (phí ship đã "+
+				"miễn nên không cộng vào)", thue)
+		}
+		if tong != 540_000 {
+			t.Errorf("tổng = %d, mong 540000", tong)
+		}
+	})
 }
