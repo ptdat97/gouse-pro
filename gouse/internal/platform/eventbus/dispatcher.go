@@ -77,7 +77,19 @@ func (d *Dispatcher) DispatchBatch(ctx context.Context, limit int) (int, error) 
 
 	var done int
 	for _, p := range batch {
-		if err := d.dispatchOne(ctx, tx, p); err != nil {
+		err := d.dispatchOne(ctx, tx, p)
+		switch {
+		case err == nil:
+			done++
+
+		case errors.Is(err, ErrHoanLechPhienBan):
+			// HOÃN, không phải thất bại: `kiemPhienBan` đã ghi log và
+			// metric, và cố ý KHÔNG gọi markFailed — event giữ nguyên
+			// trạng thái chờ với `attempts` không đổi, nên nó không bao
+			// giờ chết vì lệch phiên bản. Xem ADR-0016.
+			continue
+
+		default:
 			// Lỗi của MỘT event không dừng cả lô: những event sau nó vẫn
 			// phải được thử. Lỗi đã được ghi vào cột last_error.
 			d.log.Warn("phát event thất bại",
@@ -85,9 +97,7 @@ func (d *Dispatcher) DispatchBatch(ctx context.Context, limit int) (int, error) 
 				"event_type", p.event.Type,
 				"lần_thử", p.attempts+1,
 				"lỗi", err)
-			continue
 		}
-		done++
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -113,6 +123,18 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, tx pgx.Tx, p pending) erro
 		return d.outbox.markPublished(ctx, tx, p.rowID)
 	}
 
+	// Kiểm phiên bản cho TOÀN BỘ bên nhận TRƯỚC khi chạy bất kỳ ai
+	// (ADR-0016).
+	//
+	// Kiểm trước chứ không kiểm xen kẽ: nếu bên nhận A hiểu v2 còn B chưa,
+	// chạy A rồi mới hoãn vì B sẽ để hệ thống ở trạng thái NỬA CHỪNG cho
+	// tới khi B được nâng cấp — một nửa phản ứng của cùng một sự thật
+	// nghiệp vụ đã xảy ra, nửa kia thì chưa. Hoãn cả event thì trạng thái
+	// luôn là "chưa xử lý", thứ dễ suy luận hơn hẳn.
+	if err := d.kiemPhienBan(p.event, handlers); err != nil {
+		return err
+	}
+
 	for _, h := range handlers {
 		if err := d.runHandler(ctx, tx, h, p.event); err != nil {
 			// Ghi lỗi bằng CÙNG giao dịch: nếu handler đã ghi gì đó trước
@@ -125,6 +147,39 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, tx pgx.Tx, p pending) erro
 	}
 
 	return d.outbox.markPublished(ctx, tx, p.rowID)
+}
+
+// ErrHoanLechPhienBan báo event mới hơn thứ bên nhận hiểu được.
+//
+// KHÔNG phải lỗi xử lý: event giữ nguyên trạng thái chờ, `attempts` không
+// tăng, và nó KHÔNG bao giờ chuyển dead letter vì lý do này. Xem ADR-0016.
+var ErrHoanLechPhienBan = errors.New("eventbus: hoãn — bên nhận chưa hiểu phiên bản event")
+
+// kiemPhienBan hoãn event nếu có bên nhận chưa hiểu phiên bản của nó.
+func (d *Dispatcher) kiemPhienBan(e Event, handlers []Handler) error {
+	for _, h := range handlers {
+		max := MaxVersionOf(h, e.Type)
+		if e.Version <= max {
+			continue
+		}
+
+		metrics.EventVersionSkew.WithLabelValues(h.Name(), e.Type).Inc()
+
+		// Mức WARN chứ không DEBUG: đây là dấu hiệu đã triển khai SAI THỨ
+		// TỰ (bên phát lên trước bên nhận), và nó cần người xử lý — dù hệ
+		// thống đang tự bảo vệ được.
+		d.log.Warn("hoãn event: bên nhận chưa hiểu phiên bản",
+			"event_id", e.ID.String(),
+			"event_type", e.Type,
+			"phiên_bản_event", e.Version,
+			"phiên_bản_bên_nhận_hiểu", max,
+			"bên_nhận", h.Name(),
+			"gợi_ý", "nâng cấp bên nhận; event chờ sẵn và tự chảy tiếp")
+
+		return fmt.Errorf("%w: %s hiểu tới v%d, event là v%d",
+			ErrHoanLechPhienBan, h.Name(), max, e.Version)
+	}
+	return nil
 }
 
 // runHandler chạy một bên nhận, cưỡng chế idempotency.

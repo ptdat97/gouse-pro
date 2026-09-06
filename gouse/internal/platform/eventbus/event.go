@@ -164,6 +164,51 @@ type Handler interface {
 	Handle(ctx context.Context, e Event) error
 }
 
+// DefaultMaxEventVersion là phiên bản cao nhất mà một Handler KHÔNG khai
+// báo gì được coi là hiểu.
+//
+// Là 1 chứ không phải "mọi phiên bản", và đó là cả điểm mấu chốt của
+// ADR-0016: mặc định dễ dãi dựng lại đúng sự cố 19/08 — bên nhận cũ vui vẻ
+// nuốt event mới rồi bỏ qua trường nó không biết, trong im lặng.
+//
+// Hôm nay mọi event đều ở v1 nên mặc định này không bắt bên nhận nào phải
+// sửa gì. Nó chỉ có tác dụng vào ngày ai đó nâng một loại event lên v2.
+const DefaultMaxEventVersion = 1
+
+// VersionedHandler là bên nhận KHAI BÁO phiên bản cao nhất nó hiểu.
+//
+// Cài interface này khi payload của một loại event lên phiên bản mới và
+// bên nhận đã biết đọc phiên bản đó. Không cài thì eventbus coi bên nhận
+// chỉ hiểu tới `DefaultMaxEventVersion`.
+//
+// Vì sao khai ở BÊN NHẬN chứ không kiểm trong `Handle`: bên nhận quên kiểm
+// chính là bên nhận gây ra sự cố. Đặt ở dispatcher thì không ai quên được
+// — xem ADR-0016 mục "Phương án đã cân nhắc".
+type VersionedHandler interface {
+	Handler
+
+	// MaxEventVersion trả phiên bản cao nhất bên nhận hiểu cho MỘT loại
+	// event. Nhận `eventType` vì một bên nhận nghe nhiều loại, và chúng
+	// tiến hóa độc lập với nhau.
+	MaxEventVersion(eventType string) int
+}
+
+// MaxVersionOf trả phiên bản cao nhất mà `h` hiểu cho `eventType`.
+//
+// Giá trị khai báo nhỏ hơn 1 được nâng về `DefaultMaxEventVersion`: một
+// bên nhận trả 0 (trường int chưa gán) sẽ chặn CẢ event v1, tức là chặn
+// mọi thứ đang chạy — hỏng theo kiểu im lặng và toàn diện.
+func MaxVersionOf(h Handler, eventType string) int {
+	vh, ok := h.(VersionedHandler)
+	if !ok {
+		return DefaultMaxEventVersion
+	}
+	if v := vh.MaxEventVersion(eventType); v > DefaultMaxEventVersion {
+		return v
+	}
+	return DefaultMaxEventVersion
+}
+
 // ---------------------------------------------------------------- Danh mục
 
 // Các loại event của hệ thống.

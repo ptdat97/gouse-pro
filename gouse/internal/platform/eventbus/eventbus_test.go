@@ -475,3 +475,162 @@ func TestBenPhatTuDatThiGiuNguyen(t *testing.T) {
 		t.Errorf("correlation_id = %q, cần mã đơn %q", corr, orderID)
 	}
 }
+
+// ---------------------------------------------------- Phiên bản (ADR-0016)
+
+// benNhanCu là bên nhận CHỈ hiểu tới một phiên bản nhất định.
+type benNhanCu struct {
+	recordingHandler
+	maxVersion int
+}
+
+func (h *benNhanCu) MaxEventVersion(string) int { return h.maxVersion }
+
+// newEventVersion dựng event ở một phiên bản cụ thể.
+func newEventVersion(t *testing.T, eventType string, version int) eventbus.Event {
+	t.Helper()
+	e := newEvent(t, eventType)
+	e.Version = version
+	return e
+}
+
+// TestBenNhanCuKhongNuotEventMoiHon tái hiện sự cố 19/08 và khóa nó lại.
+//
+// # Sự cố
+//
+// Thêm địa chỉ giao vào `checkout.completed`. Worker CŨ còn sống tiêu thụ
+// event MỚI và âm thầm bỏ qua trường mới — `encoding/json` bỏ qua trường
+// lạ, đúng như thiết kế. Không lỗi, không log; chỉ là đơn thực hiện có
+// địa chỉ rỗng, và người phát hiện ra là con người.
+//
+// # Vì sao HOÃN chứ không phải LỖI
+//
+// Lệch phiên bản tự lành: nó biến mất ngay khi bản mới của bên nhận lên.
+// Trả lỗi thì `attempts` chạm 5 trong vài giây và event chết vĩnh viễn —
+// biến sự cố tạm thời thành mất dữ liệu. Nên event phải NẰM LẠI hàng đợi,
+// KHÔNG tiêu tốn lượt thử.
+func TestBenNhanCuKhongNuotEventMoiHon(t *testing.T) {
+	bus, _ := newBus(t)
+	ctx := context.Background()
+
+	h := &benNhanCu{
+		recordingHandler: recordingHandler{
+			name: "test.ben_nhan_cu", types: []string{"checkout.completed"},
+		},
+		maxVersion: 1,
+	}
+	bus.Subscribe(h)
+
+	if err := bus.Outbox().Publish(ctx,
+		newEventVersion(t, "checkout.completed", 2)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	// Chạy NHIỀU lượt hơn ngưỡng dead letter.
+	for i := 0; i < 10; i++ {
+		if _, err := bus.DispatchBatch(ctx, 100); err != nil {
+			t.Fatalf("lượt %d: %v", i, err)
+		}
+	}
+
+	if h.count() != 0 {
+		t.Error("bên nhận CŨ đã xử lý event MỚI — đúng sự cố 19/08: " +
+			"payload có trường nó không biết, và nó nuốt trong im lặng")
+	}
+
+	stats, err := bus.Outbox().Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.DeadLettered != 0 {
+		t.Errorf("số event dead letter = %d, mong 0 — lệch phiên bản là "+
+			"chuyện TỰ LÀNH, bỏ cuộc là biến nó thành mất dữ liệu vĩnh viễn",
+			stats.DeadLettered)
+	}
+	if stats.Pending != 1 {
+		t.Errorf("số event chờ = %d, mong 1 — event phải nằm lại đợi bên "+
+			"nhận đủ mới", stats.Pending)
+	}
+}
+
+// TestEventHoanTuChayTiepKhiBenNhanDuocNangCap là nửa còn lại của quy tắc.
+//
+// Hoãn chỉ đúng nếu nó THẬT SỰ tạm thời. Nếu event không tự chảy tiếp sau
+// khi bên nhận được nâng cấp thì "hoãn" chỉ là một cách chết chậm hơn.
+func TestEventHoanTuChayTiepKhiBenNhanDuocNangCap(t *testing.T) {
+	bus, _ := newBus(t)
+	ctx := context.Background()
+
+	h := &benNhanCu{
+		recordingHandler: recordingHandler{
+			name: "test.ben_nhan", types: []string{"checkout.completed"},
+		},
+		maxVersion: 1,
+	}
+	bus.Subscribe(h)
+
+	if err := bus.Outbox().Publish(ctx,
+		newEventVersion(t, "checkout.completed", 2)); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	if _, err := bus.DispatchBatch(ctx, 100); err != nil {
+		t.Fatalf("lượt đầu: %v", err)
+	}
+	if h.count() != 0 {
+		t.Fatal("bên nhận cũ đã xử lý — bài test không kiểm được gì")
+	}
+
+	// "Triển khai" bản mới: bên nhận nay hiểu v2.
+	h.maxVersion = 2
+
+	n, err := bus.DispatchBatch(ctx, 100)
+	if err != nil {
+		t.Fatalf("lượt sau nâng cấp: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("số event đã phát = %d, mong 1 — event hoãn phải tự chảy "+
+			"tiếp khi bên nhận đủ mới, không cần ai phát lại tay", n)
+	}
+	if h.count() != 1 {
+		t.Errorf("bên nhận nhận %d event, mong 1", h.count())
+	}
+}
+
+// TestHandlerKhongKhaiBaoThiHieuV1 khóa GIÁ TRỊ MẶC ĐỊNH.
+//
+// Mặc định phải là "hiểu tới v1", không phải "hiểu mọi phiên bản". Mặc
+// định ngược lại dựng lại đúng sự cố 19/08: bên nhận chưa khai báo gì vui
+// vẻ nuốt event mới. Hôm nay mọi event đều v1 nên mặc định này không bắt
+// ai phải sửa gì.
+func TestHandlerKhongKhaiBaoThiHieuV1(t *testing.T) {
+	bus, _ := newBus(t)
+	ctx := context.Background()
+
+	// Handler THƯỜNG, không cài VersionedHandler.
+	h := &recordingHandler{name: "test.thuong", types: []string{"order.placed"}}
+	bus.Subscribe(h)
+
+	if err := bus.Outbox().Publish(ctx, newEvent(t, "order.placed")); err != nil {
+		t.Fatalf("Publish v1: %v", err)
+	}
+	if _, err := bus.DispatchBatch(ctx, 100); err != nil {
+		t.Fatalf("DispatchBatch: %v", err)
+	}
+	if h.count() != 1 {
+		t.Fatalf("event v1 KHÔNG tới bên nhận thường (%d) — mặc định đã "+
+			"chặn nhầm cả những gì đang chạy", h.count())
+	}
+
+	// Cùng handler đó, event v2: phải bị hoãn.
+	if err := bus.Outbox().Publish(ctx,
+		newEventVersion(t, "order.placed", 2)); err != nil {
+		t.Fatalf("Publish v2: %v", err)
+	}
+	if _, err := bus.DispatchBatch(ctx, 100); err != nil {
+		t.Fatalf("DispatchBatch v2: %v", err)
+	}
+	if h.count() != 1 {
+		t.Error("handler chưa khai báo đã nuốt event v2 — mặc định phải là v1")
+	}
+}

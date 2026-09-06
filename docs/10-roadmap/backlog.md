@@ -435,7 +435,7 @@ và trông chờ may rủi. Module checkout chưa có cổng tiêm đồng hồ 
 |---|---|---|
 | PH-5 | **Chuẩn hóa idempotency** — bảng ở mục 2.7 | ✅ 5/5 có ràng buộc ở tầng dữ liệu |
 | PH-6 | Chuẩn hóa retry / xử lý thất bại | ✅ ba tầng, có test cưỡng chế — xem 2.16 |
-| PH-7 | **Event versioning** — quy tắc + test tự động | ✅ 3 test tương thích, xem 2.8 |
+| PH-7 | **Event versioning** — quy tắc + test tự động | ✅ xong 06/09 — ADR-0016, bên nhận khai phiên bản, lệch thì HOÃN; xem 2.8 |
 | PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | ✅ tiêm lỗi ở tầng DB, tìm ra và bịt một khe hở thật — xem 2.15 |
 
 ### 2.3 PH — Security
@@ -572,8 +572,8 @@ boolean, và inventory chỉ có một handler duy nhất là Commit.
 Đây là lựa chọn có chủ ý. Mở rộng `fulfillment.progress` sẽ bắt ba bên
 nhận hiện có (order, notification, analytics) tải dữ liệu họ không dùng —
 và quan trọng hơn, ĐỔI payload đang chạy đòi hỏi triển khai bên nhận
-trước bên phát (PH-7, chưa có quy trình). Thêm event mới thì bên nhận cũ
-không bị ảnh hưởng gì, nên không phải chờ PH-7.
+trước bên phát (PH-7, khi đó chưa có quy trình — nay đã có, xem ADR-0016).
+Thêm event mới thì bên nhận cũ không bị ảnh hưởng gì, nên không phải chờ.
 
 ```text
 fulfillment.cancelled  (MỚI)
@@ -908,30 +908,67 @@ bỏ `AND version = $17`        → "2 lệnh bàn giao cùng thành công, cầ
 DROP INDEX reservation_active_uniq → "giữ hàng lần 2 THÀNH CÔNG"
 ```
 
-### 2.8 Event versioning (PH-7)
+### 2.8 Event versioning (PH-7) `[XONG 06/09]`
 
 Trường đã có: `Event.Version` trong Go, cột `event_version` trong outbox,
 mặc định 1. Cái CHƯA có là mọi thứ khác:
 
 ```text
-❌ không bên nhận nào ĐỌC Version — mọi handler unmarshal thẳng
-❌ không có quy tắc thay đổi payload nào là tương thích ngược
-❌ không có chiến lược triển khai khi payload đổi
+✅ bên nhận ĐỌC Version              VersionedHandler + kiểm ở dispatcher
+✅ quy tắc thay đổi payload           ADR-0016 mục "khi nào tăng phiên bản"
+✅ chiến lược triển khai khi đổi      bên nhận lên TRƯỚC; vi phạm thì HOÃN
 ```
 
 Đã có sự cố thật (19/08): thêm địa chỉ giao vào `checkout.completed`, một
 tiến trình worker CŨ còn sống đã tiêu thụ event mới và **âm thầm bỏ qua**
 trường mới. Không lỗi, không log — chỉ là đơn thực hiện thiếu địa chỉ.
 
-Quy tắc tối thiểu cần chốt: bên nhận triển khai TRƯỚC bên phát; chỉ được
-THÊM trường, không đổi nghĩa và không xóa; và bên nhận phải chịu được
-trường lạ.
+**Quyết định nằm ở [ADR-0016](../adr/0016-phien-ban-event.md).** Viết ADR
+trước là bắt buộc ở đây chứ không phải nghi thức: cách sửa hiển nhiên —
+"bên nhận không hiểu thì trả lỗi" — đụng thẳng vào cơ chế thử lại, nơi mọi
+lỗi tăng `attempts` và chạm 5 là `dead_lettered_at` VĨNH VIỄN. Tức là nó
+biến một sự cố TỰ LÀNH (lệch phiên bản biến mất khi bản mới lên) thành mất
+dữ liệu không hồi được. Không quyết chuyện đó trước thì viết code là chọn
+bừa.
+
+**Cơ chế:** bên nhận khai `MaxEventVersion(eventType)`; không khai thì được
+coi là hiểu tới v1. Event mới hơn thì dispatcher **HOÃN** — giữ nguyên
+trạng thái chờ, KHÔNG tăng `attempts`, ghi log WARN và tăng metric
+`gouse_event_version_skew_total`. Event tự chảy tiếp khi bên nhận được nâng
+cấp, không cần ai phát lại tay.
+
+**Kiểm phiên bản cho TOÀN BỘ bên nhận trước khi chạy ai.** Nếu A hiểu v2
+còn B chưa, chạy A rồi mới hoãn vì B sẽ để hệ thống ở trạng thái NỬA CHỪNG:
+một nửa phản ứng của cùng một sự thật đã xảy ra, nửa kia thì chưa.
+
+**Mặc định v1 là điểm mấu chốt**, và cũng là chỗ dễ làm sai nhất. "Chưa
+khai thì hiểu mọi phiên bản" nghe an toàn hơn nhưng dựng lại đúng sự cố
+19/08. Hôm nay mọi event đều v1 nên mặc định chặt không bắt bên nhận nào
+phải sửa gì.
+
+**Kiểm chứng bằng cách phá, hai lần:**
+
+- Đổi mặc định thành "hiểu mọi phiên bản" → bài `TestHandlerKhongKhaiBao…`
+  đỏ: handler thường nuốt event v2.
+- Cho hoãn đi đường thất bại thường (gọi `markFailed`) → bài tái hiện sự cố
+  đỏ đúng chỗ ADR cảnh báo: `dead letter = 1, mong 0`.
+
+**CỐ Ý không nâng `checkout.completed` lên v2.** Ngưỡng tăng phiên bản là
+"bên nhận BẮT BUỘC phải có trường mới", và `shipping_address` thì mọi bên
+nhận đã có từ lâu. Nâng lại lúc này chỉ tạo ra một đợt lệch phiên bản tự
+gây, trong khi không ai được lợi. Cơ chế dựng cho lần thay đổi TIẾP THEO.
+
+**Còn nợ:** event bị hoãn được đọc lại mỗi nhịp worker nên tốn truy vấn vô
+ích cho tới khi bên nhận được nâng cấp; và nếu bên nhận KHÔNG BAO GIỜ được
+nâng cấp thì nó nằm mãi. `OldestPendingAge` bắt được, nhưng không có cơ chế
+tự dọn — cố ý, vì tự dọn nghĩa là tự vứt dữ liệu.
 
 ### 2.8b ADR liên quan tới phase này
 
 | ADR | Vì sao liên quan |
 |---|---|
 | [0006](../adr/0006-internal-events.md) | Outbox và ranh giới giao dịch của event — nền của PH-7, PH-8 |
+| [0016](../adr/0016-phien-ban-event.md) | **Phiên bản event và thứ tự triển khai — chính là PH-7** |
 | [0007](../adr/0007-marketplace-order-model.md) | Tách Order / FulfillmentOrder — nền của tách đơn nhiều nhà bán |
 | [0008](../adr/0008-financial-ledger.md) | Sổ cái bất biến — nền của idempotency thanh toán |
 | [0011](../adr/0011-audit-log.md) | Audit log cùng giao dịch với thao tác — PH-10 |

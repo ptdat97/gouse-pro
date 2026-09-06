@@ -198,6 +198,19 @@ var BusinessFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Help: "Thất bại nghiệp vụ theo bước và lý do đã phân loại.",
 }, []string{"stage", "reason"})
 
+// EventVersionSkew đếm lần event bị HOÃN vì bên nhận chưa đủ mới (ADR-0016).
+//
+// Khác `HandlerFailures`: đây KHÔNG phải lỗi, và event không bị bỏ cuộc —
+// nó nằm lại hàng đợi chờ bên nhận được nâng cấp. Con số này lớn hơn 0
+// nghĩa là đã triển khai SAI THỨ TỰ (bên phát lên trước bên nhận).
+//
+// Cặp với `OutboxOldestAgeSeconds`: nó cho biết CÓ tồn đọng, còn cái này
+// cho biết tồn đọng vì lệch phiên bản chứ không phải vì worker chết.
+var EventVersionSkew = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "gouse_event_version_skew_total",
+	Help: "Số lần event bị hoãn vì bên nhận chưa hiểu phiên bản của nó.",
+}, []string{"handler", "event_type"})
+
 // ---------------------------------------------------------------- Đăng ký
 
 func init() {
@@ -206,7 +219,7 @@ func init() {
 		OutboxPending, OutboxDeadLettered, OutboxOldestAgeSeconds,
 		WorkerHeartbeat, WorkerJobLastSuccess, WorkerJobRunning,
 		WorkerJobDuration, WorkerJobFailures,
-		HandlerFailures, BusinessFailures,
+		HandlerFailures, BusinessFailures, EventVersionSkew,
 
 		// Chỉ số của chính tiến trình Go: số goroutine, bộ nhớ, GC.
 		//
