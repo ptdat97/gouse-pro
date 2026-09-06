@@ -7593,7 +7593,7 @@ export interface operations {
                  *         "amount": 628000,
                  *         "currency": "VND",
                  *         "metadata": {
-                 *           "checkout_id": "chk_01J9XABC123DEF456GHJKMNPQR"
+                 *           "order_id": "ord_01J9XABC123DEF456GHJKMNPQR"
                  *         }
                  *       },
                  *       "occurred_at": "2026-08-11T14:26:00Z"
@@ -7612,7 +7612,21 @@ export interface operations {
                         /** @description Đơn vị nhỏ nhất của tiền tệ. */
                         amount?: number;
                         currency?: string;
+                        /**
+                         * @description **`order_id` là BẮT BUỘC.** Nó là khóa để tra
+                         *     `payment_intent` và đối chiếu số tiền — thiếu nó thì
+                         *     không đối chiếu được, và không đối chiếu được thì
+                         *     request bị từ chối `400` chứ không xử lý.
+                         *
+                         *     Ví dụ trước đây khai `checkout_id`. Đó là dấu vết của
+                         *     luồng trong `docs/04-modules/payment.md` mục 10, nơi
+                         *     intent được tạo TRƯỚC khi đơn tồn tại. Cài đặt tạo
+                         *     intent SAU `PlaceOrder` (xem ADR-0017), nên khóa là
+                         *     mã đơn — và đặc tả phải nói đúng thứ máy chủ đọc.
+                         */
                         metadata?: {
+                            order_id: components["schemas"]["Id"];
+                        } & {
                             [key: string]: unknown;
                         };
                     };
@@ -7653,6 +7667,22 @@ export interface operations {
                 };
             };
             /**
+             * @description Không có `payment_intent` cho đơn này — hệ thống KHÔNG chờ thu
+             *     tiền của nó.
+             *
+             *     Ba nguyên nhân, và cả ba đều không được xử lý: đơn thanh toán khi
+             *     nhận hàng (COD không có intent — xem ADR-0017), mã đơn không tồn
+             *     tại, hoặc môi trường test gọi nhầm vào production.
+             */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
              * @description Số tiền không khớp với `payment_intent` trong hệ thống.
              *
              *     **Không xử lý** và cảnh báo ngay — đây là lớp bảo vệ chống lỗi
@@ -7666,13 +7696,8 @@ export interface operations {
                     /**
                      * @example {
                      *       "error": {
-                     *         "code": "VALIDATION_FAILED",
-                     *         "message": "Số tiền không khớp với ý định thanh toán",
-                     *         "details": {
-                     *           "payment_intent_id": "pi_abc123",
-                     *           "expected_amount": 628000,
-                     *           "received_amount": 528000
-                     *         }
+                     *         "code": "PAYMENT_FAILED",
+                     *         "message": "Số tiền không khớp ý định thanh toán"
                      *       },
                      *       "request_id": "req_01J9XABC123DEF456GHJKMNPQR"
                      *     }

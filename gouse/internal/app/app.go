@@ -390,6 +390,7 @@ func Build(
 			Order:       orderModule,
 			Seller:      sellerModule,
 			Promotion:   promotionModule,
+			Payment:     paymentModule,
 			Events:      eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
@@ -824,6 +825,24 @@ func RegisterRoutes(
 			m.fulfillment.RegisterWebhookRoutes(mux,
 				&ghiSuKien{r: webhook.NewRecorder(db.Pool())},
 				biMatWebhook(cfg.Auth.WebhookSecrets), log)
+		}
+
+		// Webhook THANH TOÁN — cùng ba lý do "không Auth, không
+		// Idempotency-Key" như webhook vận chuyển.
+		//
+		// Chỉ mở khi CÓ module order: lớp bảo vệ thứ ba đối chiếu số tiền
+		// với `payment_intent`, và việc đánh dấu đơn đã trả cần order.
+		// Thiếu order thì endpoint sẽ nhận tiền mà không cập nhật được gì
+		// — thà không mở còn hơn (ADR-0017).
+		if m.payment != nil && m.order != nil {
+			donHang := m.order
+			m.payment.RegisterWebhookRoutes(mux,
+				&ghiSuKienThanhToan{r: webhook.NewRecorder(db.Pool())},
+				biMatWebhookThanhToan(cfg.Auth.WebhookSecrets),
+				func(ctx context.Context, orderID string) error {
+					return donHang.MarkOrderPaid(ctx, orderID)
+				},
+				log)
 		}
 
 		// Offer và tồn kho của nhà bán — nửa còn lại của luồng 2.

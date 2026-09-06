@@ -80,3 +80,28 @@ type BalanceRepository interface {
 	// trọng, không phải "sai số chấp nhận được".
 	TotalDebitCredit(ctx context.Context) (debit, credit int64, err error)
 }
+
+// IntentRepository là PORT cho ý định thanh toán.
+//
+// KHÁC LedgerRepository ở một điểm quan trọng: cái này CÓ Update. Intent
+// không phải bút toán — nó là bản ghi tiền CHƯA chuyển, và nó chuyển
+// trạng thái theo vòng đời (ADR-0017). Bút toán thì bất biến vì nó ghi
+// tiền ĐÃ chuyển; áp cùng một quy tắc cho hai thứ khác bản chất sẽ bắt
+// intent phải sinh một bản ghi mới cho mỗi lần đổi trạng thái.
+type IntentRepository interface {
+	// Create ghi một ý định thanh toán mới.
+	//
+	// Trả ErrIntentTrungDon khi đơn đã có intent — chỉ mục UNIQUE trên
+	// order_id là thứ cưỡng chế, không phải một câu SELECT trước đó: hai
+	// request hoàn tất song song đều thấy "chưa có".
+	Create(ctx context.Context, p *PaymentIntent) error
+
+	// FindByOrder tra intent theo đơn. Trả ErrIntentKhongTim nếu không có.
+	FindByOrder(ctx context.Context, orderID ids.ID) (*PaymentIntent, error)
+
+	// FindByID tra theo mã intent.
+	FindByID(ctx context.Context, id ids.ID) (*PaymentIntent, error)
+
+	// Update lưu trạng thái mới.
+	Update(ctx context.Context, p *PaymentIntent) error
+}

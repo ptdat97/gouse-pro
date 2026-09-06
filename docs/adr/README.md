@@ -47,6 +47,7 @@ Deprecated — không còn áp dụng
 | [0014](0014-ma-hoa-truong-nhay-cam.md) | Mã hóa trường nhạy cảm bằng AES-256-GCM | Accepted | Seller, Platform |
 | [0015](0015-cau-hinh-van-hanh.md) | Cấu hình vận hành sửa được lúc chạy — sổ đăng ký ĐÓNG | Accepted | Platform, Admin |
 | [0016](0016-phien-ban-event.md) | Bên nhận khai phiên bản hiểu được; event mới hơn bị HOÃN | Accepted | Platform, mọi bên nhận event |
+| [0017](0017-payment-intent.md) | `payment_intent` — số tiền chờ thu, thứ webhook đối chiếu vào | Accepted | Payment, Checkout, Order |
 
 ## Quy trình thêm ADR mới
 

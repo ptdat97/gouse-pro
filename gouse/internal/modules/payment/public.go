@@ -288,3 +288,27 @@ const (
 	AccountFeeExpense            = "FEE_EXPENSE"
 	AccountInventoryAsset        = "INVENTORY_ASSET"
 )
+
+// ---------------------------------------------------- Ý định thanh toán
+
+// IntentView là ý định thanh toán cho module khác — CHỈ ĐỌC.
+type IntentView struct {
+	ID         string
+	OrderID    string
+	Amount     int64
+	Currency   string
+	Method     string
+	Status     string
+	CapturedAt string
+}
+
+// TaoIntentRequest là yêu cầu tạo ý định thanh toán.
+type TaoIntentRequest struct {
+	OrderID  string
+	Amount   int64
+	Currency string
+
+	// Method phải là phương thức TRẢ TRƯỚC. COD trả
+	// ErrPhuongThucKhongTraTruoc — bên gọi bỏ qua chứ không coi là hỏng.
+	Method string
+}

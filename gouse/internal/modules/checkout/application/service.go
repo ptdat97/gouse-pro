@@ -284,6 +284,19 @@ type OrderPort interface {
 	LayDon(ctx context.Context, orderID ids.ID) (PlacedOrder, error)
 }
 
+// PaymentPort là những gì checkout CẦN từ payment.
+type PaymentPort interface {
+	// TaoIntent ghi số tiền hệ thống CHỜ THU cho một đơn trả trước.
+	//
+	// IDEMPOTENT theo đơn. Phương thức KHÔNG trả trước (COD, hoặc rỗng)
+	// trả lỗi mà `LaPhuongThucKhongTraTruoc` nhận ra được — bên gọi BỎ
+	// QUA, vì đó là câu trả lời đúng chứ không phải hỏng.
+	TaoIntent(ctx context.Context, orderID ids.ID, soTien money.Money, phuongThuc string) error
+
+	// LaKhongCanIntent phân biệt "COD, không cần intent" với "hỏng thật".
+	LaKhongCanIntent(err error) bool
+}
+
 // anHanHoanTat là quãng thời gian phiên được giữ thêm trong lúc tạo đơn.
 //
 // Chọn 30 giây vì việc còn lại chỉ là hai lượt ghi database. Rộng rãi so
@@ -376,6 +389,7 @@ type Service struct {
 	commissions CommissionPort
 	sellers     SellerPort
 	orders      OrderPort
+	payments    PaymentPort
 	promotions  PromotionPort
 	clock       Clock
 	events      EventPublisher
@@ -419,6 +433,13 @@ type Deps struct {
 	Orders      OrderPort
 	Clock       Clock
 
+	// Payments có thể nil: khi đó KHÔNG tạo ý định thanh toán, và mọi đơn
+	// trả trước sẽ không có gì để webhook đối chiếu vào.
+	//
+	// Chấp nhận được ở test tầng dưới. Ở production thì không: thiếu nó
+	// nghĩa là khách trả tiền qua thẻ mà hệ thống không bao giờ ghi nhận.
+	Payments PaymentPort
+
 	// Promotions có thể nil: phiên thanh toán vẫn chạy, chỉ là không áp
 	// được mã giảm giá. Không chặn cả luồng mua hàng vì một tính năng phụ.
 	Promotions PromotionPort
@@ -442,6 +463,7 @@ func NewService(d Deps) *Service {
 		commissions: d.Commissions,
 		sellers:     d.Sellers,
 		orders:      d.Orders,
+		payments:    d.Payments,
 		promotions:  d.Promotions,
 		clock:       clock,
 		events:      d.Events,
@@ -1105,6 +1127,25 @@ func (s *Service) CompleteCheckout(
 	// idempotent theo cùng khóa nên không sinh đơn thứ hai.
 	if err := s.checkouts.GhiNhanDaTaoDon(ctx, c.ID(), placed.OrderID); err != nil {
 		return nil, err
+	}
+
+	// Ý ĐỊNH THANH TOÁN — số tiền hệ thống chờ thu (ADR-0017).
+	//
+	// Tạo ĐỒNG BỘ ở đây chứ không qua event: webhook của cổng thanh toán
+	// có thể tới trước khi worker vét outbox, và khi ấy nó không tìm thấy
+	// intent nào để đối chiếu — tiền về mà hệ thống trả 404.
+	//
+	// Lỗi thì DỪNG, cùng lý do với dòng trên: một đơn trả trước KHÔNG có
+	// intent thì không bao giờ thu được tiền, và không có gì đi dọn nó.
+	// Khách thử lại được — cả `PlaceOrder` lẫn `TaoIntent` đều idempotent
+	// theo đơn nên không sinh bản ghi thứ hai.
+	if s.payments != nil {
+		err := s.payments.TaoIntent(ctx, placed.OrderID, c.Total(), paymentMethod)
+		// COD (và đơn qua `placeOrder`, không có phương thức) KHÔNG có
+		// intent — đó là câu trả lời đúng, không phải hỏng. Xem ADR-0017.
+		if err != nil && !s.payments.LaKhongCanIntent(err) {
+			return nil, fmt.Errorf("tạo ý định thanh toán: %w", err)
+		}
 	}
 
 	if err := c.Complete(placed.OrderID, idempotencyKey, now); err != nil {

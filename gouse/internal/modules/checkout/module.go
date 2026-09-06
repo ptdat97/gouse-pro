@@ -56,6 +56,13 @@ type Config struct {
 	// chủ là trừ hàng của người khác — im lặng, ở cả hai sổ sách.
 	Seller seller.API
 
+	// Payment ghi Ý ĐỊNH THANH TOÁN cho đơn TRẢ TRƯỚC (ADR-0017).
+	//
+	// Có thể nil: khi đó không intent nào được tạo, và webhook thanh toán
+	// không có gì để đối chiếu — mọi đơn trả trước thành đơn không bao giờ
+	// thu được tiền. Chấp nhận được ở test tầng dưới, KHÔNG ở production.
+	Payment PaymentAPI
+
 	// Promotion cho phép áp mã giảm giá. Có thể nil: phiên vẫn chạy,
 	// chỉ là khách không dùng được mã.
 	Promotion promotion.API
@@ -110,6 +117,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Promotion != nil {
 		deps.Promotions = &promotionAdapter{api: cfg.Promotion}
+	}
+	if cfg.Payment != nil {
+		deps.Payments = &paymentAdapter{api: cfg.Payment}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil

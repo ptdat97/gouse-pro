@@ -70,6 +70,7 @@ type Service struct {
 	ledger      domain.LedgerRepository
 	balances    domain.BalanceRepository
 	settlements SettlementRepository
+	intents     domain.IntentRepository
 	audit       AuditRecorder
 	clock       Clock
 }
@@ -79,6 +80,10 @@ type Deps struct {
 	Balances    domain.BalanceRepository
 	Settlements SettlementRepository
 	Clock       Clock
+
+	// Intents có thể nil ở các bản dựng chưa nối ý định thanh toán (test
+	// của sổ cái). Use case nào cần nó tự báo lỗi rõ thay vì panic.
+	Intents domain.IntentRepository
 
 	// Audit có thể nil: các use case ghi sổ tự động (doanh thu, hoàn tiền)
 	// không cần. Chỉ RecordAdjustmentWithAudit bắt buộc có nó.
@@ -94,6 +99,7 @@ func NewService(d Deps) *Service {
 		ledger:      d.Ledger,
 		balances:    d.Balances,
 		settlements: d.Settlements,
+		intents:     d.Intents,
 		audit:       d.Audit,
 		clock:       clock,
 	}

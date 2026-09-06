@@ -272,7 +272,7 @@ trả 409 kèm thông điệp nói thẳng để người vận hành xử lý t
 
 ---
 
-### PH-36 — Webhook thanh toán CHẶN vì chưa có payment intent `[CHẶN]`
+### PH-36 — Webhook thanh toán `[XONG 06/09]`
 
 Webhook **vận chuyển** đã cài xong (27/08). Webhook **thanh toán** thì
 không, và lý do đáng ghi lại.
@@ -301,7 +301,66 @@ lộ, đều thành tiền ghi sai.
 trả trước, giữ số tiền đã đóng băng, và là thứ webhook đối chiếu vào. Đó
 là việc lớn hơn bản thân webhook.
 
-Hiện chỉ COD đi trọn được đường, và COD không cần webhook.
+---
+
+**ĐÃ LÀM 06/09 — quyết định ở [ADR-0017](../adr/0017-payment-intent.md).**
+
+`payment_intent` giữ số tiền hệ thống CHỜ THU, tạo đồng bộ ngay sau
+`PlaceOrder` cho đơn TRẢ TRƯỚC. Đồng bộ chứ không qua event: webhook có
+thể tới trước khi worker vét outbox, và khi ấy nó không tìm thấy gì để đối
+chiếu — tiền về mà hệ thống trả 404.
+
+**COD KHÔNG có intent**, có chủ ý. Không có cuộc trao đổi nào với cổng
+thanh toán nên không có gì để đối chiếu, và hàng nghìn intent không bao
+giờ được thu sẽ làm mọi cảnh báo dựa trên tồn đọng thành vô dụng. Quy tắc
+này chỉ viết được nhờ P3-9 (06/09) — trước đó hệ thống không biết đơn nào
+là COD.
+
+**`Order.MarkPaid` hết là mã chết.** Nó tồn tại đủ ba tầng từ lâu mà không
+ai gọi; webhook chính là bên gọi nó được viết cho.
+
+**Kiểm chứng bằng cách phá, hai lần, hai tầng:**
+
+- Tầng application nuốt lỗi lệch số tiền → bài API đỏ đúng chỗ nguy hiểm
+  nhất: `HTTP 200` và đơn thành `PAID` từ một webhook báo SAI số tiền.
+- Bỏ hẳn việc tạo intent (tức "cài hai lớp trước, bổ sung lớp ba sau" —
+  đúng thứ mục này cảnh báo) → mọi webhook trả 404. Đáng chú ý: hỏng theo
+  hướng ĐÓNG, không bao giờ tin con số bên ngoài.
+
+**Kiểm trên hệ thống THẬT** (API + PostgreSQL có dữ liệu), đơn 420.000đ
+trả bằng CARD:
+
+```text
+chữ ký SAI              → 401 · đơn PENDING_PAYMENT
+chữ ký ĐÚNG, tiền SAI   → 422 · đơn PENDING_PAYMENT  ← lớp 3 chặn được
+chữ ký ĐÚNG, tiền ĐÚNG  → 200 · đơn PAID
+gửi TRÙNG               → 200 · already_processed: true
+```
+
+Log máy chủ ghi ERROR kèm số tiền BÊN NGOÀI BÁO, và cố ý KHÔNG nêu số
+tiền hệ thống chờ thu ở phản hồi — nói ra là đưa cho kẻ dò đúng con số cần
+gửi lần sau. Ràng buộc database cũng đã kiểm trên bản thật: `CAPTURED` mà
+bỏ mốc thu tiền bị từ chối, và hai intent cho một đơn bị từ chối.
+
+**Sửa kèm ba chỗ lệch trong đặc tả webhook:** ví dụ dùng
+`metadata.checkout_id` trong khi máy chủ đọc `order_id`; ví dụ lỗi 422
+khai mã `VALIDATION_FAILED`, mã ánh xạ sang 400 chứ không phải 422; và
+thiếu hẳn phản hồi 404 cho đơn không chờ thu tiền.
+
+**CÒN NỢ, ghi rõ chứ không giấu:**
+
+- **Doanh thu vẫn ghi sổ lúc `checkout.completed`, TRƯỚC khi tiền về.** Một
+  đơn trả trước bị bỏ dở vẫn để lại bút toán doanh thu cho khoản tiền chưa
+  bao giờ tới. Sửa đúng phải chuyển ghi nhận sang lúc thu tiền, mà điều đó
+  động tới cả COD (tiền về lúc giao hàng) — việc lớn hơn hẳn và là quyết
+  định của chủ dự án.
+- **Chưa có job đối chiếu định kỳ** (yêu cầu 5 của `webhooks.yaml`), nên
+  webhook MẤT vẫn để đơn treo. Giống hệt webhook vận chuyển; nên làm cho
+  cả hai cùng lúc. Chỉ mục `payment_intent_cho_thu` đã dựng sẵn chỗ đứng
+  cho nó.
+- **Chưa có adapter PSP thật**, nên `provider_intent_id` để trống và
+  webhook tra intent bằng mã đơn. Cột đã có sẵn nên ngày nối PSP là thay
+  đổi cộng thêm.
 
 ---
 
@@ -1608,11 +1667,11 @@ không phải event — phải biết còn hàng mới cho đặt.
    STANDARD 30.000đ, EXPRESS 60.000đ, không theo khoảng cách hay số nguồn
    hàng. docs/04-modules/checkout.md §7 quy định phí đến từ
    `fulfillment.EstimateShipping()` — hàm đó chưa tồn tại. Xem P3-8.
-2. **`payment_method` được kiểm tra rồi BỎ QUA** — ĐÃ SỬA phần ghi nhận
-   (P3-9, 06/09): đơn nay có trường và lưu lựa chọn của khách. Phần THU
-   TIỀN vẫn chưa nối: client gửi `CARD` không thấy lỗi và cũng không có gì
-   bị trừ tiền; đơn vẫn ở `PENDING_PAYMENT`. Cần `payment_intent` — xem
-   PH-36.
+2. **`payment_method` được kiểm tra rồi BỎ QUA** — ĐÃ SỬA (P3-9 + PH-36,
+   06/09). Đơn lưu lựa chọn của khách, và đơn TRẢ TRƯỚC nay có
+   `payment_intent` để webhook thanh toán đối chiếu vào; thu tiền thành
+   công thì đơn chuyển `PAID`. Còn thiếu adapter PSP thật và job đối chiếu
+   định kỳ — xem PH-36.
 3. **`offerLookup` (cart/lookup.go) chưa có test.** Nó gọi bốn module thật
    nên cần cả bốn để kiểm chứng. Đây là tình trạng có từ trước, không phải
    mới. Xem P3-10.
@@ -1900,11 +1959,21 @@ mẫu đã có ở `seller`.
 ✅ GetSellerDetail                        — handler dùng thẳng application
 ```
 
-### P1.7 — Webhook (2 operation)
+### P1.7 — Webhook (2/2 operation) — ✅ XONG
 
-`receivePaymentWebhook` · `receiveShippingWebhook` — bắt buộc xác minh chữ
-ký HMAC. Không có bước này thì bất kỳ ai cũng gửi được "thanh toán thành
-công" giả.
+`receiveShippingWebhook` `[XONG 27/08]` · `receivePaymentWebhook`
+`[XONG 06/09]`
+
+Xác minh chữ ký HMAC là bắt buộc — không có bước này thì bất kỳ ai cũng
+gửi được "thanh toán thành công" giả.
+
+Nhưng với webhook THANH TOÁN, chữ ký một mình vẫn chưa đủ: nó chứng minh
+NGUỒN, không chứng minh NỘI DUNG. Lớp thứ ba — đối chiếu số tiền với
+`payment_intent` — là thứ chặn một con số sai đi vào sổ cái bất biến. Xem
+PH-36 và [ADR-0017](../adr/0017-payment-intent.md).
+
+**Yêu cầu 5 của `webhooks.yaml` (đối chiếu định kỳ) CHƯA đạt ở CẢ HAI
+webhook.** Không có nó thì một webhook mất để đơn treo vĩnh viễn.
 
 ### P1.9 — Đăng ký và đăng nhập cho khách (2 operation) — ✅ XONG
 
@@ -2310,7 +2379,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-6 | Observability: metrics, tracing | |
 | P3-7 | Chính sách lưu trữ `audit_log` | Bảng chỉ tăng; chờ có số liệu thật |
 | P3-8 | **Phí vận chuyển thật** thay bảng cứng trong checkout | Cần `fulfillment.EstimateShipping()` (checkout.md §7) |
-| P3-9 | **Nối `payment_method` vào đơn hàng** | ✅ xong (06/09) — đơn GHI lựa chọn; thu tiền vẫn chờ PH-36. Xem ghi chú dưới bảng |
+| P3-9 | **Nối `payment_method` vào đơn hàng** | ✅ xong (06/09) — đơn GHI lựa chọn, và PH-36 nối nốt đường thu tiền. Xem ghi chú dưới bảng |
 | P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | Cần cả bốn module thật; có từ trước P1.3 |
 | P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | ✅ xong — xem ghi chú dưới bảng |
 | P3-12 | Phân trang theo KHÓA thay vì offset | ✅ xong — xem ghi chú dưới bảng |
@@ -2383,10 +2452,11 @@ cái bẫy mà chú thích tại chỗ cảnh báo "ĐÃ XẢY RA HAI LẦN" —
 vào database và nhận `'COD'`; đi trọn đường HTTP với COD và BANK_TRANSFER
 cho hai đơn KHÁC nhau, đọc lại đúng giá trị; `BITCOIN` qua API trả 400.
 
-**Còn nợ (PH-36):** không có gì bị trừ tiền. `CARD`, `BANK_TRANSFER`,
-`E_WALLET` mới chỉ được GHI NHẬN — đơn vẫn `PENDING_PAYMENT` và không có
-`payment_intent` nào. Chỉ COD đi trọn được đường nghiệp vụ, và nay ít
-nhất hệ thống biết đơn nào là COD.
+**Nửa còn lại đã làm CÙNG NGÀY (PH-36).** Lúc viết ghi chú này, `CARD`,
+`BANK_TRANSFER` và `E_WALLET` mới chỉ được GHI NHẬN. Nay đơn trả trước có
+`payment_intent`, và webhook thanh toán đối chiếu số tiền rồi chuyển đơn
+sang `PAID`. Chính trường `payment_method` của P3-9 là thứ cho phép quy
+tắc "COD KHÔNG có intent" viết được.
 
 **P3-1 — đã xong (05/09).** Dòng "chỉ kiểm chứng bằng curl thủ công" đã
 lạc hậu từ lâu: đường auth có `api_auth_test.go`,

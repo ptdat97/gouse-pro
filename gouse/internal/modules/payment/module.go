@@ -60,6 +60,7 @@ func New(cfg Config) (*Module, error) {
 		Ledger:      paymentpg.NewLedgerStore(pool),
 		Balances:    paymentpg.NewBalanceStore(pool),
 		Settlements: paymentpg.NewSettlementStore(pool),
+		Intents:     paymentpg.NewIntentStore(pool),
 		Clock:       cfg.Clock,
 	}
 	if cfg.Audit != nil {
@@ -80,6 +81,20 @@ func (m *Module) Service() *application.Service { return m.svc }
 // RegisterSellerRoutes gắn endpoint số dư của NHÀ BÁN.
 //
 // Bên gọi PHẢI bọc Auth và RequireRole("SELLER_OWNER", "SELLER_STAFF").
+// RegisterWebhookRoutes gắn endpoint webhook thanh toán.
+//
+// `danhDau` là cổng tới module order, khai ở BÊN GỌI: chiều phụ thuộc đã
+// là order → payment, nên payment không được gọi ngược.
+func (m *Module) RegisterWebhookRoutes(
+	mux *http.ServeMux,
+	nhatKy paymenthttp.GhiSuKien,
+	biMat paymenthttp.BiMatNhaCungCap,
+	danhDau paymenthttp.DanhDauDaTra,
+	log *slog.Logger,
+) {
+	paymenthttp.NewWebhookHandler(m.svc, nhatKy, biMat, danhDau, log).Register(mux)
+}
+
 func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
 	paymenthttp.NewSellerHandler(m.svc, log).Register(mux)
 }

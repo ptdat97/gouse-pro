@@ -14,6 +14,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 )
@@ -375,4 +376,36 @@ func khoanGiam(l application.PlaceOrderLine) []order.AdjustmentInput {
 		SourceType: "COUPON",
 		CostBearer: "PLATFORM",
 	}}
+}
+
+// ---------------------------------------------------- Ý định thanh toán
+
+// paymentAdapter nối checkout tới module payment.
+type paymentAdapter struct{ api PaymentAPI }
+
+// PaymentAPI là phần của module payment mà checkout dùng.
+//
+// Khai HẸP ở đây thay vì nhận cả `payment.API`: checkout chỉ cần một hàm,
+// và một interface rộng buộc mọi bản giả trong test phải cài hàng chục
+// phương thức nó không dùng.
+type PaymentAPI interface {
+	TaoIntent(ctx context.Context, req payment.TaoIntentRequest) (*payment.IntentView, error)
+}
+
+var _ application.PaymentPort = (*paymentAdapter)(nil)
+
+func (a *paymentAdapter) TaoIntent(
+	ctx context.Context, orderID ids.ID, soTien money.Money, phuongThuc string,
+) error {
+	_, err := a.api.TaoIntent(ctx, payment.TaoIntentRequest{
+		OrderID:  orderID.String(),
+		Amount:   soTien.Amount(),
+		Currency: string(soTien.Currency()),
+		Method:   phuongThuc,
+	})
+	return err
+}
+
+func (a *paymentAdapter) LaKhongCanIntent(err error) bool {
+	return payment.LaPhuongThucKhongTraTruoc(err)
 }

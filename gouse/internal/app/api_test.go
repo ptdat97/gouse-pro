@@ -81,7 +81,10 @@ func newAPITest(t *testing.T) *apiTest {
 
 			// Một hãng vận chuyển CÓ khóa, để kiểm đường thành công; và
 			// mọi hãng khác KHÔNG có, để kiểm mặc định là đóng.
-			WebhookSecrets: map[string]string{"ghn": "bi-mat-ghn-cho-test"},
+			WebhookSecrets: map[string]string{
+				"ghn":     "bi-mat-ghn-cho-test",
+				"cong-tt": "bi-mat-cong-thanh-toan-cho-test",
+			},
 		},
 	}
 
