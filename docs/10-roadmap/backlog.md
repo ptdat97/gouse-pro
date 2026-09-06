@@ -559,9 +559,13 @@ nhiễu chỉ là triệu chứng; vấn đề thật là test đang kiểm mộ
 
 ### 2.5 Ma trận E2E PostgreSQL (PH-1)
 
-`internal/e2e` hiện có **một** test. Đó là điểm yếu lớn nhất của phase này:
-loại lỗi nguy hiểm nhất nằm ở KHOẢNG GIỮA các module, và test từng module
-không thấy được — P3-18 đã chứng minh điều đó.
+`internal/e2e` nay có **24 bài trong 10 file** — câu cũ ở đây ("hiện có một
+test, điểm yếu lớn nhất của phase") đã lạc hậu từ lâu và giữ nguyên thì
+người đọc sẽ đi sửa một vấn đề không còn tồn tại.
+
+Lý do bộ test này quan trọng thì KHÔNG đổi: loại lỗi nguy hiểm nhất nằm ở
+KHOẢNG GIỮA các module, và test từng module không thấy được — P3-18 đã
+chứng minh điều đó.
 
 | Kịch bản | Trạng thái |
 |---|---|
@@ -571,18 +575,27 @@ không thấy được — P3-18 đã chứng minh điều đó.
 | Không đủ hàng giữa chừng — và NHẢ lại hàng đã giữ | ✅ `TestMotMonHetHangThiNhaHetHangDaGiu` |
 | Không mượn kho người khác khi hết hàng (toàn chuỗi) | ✅ `TestOwnBrandVaNhaBanKhongDungChungKhoKhiHetHang` |
 | Thử lại / gửi trùng request | ✅ `TestHoanTatHaiLanCungKhoaChiRaMotDon` |
-| **Thanh toán ĐỒNG THỜI — không oversell** | ✅ `TestMuoiKhachTranhBaMonKhongAiMuaQua` |
+| **Thanh toán ĐỒNG THỜI — không oversell** | ✅ `TestMuoiKhachTranhBaMonKhongAiMuaQua` (tới `StartCheckout`) + `TestHoanTatDongThoiKhongSinhHangTuKhongKhi` (**toàn chuỗi**, 06/09) |
+| Phát LẠI event không trừ kho hai lần | ✅ `TestVetOutboxHaiLanKhongTruKhoHaiLan` `[06/09]` |
 | Một giỏ, nhiều tab — không giữ hàng nhiều lần | ✅ `TestHaiTabCungGioChiGiuHangMotLan` |
 | Thực hiện TỪNG PHẦN (một seller giao, một seller chưa) | ✅ `TestGiaoDuTungPhanRoiDuHet` |
 | Giao hàng TỪNG PHẦN (một nguồn đã xuất, nguồn kia chưa) | ✅ `TestGiaoTungPhan` · `TestHuyMotPhanDonVanConHieuLuc` |
 | Hủy đơn (trước và sau khi lấy hàng) | ✅ 4 test — `TestHuyDonTraHangVeKho` và 3 test cùng nhóm |
 | Giao dịch cuộn ngược khi bên nhận lỗi | ✅ `TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo` |
 
-**Bất biến không-oversell nay được chứng minh ở TOÀN CHUỖI**, không chỉ ở
-tầng inventory: 10 khách tranh 3 món qua `StartCheckout` thật (đọc giỏ →
+**Bất biến không-oversell được chứng minh ở TOÀN CHUỖI**, không chỉ ở tầng
+inventory. Hai mức, và mức thứ hai mới thêm 06/09:
+
+Mức 1 — giữ hàng: 10 khách tranh 3 món qua `StartCheckout` thật (đọc giỏ →
 tra chủ sở hữu → chọn kho → giữ hàng → ghi phiên) cho đúng 3 người thắng,
 `available` về 0 và không bao giờ âm. Bỏ khóa lạc quan → **cả 10 người đều
 giữ được hàng**, đỏ 3/3 lần chạy.
+
+Mức 2 — trọn đường tiền và hàng: 10 khách cùng HOÀN TẤT phiên, rồi vét
+outbox để Reserved → Committed thật sự xảy ra. Khẳng định là BẢO TOÀN chứ
+không chỉ "không âm": `available + reserved + committed == số hàng đã
+nhập`. Kho âm là lỗi tự lộ ra; hàng bốc hơi hay sinh thêm mà ba con số vẫn
+dương thì không có gì báo cho tới lần kiểm kê thật.
 
 **Giao TỪNG PHẦN khóa cả hai phía.** Một nửa thì phải là "một phần", đủ
 cả thì phải chuyển sang trạng thái cuối. Chỉ kiểm một phía thì một cài đặt
