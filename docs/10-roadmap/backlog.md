@@ -1444,17 +1444,47 @@ Xếp sau có chủ ý: đo hiệu năng của một hệ thống chưa chứng 
 | PH-18 | Tranh chấp database · connection pool | ✅ đo được: pool cạn liên tục nhưng 0 lượt bỏ cuộc — do-tai.md mục 3 |
 | PH-19 | Thông lượng outbox · số worker chạy song song · bão thử lại | ✅ 20 → 2619 event/giây; phục hồi 7,5 phút → 8 giây — do-tai.md mục 5 |
 
-**Bất biến phải chứng minh được, không phải mong đợi:**
+**Bất biến phải chứng minh được, không phải mong đợi:** `[XONG 06/09]`
 
 ```text
 available >= 0   luôn đúng
 KHÔNG oversell   dưới thanh toán đồng thời
 ```
 
-Đã có một nửa: `TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc` chứng
-minh điều đó ở tầng inventory với hai giao dịch PostgreSQL thật chạy song
-song. Nửa còn lại là chứng minh nó vẫn đúng khi đi qua cả chuỗi checkout →
-order → outbox.
+Nay có ĐỦ hai nửa:
+
+| Bài | Chứng minh tới đâu |
+|---|---|
+| `TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc` | `Reserve` an toàn với hai giao dịch PostgreSQL song song |
+| `TestMuoiKhachTranhBaMonKhongAiMuaQua` | `StartCheckout` an toàn — đúng 3/10 khách giữ được |
+| **`TestHoanTatDongThoiKhongSinhHangTuKhongKhi`** | **cả chuỗi**: hoàn tất → đơn → outbox → Reserved→Committed |
+| **`TestVetOutboxHaiLanKhongTruKhoHaiLan`** | phát lại event KHÔNG trừ kho lần hai |
+
+**Bất biến kiểm ở hai bài mới là BẢO TOÀN, không chỉ "không âm":**
+
+```text
+available + reserved + committed  ==  số hàng đã nhập
+```
+
+Mạnh hơn hẳn `available >= 0`. Kho âm là lỗi tự lộ ra; hàng BỐC HƠI hay
+SINH THÊM mà ba con số vẫn dương thì không có gì báo, và nó chỉ hiện ra ở
+lần kiểm kê thật — nhiều tuần sau.
+
+**Ba lần phá, và một lần bị NUỐT — đáng ghi:**
+
+```text
+commit HAI LẦN mỗi reservation   → VẪN XANH
+bỏ hẳn bước commit               → đỏ: "đã cam kết 0, cần 3"
+commit mà KHÔNG trừ reserved     → đỏ: "= 6, chỉ nhập 3 — SINH RA TỪ KHÔNG KHÍ"
+```
+
+Dòng đầu không phải lỗ hổng của bài test: lần commit thứ hai trả
+`ErrReservationNotActive` và handler coi đó là kết quả MONG MUỐN của một
+event phát lại — chỗ đó đã idempotent sẵn, nên phá nó không tạo ra hành vi
+sai để mà bắt. Ghi lại vì nó dễ dẫn tới kết luận sai theo cả hai chiều.
+
+Đây là kịch bản **"thanh toán đồng thời"** trong điều kiện kết thúc phase
+(mục 2).
 
 ### 2.13 PH — Observability (SAU khi E2E ổn định)
 
