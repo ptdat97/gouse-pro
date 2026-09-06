@@ -533,7 +533,7 @@ func TestGiaDongBangDiTuCheckoutSangDonHang(t *testing.T) {
 		t.Fatalf("SetShippingAddress: %v", err)
 	}
 
-	res, err := h.svc.CompleteCheckout(ctx, c.ID(), "dong-bang-gia-1")
+	res, err := h.svc.CompleteCheckout(ctx, c.ID(), "dong-bang-gia-1", "COD")
 	if err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
@@ -572,11 +572,11 @@ func TestHoanTatHaiLanChiTaoMotDon(t *testing.T) {
 		t.Fatalf("SetShippingAddress: %v", err)
 	}
 
-	first, err := h.svc.CompleteCheckout(ctx, c.ID(), "khach-bam-hai-lan")
+	first, err := h.svc.CompleteCheckout(ctx, c.ID(), "khach-bam-hai-lan", "COD")
 	if err != nil {
 		t.Fatalf("lần hoàn tất thứ nhất: %v", err)
 	}
-	second, err := h.svc.CompleteCheckout(ctx, c.ID(), "khach-bam-hai-lan")
+	second, err := h.svc.CompleteCheckout(ctx, c.ID(), "khach-bam-hai-lan", "COD")
 	if err != nil {
 		t.Fatalf("lần hoàn tất thứ hai: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestHoanTatSongSongChiRaMotDon(t *testing.T) {
 			defer wg.Done()
 			<-start
 
-			res, err := h.svc.CompleteCheckout(ctx, c.ID(), "mot-khoa-muoi-request")
+			res, err := h.svc.CompleteCheckout(ctx, c.ID(), "mot-khoa-muoi-request", "COD")
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -687,7 +687,7 @@ func TestHetHanThiNhaHangVaKhongDatDonDuoc(t *testing.T) {
 	if _, err := h.svc.SetShippingAddress(ctx, c.ID(), testAddress()); !errors.Is(err, domain.ErrExpired) {
 		t.Errorf("đặt địa chỉ: lỗi = %v, mong ErrExpired", err)
 	}
-	if _, err := h.svc.CompleteCheckout(ctx, c.ID(), "phien-het-han"); !errors.Is(err, domain.ErrExpired) {
+	if _, err := h.svc.CompleteCheckout(ctx, c.ID(), "phien-het-han", "COD"); !errors.Is(err, domain.ErrExpired) {
 		t.Errorf("hoàn tất: lỗi = %v, mong ErrExpired", err)
 	}
 
@@ -911,7 +911,7 @@ func TestTaoDonThatBaiThiGiuNguyenPhienChoKhachThuLai(t *testing.T) {
 	}
 
 	// Thiếu địa chỉ → tạo đơn thất bại.
-	if _, err := h.svc.CompleteCheckout(ctx, c.ID(), "thieu-dia-chi"); !errors.Is(err, domain.ErrNoAddress) {
+	if _, err := h.svc.CompleteCheckout(ctx, c.ID(), "thieu-dia-chi", "COD"); !errors.Is(err, domain.ErrNoAddress) {
 		t.Fatalf("lỗi = %v, mong ErrNoAddress", err)
 	}
 
@@ -932,7 +932,7 @@ func TestTaoDonThatBaiThiGiuNguyenPhienChoKhachThuLai(t *testing.T) {
 	if _, err := h.svc.SetShippingAddress(ctx, c.ID(), testAddress()); err != nil {
 		t.Fatalf("SetShippingAddress: %v", err)
 	}
-	if _, err := h.svc.CompleteCheckout(ctx, c.ID(), "thu-lai-thanh-cong"); err != nil {
+	if _, err := h.svc.CompleteCheckout(ctx, c.ID(), "thu-lai-thanh-cong", "COD"); err != nil {
 		t.Errorf("thử lại phải thành công: %v", err)
 	}
 }
@@ -1048,4 +1048,20 @@ func TestOwnBrandLayHangCuaNenTang(t *testing.T) {
 	if got := h.availableFor(t, skuID, ids.ID(inventory.PlatformOwnerID)); got != 16 {
 		t.Errorf("hàng nền tảng còn %d, cần 16", got)
 	}
+}
+
+// LayDon đọc lại đơn đã tạo — dùng ở đường THỬ LẠI của CompleteCheckout.
+func (r *realOrder) LayDon(
+	ctx context.Context, orderID ids.ID,
+) (application.PlacedOrder, error) {
+	v, err := r.api.GetOrder(ctx, orderID.String())
+	if err != nil {
+		return application.PlacedOrder{}, err
+	}
+	return application.PlacedOrder{
+		OrderID:       ids.ID(v.ID),
+		OrderNumber:   v.OrderNumber,
+		PaymentMethod: v.PaymentMethod,
+		Replayed:      true,
+	}, nil
 }

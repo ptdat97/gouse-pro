@@ -1608,9 +1608,11 @@ không phải event — phải biết còn hàng mới cho đặt.
    STANDARD 30.000đ, EXPRESS 60.000đ, không theo khoảng cách hay số nguồn
    hàng. docs/04-modules/checkout.md §7 quy định phí đến từ
    `fulfillment.EstimateShipping()` — hàm đó chưa tồn tại. Xem P3-8.
-2. **`payment_method` được kiểm tra rồi BỎ QUA.** Module order không có
-   trường phương thức thanh toán; đơn luôn ở `PENDING_PAYMENT`. Client gửi
-   `CARD` sẽ không thấy lỗi nhưng cũng không có gì bị trừ tiền. Xem P3-9.
+2. **`payment_method` được kiểm tra rồi BỎ QUA** — ĐÃ SỬA phần ghi nhận
+   (P3-9, 06/09): đơn nay có trường và lưu lựa chọn của khách. Phần THU
+   TIỀN vẫn chưa nối: client gửi `CARD` không thấy lỗi và cũng không có gì
+   bị trừ tiền; đơn vẫn ở `PENDING_PAYMENT`. Cần `payment_intent` — xem
+   PH-36.
 3. **`offerLookup` (cart/lookup.go) chưa có test.** Nó gọi bốn module thật
    nên cần cả bốn để kiểm chứng. Đây là tình trạng có từ trước, không phải
    mới. Xem P3-10.
@@ -2308,7 +2310,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-6 | Observability: metrics, tracing | |
 | P3-7 | Chính sách lưu trữ `audit_log` | Bảng chỉ tăng; chờ có số liệu thật |
 | P3-8 | **Phí vận chuyển thật** thay bảng cứng trong checkout | Cần `fulfillment.EstimateShipping()` (checkout.md §7) |
-| P3-9 | **Nối `payment_method` vào đơn hàng** | Hiện được kiểm tra rồi bỏ qua; đơn luôn `PENDING_PAYMENT` |
+| P3-9 | **Nối `payment_method` vào đơn hàng** | ✅ xong (06/09) — đơn GHI lựa chọn; thu tiền vẫn chờ PH-36. Xem ghi chú dưới bảng |
 | P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | Cần cả bốn module thật; có từ trước P1.3 |
 | P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | ✅ xong — xem ghi chú dưới bảng |
 | P3-12 | Phân trang theo KHÓA thay vì offset | ✅ xong — xem ghi chú dưới bảng |
@@ -2324,6 +2326,67 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | ✅ xong — bỏ hẳn trạng thái đó; xem ghi chú dưới bảng |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
 | P3-24 | **"Khách mua được không" có BA câu trả lời khác nhau** | ✅ xong (06/09) — xem ghi chú dưới bảng |
+
+**P3-9 — phần GHI NHẬN đã xong (06/09); phần THU TIỀN vẫn chặn.**
+
+Chia đôi vì hai nửa có điều kiện khác nhau. Ghi lại lựa chọn của khách
+không cần cổng thanh toán nào; thu tiền thì cần `payment_intent`, tức là
+PH-36, và PH-36 nói rõ đó là "việc lớn hơn bản thân webhook".
+
+**Khiếm khuyết đã sửa:** `payment_method` được tầng HTTP kiểm hợp lệ rồi
+VỨT ĐI — nó không có chỗ nào để đi tới, vì cả `order` lẫn `payment` đều
+không có khái niệm này (`payment` là SỔ CÁI, ADR-0008). Hệ quả: khách chọn
+COD và khách chọn BANK_TRANSFER sinh ra hai đơn GIỐNG HỆT nhau trong
+database. Không ai trả lời được câu hỏi kho thật sự cần — **đơn này có
+phải thu tiền lúc giao không?** — và câu đó KHÔNG suy được từ `status`: cả
+hai đều nằm ở `PENDING_PAYMENT`.
+
+**Đặt ở `order`, không phải sổ cái.** Sổ cái ghi tiền ĐÃ chuyển; với COD
+thì lúc đặt đơn chưa có đồng nào chuyển, nên không có bút toán để gắn vào.
+Đây là điều khoản của thỏa thuận mua bán, không phải một sự kiện tài
+chính — và nó ĐÓNG BĂNG như giá và địa chỉ.
+
+**Cột CHO PHÉP NULL, có chủ ý.** Hai đường tạo đơn không giống nhau:
+`complete` bắt buộc `payment_method`, còn `placeOrder` (`POST
+/api/v1/orders`) chỉ nhận `checkout_id` — đặc tả của nó vốn thế. Nên "chưa
+chọn" là trạng thái CÓ THẬT. Đặt `DEFAULT 'COD'` cho gọn sẽ khiến kho đi
+thu tiền của một đơn đã trả trước. 3176 đơn cũ cũng NULL, vì lựa chọn của
+những khách ấy đã bị vứt đi và không có gì để khôi phục.
+
+**Tìm ra một lỗi CÓ SẴN trong lúc làm, không liên quan tới phương thức
+thanh toán.** Nhánh THỬ LẠI của `CompleteCheckout` (phiên đã `COMPLETED`)
+trả về `CompleteResult` chỉ có `OrderID` — `OrderNumber` RỖNG. Mà
+`order_number` là mã khách đọc qua điện thoại và dùng để tra đơn vãng lai.
+Nhánh đó chạy đúng vào lúc client thử lại sau sự cố mạng: **khách gặp mạng
+chập chờn thì mất mã đơn của mình, trong khi đơn đã tạo thành công.** Sửa
+bằng cách đọc lại đơn (`OrderPort.LayDon`), và đọc hỏng thì TRẢ LỖI chứ
+không trả bản thiếu trường — nuốt đi là dựng lại đúng lỗi vừa sửa.
+
+**Phản hồi lấy từ ĐƠN, không dội lại thân request.** Hai cách viết giống
+hệt nhau ở đường thường; chỉ đường thử lại phân biệt được. Gọi lại cùng
+khóa idempotency với phương thức KHÁC phải nhận về phương thức của đơn ĐÃ
+tạo — dội lại thân request sẽ báo "đã ghi nhận BANK_TRANSFER" trong khi
+database ghi COD. Có bài test riêng khóa đúng ca này.
+
+**Sửa kèm một ví dụ SAI trong đặc tả.** `completeCheckout` khai ví dụ
+`status: PAID` — một trạng thái endpoint này KHÔNG BAO GIỜ trả về. Người
+tích hợp đọc ví dụ rồi viết `if (status === 'PAID')` cho luồng thành công,
+và nhánh đó không bao giờ chạy. Cùng họ với `price_from` và `buy_box_offer`:
+đặc tả hứa thứ API không có.
+
+**Kiểm chứng bằng cách phá:** bỏ dòng chép trường trong `withLines` — đúng
+cái bẫy mà chú thích tại chỗ cảnh báo "ĐÃ XẢY RA HAI LẦN" — thì bài test
+đỏ ở phần ĐỌC LẠI mà vẫn xanh ở phần phản hồi, tức là bắt đúng lớp lỗi
+"ghi được nhưng đọc lên mất".
+
+**Kiểm trên hệ thống THẬT:** ràng buộc CHECK từ chối `'BITCOIN'` ghi thẳng
+vào database và nhận `'COD'`; đi trọn đường HTTP với COD và BANK_TRANSFER
+cho hai đơn KHÁC nhau, đọc lại đúng giá trị; `BITCOIN` qua API trả 400.
+
+**Còn nợ (PH-36):** không có gì bị trừ tiền. `CARD`, `BANK_TRANSFER`,
+`E_WALLET` mới chỉ được GHI NHẬN — đơn vẫn `PENDING_PAYMENT` và không có
+`payment_intent` nào. Chỉ COD đi trọn được đường nghiệp vụ, và nay ít
+nhất hệ thống biết đơn nào là COD.
 
 **P3-1 — đã xong (05/09).** Dòng "chỉ kiểm chứng bằng curl thủ công" đã
 lạc hậu từ lâu: đường auth có `api_auth_test.go`,

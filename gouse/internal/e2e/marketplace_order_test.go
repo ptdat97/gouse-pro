@@ -462,7 +462,7 @@ func TestDonNhieuNhaBanDiHetChuoi(t *testing.T) {
 
 	// ---- Bước 3: hoàn tất → tạo đơn + ghi event vào outbox
 	res, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String())
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD")
 	if err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
@@ -591,4 +591,20 @@ func address() checkoutdomain.Address {
 		Province:      "TP. Hồ Chí Minh",
 		CountryCode:   "VN",
 	}
+}
+
+// LayDon đọc lại đơn đã tạo — dùng ở đường THỬ LẠI của CompleteCheckout.
+func (p *orderPort) LayDon(
+	ctx context.Context, orderID ids.ID,
+) (checkoutapp.PlacedOrder, error) {
+	v, err := p.api.GetOrder(ctx, orderID.String())
+	if err != nil {
+		return checkoutapp.PlacedOrder{}, err
+	}
+	return checkoutapp.PlacedOrder{
+		OrderID:       ids.ID(v.ID),
+		OrderNumber:   v.OrderNumber,
+		PaymentMethod: v.PaymentMethod,
+		Replayed:      true,
+	}, nil
 }

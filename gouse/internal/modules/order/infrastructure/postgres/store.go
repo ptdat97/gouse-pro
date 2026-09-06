@@ -59,7 +59,7 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 			bill_recipient_name, bill_phone, bill_street, bill_ward,
 			bill_district, bill_province, bill_country_code,
 			currency, shipping_fee, discount_amount, tax_amount,
-			status, idempotency_key, source_checkout_id,
+			status, idempotency_key, source_checkout_id, payment_method,
 			placed_at, completed_at,
 			created_at, updated_at
 		) VALUES (
@@ -67,7 +67,7 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 			$6,$7,$8,$9,$10,$11,$12,
 			$13,$14,$15,$16,$17,$18,$19,
 			$20,$21,$22,$23,
-			$24,$25,$26,$27,$28,$29,$30
+			$24,$25,$26,$27,$28,$29,$30,$31
 		)`,
 		o.ID().String(), o.OrderNumber(), o.CustomerID().String(),
 		o.GuestEmail(), o.GuestPhone(),
@@ -78,6 +78,10 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 		string(o.Currency()), o.ShippingFee().Amount(),
 		o.DiscountAmount().Amount(), o.TaxAmount().Amount(),
 		string(o.Status()), o.IdempotencyKey(), o.SourceCheckoutID().String(),
+		// NULL chứ không chuỗi rỗng: ràng buộc CHECK của cột chỉ nhận bốn
+		// giá trị hợp lệ, và '' không nằm trong đó. "Chưa chọn" là sự vắng
+		// mặt, đúng thứ NULL diễn đạt.
+		nullPaymentMethod(o.PaymentMethod()),
 		o.PlacedAt(),
 		nullTime(o.CompletedAt()), o.CreatedAt(), o.UpdatedAt())
 	if err != nil {
@@ -344,6 +348,7 @@ const orderCols = `
 	bill_district, bill_province, bill_country_code,
 	currency, shipping_fee, discount_amount, tax_amount,
 	status, idempotency_key, source_checkout_id, cancellation_reason,
+	payment_method,
 	placed_at, completed_at, created_at, updated_at, version`
 
 func (s *OrderStore) FindByID(ctx context.Context, id ids.ID) (*domain.Order, error) {
@@ -585,6 +590,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		currency, status, idemKey  string
 		srcCheckout                string
 		cancelReason               string
+		paymentMethod              *string
 		shippingFee, discount, tax int64
 		completedAt                *time.Time
 	)
@@ -596,6 +602,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		&bill.District, &bill.Province, &bill.CountryCode,
 		&currency, &shippingFee, &discount, &tax,
 		&status, &idemKey, &srcCheckout, &cancelReason,
+		&paymentMethod,
 		&p.PlacedAt, &completedAt, &p.CreatedAt, &p.UpdatedAt, &p.Version,
 	); err != nil {
 		return nil, err
@@ -617,6 +624,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 	p.IdempotencyKey = idemKey
 	p.SourceCheckoutID = ids.ID(srcCheckout)
 	p.CancellationReason = cancelReason
+	p.PaymentMethod = domain.PaymentMethod(derefStr(paymentMethod))
 	p.CompletedAt = deref(completedAt)
 
 	return domain.RestoreOrder(p), nil
@@ -642,6 +650,7 @@ func withLines(o *domain.Order, lines []*domain.Line) *domain.Order {
 		TaxAmount:       o.TaxAmount(),
 		Status:          o.Status(),
 		Lines:           lines,
+		PaymentMethod:   o.PaymentMethod(),
 
 		// withLines dựng lại TỪ ĐẦU nên phải chép đủ mọi trường: bỏ sót
 		// một trường ở đây làm nó biến mất im lặng sau mỗi lần đọc.
@@ -752,4 +761,25 @@ func max0(n int) int {
 func isUnique(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.ConstraintName == constraint
+}
+
+// nullPaymentMethod đổi phương thức RỖNG thành NULL.
+//
+// Cột có ràng buộc CHECK chỉ nhận bốn giá trị hợp lệ, và chuỗi rỗng không
+// nằm trong đó — ghi ” sẽ bị database từ chối. "Khách chưa chọn" là sự
+// VẮNG MẶT của một lựa chọn, đúng thứ NULL diễn đạt.
+func nullPaymentMethod(p domain.PaymentMethod) *string {
+	if p == "" {
+		return nil
+	}
+	v := string(p)
+	return &v
+}
+
+// derefStr đọc con trỏ chuỗi, NULL thành rỗng.
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

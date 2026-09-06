@@ -315,6 +315,7 @@ func (a *orderAdapter) PlaceOrder(
 		TaxAmount:        toOrderAmount(in.TaxAmount),
 		Lines:            lines,
 		IdempotencyKey:   in.IdempotencyKey,
+		PaymentMethod:    in.PaymentMethod,
 	})
 	if err != nil {
 		return application.PlacedOrder{}, err
@@ -323,7 +324,28 @@ func (a *orderAdapter) PlaceOrder(
 	return application.PlacedOrder{
 		OrderID:     ids.ID(res.Order.ID),
 		OrderNumber: res.Order.OrderNumber,
-		Replayed:    res.Replayed,
+		// Từ ĐƠN, không phải từ `in.PaymentMethod`: lần thử lại phải nhận
+		// về phương thức của đơn đã tạo, không phải cái vừa gửi.
+		PaymentMethod: res.Order.PaymentMethod,
+		Replayed:      res.Replayed,
+	}, nil
+}
+
+// LayDon đọc lại một đơn đã tạo, cho đường THỬ LẠI của CompleteCheckout.
+func (a *orderAdapter) LayDon(
+	ctx context.Context, orderID ids.ID,
+) (application.PlacedOrder, error) {
+	v, err := a.api.GetOrder(ctx, orderID.String())
+	if err != nil {
+		return application.PlacedOrder{}, err
+	}
+	return application.PlacedOrder{
+		OrderID:       ids.ID(v.ID),
+		OrderNumber:   v.OrderNumber,
+		PaymentMethod: v.PaymentMethod,
+		// Hàm này CHỈ được gọi ở nhánh thử lại, nên theo định nghĩa đơn đã
+		// tồn tại từ trước.
+		Replayed: true,
 	}, nil
 }
 

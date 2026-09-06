@@ -114,11 +114,11 @@ func TestHoanTatHaiLanCungKhoaChiRaMotDon(t *testing.T) {
 
 	// CÙNG một khóa, gửi hai lần.
 	khoa := ids.MustNew(ids.PrefixRequest).String()
-	lan1, err := w.checkout.CompleteCheckout(ctx, c.ID(), khoa)
+	lan1, err := w.checkout.CompleteCheckout(ctx, c.ID(), khoa, "COD")
 	if err != nil {
 		t.Fatalf("hoàn tất lần 1: %v", err)
 	}
-	lan2, err := w.checkout.CompleteCheckout(ctx, c.ID(), khoa)
+	lan2, err := w.checkout.CompleteCheckout(ctx, c.ID(), khoa, "COD")
 	if err != nil {
 		t.Fatalf("hoàn tất lần 2: %v", err)
 	}

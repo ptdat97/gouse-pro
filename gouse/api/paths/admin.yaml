@@ -980,6 +980,14 @@ order_detail:
                     Chỉ là THAM CHIẾU. Hồ sơ khách lấy từ
                     `GET /api/v1/admin/customers/{id}` — module `order`
                     không sở hữu dữ liệu đó.
+                payment_method:
+                  allOf:
+                    - $ref: '../components/schemas.yaml#/PaymentMethod'
+                  description: |
+                    Cách khách đã chọn để trả tiền. Nhân viên hỗ trợ cần nó
+                    để trả lời "đơn này thu tiền lúc nào" — câu KHÔNG suy
+                    được từ `status`, vì đơn COD và đơn chờ chuyển khoản đều
+                    nằm ở `PENDING_PAYMENT`.
                 shipping:
                   type: object
                   description: |

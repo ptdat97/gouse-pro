@@ -110,7 +110,7 @@ func TestGiamGiaDuocDongBangXuongTungDongHang(t *testing.T) {
 		t.Fatalf("SetShippingAddress: %v", err)
 	}
 
-	res, err := svc.CompleteCheckout(ctx, c.ID(), "phan-bo-giam-gia-1")
+	res, err := svc.CompleteCheckout(ctx, c.ID(), "phan-bo-giam-gia-1", "COD")
 	if err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}

@@ -159,6 +159,9 @@ type PlaceOrderInput struct {
 	// Khi có giá trị, nó cưỡng chế bất biến "một phiên sinh tối đa một
 	// đơn" qua chỉ mục UNIQUE — xem migrations/000029.
 	SourceCheckoutID ids.ID
+
+	// PaymentMethod là cách khách chọn để trả tiền, đóng băng vào đơn.
+	PaymentMethod domain.PaymentMethod
 }
 
 // PlaceOrderResult là kết quả đặt hàng.
@@ -259,6 +262,7 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 		Lines:            lines,
 		IdempotencyKey:   in.IdempotencyKey,
 		SourceCheckoutID: in.SourceCheckoutID,
+		PaymentMethod:    in.PaymentMethod,
 		Now:              now,
 	})
 	if err != nil {

@@ -168,8 +168,18 @@ type orderDetail struct {
 	ShippingFee amountJSON `json:"shipping_fee"`
 	Discount    amountJSON `json:"discount_amount"`
 	Total       amountJSON `json:"total"`
-	PlacedAt    string     `json:"placed_at"`
-	CompletedAt string     `json:"completed_at,omitempty"`
+
+	// PaymentMethod là cách khách đã chọn để trả tiền.
+	//
+	// Nhân viên hỗ trợ cần nó để trả lời "đơn này thu tiền lúc nào" — câu
+	// KHÔNG suy được từ `status`: đơn COD và đơn chờ chuyển khoản đều nằm
+	// ở `PENDING_PAYMENT`.
+	//
+	// Vắng mặt với đơn tạo qua `placeOrder`, đường không nhận trường này.
+	PaymentMethod string `json:"payment_method,omitempty"`
+
+	PlacedAt    string `json:"placed_at"`
+	CompletedAt string `json:"completed_at,omitempty"`
 }
 
 // shipping là địa chỉ ĐÓNG BĂNG tại thời điểm đặt hàng.
@@ -329,12 +339,13 @@ func toDetail(o *domain.Order) orderDetail {
 			District:      addr.District,
 			Province:      addr.Province,
 		},
-		Lines:       lines,
-		Subtotal:    toAmount(o.Subtotal()),
-		ShippingFee: toAmount(o.ShippingFee()),
-		Discount:    toAmount(o.DiscountAmount()),
-		Total:       toAmount(o.Total()),
-		PlacedAt:    o.PlacedAt().UTC().Format(time.RFC3339),
+		Lines:         lines,
+		Subtotal:      toAmount(o.Subtotal()),
+		ShippingFee:   toAmount(o.ShippingFee()),
+		Discount:      toAmount(o.DiscountAmount()),
+		Total:         toAmount(o.Total()),
+		PaymentMethod: string(o.PaymentMethod()),
+		PlacedAt:      o.PlacedAt().UTC().Format(time.RFC3339),
 	}
 	if t := o.CompletedAt(); !t.IsZero() {
 		out.CompletedAt = t.UTC().Format(time.RFC3339)

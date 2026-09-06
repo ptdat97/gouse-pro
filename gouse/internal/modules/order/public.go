@@ -247,6 +247,13 @@ type PlaceOrderRequest struct {
 	//
 	// Rỗng với đơn không đến từ phiên nào.
 	SourceCheckoutID string
+
+	// PaymentMethod là cách khách chọn để trả tiền: CARD, BANK_TRANSFER,
+	// E_WALLET hoặc COD.
+	//
+	// RỖNG được chấp nhận — `placeOrder` không nhận trường này, nên "chưa
+	// chọn" là trạng thái có thật. Giá trị LẠ thì bị từ chối.
+	PaymentMethod string
 }
 
 // PlaceOrderResult là kết quả đặt hàng.
@@ -284,6 +291,13 @@ type OrderView struct {
 	// Total tính từ các dòng CÒN HIỆU LỰC, nên hủy từng phần tự động làm
 	// giảm tổng.
 	Total Amount
+
+	// PaymentMethod là cách khách chọn để trả tiền, đóng băng lúc đặt.
+	//
+	// RỖNG với đơn tạo qua `placeOrder` — đường đó không nhận trường này.
+	// Bên đọc phải xử lý được chuỗi rỗng: đó là "chưa chọn", không phải
+	// "dữ liệu lỗi".
+	PaymentMethod string
 
 	PlacedAt    string
 	CompletedAt string

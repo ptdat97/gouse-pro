@@ -556,6 +556,23 @@ CheckoutLine:
       $ref: './common.yaml#/schemas/Money'
 
 # ============================================================ ĐƠN HÀNG
+PaymentMethod:
+  type: string
+  enum: [CARD, BANK_TRANSFER, E_WALLET, COD]
+  description: |
+    Cách khách trả tiền, **đóng băng** tại thời điểm đặt — cùng nhóm với
+    giá và địa chỉ giao. Đổi phương thức của một đơn đã đặt là một nghiệp
+    vụ khác, không phải sửa một trường.
+
+    **KHÔNG suy được từ `status`.** Đơn COD và đơn chờ chuyển khoản đều ở
+    `PENDING_PAYMENT`; chỉ một trong hai thu tiền ở cửa nhà khách. Đó là
+    câu hỏi kho và đơn vị vận chuyển thực sự cần trả lời.
+
+    **VẮNG MẶT nghĩa là chưa chọn**, không phải dữ liệu lỗi: đường
+    `placeOrder` không nhận trường này (thân request của nó chỉ có
+    `checkout_id`), và đơn đặt trước 06/09/2026 không lưu lựa chọn nào —
+    trước đó máy chủ kiểm tra `payment_method` rồi bỏ qua.
+
 OrderSummary:
   type: object
   required: [id, order_number, status, total, placed_at]
@@ -572,6 +589,8 @@ OrderSummary:
       $ref: './common.yaml#/schemas/Money'
     item_count:
       type: integer
+    payment_method:
+      $ref: '#/PaymentMethod'
     placed_at:
       $ref: './common.yaml#/schemas/Timestamp'
 
@@ -641,6 +660,8 @@ OrderDetail:
       description: Chỉ có ở đơn **khách tự hủy**. Đơn do quản trị viên hủy có lý do ở nhật ký thao tác.
     can_return:
       type: boolean
+    payment_method:
+      $ref: '#/PaymentMethod'
 
 OrderDetailLine:
   type: object

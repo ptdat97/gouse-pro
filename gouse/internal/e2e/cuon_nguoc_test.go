@@ -127,7 +127,7 @@ func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	if _, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String()); err != nil {
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD"); err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
 

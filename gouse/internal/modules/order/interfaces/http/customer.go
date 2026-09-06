@@ -200,6 +200,16 @@ type customerDetailJSON struct {
 
 	CanCancel bool `json:"can_cancel"`
 
+	// PaymentMethod là cách khách đã chọn để trả tiền, ĐÓNG BĂNG lúc đặt.
+	//
+	// `omitempty` vì đơn tạo qua `placeOrder` thật sự không có lựa chọn
+	// nào — đường đó không nhận trường này. Trường VẮNG MẶT nói "chưa
+	// chọn" rõ hơn một chuỗi rỗng.
+	//
+	// KHÔNG suy được từ `status`: đơn COD và đơn chờ chuyển khoản đều ở
+	// `PENDING_PAYMENT`, nhưng chỉ một trong hai thu tiền lúc giao.
+	PaymentMethod string `json:"payment_method,omitempty"`
+
 	// CancellationReason chỉ có ở đơn khách tự hủy.
 	CancellationReason string `json:"cancellation_reason,omitempty"`
 }
@@ -497,6 +507,7 @@ func toCustomerDetail(o *domain.Order) customerDetailJSON {
 		// biết. Nên nút hủy có thể hiện ra rồi request bị từ chối 409 —
 		// khó chịu, nhưng an toàn hơn là ẩn nút của đơn còn hủy được.
 		CanCancel:          o.Status().CanCancelWholeOrder(),
+		PaymentMethod:      string(o.PaymentMethod()),
 		CancellationReason: o.CancellationReason(),
 	}
 

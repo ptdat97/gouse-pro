@@ -269,23 +269,25 @@ func (m *Module) CancelCheckout(ctx context.Context, checkoutID string) error {
 }
 
 func (m *Module) CompleteCheckout(
-	ctx context.Context, checkoutID, idempotencyKey string,
+	ctx context.Context, checkoutID, idempotencyKey, paymentMethod string,
 ) (*CompleteResult, error) {
 	id, err := ids.Parse(checkoutID, ids.PrefixCheckout)
 	if err != nil {
 		return nil, ErrInvalidID
 	}
 
-	res, err := m.svc.CompleteCheckout(ctx, id, strings.TrimSpace(idempotencyKey))
+	res, err := m.svc.CompleteCheckout(ctx, id,
+		strings.TrimSpace(idempotencyKey), strings.TrimSpace(paymentMethod))
 	if err != nil {
 		return nil, translateErr(err)
 	}
 
 	return &CompleteResult{
-		Checkout:    *m.view(res.Checkout),
-		OrderID:     res.OrderID.String(),
-		OrderNumber: res.OrderNumber,
-		Replayed:    res.Replayed,
+		Checkout:      *m.view(res.Checkout),
+		OrderID:       res.OrderID.String(),
+		OrderNumber:   res.OrderNumber,
+		PaymentMethod: res.PaymentMethod,
+		Replayed:      res.Replayed,
 	}, nil
 }
 

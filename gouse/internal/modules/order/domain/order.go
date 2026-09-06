@@ -42,6 +42,11 @@ var (
 	// Bên gọi NÊN đọc lại rồi quyết định — thao tác vừa rồi dựa trên một
 	// bản đơn đã cũ.
 	ErrVersionConflict = errors.New("order: đơn hàng vừa bị thay đổi, hãy đọc lại")
+
+	// ErrPaymentMethodKhongHopLe: phương thức thanh toán không thuộc tập ĐÓNG.
+	//
+	// Rỗng KHÔNG rơi vào đây — xem PaymentMethod.HopLe.
+	ErrPaymentMethodKhongHopLe = errors.New("order: phương thức thanh toán không hợp lệ")
 )
 
 // Status là trạng thái tổng hợp của đơn hàng.
@@ -62,6 +67,53 @@ const (
 	StatusCancelled          Status = "CANCELLED"
 	StatusCompleted          Status = "COMPLETED"
 )
+
+// PaymentMethod là cách khách trả tiền cho đơn, ĐÓNG BĂNG lúc đặt.
+//
+// # Vì sao nó thuộc về ĐƠN chứ không phải sổ cái
+//
+// Sổ cái (ADR-0008) ghi tiền ĐÃ chuyển. Với COD thì lúc đặt đơn chưa có
+// đồng nào chuyển, nên không có bút toán nào để gắn lựa chọn này vào —
+// mà kho vẫn phải biết đơn này thu tiền lúc giao. Nó là điều khoản của
+// thỏa thuận mua bán, không phải một sự kiện tài chính.
+//
+// # Vì sao đóng băng
+//
+// Cùng lý do với giá và địa chỉ: đây là thứ khách đã đồng ý tại thời điểm
+// đặt. Đổi phương thức thanh toán của một đơn đã đặt là một nghiệp vụ
+// khác, không phải sửa một trường.
+type PaymentMethod string
+
+const (
+	PaymentMethodCard         PaymentMethod = "CARD"
+	PaymentMethodBankTransfer PaymentMethod = "BANK_TRANSFER"
+	PaymentMethodEWallet      PaymentMethod = "E_WALLET"
+	PaymentMethodCOD          PaymentMethod = "COD"
+)
+
+// HopLe cho biết chuỗi này có phải một phương thức thanh toán hay không.
+//
+// Tập ĐÓNG và khớp `enum` trong đặc tả. RỖNG cũng hợp lệ: đường
+// `POST /api/v1/orders` (placeOrder) không nhận phương thức nào — đặc tả
+// của nó chỉ có `checkout_id` — nên đơn tạo bằng đường đó thật sự CHƯA có
+// lựa chọn. Ghi rỗng là nói đúng điều đó; bịa một giá trị mặc định thì kho
+// sẽ đi thu tiền của một đơn đã trả trước, hoặc ngược lại.
+func (p PaymentMethod) HopLe() bool {
+	switch p {
+	case "", PaymentMethodCard, PaymentMethodBankTransfer,
+		PaymentMethodEWallet, PaymentMethodCOD:
+		return true
+	default:
+		return false
+	}
+}
+
+// ThuTienKhiGiao cho biết đơn này phải THU TIỀN lúc giao hàng.
+//
+// Đây là câu hỏi mà kho và đơn vị vận chuyển thực sự cần trả lời, và nó
+// KHÔNG suy được từ trạng thái đơn: đơn COD và đơn chờ chuyển khoản đều ở
+// `PENDING_PAYMENT`, nhưng chỉ một trong hai thu tiền ở cửa nhà khách.
+func (p PaymentMethod) ThuTienKhiGiao() bool { return p == PaymentMethodCOD }
 
 // HopLe cho biết chuỗi này có phải một trạng thái đơn hàng hay không.
 //
@@ -152,6 +204,12 @@ type Order struct {
 	// bằng đường quản trị.
 	sourceCheckoutID ids.ID
 
+	// paymentMethod là cách khách chọn để trả tiền, ĐÓNG BĂNG lúc đặt.
+	//
+	// Rỗng với đơn tạo qua `placeOrder` — đường đó không nhận phương thức
+	// nào. Xem chú thích của kiểu PaymentMethod.
+	paymentMethod PaymentMethod
+
 	// version là khóa lạc quan. Xem migrations/000030.
 	version int64
 
@@ -207,6 +265,13 @@ type NewOrderParams struct {
 	// bảo đảm một phiên chỉ sinh được một đơn.
 	SourceCheckoutID ids.ID
 
+	// PaymentMethod là cách khách chọn để trả tiền.
+	//
+	// RỖNG được chấp nhận: `placeOrder` không nhận trường này. Giá trị lạ
+	// thì KHÔNG — nó sẽ thành một chuỗi trong database mà domain không có
+	// tên tương ứng.
+	PaymentMethod PaymentMethod
+
 	Now time.Time
 }
 
@@ -224,6 +289,10 @@ func NewOrder(p NewOrderParams) (*Order, error) {
 
 	if strings.TrimSpace(p.IdempotencyKey) == "" {
 		return nil, ErrMissingIdempKey
+	}
+
+	if !p.PaymentMethod.HopLe() {
+		return nil, fmt.Errorf("%w: %q", ErrPaymentMethodKhongHopLe, p.PaymentMethod)
 	}
 
 	currency := p.Currency
@@ -266,6 +335,7 @@ func NewOrder(p NewOrderParams) (*Order, error) {
 		lines:            append([]*Line(nil), p.Lines...),
 		idempotencyKey:   strings.TrimSpace(p.IdempotencyKey),
 		sourceCheckoutID: p.SourceCheckoutID,
+		paymentMethod:    p.PaymentMethod,
 		placedAt:         now,
 		createdAt:        now,
 		updatedAt:        now,
@@ -297,6 +367,7 @@ type RestoreOrderParams struct {
 	Lines            []*Line
 	IdempotencyKey   string
 	SourceCheckoutID ids.ID
+	PaymentMethod    PaymentMethod
 	Version          int64
 
 	// CancellationReason rỗng với đơn chưa hủy.
@@ -326,6 +397,7 @@ func RestoreOrder(p RestoreOrderParams) *Order {
 		lines:              p.Lines,
 		idempotencyKey:     p.IdempotencyKey,
 		sourceCheckoutID:   p.SourceCheckoutID,
+		paymentMethod:      p.PaymentMethod,
 		version:            p.Version,
 		cancellationReason: p.CancellationReason,
 		placedAt:           p.PlacedAt,
@@ -349,7 +421,11 @@ func (o *Order) TaxAmount() money.Money      { return o.taxAmount }
 func (o *Order) Status() Status              { return o.status }
 func (o *Order) IdempotencyKey() string      { return o.idempotencyKey }
 func (o *Order) SourceCheckoutID() ids.ID    { return o.sourceCheckoutID }
-func (o *Order) Version() int64              { return o.version }
+
+// PaymentMethod là cách khách chọn để trả tiền. Rỗng nghĩa là đơn được tạo
+// qua `placeOrder`, đường không nhận phương thức nào.
+func (o *Order) PaymentMethod() PaymentMethod { return o.paymentMethod }
+func (o *Order) Version() int64               { return o.version }
 
 // CancellationReason là lý do khách chọn khi tự hủy. Rỗng nếu đơn chưa
 // hủy, hoặc nếu quản trị viên hủy (lý do đó nằm ở nhật ký thao tác).

@@ -48,7 +48,7 @@ func datHaiNhaBan(
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	res, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String())
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD")
 	if err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}

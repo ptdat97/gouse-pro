@@ -66,7 +66,13 @@ type API interface {
 	// Thanh toán thất bại KHÔNG hủy phiên — khách thử lại được phương thức
 	// khác trong thời gian còn lại. Hủy ngay là trải nghiệm tệ và làm mất
 	// đơn hàng.
-	CompleteCheckout(ctx context.Context, checkoutID, idempotencyKey string) (*CompleteResult, error)
+	//
+	// `paymentMethod` là lựa chọn của khách, ĐÓNG BĂNG vào đơn. Rỗng được
+	// chấp nhận vì đường `placeOrder` không nhận trường này; giá trị lạ thì
+	// module order từ chối.
+	CompleteCheckout(
+		ctx context.Context, checkoutID, idempotencyKey, paymentMethod string,
+	) (*CompleteResult, error)
 
 	// ExpireStale dọn các phiên quá hạn và nhả hàng.
 	//
@@ -178,6 +184,9 @@ type CompleteResult struct {
 	Checkout    CheckoutView
 	OrderID     string
 	OrderNumber string
+
+	// PaymentMethod là phương thức đã ghi vào đơn. Rỗng với `placeOrder`.
+	PaymentMethod string
 
 	// Replayed = true nghĩa là đơn đã tồn tại từ lần gọi trước.
 	//

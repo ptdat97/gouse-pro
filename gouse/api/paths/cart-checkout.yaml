@@ -500,10 +500,22 @@ checkout_complete:
               order:
                 id: ord_01J9XABC123DEF456GHJKMNPQR
                 order_number: FC-2026-08-001234
-                status: PAID
+                # PENDING_PAYMENT, không phải PAID.
+                #
+                # Ví dụ cũ ghi PAID — một trạng thái endpoint này KHÔNG BAO
+                # GIỜ trả về. Tạo đơn và thu tiền là hai bước tách rời: đơn
+                # sinh ra ở PENDING_PAYMENT và chỉ chuyển sang PAID khi có
+                # xác nhận từ cổng thanh toán. Với COD thì nó còn không
+                # chuyển cho tới lúc giao hàng.
+                #
+                # Ví dụ sai kiểu này gây hại thật: người tích hợp đọc ví dụ
+                # rồi viết `if (status === 'PAID')` cho luồng thành công, và
+                # nhánh đó không bao giờ chạy.
+                status: PENDING_PAYMENT
                 total:
                   amount: 628000
                   currency: VND
+                payment_method: COD
                 placed_at: '2026-08-11T14:25:11Z'
       '409':
         description: |

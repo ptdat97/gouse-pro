@@ -97,7 +97,7 @@ func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
 	// T2 — hoàn tất phiên, dừng ngay sau khi đọc phiên.
 	loiT2 := make(chan error, 1)
 	go func() {
-		_, err := cham.CompleteCheckout(ctx, maPhien, "req_ph32_"+maPhien[4:20])
+		_, err := cham.CompleteCheckout(ctx, maPhien, "req_ph32_"+maPhien[4:20], "COD")
 		loiT2 <- err
 	}()
 

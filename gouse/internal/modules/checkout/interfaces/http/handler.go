@@ -302,7 +302,16 @@ type orderSummaryJSON struct {
 	Status      string    `json:"status"`
 	Total       moneyJSON `json:"total"`
 	ItemCount   int       `json:"item_count"`
-	PlacedAt    string    `json:"placed_at"`
+
+	// PaymentMethod là phương thức ĐÃ GHI VÀO ĐƠN, không phải thứ vừa gửi
+	// lên. Khác nhau ở đường thử lại: cùng khóa idempotency với phương
+	// thức khác phải nhận về phương thức của đơn đã tạo.
+	//
+	// `omitempty`: rỗng với đơn tạo qua `placeOrder`, và một trường rỗng
+	// nói "chưa chọn" rõ hơn chuỗi "".
+	PaymentMethod string `json:"payment_method,omitempty"`
+
+	PlacedAt string `json:"placed_at"`
 }
 
 type completeResponse struct {
@@ -338,7 +347,7 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.svc.CompleteCheckout(r.Context(),
-		ids.ID(r.PathValue("checkout_id")), key)
+		ids.ID(r.PathValue("checkout_id")), key, req.PaymentMethod)
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
@@ -351,10 +360,11 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 			OrderNumber: res.OrderNumber,
 			// Đơn vừa tạo LUÔN ở PENDING_PAYMENT (order.PlaceOrder đặt
 			// trạng thái này); thu tiền là một bước riêng.
-			Status:    "PENDING_PAYMENT",
-			Total:     toMoney(c.Total()),
-			ItemCount: len(c.Lines()),
-			PlacedAt:  c.UpdatedAt().UTC().Format(time.RFC3339),
+			Status:        "PENDING_PAYMENT",
+			Total:         toMoney(c.Total()),
+			ItemCount:     len(c.Lines()),
+			PaymentMethod: res.PaymentMethod,
+			PlacedAt:      c.UpdatedAt().UTC().Format(time.RFC3339),
 		},
 	})
 }
@@ -390,7 +400,10 @@ func (h *Handler) placeOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.svc.CompleteCheckout(r.Context(), ids.ID(req.CheckoutID), key)
+	// Chuỗi rỗng, không phải giá trị mặc định: đặc tả của `placeOrder` chỉ
+	// có `checkout_id`, nên đường này thật sự KHÔNG biết khách chọn gì.
+	// Bịa "COD" cho gọn sẽ khiến kho đi thu tiền một đơn đã trả trước.
+	res, err := h.svc.CompleteCheckout(r.Context(), ids.ID(req.CheckoutID), key, "")
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
@@ -399,12 +412,13 @@ func (h *Handler) placeOrder(w http.ResponseWriter, r *http.Request) {
 	c := res.Checkout
 	h.write(w, r, http.StatusCreated, completeResponse{
 		Order: orderSummaryJSON{
-			ID:          res.OrderID.String(),
-			OrderNumber: res.OrderNumber,
-			Status:      "PENDING_PAYMENT",
-			Total:       toMoney(c.Total()),
-			ItemCount:   len(c.Lines()),
-			PlacedAt:    c.UpdatedAt().UTC().Format(time.RFC3339),
+			ID:            res.OrderID.String(),
+			OrderNumber:   res.OrderNumber,
+			Status:        "PENDING_PAYMENT",
+			Total:         toMoney(c.Total()),
+			ItemCount:     len(c.Lines()),
+			PaymentMethod: res.PaymentMethod,
+			PlacedAt:      c.UpdatedAt().UTC().Format(time.RFC3339),
 		},
 	})
 }

@@ -175,6 +175,7 @@ func (m *Module) PlaceOrder(
 		ShippingAddress: toAddress(req.ShippingAddress),
 		BillingAddress:  toAddress(req.BillingAddress),
 		IdempotencyKey:  strings.TrimSpace(req.IdempotencyKey),
+		PaymentMethod:   domain.PaymentMethod(strings.TrimSpace(req.PaymentMethod)),
 	}
 
 	if req.SourceCheckoutID != "" {
@@ -485,6 +486,7 @@ func toOrderView(o *domain.Order) OrderView {
 		DiscountAmount:  toAmount(o.DiscountAmount()),
 		TaxAmount:       toAmount(o.TaxAmount()),
 		Total:           toAmount(o.Total()),
+		PaymentMethod:   string(o.PaymentMethod()),
 		PlacedAt:        formatTime(o.PlacedAt()),
 		CompletedAt:     formatTime(o.CompletedAt()),
 	}
@@ -546,7 +548,8 @@ func translateErr(err error) error {
 		return ErrConflict
 	case errors.Is(err, domain.ErrMissingIdempKey),
 		errors.Is(err, domain.ErrNoCustomer),
-		errors.Is(err, domain.ErrNoLines):
+		errors.Is(err, domain.ErrNoLines),
+		errors.Is(err, domain.ErrPaymentMethodKhongHopLe):
 		return ErrInvalidInput
 	}
 	return err

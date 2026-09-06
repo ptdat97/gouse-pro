@@ -274,6 +274,14 @@ type OrderPort interface {
 	// thanh toán. Module order không tra lại giá — đó là thiết kế, không
 	// phải thiếu sót.
 	PlaceOrder(ctx context.Context, in PlaceOrderInput) (PlacedOrder, error)
+
+	// LayDon đọc lại một đơn ĐÃ tạo, cho đường THỬ LẠI.
+	//
+	// Phiên đã hoàn tất thì `CompleteCheckout` thoát sớm và không đi qua
+	// `PlaceOrder`, nên nó không có gì trong tay ngoài mã đơn cất trên
+	// phiên. Thiếu hàm này thì lần thử lại trả về mã đơn RỖNG — xem chú
+	// thích ở nhánh "Lớp 1".
+	LayDon(ctx context.Context, orderID ids.ID) (PlacedOrder, error)
 }
 
 // anHanHoanTat là quãng thời gian phiên được giữ thêm trong lúc tạo đơn.
@@ -311,6 +319,15 @@ type PlaceOrderInput struct {
 	// nó cưỡng chế "một phiên sinh tối đa một đơn" ở tầng database, thứ
 	// mà ba lớp kiểm ở tầng ứng dụng đều không giữ nổi khi chạy song song.
 	SourceCheckoutID ids.ID
+
+	// PaymentMethod là cách khách chọn để trả tiền, lấy từ thân request
+	// của `complete`.
+	//
+	// Checkout KHÔNG lưu trường này lên aggregate: nó xuất hiện ở đúng một
+	// thời điểm — lúc hoàn tất — và đi thẳng vào đơn. Cất nó lên phiên sẽ
+	// tạo một bản sao thứ hai của cùng một sự thật, mà phiên thì bị dọn đi
+	// sau khi hoàn tất còn đơn thì sống mãi.
+	PaymentMethod string
 }
 
 // PlaceOrderLine là một dòng hàng với con số đã đóng băng.
@@ -335,6 +352,15 @@ type PlaceOrderLine struct {
 type PlacedOrder struct {
 	OrderID     ids.ID
 	OrderNumber string
+
+	// PaymentMethod là phương thức ĐÃ GHI VÀO ĐƠN.
+	//
+	// Trả về từ module order thay vì dội lại thân request, và khác biệt
+	// đó chỉ lộ ra ở đường THỬ LẠI: gọi lại cùng khóa idempotency với một
+	// phương thức khác phải nhận về phương thức của đơn ĐÃ tạo, không phải
+	// cái vừa gửi. Dội lại thân request sẽ báo cho khách một điều không
+	// đúng với thứ nằm trong database.
+	PaymentMethod string
 
 	// Replayed = true nghĩa là đơn đã tồn tại từ lần gọi trước.
 	Replayed bool
@@ -903,6 +929,9 @@ type CompleteResult struct {
 	OrderID     ids.ID
 	OrderNumber string
 
+	// PaymentMethod là phương thức đã ghi vào đơn. Xem PlacedOrder.
+	PaymentMethod string
+
 	// Replayed = true nghĩa là phiên này ĐÃ hoàn tất từ trước.
 	Replayed bool
 }
@@ -925,7 +954,7 @@ type CompleteResult struct {
 // bại. Cho khách thử lại phương thức khác trong thời gian TTL còn lại —
 // hủy ngay là trải nghiệm tệ và làm mất đơn hàng.
 func (s *Service) CompleteCheckout(
-	ctx context.Context, id ids.ID, idempotencyKey string,
+	ctx context.Context, id ids.ID, idempotencyKey, paymentMethod string,
 ) (_ *CompleteResult, ketQua error) {
 	// Bọc để mọi đường THOÁT SỚM đều được đếm. Rải lời gọi ở từng nhánh
 	// `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh bị sót
@@ -945,12 +974,36 @@ func (s *Service) CompleteCheckout(
 	}
 
 	// Lớp 1: phiên đã hoàn tất rồi.
+	//
+	// ĐỌC LẠI ĐƠN chứ không trả về mỗi mã. Nhánh này không đi qua
+	// `PlaceOrder` nên nó không tự biết mã hiển thị hay phương thức thanh
+	// toán, và bản trước để cả hai RỖNG.
+	//
+	// Đó không phải chi tiết nhỏ: `order_number` là mã khách đọc qua điện
+	// thoại và dùng để tra đơn vãng lai. Nhánh này chạy đúng vào lúc client
+	// thử lại sau sự cố mạng — tức là khách gặp mạng chập chờn thì mất mã
+	// đơn của mình, trong khi đơn đã tạo thành công.
 	if c.Status() == domain.StatusCompleted {
-		return &CompleteResult{
+		res := &CompleteResult{
 			Checkout: c,
 			OrderID:  c.OrderID(),
 			Replayed: true,
-		}, nil
+		}
+		// Đọc hỏng thì TRẢ LỖI, không trả về bản thiếu trường.
+		//
+		// Phiên nói nó đã tạo đơn mà đơn đó đọc không ra là một mâu thuẫn
+		// dữ liệu thật sự, và nuốt nó đi sẽ dựng lại đúng lỗi vừa sửa: một
+		// phản hồi 201 nói "thành công" kèm mã đơn rỗng. Lỗi ở đây được
+		// `metrics.RecordFailure` ở đầu hàm đếm, nên nó không im lặng.
+		//
+		// Thử lại an toàn: nhánh này idempotent, lần gọi sau vào đúng đây.
+		don, err := s.orders.LayDon(ctx, c.OrderID())
+		if err != nil {
+			return nil, fmt.Errorf("đọc lại đơn đã tạo: %w", err)
+		}
+		res.OrderNumber = don.OrderNumber
+		res.PaymentMethod = don.PaymentMethod
+		return res, nil
 	}
 
 	now := s.clock.Now()
@@ -1025,6 +1078,7 @@ func (s *Service) CompleteCheckout(
 		Lines:            lines,
 		IdempotencyKey:   idempotencyKey,
 		SourceCheckoutID: c.ID(),
+		PaymentMethod:    paymentMethod,
 	})
 	if err != nil {
 		// Tạo đơn thất bại: KHÔNG hủy phiên, KHÔNG nhả hàng. Khách thử
@@ -1081,10 +1135,11 @@ func (s *Service) CompleteCheckout(
 	}
 
 	return &CompleteResult{
-		Checkout:    c,
-		OrderID:     placed.OrderID,
-		OrderNumber: placed.OrderNumber,
-		Replayed:    placed.Replayed,
+		Checkout:      c,
+		OrderID:       placed.OrderID,
+		OrderNumber:   placed.OrderNumber,
+		PaymentMethod: placed.PaymentMethod,
+		Replayed:      placed.Replayed,
 	}, nil
 }
 

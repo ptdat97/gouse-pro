@@ -2403,6 +2403,22 @@ export interface components {
          * @enum {string}
          */
         OrderStatus: "PENDING_PAYMENT" | "PAID" | "PROCESSING" | "PARTIALLY_SHIPPED" | "SHIPPED" | "PARTIALLY_DELIVERED" | "DELIVERED" | "COMPLETED" | "PARTIALLY_CANCELLED" | "CANCELLED";
+        /**
+         * @description Cách khách trả tiền, **đóng băng** tại thời điểm đặt — cùng nhóm với
+         *     giá và địa chỉ giao. Đổi phương thức của một đơn đã đặt là một nghiệp
+         *     vụ khác, không phải sửa một trường.
+         *
+         *     **KHÔNG suy được từ `status`.** Đơn COD và đơn chờ chuyển khoản đều ở
+         *     `PENDING_PAYMENT`; chỉ một trong hai thu tiền ở cửa nhà khách. Đó là
+         *     câu hỏi kho và đơn vị vận chuyển thực sự cần trả lời.
+         *
+         *     **VẮNG MẶT nghĩa là chưa chọn**, không phải dữ liệu lỗi: đường
+         *     `placeOrder` không nhận trường này (thân request của nó chỉ có
+         *     `checkout_id`), và đơn đặt trước 06/09/2026 không lưu lựa chọn nào —
+         *     trước đó máy chủ kiểm tra `payment_method` rồi bỏ qua.
+         * @enum {string}
+         */
+        PaymentMethod: "CARD" | "BANK_TRANSFER" | "E_WALLET" | "COD";
         OrderSummary: {
             id: components["schemas"]["Id"];
             /**
@@ -2413,6 +2429,7 @@ export interface components {
             status: components["schemas"]["OrderStatus"];
             total: components["schemas"]["Money"];
             item_count?: number;
+            payment_method?: components["schemas"]["PaymentMethod"];
             placed_at: components["schemas"]["Timestamp"];
         };
         OrderDetailLine: {
@@ -2511,6 +2528,7 @@ export interface components {
             /** @description Chỉ có ở đơn **khách tự hủy**. Đơn do quản trị viên hủy có lý do ở nhật ký thao tác. */
             cancellation_reason?: string;
             can_return?: boolean;
+            payment_method?: components["schemas"]["PaymentMethod"];
         };
         /**
          * @description Lý do hoàn hàng **chuẩn hóa** — không phải văn bản tự do.
@@ -4376,11 +4394,12 @@ export interface operations {
                      *       "order": {
                      *         "id": "ord_01J9XABC123DEF456GHJKMNPQR",
                      *         "order_number": "FC-2026-08-001234",
-                     *         "status": "PAID",
+                     *         "status": "PENDING_PAYMENT",
                      *         "total": {
                      *           "amount": 628000,
                      *           "currency": "VND"
                      *         },
+                     *         "payment_method": "COD",
                      *         "placed_at": "2026-08-11T14:25:11Z"
                      *       }
                      *     }
@@ -7310,6 +7329,13 @@ export interface operations {
                          *     không sở hữu dữ liệu đó.
                          */
                         customer_id?: components["schemas"]["Id"];
+                        /**
+                         * @description Cách khách đã chọn để trả tiền. Nhân viên hỗ trợ cần nó
+                         *     để trả lời "đơn này thu tiền lúc nào" — câu KHÔNG suy
+                         *     được từ `status`, vì đơn COD và đơn chờ chuyển khoản đều
+                         *     nằm ở `PENDING_PAYMENT`.
+                         */
+                        payment_method?: components["schemas"]["PaymentMethod"];
                         /**
                          * @description Địa chỉ ĐÓNG BĂNG tại thời điểm đặt hàng, không trỏ tới
                          *     sổ địa chỉ của khách. Đây là **dữ liệu cá nhân** — lý do
