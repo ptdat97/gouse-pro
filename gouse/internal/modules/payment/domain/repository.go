@@ -104,4 +104,18 @@ type IntentRepository interface {
 
 	// Update lưu trạng thái mới.
 	Update(ctx context.Context, p *PaymentIntent) error
+
+	// DaThuTuMoc trả các intent ĐÃ THU kể từ một mốc thời gian.
+	//
+	// Cửa sổ có giới hạn CÓ CHỦ Ý: đây là đầu vào của job đối soát, và một
+	// job quét lại toàn bộ lịch sử mỗi phút sẽ nặng dần theo tuổi hệ thống
+	// cho tới lúc nó tự trở thành sự cố.
+	DaThuTuMoc(ctx context.Context, moc time.Time, limit int) ([]*PaymentIntent, error)
+
+	// DemChoThuQuaHan đếm intent còn CHỜ THU và cũ hơn một mốc.
+	//
+	// Con số này KHÔNG dùng để cảnh báo: một intent chờ thu quá hạn phần
+	// lớn là khách bỏ giữa chừng, chuyện bình thường và nhiều. Nó là chỉ
+	// số để THEO DÕI — tăng vọt nghĩa là webhook thôi không tới nữa.
+	DemChoThuQuaHan(ctx context.Context, truoc time.Time) (int, error)
 }

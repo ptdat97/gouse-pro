@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
@@ -140,4 +141,86 @@ func (s *Service) LayIntentTheoDon(
 		return nil, ErrChuaNoiIntent
 	}
 	return s.intents.FindByOrder(ctx, orderID)
+}
+
+// LechDoiSoat là một bất nhất giữa ý định thanh toán và đơn hàng.
+type LechDoiSoat struct {
+	IntentID   string
+	OrderID    string
+	SoTien     int64
+	Currency   string
+	CapturedAt time.Time
+
+	// TrangThaiDon là trạng thái đơn ĐỌC ĐƯỢC lúc đối soát.
+	TrangThaiDon string
+}
+
+// TrangThaiDonFunc trả trạng thái hiện tại của một đơn.
+//
+// Truyền vào từ BÊN GỌI thay vì để payment tự hỏi order: chiều phụ thuộc
+// đã là order → payment, và gọi ngược tạo phụ thuộc vòng. Tiến trình
+// worker là nơi biết cả hai module.
+type TrangThaiDonFunc func(ctx context.Context, orderID string) (string, error)
+
+// DoiSoatDaThu tìm các đơn ĐÃ THU TIỀN mà trạng thái đơn chưa theo kịp.
+//
+// # Đây là đối soát NỘI BỘ, không phải đối chiếu với nhà cung cấp
+//
+// Yêu cầu 5 của `api/paths/webhooks.yaml` là đi hỏi PSP để phát hiện
+// webhook BỊ MẤT. Việc đó cần adapter PSP thật, thứ chưa có (ADR-0017).
+//
+// Cái làm được ngay — và là lỗ hổng đã biết chứ không phải giả định — là
+// đối soát hai nguồn NỘI BỘ với nhau. Handler webhook, khi thu tiền xong
+// mà `MarkOrderPaid` hỏng, cố ý KHÔNG quay ngược intent: tiền về là sự
+// thật đã xảy ra. Nó ghi log rồi đi tiếp, và để lại đúng trạng thái này.
+//
+// # Vì sao bất nhất ở đây là tín hiệu SẠCH
+//
+// Không có ca hợp lệ nào cho "intent CAPTURED mà đơn vẫn PENDING_PAYMENT":
+// tiền đã vào tài khoản mà khách vẫn thấy đơn chờ thanh toán. Nên cảnh báo
+// này không bao giờ kêu oan — khác hẳn "intent chờ thu quá hạn", thứ phần
+// lớn chỉ là khách bỏ giữa chừng.
+func (s *Service) DoiSoatDaThu(
+	ctx context.Context, tuMoc time.Time, limit int, trangThai TrangThaiDonFunc,
+) ([]LechDoiSoat, error) {
+	if s.intents == nil {
+		return nil, ErrChuaNoiIntent
+	}
+
+	daThu, err := s.intents.DaThuTuMoc(ctx, tuMoc, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	var lech []LechDoiSoat
+	for _, p := range daThu {
+		tt, err := trangThai(ctx, p.OrderID().String())
+		if err != nil {
+			// Đơn tra không ra là bất nhất NẶNG HƠN, không phải lý do bỏ
+			// qua: có tiền thu cho một mã đơn không đọc được.
+			lech = append(lech, LechDoiSoat{
+				IntentID: p.ID().String(), OrderID: p.OrderID().String(),
+				SoTien: p.Amount().Amount(), Currency: string(p.Amount().Currency()),
+				CapturedAt: p.CapturedAt(), TrangThaiDon: "KHÔNG ĐỌC ĐƯỢC: " + err.Error(),
+			})
+			continue
+		}
+		if tt != "PENDING_PAYMENT" {
+			continue // đơn đã đi tiếp — đúng như mong đợi
+		}
+		lech = append(lech, LechDoiSoat{
+			IntentID: p.ID().String(), OrderID: p.OrderID().String(),
+			SoTien: p.Amount().Amount(), Currency: string(p.Amount().Currency()),
+			CapturedAt: p.CapturedAt(), TrangThaiDon: tt,
+		})
+	}
+	return lech, nil
+}
+
+// DemChoThuQuaHan đếm intent còn chờ thu và cũ hơn `truoc`.
+func (s *Service) DemChoThuQuaHan(ctx context.Context, truoc time.Time) (int, error) {
+	if s.intents == nil {
+		return 0, ErrChuaNoiIntent
+	}
+	return s.intents.DemChoThuQuaHan(ctx, truoc)
 }

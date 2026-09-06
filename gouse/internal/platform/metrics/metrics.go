@@ -211,6 +211,28 @@ var EventVersionSkew = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Help: "Số lần event bị hoãn vì bên nhận chưa hiểu phiên bản của nó.",
 }, []string{"handler", "event_type"})
 
+// PaymentLechDoiSoat là số đơn ĐÃ THU TIỀN mà trạng thái đơn chưa theo kịp.
+//
+// KHÁC 0 là sự cố: tiền đã vào tài khoản mà khách vẫn thấy đơn chờ thanh
+// toán. Không có ca hợp lệ nào cho tình trạng này, nên chỉ số này KHÔNG
+// bao giờ kêu oan.
+var PaymentLechDoiSoat = prometheus.NewGauge(prometheus.GaugeOpts{
+	Name: "gouse_payment_reconcile_mismatch",
+	Help: "Số đơn đã thu tiền mà trạng thái đơn chưa cập nhật.",
+})
+
+// PaymentIntentChoThuQuaHan là số ý định thanh toán chờ thu đã quá hạn.
+//
+// KHÔNG dùng để cảnh báo, có chủ ý: phần lớn là khách bỏ giữa chừng —
+// chuyện bình thường và nhiều. Nó là chỉ số để THEO DÕI XU HƯỚNG; tăng vọt
+// nghĩa là webhook thanh toán thôi không tới nữa.
+//
+// Một cảnh báo luôn kêu thì không ai đọc, và khi đó nó còn tệ hơn không có.
+var PaymentIntentChoThuQuaHan = prometheus.NewGauge(prometheus.GaugeOpts{
+	Name: "gouse_payment_intent_pending_stale",
+	Help: "Số ý định thanh toán còn chờ thu và đã quá hạn.",
+})
+
 // ---------------------------------------------------------------- Đăng ký
 
 func init() {
@@ -220,6 +242,7 @@ func init() {
 		WorkerHeartbeat, WorkerJobLastSuccess, WorkerJobRunning,
 		WorkerJobDuration, WorkerJobFailures,
 		HandlerFailures, BusinessFailures, EventVersionSkew,
+		PaymentLechDoiSoat, PaymentIntentChoThuQuaHan,
 
 		// Chỉ số của chính tiến trình Go: số goroutine, bộ nhớ, GC.
 		//

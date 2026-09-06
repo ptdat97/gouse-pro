@@ -342,6 +342,49 @@ tiền hệ thống chờ thu ở phản hồi — nói ra là đưa cho kẻ d�
 gửi lần sau. Ràng buộc database cũng đã kiểm trên bản thật: `CAPTURED` mà
 bỏ mốc thu tiền bị từ chối, và hai intent cho một đơn bị từ chối.
 
+**Đối soát định kỳ (yêu cầu 5) — nửa làm được, làm 06/09.**
+
+Bản đầy đủ là đi HỎI nhà cung cấp danh sách giao dịch rồi so với sổ của
+mình; việc đó cần adapter PSP thật, thứ chưa có.
+
+Cái làm được ngay là đối soát hai nguồn NỘI BỘ, và nó nhắm đúng một lỗ
+hổng ĐÃ BIẾT chứ không phải giả định: handler webhook, khi thu tiền xong
+mà `MarkOrderPaid` hỏng, cố ý KHÔNG quay ngược intent — tiền về là sự thật
+đã xảy ra — nên nó ghi log rồi đi tiếp và để lại đúng trạng thái đó. Trước
+job này, thứ duy nhất bắt được là người đọc log.
+
+Job `đối soát tiền đã thu với trạng thái đơn` chạy 5 phút một lượt, soi
+cửa sổ 1 giờ. Cửa sổ có giới hạn CÓ CHỦ Ý: quét lại toàn bộ lịch sử mỗi
+lượt sẽ nặng dần theo tuổi hệ thống cho tới lúc tự thành sự cố.
+
+**Hai chỉ số, hai mức độ khác nhau — và sự phân biệt đó là phần thiết kế
+đáng kể nhất ở đây:**
+
+```text
+gouse_payment_reconcile_mismatch      ERROR   không có ca hợp lệ nào
+gouse_payment_intent_pending_stale    theo dõi, KHÔNG cảnh báo
+```
+
+"Đã thu tiền mà đơn vẫn chờ thanh toán" không có ca hợp lệ nào, nên nó
+không bao giờ kêu oan. "Intent chờ thu quá hạn" thì ngược lại: phần lớn là
+khách bỏ giữa chừng, bình thường và nhiều. Cảnh báo ở đó sẽ luôn kêu, và
+một cảnh báo luôn kêu thì không ai đọc — khi đó nó còn tệ hơn không có.
+Giá trị của nó là XU HƯỚNG: tăng vọt nghĩa là webhook thôi tới.
+
+**CHỈ cảnh báo, KHÔNG tự sửa.** Tự gọi `MarkOrderPaid` ở đây nghe hấp dẫn
+và sai: job nền tự sửa dữ liệu tiền bạc là thứ chạy lúc 3 giờ sáng không
+ai nhìn, và nếu giả định của nó sai thì nó sửa hàng loạt theo hướng sai,
+im lặng.
+
+**Kiểm trên hệ thống THẬT:** dựng đúng ca bất nhất trên database phát
+triển (đưa một đơn đã PAID về PENDING_PAYMENT, giữ intent CAPTURED) →
+worker thật ghi ERROR kèm mã intent, mã đơn, số tiền, thời điểm thu và
+hành động cần làm; `gouse_payment_reconcile_mismatch` lên 1. Sửa dữ liệu
+lại → lượt chạy sau về 0, không còn dòng ERROR nào.
+
+**Vẫn còn nợ:** đối chiếu với PSP (cần adapter), và webhook VẬN CHUYỂN
+chưa có gì tương đương.
+
 **Sửa kèm ba chỗ lệch trong đặc tả webhook:** ví dụ dùng
 `metadata.checkout_id` trong khi máy chủ đọc `order_id`; ví dụ lỗi 422
 khai mã `VALIDATION_FAILED`, mã ánh xạ sang 400 chứ không phải 422; và
@@ -354,10 +397,8 @@ thiếu hẳn phản hồi 404 cho đơn không chờ thu tiền.
   bao giờ tới. Sửa đúng phải chuyển ghi nhận sang lúc thu tiền, mà điều đó
   động tới cả COD (tiền về lúc giao hàng) — việc lớn hơn hẳn và là quyết
   định của chủ dự án.
-- **Chưa có job đối chiếu định kỳ** (yêu cầu 5 của `webhooks.yaml`), nên
-  webhook MẤT vẫn để đơn treo. Giống hệt webhook vận chuyển; nên làm cho
-  cả hai cùng lúc. Chỉ mục `payment_intent_cho_thu` đã dựng sẵn chỗ đứng
-  cho nó.
+- **Job đối soát: NỬA nội bộ đã làm 06/09, nửa hỏi PSP thì chưa.** Xem
+  ghi chú "Đối soát định kỳ" ngay dưới.
 - **Chưa có adapter PSP thật**, nên `provider_intent_id` để trống và
   webhook tra intent bằng mã đơn. Cột đã có sẵn nên ngày nối PSP là thay
   đổi cộng thêm.

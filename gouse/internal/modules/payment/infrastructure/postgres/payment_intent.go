@@ -90,9 +90,17 @@ func (s *IntentStore) Update(ctx context.Context, p *domain.PaymentIntent) error
 func (s *IntentStore) motDong(
 	ctx context.Context, where string, args ...any,
 ) (*domain.PaymentIntent, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT`+intentCols+` FROM payment_intent `+where, args...)
+	return quetIntent(s.pool.QueryRow(ctx,
+		`SELECT`+intentCols+` FROM payment_intent `+where, args...))
+}
 
+// quetIntent đọc MỘT dòng thành aggregate.
+//
+// Dùng chung cho lời gọi một dòng và lời gọi theo lô: hai bản chép đôi sẽ
+// lệch nhau ngay lần thêm cột tiếp theo, và lệch theo kiểu im lặng.
+func quetIntent(row interface {
+	Scan(dest ...any) error
+}) (*domain.PaymentIntent, error) {
 	var (
 		id, orderID, curr     string
 		phuongThuc, trangThai string
@@ -140,4 +148,46 @@ func laTrungKhoa(err error, tenRangBuoc string) bool {
 		return false
 	}
 	return pgErr.Code == "23505" && strings.Contains(pgErr.ConstraintName, tenRangBuoc)
+}
+
+func (s *IntentStore) DaThuTuMoc(
+	ctx context.Context, moc time.Time, limit int,
+) ([]*domain.PaymentIntent, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT`+intentCols+`
+		   FROM payment_intent
+		  WHERE status = 'CAPTURED' AND captured_at >= $1
+		  ORDER BY captured_at
+		  LIMIT $2`, moc, limit)
+	if err != nil {
+		return nil, fmt.Errorf("payment: đọc intent đã thu: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*domain.PaymentIntent
+	for rows.Next() {
+		p, err := quetIntent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("payment: đọc intent đã thu: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *IntentStore) DemChoThuQuaHan(
+	ctx context.Context, truoc time.Time,
+) (int, error) {
+	var n int
+	// Chỉ mục `payment_intent_cho_thu` phục vụ thẳng truy vấn này.
+	if err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM payment_intent
+		 WHERE status = 'REQUIRES_PAYMENT' AND created_at < $1`,
+		truoc).Scan(&n); err != nil {
+		return 0, fmt.Errorf("payment: đếm intent chờ thu quá hạn: %w", err)
+	}
+	return n, nil
 }

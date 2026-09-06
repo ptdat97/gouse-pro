@@ -106,6 +106,32 @@ const (
 
 	doiSoatBatch = 1000
 
+	// doiSoatThanhToanInterval là nhịp đối soát tiền đã thu với trạng thái
+	// đơn.
+	//
+	// Năm phút: bất nhất ở đây nghĩa là khách đã trả tiền mà vẫn thấy đơn
+	// chờ thanh toán, nên phát hiện muộn là để khách hoang mang lâu. Nhưng
+	// nó không cần dày như outbox — đây là lưới AN TOÀN cho một đường đã
+	// có xử lý đồng bộ, không phải đường chính.
+	doiSoatThanhToanInterval = 5 * time.Minute
+
+	// doiSoatThanhToanCuaSo là bề rộng cửa sổ soi lại.
+	//
+	// Một giờ, và có giới hạn CÓ CHỦ Ý: job quét lại toàn bộ lịch sử mỗi
+	// lượt sẽ nặng dần theo tuổi hệ thống cho tới lúc tự thành sự cố. Một
+	// giờ rộng gấp nhiều lần thời gian một bất nhất nên tồn tại — nếu nó
+	// sống lâu hơn thế thì đã có người phải xử lý rồi.
+	doiSoatThanhToanCuaSo = time.Hour
+
+	doiSoatThanhToanBatch = 500
+
+	// intentChoThuQuaHan là mốc coi một ý định thanh toán là "quá hạn".
+	//
+	// 30 phút: rộng hơn hẳn mọi phiên thanh toán thật (TTL giữ hàng ngắn
+	// hơn nhiều), nên thứ còn lại sau mốc này gần như chắc chắn sẽ không
+	// bao giờ được trả.
+	intentChoThuQuaHan = 30 * time.Minute
+
 	// dispatchEventsInterval là nhịp phát domain event từ outbox.
 	//
 	// DÀY NHẤT trong các job: mỗi event chờ ở đây là một việc chưa xảy ra
@@ -400,6 +426,11 @@ func run() error {
 			name:     "tính chỉ số phân tích",
 			interval: computeMetricsInterval,
 			run:      computeMetrics(analyticsModule, log),
+		},
+		{
+			name:     "đối soát tiền đã thu với trạng thái đơn",
+			interval: doiSoatThanhToanInterval,
+			run:      doiSoatThanhToan(paymentModule, orderModule, log),
 		},
 	}
 
@@ -864,4 +895,74 @@ func vetOutbox(
 		}
 	}
 	return tong, nil
+}
+
+// doiSoatThanhToan đối soát TIỀN ĐÃ THU với TRẠNG THÁI ĐƠN.
+//
+// # Đây là NỬA làm được của yêu cầu 5, không phải cả yêu cầu
+//
+// `api/paths/webhooks.yaml` yêu cầu 5: "KHÔNG TIN TUYỆT ĐỐI — phải có đối
+// chiếu định kỳ, vì webhook có thể mất". Bản đầy đủ là đi HỎI nhà cung cấp
+// danh sách giao dịch rồi so với sổ của mình; việc đó cần adapter PSP
+// thật, thứ chưa có (ADR-0017).
+//
+// Cái làm được ngay là đối soát hai nguồn NỘI BỘ, và nó không phải giải
+// pháp tạm cho vui: nó nhắm đúng một lỗ hổng ĐÃ BIẾT. Handler webhook, khi
+// thu tiền xong mà `MarkOrderPaid` hỏng, cố ý KHÔNG quay ngược intent —
+// tiền về là sự thật đã xảy ra — nên nó ghi log rồi đi tiếp và để lại đúng
+// trạng thái này. Trước job này, thứ duy nhất bắt được là người đọc log.
+//
+// # Vì sao chỉ CẢNH BÁO chứ không tự sửa
+//
+// Tự gọi `MarkOrderPaid` ở đây nghe hấp dẫn và sai. Job nền tự sửa dữ liệu
+// tiền bạc là thứ chạy lúc 3 giờ sáng không ai nhìn; nếu giả định của nó
+// sai thì nó sửa hàng loạt theo hướng sai, im lặng. Bất nhất tiền bạc cần
+// người quyết định.
+func doiSoatThanhToan(
+	pay *payment.Module, ord *order.Module, log *slog.Logger,
+) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if pay == nil || ord == nil {
+			return nil
+		}
+
+		lech, err := pay.DoiSoatDaThu(ctx,
+			time.Now().Add(-doiSoatThanhToanCuaSo), doiSoatThanhToanBatch,
+			func(ctx context.Context, orderID string) (string, error) {
+				v, err := ord.GetOrder(ctx, orderID)
+				if err != nil {
+					return "", err
+				}
+				return v.Status, nil
+			})
+		if err != nil {
+			return fmt.Errorf("đối soát tiền đã thu: %w", err)
+		}
+
+		metrics.PaymentLechDoiSoat.Set(float64(len(lech)))
+
+		// Mức ERROR: không có ca hợp lệ nào cho "đã thu tiền mà đơn vẫn
+		// chờ thanh toán". Chỉ số này không bao giờ kêu oan.
+		for _, l := range lech {
+			log.Error("ĐÃ THU TIỀN nhưng đơn chưa cập nhật — cần người xử lý",
+				"intent_id", l.IntentID, "order_id", l.OrderID,
+				"so_tien", l.SoTien, "don_vi", l.Currency,
+				"thu_luc", l.CapturedAt, "trang_thai_don", l.TrangThaiDon,
+				"goi_y", "kiểm tra vì sao MarkOrderPaid không chạy, rồi cập nhật tay")
+		}
+
+		// Tồn đọng chờ thu: chỉ số THEO DÕI, KHÔNG cảnh báo.
+		//
+		// Phần lớn là khách bỏ giữa chừng — bình thường và nhiều. Cảnh báo
+		// ở đây sẽ luôn kêu, và một cảnh báo luôn kêu thì không ai đọc.
+		// Giá trị của nó là XU HƯỚNG: tăng vọt nghĩa là webhook thôi tới.
+		quaHan, err := pay.DemIntentChoThuQuaHan(ctx,
+			time.Now().Add(-intentChoThuQuaHan))
+		if err != nil {
+			return fmt.Errorf("đếm ý định thanh toán quá hạn: %w", err)
+		}
+		metrics.PaymentIntentChoThuQuaHan.Set(float64(quaHan))
+
+		return nil
+	}
 }

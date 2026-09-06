@@ -130,3 +130,42 @@ func toIntentView(p *domain.PaymentIntent) *IntentView {
 func LaPhuongThucKhongTraTruoc(err error) bool {
 	return errors.Is(err, domain.ErrPhuongThucKhongTraTruoc)
 }
+
+// LechDoiSoatView là một bất nhất giữa ý định thanh toán và đơn hàng.
+type LechDoiSoatView struct {
+	IntentID     string
+	OrderID      string
+	SoTien       int64
+	Currency     string
+	CapturedAt   string
+	TrangThaiDon string
+}
+
+// DoiSoatDaThu tìm đơn ĐÃ THU TIỀN mà trạng thái đơn chưa theo kịp.
+//
+// `trangThaiDon` do BÊN GỌI cấp — payment không gọi ngược order được.
+// Xem `application.DoiSoatDaThu`.
+func (m *Module) DoiSoatDaThu(
+	ctx context.Context, tuMoc time.Time, limit int,
+	trangThaiDon func(ctx context.Context, orderID string) (string, error),
+) ([]LechDoiSoatView, error) {
+	lech, err := m.svc.DoiSoatDaThu(ctx, tuMoc, limit, trangThaiDon)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LechDoiSoatView, 0, len(lech))
+	for _, l := range lech {
+		out = append(out, LechDoiSoatView{
+			IntentID: l.IntentID, OrderID: l.OrderID,
+			SoTien: l.SoTien, Currency: l.Currency,
+			CapturedAt:   l.CapturedAt.UTC().Format(time.RFC3339),
+			TrangThaiDon: l.TrangThaiDon,
+		})
+	}
+	return out, nil
+}
+
+// DemIntentChoThuQuaHan đếm intent còn chờ thu và cũ hơn `truoc`.
+func (m *Module) DemIntentChoThuQuaHan(ctx context.Context, truoc time.Time) (int, error) {
+	return m.svc.DemChoThuQuaHan(ctx, truoc)
+}
