@@ -141,6 +141,43 @@ func (w *world) drain() {
 	}
 }
 
+// stockTaiKho nhập hàng của một chủ sở hữu vào MỘT KHO CHO SẴN.
+//
+// Khác `stockFor` ở chỗ nó KHÔNG tự tạo kho mới. Cần nó cho ca mà cặp
+// `(sku, kho)` KHÔNG đủ định danh: hàng nhiều nhà bán gửi chung một kho
+// nền tảng vẫn thuộc về từng nhà bán, nên cùng SKU cùng kho có bản ghi
+// riêng cho mỗi chủ — và chỉ khi đó `inventory_owner_id` mới thật sự phải
+// làm việc (ADR-0012).
+//
+// Dùng `stockFor` cho ca này sẽ cấp cho mỗi chủ một kho riêng, và khi ấy
+// `stock_location_id` một mình đã đủ tìm đúng dòng — bài test xanh vì dữ
+// liệu dễ chứ không phải vì code đúng.
+func (w *world) stockTaiKho(skuID, owner, locID ids.ID, qty int) {
+	w.t.Helper()
+	if _, err := w.inv.Receive(context.Background(), inventory.ReceiveRequest{
+		SKUID:       skuID.String(),
+		LocationID:  locID.String(),
+		OwnerID:     owner.String(),
+		Quantity:    qty,
+		PerformedBy: "e2e",
+	}); err != nil {
+		w.t.Fatalf("nhập kho %s cho %s: %v", locID, owner, err)
+	}
+}
+
+// khoChung tạo MỘT kho để nhiều chủ sở hữu gửi hàng chung.
+func (w *world) khoChung() ids.ID {
+	w.t.Helper()
+	locID := ids.MustNew(ids.PrefixStockLocation)
+	if _, err := w.db.Pool().Exec(context.Background(), `
+		INSERT INTO stock_location (id, name, code, kind, created_at, updated_at)
+		VALUES ($1, 'Kho nền tảng', $2, 'PLATFORM', now(), now())`,
+		locID.String(), "KHO-"+string(locID[len(locID)-6:])); err != nil {
+		w.t.Fatalf("tạo kho chung: %v", err)
+	}
+	return locID
+}
+
 // stockFor nhập hàng thuộc về một chủ sở hữu cụ thể và trả mã kho.
 func (w *world) stockFor(skuID, owner ids.ID, qty int) {
 	w.t.Helper()

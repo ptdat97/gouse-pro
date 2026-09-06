@@ -196,3 +196,141 @@ func TestHuyMotPhanDonVanConHieuLuc(t *testing.T) {
 		t.Error("đơn bị coi là đã hủy dù nhà bán B đã giao xong")
 	}
 }
+
+// TestHuyMotPhanTraHangDUNGCHUSOHUU là nửa còn thiếu của PH-2 — bất biến
+// ownership dưới HỦY TỪNG PHẦN.
+//
+// # Vì sao bài `TestHuyMotPhanDonVanConHieuLuc` chưa đủ
+//
+// Nó kiểm TRẠNG THÁI ĐƠN sau khi hủy một phần (`PARTIALLY_CANCELLED`, và
+// phần của B vẫn đi tiếp). Đúng và cần — nhưng nó không nhìn tới tồn kho
+// một lần nào, nên một cài đặt trả hàng về SAI CHỦ vẫn xanh.
+//
+// # Vì sao CÙNG MỘT SKU và CÙNG MỘT KHO
+//
+// Đó là ca duy nhất mà việc định tuyến theo chủ sở hữu thật sự bị thử.
+// Truy vấn tìm dòng tồn kho theo `(sku_id, stock_location_id,
+// inventory_owner_id)`; chỉ cần hai nhà bán ở hai kho khác nhau là hai
+// cột đầu đã đủ, và cột thứ ba không bao giờ phải làm việc.
+//
+// Bản đầu của bài này dùng `stockFor`, thứ cấp cho mỗi chủ một kho RIÊNG.
+// Bỏ hẳn `inventory_owner_id` khỏi mệnh đề WHERE thì nó VẪN XANH — bài
+// test xanh vì dữ liệu dễ, không phải vì code đúng.
+//
+// Với kho DÙNG CHUNG thì cùng phép phá đó đỏ ngay, và đỏ SỚM hơn chỗ ta
+// nhắm: `StartCheckout` báo "không đủ hàng" vì phần giữ của nhà bán thứ
+// hai rơi vào dòng của nhà bán thứ nhất. Nó không chạy tới bước hủy — vẫn
+// là bắt được, chỉ là bắt ở mắt xích trước.
+//
+// Và một kho hai chủ không phải ca dựng ra cho vui: hàng nhà bán gửi ở
+// kho nền tảng vẫn thuộc nhà bán, nên cùng SKU cùng kho có bản ghi riêng
+// cho từng chủ. Đó chính là ADR-0012.
+//
+// # Hỏng thì hỏng thế nào
+//
+// Hủy phần của A mà hàng chạy về kho của B: A vĩnh viễn thiếu 2 món, B tự
+// nhiên thừa 2 món. Không lỗi nào báo, không con số nào âm, và cả hai bên
+// chỉ phát hiện ở lần kiểm kê thật.
+func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+
+	shopA := ids.MustNew(ids.PrefixSeller)
+	shopB := ids.MustNew(ids.PrefixSeller)
+
+	// MỘT SKU, MỘT KHO, HAI chủ sở hữu.
+	//
+	// Cả ba điều kiện đều cần thiết. Kho riêng cho mỗi bên thì
+	// `stock_location_id` một mình đã đủ tìm đúng dòng, và cột chủ sở hữu
+	// không bao giờ phải làm việc — kiểm chứng: bỏ `inventory_owner_id`
+	// khỏi mệnh đề WHERE với dữ liệu kho-riêng thì bài test VẪN XANH.
+	skuID := ids.MustNew(ids.PrefixSKU)
+	kho := w.khoChung()
+	w.stockTaiKho(skuID, w.ownerOf(shopA), kho, 20)
+	w.stockTaiKho(skuID, w.ownerOf(shopB), kho, 20)
+
+	cartID := ids.MustNew(ids.PrefixCart)
+	w.cart.put(checkoutapp.CartSnapshot{
+		CartID:     cartID,
+		CustomerID: ids.MustNew(ids.PrefixCustomer),
+		GuestEmail: "khach@example.com",
+		Currency:   money.VND,
+		Items: []checkoutapp.CartItemSnapshot{
+			line(shopA, skuID, 300_000, 2),
+			line(shopB, skuID, 450_000, 1),
+		},
+	})
+
+	c, err := w.checkout.StartCheckout(ctx, checkoutapp.StartCheckoutInput{CartID: cartID})
+	if err != nil {
+		t.Fatalf("StartCheckout: %v", err)
+	}
+	if _, err := w.checkout.SetShippingAddress(ctx, c.ID(), address()); err != nil {
+		t.Fatalf("SetShippingAddress: %v", err)
+	}
+	if _, err := w.checkout.SetShippingMethod(ctx, c.ID(), "STANDARD"); err != nil {
+		t.Fatalf("SetShippingMethod: %v", err)
+	}
+	res, err := w.checkout.CompleteCheckout(ctx, c.ID(),
+		ids.MustNew(ids.PrefixRequest).String(), "COD")
+	if err != nil {
+		t.Fatalf("CompleteCheckout: %v", err)
+	}
+	w.drain()
+
+	// Sau khi đặt: mỗi bên bị trừ ĐÚNG phần của mình.
+	kiemKho := func(t *testing.T, moc string, muonA, camA, muonB, camB int) {
+		t.Helper()
+		availA, commitA := w.stock(skuID, w.ownerOf(shopA))
+		availB, commitB := w.stock(skuID, w.ownerOf(shopB))
+		if availA != muonA || commitA != camA {
+			t.Errorf("%s — nhà bán A: %d khả dụng / %d cam kết, cần %d/%d",
+				moc, availA, commitA, muonA, camA)
+		}
+		if availB != muonB || commitB != camB {
+			t.Errorf("%s — nhà bán B: %d khả dụng / %d cam kết, cần %d/%d",
+				moc, availB, commitB, muonB, camB)
+		}
+	}
+	kiemKho(t, "sau khi đặt đơn", 18, 2, 19, 1)
+
+	fos, err := w.ful.GetOrderFulfillments(ctx, res.OrderID.String())
+	if err != nil {
+		t.Fatalf("GetOrderFulfillments: %v", err)
+	}
+	var foA string
+	for _, fo := range fos {
+		if fo.SellerID == shopA.String() {
+			foA = fo.ID
+		}
+	}
+	if foA == "" {
+		t.Fatalf("không tìm thấy đơn thực hiện của nhà bán A trong %d đơn", len(fos))
+	}
+
+	// HỦY phần của A. Phần của B không được động tới.
+	if err := w.ful.CancelFulfillment(ctx, shopA.String(), foA, "hết hàng thật"); err != nil {
+		t.Fatalf("hủy đơn thực hiện của A: %v", err)
+	}
+	w.drain()
+
+	// A nhận lại đủ 2 món; B GIỮ NGUYÊN.
+	//
+	// Vế thứ hai mới là vế khó: nó là thứ đỏ lên khi hàng trả về chạy
+	// nhầm kho.
+	kiemKho(t, "sau khi hủy phần của A", 20, 0, 19, 1)
+
+	// Và tổng của TỪNG chủ phải bảo toàn — 20 món mỗi bên như lúc nhập.
+	for _, tt := range []struct {
+		ten   string
+		owner ids.ID
+	}{{"A", w.ownerOf(shopA)}, {"B", w.ownerOf(shopB)}} {
+		avail, commit := w.stock(skuID, tt.owner)
+		giu := w.reserved(skuID, tt.owner)
+		if tong := avail + giu + commit; tong != 20 {
+			t.Errorf("nhà bán %s: available(%d) + reserved(%d) + committed(%d) "+
+				"= %d, nhưng chỉ nhập 20 — hàng đã đi lạc giữa hai chủ",
+				tt.ten, avail, giu, commit, tong)
+		}
+	}
+}

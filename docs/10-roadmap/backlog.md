@@ -484,9 +484,34 @@ và trông chờ may rủi. Module checkout chưa có cổng tiêm đồng hồ 
 | # | Việc | Trạng thái |
 |---|---|---|
 | PH-1 | **Mở rộng E2E PostgreSQL** — ma trận ở mục 2.5 | ✅ 12/12 kịch bản, 14 test |
-| PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | 🟢 có test, cần phủ thêm partial |
+| PH-2 | **Bất biến ownership**: Offer → Seller → Inventory Owner → Reservation → Fulfillment | ✅ xong 06/09 — phủ nốt HỦY TỪNG PHẦN với một kho hai chủ; xem ghi chú dưới bảng |
 | PH-3 | Test tích hợp API qua HTTP thật | ✅ 6 test, xem 2.4b |
 | PH-4 | **E2E giao diện** — ma trận ở mục 2.6 | ✅ 7/7 luồng · 21 test |
+
+**PH-2 — phần `partial` còn thiếu, và một bài test tự nói dối `[06/09]`.**
+
+`TestHuyMotPhanDonVanConHieuLuc` kiểm TRẠNG THÁI ĐƠN sau khi hủy một phần,
+nhưng không nhìn tới tồn kho lần nào — nên một cài đặt trả hàng về SAI CHỦ
+vẫn xanh. Đó là phần `partial` mà dòng cũ của PH-2 ghi là còn thiếu.
+
+Hỏng thì hỏng thế này: hủy phần của nhà bán A mà hàng chạy về kho của B.
+A vĩnh viễn thiếu, B tự nhiên thừa, không lỗi nào báo và không con số nào
+âm — cả hai chỉ phát hiện ở lần kiểm kê thật.
+
+**Bản đầu của bài test mới TỰ NÓI DỐI, và phép phá lộ ra điều đó.** Nó
+dùng `stockFor`, thứ cấp cho MỖI CHỦ MỘT KHO RIÊNG. Truy vấn tìm dòng tồn
+kho theo `(sku_id, stock_location_id, inventory_owner_id)`; hai kho khác
+nhau thì hai cột đầu đã đủ, cột thứ ba không bao giờ phải làm việc. Bỏ hẳn
+`inventory_owner_id` khỏi mệnh đề WHERE — đúng lỗi ADR-0012 sinh ra để
+chặn — mà bài test VẪN XANH.
+
+Sửa thành MỘT KHO DÙNG CHUNG cho hai chủ thì cùng phép phá đó đỏ ngay. Và
+một kho hai chủ không phải ca dựng ra cho vui: hàng nhà bán gửi ở kho nền
+tảng vẫn thuộc nhà bán, nên cùng SKU cùng kho có bản ghi riêng cho từng
+chủ — chính là ca mà mục P1.6 đã ghi khi làm `adjustInventory`.
+
+Bài học lặp lại: **một bài test xanh có thể xanh vì dữ liệu dễ chứ không
+phải vì code đúng, và chỉ có phá mới phân biệt được hai thứ đó.**
 
 ### 2.2 PH — Reliability
 
