@@ -562,6 +562,45 @@ phải vì code đúng, và chỉ có phá mới phân biệt được hai thứ
 | PH-6 | Chuẩn hóa retry / xử lý thất bại | ✅ ba tầng, có test cưỡng chế — xem 2.16 |
 | PH-7 | **Event versioning** — quy tắc + test tự động | ✅ xong 06/09 — ADR-0016, bên nhận khai phiên bản, lệch thì HOÃN; xem 2.8 |
 | PH-8 | Kiểm ranh giới giao dịch: Order · Inventory · Fulfillment · Payment · Outbox | ✅ tiêm lỗi ở tầng DB, tìm ra và bịt một khe hở thật — xem 2.15 |
+| PH-40 | **Thuế luôn bằng 0** — `SetTax` không có bên gọi nào ở production | ⬜ MỚI 06/09 — cần chủ dự án quyết chính sách thuế trước; xem 2.2b |
+
+### 2.2b PH-40 — thuế luôn bằng 0, và không có gì báo `[MỚI 06/09]`
+
+Tìm ra khi rà chiều rộng sản phẩm (future-phases.md mục 6).
+
+`TaxAmount` có mặt ở **mọi tầng** — `Checkout`, `Order`, `PlaceOrderInput`,
+cột database, và nó được cộng vào `Total()` rồi ĐÓNG BĂNG vào đơn:
+
+```text
+checkout.SetTax()   tồn tại, CHỈ được gọi từ một bài test, với giá trị 0
+production          KHÔNG có đường nào gọi tới nó
+kết quả             mọi đơn có tax_amount = 0, vĩnh viễn
+```
+
+**Cùng hình dạng với `payment_method` trước P3-9:** một trường đi qua mọi
+tầng mà không ai điền, và không tầng nào báo lỗi vì 0 là một con số hợp lệ.
+
+**Khác biệt là hậu quả.** `payment_method` sai làm kho không biết thu tiền
+lúc giao. Thuế bằng 0 thì hóa đơn sai, sổ cái ghi doanh thu chưa trừ thuế,
+và đó là chuyện của cơ quan thuế chứ không phải của đội vận hành. Con số
+sai lại nằm trong một cuốn sổ BẤT BIẾN (ADR-0008) — sửa phải ghi bút toán
+đảo cho từng đơn.
+
+**CHƯA sửa, và cần quyết định của chủ dự án trước.** Ít nhất ba câu chưa
+có câu trả lời trong docs, và chọn sai câu nào cũng phải làm lại:
+
+```text
+VAT gộp trong giá niêm yết, hay cộng thêm khi thanh toán?
+Thuế suất theo loại hàng (thời trang 8% hay 10%?) — ai giữ bảng đó?
+Marketplace: nền tảng hay nhà bán là bên xuất hóa đơn?
+```
+
+Câu thứ ba là câu nặng nhất: nó quyết định thuế thuộc về `order` hay
+`seller`, và đổi câu trả lời sau khi đã cài là đổi mô hình sổ cái.
+
+**Việc trước mắt, KHÔNG cần quyết định gì:** làm cho sự vắng mặt này ồn
+ào. Hôm nay không có chỉ số, không có log, không có test nào cho biết thuế
+chưa bao giờ được tính.
 
 ### 2.3 PH — Security
 

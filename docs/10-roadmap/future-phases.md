@@ -507,3 +507,93 @@ analytics       → kho dữ liệu, phân tích chuyên sâu
 - [../07-workflows/creator-affiliate.md](../07-workflows/creator-affiliate.md)
 - [../07-workflows/replenishment.md](../07-workflows/replenishment.md)
 - [../07-workflows/own-brand-product.md](../07-workflows/own-brand-product.md)
+
+---
+
+## 6. Rà soát CHIỀU RỘNG sản phẩm (06/09/2026)
+
+**Trạng thái: KHẢO SÁT, chưa lên lịch, chưa cam kết.** Không mục nào ở đây
+được phép mở ra khi phase hiện tại chưa đóng — xem "Miền bị KHÓA" trong
+[backlog.md](backlog.md) mục 6, và quy tắc nhận việc ở mục 7.
+
+Mục này tồn tại để trả lời một câu hỏi khác câu "làm gì tiếp": **thứ gì
+đang VẮNG MẶT mà không ai ghi là vắng mặt?** Một khoảng trống có tên thì
+được cân nhắc; một khoảng trống vô danh thì bị phát hiện bởi khách hàng.
+
+Mười bốn miền được soi, xếp theo mức độ ĐÁNG LO chứ không theo thứ tự đề
+bài.
+
+### 6.1 Có chỗ giữ nhưng RỖNG — nợ đã nằm sẵn trong code
+
+Nguy hiểm hơn hẳn ba nhóm sau: code trông như đã có, nên không ai đi tìm.
+
+| Miền | Thực tế |
+|---|---|
+| **Thuế** | `TaxAmount` có mặt ở checkout, order, sổ cái, và được ĐÓNG BĂNG vào đơn. `SetTax` chỉ được gọi từ một bài test, với giá trị 0. **Không có gì tính thuế.** Xem PH-40 trong backlog. |
+| **Phí vận chuyển** | Biểu CỨNG 30k/60k trong `checkout/application`. Đã có tên: P3-8, đang làm. |
+
+Cùng một hình dạng với `payment_method` trước P3-9: một trường đi qua mọi
+tầng mà không ai điền. Khác biệt là thuế có hệ quả PHÁP LÝ, không chỉ vận
+hành.
+
+### 6.2 Có ở mức MVP — đủ để bán hàng, chưa đủ để cạnh tranh
+
+Không phải khoảng trống. Ghi ra để lần sau không ai "phát hiện" lại.
+
+| Miền | Đang có | Chưa có |
+|---|---|---|
+| **Khuyến mãi** | `promotion` + `coupon`; PERCENTAGE · FIXED · FREE_SHIP | Mua X tặng Y, combo, khuyến mãi theo bậc, xếp chồng nhiều mã |
+| **Giá** | `pricing`: mức giá, KHUNG GIÁ (chống phá giá), lịch sử | Giá theo nhóm khách, giá theo số lượng, giá theo thời điểm |
+| **Tìm kiếm** | `operationId: search`, ghi nhận truy vấn không ra kết quả | Gợi ý gõ, sửa lỗi chính tả, xếp hạng theo hành vi, lọc mặt |
+| **CMS / nội dung** | Đã hoạch định: module `content` ở Phase 2 | — |
+
+### 6.3 Có VAI TRÒ nhưng chưa có CÔNG CỤ
+
+Quyền đã cấp, màn hình thì chưa có. Người được cấp quyền hôm nay không làm
+được việc mà tên vai trò hứa.
+
+| Miền | Thực tế |
+|---|---|
+| **Merchandising** | `OPS_MERCHANDISING` là vai trò có thật trong ma trận quyền. Không có màn hình sắp xếp danh mục, ghim sản phẩm, dựng bộ sưu tập theo mùa. |
+| **Công cụ vận hành marketplace** | Có: duyệt/đình chỉ nhà bán, điều chỉnh sổ cái, điều chỉnh tồn kho, xem đơn. Chưa có: bảng điều khiển sức khỏe nhà bán, hàng đợi tranh chấp, công cụ hàng loạt, giám sát chất lượng nhà bán. |
+| **Chiều rộng Admin** | 16/80 thao tác là admin. Đủ cho bảy luồng MVP; chưa đủ cho một đội vận hành làm việc cả ngày trong đó. |
+
+### 6.4 KHÔNG tồn tại ở bất kỳ đâu — kể cả trong tài liệu
+
+Năm miền dưới đây có **0 lần nhắc** trong toàn bộ `docs/`. Đó là phát hiện
+chính của đợt rà: chúng chưa từng bị bác bỏ, chúng chưa từng được nghĩ tới.
+
+| Miền | Vì sao nó KHÔNG phải "thêm một module" |
+|---|---|
+| **Đăng ký định kỳ** | Đổi mô hình đơn hàng: đơn lặp lại, thanh toán định kỳ, tạm dừng/tiếp tục. Đụng order, payment, fulfillment cùng lúc. |
+| **B2B** | Đổi mô hình KHÁCH: tổ chức nhiều người dùng, hạn mức công nợ, báo giá, duyệt mua. `customer` hiện là một cá nhân. |
+| **Đa vùng** | `money` đã hỗ trợ VND + USD kèm đơn vị nhỏ nhất đúng. Trên đó thì KHÔNG có gì: không mô hình vùng, không giá/thuế/phí ship theo vùng, không kho theo vùng. |
+| **Đa ngôn ngữ** | Toàn bộ chữ trên giao diện là tiếng Việt cứng, có chủ ý (README). Đổi sang đa ngôn ngữ đụng cả `product` (tên, mô tả theo ngôn ngữ) chứ không chỉ tầng trình bày. |
+| **Tích hợp ngoài** | Không có khái niệm nào cho ERP, PIM, phần mềm kế toán, hay sàn thứ ba. Cả `payment` lẫn `fulfillment` cũng CHƯA có adapter nhà cung cấp thật (ADR-0017). |
+
+### 6.5 Đề xuất — và lý do KHÔNG đề xuất nhiều hơn
+
+```text
+NGAY (đã có tên, đang trong phase)   P3-8 phí vận chuyển thật
+                                      PH-40 thuế — MỚI, xem backlog
+
+SAU khi đóng phase, trước Phase 2     adapter nhà cung cấp thật
+                                      (payment + shipping) — mọi tích hợp
+                                      khác đều đứng sau nó
+
+Phase 2+ (đã có chỗ)                  content · merchandising · công cụ
+                                      vận hành marketplace
+
+CHƯA nên đưa vào kế hoạch nào         subscriptions · B2B · đa vùng ·
+                                      đa ngôn ngữ
+```
+
+Bốn miền cuối bị để ngoài kế hoạch **có chủ ý**, không phải vì quên. Mỗi
+cái đổi một mô hình LÕI — đơn hàng, khách hàng, hoặc danh mục — và dự án
+chưa có tín hiệu thị trường nào nói cái nào cần trước. Đưa chúng vào
+roadmap lúc này là cam kết một kiến trúc cho một nhu cầu chưa tồn tại, mà
+quy tắc nhận việc ở backlog mục 7 đã nói thẳng: lý do "sau này có thể cần"
+thì không làm.
+
+Cái đúng phải làm bây giờ là **ghi tên chúng ra**, và đó là mục đích của
+mục này.
