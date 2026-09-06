@@ -11,6 +11,15 @@
 /archcheck
 /seed
 
+# `/api` ở trên nhắm BINARY `go build ./cmd/api`, nhưng nó khớp cả THƯ MỤC
+# `api/` — nơi giữ đặc tả OpenAPI, tức nguồn sự thật duy nhất của cả
+# monorepo. File đã theo dõi thì không sao, nhưng file MỚI (thêm một
+# `paths/*.yaml` cho endpoint mới) bị nuốt im lặng: `git status` không hiện,
+# `git add` báo "ignored", và đặc tả ship thiếu đúng phần vừa viết.
+#
+# Dòng phủ định này trả lại thư mục, vẫn giữ nguyên việc chặn binary.
+!/api/
+
 # Test và độ phủ
 coverage.out
 *.test
