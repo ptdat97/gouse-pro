@@ -2448,7 +2448,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-7 | Chính sách lưu trữ `audit_log` | Bảng chỉ tăng; chờ có số liệu thật |
 | P3-8 | **Phí vận chuyển thật** thay bảng cứng trong checkout | Cần `fulfillment.EstimateShipping()` (checkout.md §7) |
 | P3-9 | **Nối `payment_method` vào đơn hàng** | ✅ xong (06/09) — đơn GHI lựa chọn, và PH-36 nối nốt đường thu tiền. Xem ghi chú dưới bảng |
-| P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | Cần cả bốn module thật; có từ trước P1.3 |
+| P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | ✅ xong (06/09) — 9 bài, xem ghi chú dưới bảng |
 | P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | ✅ xong — xem ghi chú dưới bảng |
 | P3-12 | Phân trang theo KHÓA thay vì offset | ✅ xong — xem ghi chú dưới bảng |
 | P3-13 | **Dữ liệu mẫu MUA ĐƯỢC**: seed cho offer + tồn kho | ✅ xong — xem ghi chú dưới bảng |
@@ -2525,6 +2525,40 @@ cho hai đơn KHÁC nhau, đọc lại đúng giá trị; `BITCOIN` qua API tr�
 `payment_intent`, và webhook thanh toán đối chiếu số tiền rồi chuyển đơn
 sang `PAID`. Chính trường `payment_method` của P3-9 là thứ cho phép quy
 tắc "COD KHÔNG có intent" viết được.
+
+**P3-10 — đã xong (06/09).** Dòng cũ ghi "cần cả bốn module thật" và đó
+chính là thứ đã giữ mục này mở suốt từ trước P1.3. Không cần: `offerLookup`
+nhận bốn interface, nên bốn bản giả là đủ — và bản giả còn mô tả được tình
+huống mà module thật khó dựng ("nhà bán tra KHÔNG RA").
+
+Bản giả **nhúng interface thật** thay vì cài đủ mọi phương thức. Lý do
+chính không phải để viết ngắn: phương thức không được ghi đè sẽ panic con
+trỏ nil nếu bị gọi, nên một cài đặt lén gọi thêm hàm khác không thể im
+lặng trượt qua.
+
+**Thứ đáng khóa nhất ở đây là một quyết định BẤT ĐỐI XỨNG.** Cùng một lần
+tra nhà bán hỏng, hai trường xử lý ngược nhau:
+
+```text
+SellerActive  tra không ra → coi như ĐÌNH CHỈ   (hỏng thì ĐÓNG)
+SellerName    tra không ra → để rỗng, đi tiếp   (hỏng thì MỞ)
+```
+
+Cả hai đều đúng và vì hai lý do khác nhau: đặt hàng của nhà bán đã bị đình
+chỉ thì phải hủy đơn, còn thiếu một nhãn hiển thị không đáng làm hỏng giỏ.
+Nhưng đọc riêng một nửa thì rất dễ kết luận quy tắc là "luôn đóng" hoặc
+"luôn mở", rồi sửa theo kết luận đó và phá nửa kia. Hai bài test đứng cạnh
+nhau chính là để chặn điều đó.
+
+**Khóa luôn hợp đồng hiệu năng (PH-14).** Chú thích của `offerLookup` tự
+đặt ra: giỏ 10 món tốn ĐÚNG bốn lượt gọi, không phải 40. Hồi quy N+1 không
+làm test nào đỏ và không làm giao diện sai — nó chỉ làm mọi thứ chậm dần,
+và không ai truy được nguyên nhân về đúng commit đã gây ra. Nay có bài
+đếm: phá bằng cách hỏi nhà bán trong vòng lặp → "gọi seller 11 lần cho giỏ
+10 món".
+
+**Phá để kiểm chứng, hai lần, cả hai đỏ đúng chỗ:** san phẳng bất đối xứng
+(nhà bán tra không ra → coi như hoạt động), và tái lập N+1.
 
 **P3-1 — đã xong (05/09).** Dòng "chỉ kiểm chứng bằng curl thủ công" đã
 lạc hậu từ lâu: đường auth có `api_auth_test.go`,
