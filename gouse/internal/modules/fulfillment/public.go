@@ -214,3 +214,44 @@ const (
 	TypeSeller          = "SELLER"
 	TypePlatformService = "PLATFORM_SERVICE"
 )
+
+// ---------------------------------------------------- Ước tính phí giao
+
+// NguonHangInput là một điểm xuất hàng — thực tế là MỘT KIỆN.
+type NguonHangInput struct {
+	SellerID string
+}
+
+// ShippingEstimateRequest là yêu cầu ước tính phí vận chuyển.
+//
+// # Vì sao KHÔNG có địa chỉ nhận
+//
+// Phí thật phụ thuộc khoảng cách, và tính khoảng cách cần ĐIỂM XUẤT HÀNG —
+// thứ `stock_location` chưa có (không tỉnh, không tọa độ). Nhận địa chỉ
+// vào rồi không dùng sẽ tạo ra đúng thứ vừa bị bắt ở PH-40: một trường đi
+// qua mọi tầng mà không ai đọc, và không ai biết nó không được đọc.
+//
+// Khi kho có địa chỉ thì thêm trường ở đây, và lúc đó nó có người dùng.
+type ShippingEstimateRequest struct {
+	Method   string
+	Sources  []NguonHangInput
+	Currency string
+}
+
+// PhiTheoNguonView là phí của MỘT nguồn hàng.
+type PhiTheoNguonView struct {
+	SellerID      string
+	Amount        int64
+	EstimatedDays int
+}
+
+// ShippingEstimateView là kết quả ước tính.
+//
+// `PerSource` KHÔNG phải chi tiết thừa: docs/04-modules/checkout.md mục 7
+// yêu cầu hiển thị thời gian giao RIÊNG cho từng nhóm hàng — khách cần
+// biết món nào đến trước. Gộp thành một con số là bỏ mất thông tin đó.
+type ShippingEstimateView struct {
+	Total     int64
+	Currency  string
+	PerSource []PhiTheoNguonView
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/checkout/application"
+	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	"github.com/fashion-commerce/platform/internal/modules/order"
@@ -408,4 +409,34 @@ func (a *paymentAdapter) TaoIntent(
 
 func (a *paymentAdapter) LaKhongCanIntent(err error) bool {
 	return payment.LaPhuongThucKhongTraTruoc(err)
+}
+
+// ------------------------------------------------- Ước tính phí vận chuyển
+
+// ShippingAPI là phần của module fulfillment mà checkout dùng.
+type ShippingAPI interface {
+	EstimateShipping(
+		ctx context.Context, req fulfillment.ShippingEstimateRequest,
+	) (*fulfillment.ShippingEstimateView, error)
+}
+
+type shippingAdapter struct{ api ShippingAPI }
+
+var _ application.ShippingPort = (*shippingAdapter)(nil)
+
+func (a *shippingAdapter) EstimateShipping(
+	ctx context.Context, method string, sellerIDs []string, currency string,
+) (application.UocTinhPhiGiao, error) {
+	sources := make([]fulfillment.NguonHangInput, 0, len(sellerIDs))
+	for _, id := range sellerIDs {
+		sources = append(sources, fulfillment.NguonHangInput{SellerID: id})
+	}
+
+	res, err := a.api.EstimateShipping(ctx, fulfillment.ShippingEstimateRequest{
+		Method: method, Sources: sources, Currency: currency,
+	})
+	if err != nil {
+		return application.UocTinhPhiGiao{}, err
+	}
+	return application.UocTinhPhiGiao{Total: res.Total}, nil
 }

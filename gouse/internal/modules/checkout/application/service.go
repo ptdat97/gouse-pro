@@ -284,6 +284,28 @@ type OrderPort interface {
 	LayDon(ctx context.Context, orderID ids.ID) (PlacedOrder, error)
 }
 
+// ShippingPort là những gì checkout CẦN từ fulfillment: một con số phí.
+//
+// Khai HẸP thay vì nhận cả `fulfillment.API`: checkout không có việc gì
+// với lô hàng, hãng vận chuyển hay tiến độ giao. Một interface rộng buộc
+// mọi bản giả trong test phải cài hàng chục phương thức nó không dùng.
+type ShippingPort interface {
+	// EstimateShipping trả TỔNG phí cho danh sách nguồn hàng.
+	//
+	// Chi tiết theo từng nguồn (thời gian giao riêng cho mỗi nhóm — mục 7
+	// của đặc tả) nằm ở `fulfillment.EstimateShipping`; checkout chỉ cần
+	// con số phải thu, và trang hiển thị hỏi thẳng fulfillment cho phần
+	// còn lại.
+	EstimateShipping(
+		ctx context.Context, method string, sellerIDs []string, currency string,
+	) (UocTinhPhiGiao, error)
+}
+
+// UocTinhPhiGiao là kết quả ước tính mà checkout cần.
+type UocTinhPhiGiao struct {
+	Total int64
+}
+
 // PaymentPort là những gì checkout CẦN từ payment.
 type PaymentPort interface {
 	// TaoIntent ghi số tiền hệ thống CHỜ THU cho một đơn trả trước.
@@ -390,6 +412,7 @@ type Service struct {
 	sellers     SellerPort
 	orders      OrderPort
 	payments    PaymentPort
+	shipping    ShippingPort
 	promotions  PromotionPort
 	clock       Clock
 	events      EventPublisher
@@ -440,6 +463,10 @@ type Deps struct {
 	// nghĩa là khách trả tiền qua thẻ mà hệ thống không bao giờ ghi nhận.
 	Payments PaymentPort
 
+	// Shipping ước tính phí vận chuyển. Thiếu nó thì `SetShippingMethod`
+	// TỪ CHỐI thay vì đoán một con số.
+	Shipping ShippingPort
+
 	// Promotions có thể nil: phiên thanh toán vẫn chạy, chỉ là không áp
 	// được mã giảm giá. Không chặn cả luồng mua hàng vì một tính năng phụ.
 	Promotions PromotionPort
@@ -464,6 +491,7 @@ func NewService(d Deps) *Service {
 		sellers:     d.Sellers,
 		orders:      d.Orders,
 		payments:    d.Payments,
+		shipping:    d.Shipping,
 		promotions:  d.Promotions,
 		clock:       clock,
 		events:      d.Events,
@@ -765,40 +793,75 @@ const (
 // ErrUnknownShippingMethod khi phương thức không nằm trong danh sách.
 var ErrUnknownShippingMethod = errors.New("checkout: phương thức vận chuyển không hợp lệ")
 
-// shippingRates là BIỂU PHÍ TẠM THỜI.
+// ErrChuaNoiUocTinhPhi: bản dựng này chưa nối cổng ước tính phí vận chuyển.
 //
-// # Vì sao phí nằm ở đây chứ không đến từ client
-//
-// Phí vận chuyển là con số khách PHẢI TRẢ. Nhận nó từ request nghĩa là
-// khách tự đặt phí ship 0đ cho mình — cùng loại lỗ hổng với việc nhận giá
-// sản phẩm từ client (xem cart.AddItemRequest).
-//
-// # Vì sao là bảng cứng chứ không phải tính thật
-//
-// docs/04-modules/checkout.md §7 quy định phí đến từ
-// `fulfillment.EstimateShipping()` theo từng nguồn hàng. Hàm đó CHƯA TỒN
-// TẠI (fulfillment/public.go không có nó), và dựng cả module ước tính phí
-// nằm ngoài phạm vi MVP.
-//
-// Bảng này là chỗ đứng tạm cho tới khi có hàm đó: sai về mặt kinh doanh
-// (không theo khoảng cách, không theo số nguồn hàng) nhưng ĐÚNG về mặt an
-// toàn (khách không đặt được phí của mình). Backlog P3 theo dõi việc thay.
-var shippingRates = map[ShippingMethod]int64{
-	ShippingStandard: 30_000,
-	ShippingExpress:  60_000,
-}
+// Báo lỗi rõ thay vì rơi về một con số mặc định: đoán phí vận chuyển là
+// đoán tiền khách phải trả.
+var ErrChuaNoiUocTinhPhi = errors.New("checkout: chưa nối ước tính phí vận chuyển")
 
 // SetShippingMethod chọn phương thức vận chuyển và ÁP phí tương ứng.
+//
+// # Phí đến từ fulfillment, KHÔNG từ client và KHÔNG từ bảng cứng ở đây
+//
+// Nhận phí từ request nghĩa là khách tự đặt phí ship 0đ cho mình — cùng
+// loại lỗ hổng với việc nhận giá sản phẩm từ client (xem
+// cart.AddItemRequest). Điều đó không đổi.
+//
+// Cái ĐÃ đổi (P3-8, 06/09): trước đây phí là một map hằng số ngay trong
+// file này, thu MỘT lần cho cả đơn bất kể hàng đến từ mấy nguồn. Nay nó
+// đến từ `fulfillment.EstimateShipping` theo đúng
+// docs/04-modules/checkout.md mục 7, và tính THEO TỪNG NGUỒN.
+//
+// Hệ quả nhìn thấy được: đơn trộn hàng của ba nhà bán nay thu ba lần phí,
+// vì nó đi thành ba kiện. Bảng cũ để nền tảng bù phần chênh trên mọi đơn
+// nhiều nguồn — tức là bù nhiều nhất đúng ở loại đơn mà cái chợ tồn tại
+// để tạo ra.
 func (s *Service) SetShippingMethod(
 	ctx context.Context, id ids.ID, method ShippingMethod,
 ) (*domain.Checkout, error) {
-	rate, ok := shippingRates[method]
-	if !ok {
+	// Kiểm phương thức TRƯỚC, ở đây, dù fulfillment cũng kiểm.
+	//
+	// KHÔNG phải chép đôi quy tắc: hai bên kiểm hai thứ khác nhau.
+	// `ShippingMethod` là enum của CHECKOUT — tập giá trị mà API này nhận
+	// từ khách — nên chuỗi lạ phải thành 400 ngay tại cửa, trước cả một
+	// lượt gọi liên module. Fulfillment kiểm tập giá trị nó có BIỂU PHÍ,
+	// một câu hỏi khác.
+	//
+	// Bỏ chốt này thì chuỗi lạ đi xuống tận fulfillment rồi quay lên
+	// thành 500 — đúng lỗi bài `TestPhuongThucVanChuyenPhaiHopLe` bắt được.
+	switch method {
+	case ShippingStandard, ShippingExpress:
+	default:
 		return nil, ErrUnknownShippingMethod
 	}
 
+	if s.shipping == nil {
+		// KHÔNG rơi về một con số mặc định: đoán phí vận chuyển là đoán
+		// tiền khách phải trả. Thà hỏng ồn ào còn hơn thu sai im lặng.
+		return nil, ErrChuaNoiUocTinhPhi
+	}
+
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
-		fee, err := money.New(rate, c.Currency())
+		// MỖI NHÀ BÁN LÀ MỘT NGUỒN — thực tế là một kiện hàng.
+		//
+		// `SellerIDs()` đã lọc trùng, nên giỏ 10 món của cùng một nhà bán
+		// vẫn là một kiện và một lần phí.
+		nguon := c.SellerIDs()
+		if len(nguon) == 0 {
+			return ErrEmptyCart
+		}
+		sources := make([]string, 0, len(nguon))
+		for _, sid := range nguon {
+			sources = append(sources, sid.String())
+		}
+
+		uoc, err := s.shipping.EstimateShipping(ctx,
+			string(method), sources, string(c.Currency()))
+		if err != nil {
+			return err
+		}
+
+		fee, err := money.New(uoc.Total, c.Currency())
 		if err != nil {
 			return err
 		}

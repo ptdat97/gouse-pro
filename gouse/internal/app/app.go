@@ -381,6 +381,23 @@ func Build(
 			return Modules{}, err
 		}
 
+		// Fulfillment dựng TRƯỚC checkout: checkout gọi
+		// `EstimateShipping` để tính phí vận chuyển (checkout.md mục 7).
+		//
+		// Không tạo phụ thuộc vòng — fulfillment không biết gì về checkout,
+		// nó chỉ nghe event `checkout.completed` qua outbox.
+		fulfillmentModule, err = fulfillment.New(fulfillment.Config{
+			Storage: "postgres",
+			DB:      db,
+			Events:  eventbus.NewOutbox(db.Pool()),
+
+			// Ngưỡng chấm hiệu suất nhà bán sửa được từ giao diện quản trị.
+			OpsConfig: opsConfigStore,
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+
 		checkoutModule, err = checkout.New(checkout.Config{
 			Storage:     "postgres",
 			DB:          db,
@@ -391,6 +408,7 @@ func Build(
 			Seller:      sellerModule,
 			Promotion:   promotionModule,
 			Payment:     paymentModule,
+			Fulfillment: fulfillmentModule,
 			Events:      eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
@@ -441,18 +459,6 @@ func Build(
 
 		// fulfillment là góc nhìn vận hành: seller làm việc với module này,
 		// KHÔNG với order — Order chứa dòng hàng của mọi seller trong đơn.
-		fulfillmentModule, err = fulfillment.New(fulfillment.Config{
-			Storage: "postgres",
-			DB:      db,
-			Events:  eventbus.NewOutbox(db.Pool()),
-
-			// Ngưỡng chấm hiệu suất nhà bán sửa được từ giao diện quản trị.
-			OpsConfig: opsConfigStore,
-		})
-		if err != nil {
-			return Modules{}, err
-		}
-
 		log.Info("module checkout đã sẵn sàng (giữ hàng + đóng băng giá)",
 			"phien_qua_han_chua_don", stalePending,
 			"event_cho_phat", outboxStats.Pending,

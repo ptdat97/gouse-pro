@@ -1811,10 +1811,10 @@ không phải event — phải biết còn hàng mới cho đặt.
 
 **Ba khoảng trống đã biết, ghi ở đây thay vì giấu:**
 
-1. **Phí vận chuyển là bảng cứng** (`application.shippingRates`):
-   STANDARD 30.000đ, EXPRESS 60.000đ, không theo khoảng cách hay số nguồn
-   hàng. docs/04-modules/checkout.md §7 quy định phí đến từ
-   `fulfillment.EstimateShipping()` — hàm đó chưa tồn tại. Xem P3-8.
+1. **Phí vận chuyển** — ĐÃ SỬA phần số nguồn (P3-8, 06/09): phí nay đến từ
+   `fulfillment.EstimateShipping()` và tính theo TỪNG nguồn hàng. Vẫn chưa
+   theo khoảng cách hay khối lượng, vì cả hai thiếu DỮ LIỆU (kho không có
+   địa chỉ, dòng checkout không mang gram) — xem P3-8.
 2. **`payment_method` được kiểm tra rồi BỎ QUA** — ĐÃ SỬA (P3-9 + PH-36,
    06/09). Đơn lưu lựa chọn của khách, và đơn TRẢ TRƯỚC nay có
    `payment_intent` để webhook thanh toán đối chiếu vào; thu tiền thành
@@ -2526,7 +2526,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | Tăng cường SAU phát hành — chủ dự án đã gỡ khỏi điều kiện chặn (15/08) |
 | P3-6 | Observability: metrics, tracing | |
 | P3-7 | Chính sách lưu trữ `audit_log` | Bảng chỉ tăng; chờ có số liệu thật |
-| P3-8 | **Phí vận chuyển thật** thay bảng cứng trong checkout | Cần `fulfillment.EstimateShipping()` (checkout.md §7) |
+| P3-8 | **Phí vận chuyển thật** thay bảng cứng trong checkout | ✅ xong (06/09) — phí theo TỪNG NGUỒN; khoảng cách và khối lượng vẫn thiếu dữ liệu. Xem ghi chú dưới bảng |
 | P3-9 | **Nối `payment_method` vào đơn hàng** | ✅ xong (06/09) — đơn GHI lựa chọn, và PH-36 nối nốt đường thu tiền. Xem ghi chú dưới bảng |
 | P3-10 | Test cho `cart/lookup.go` (`offerLookup`) | ✅ xong (06/09) — 9 bài, xem ghi chú dưới bảng |
 | P3-11 | Lọc `status` của `listMyOrders` trong TRUY VẤN | ✅ xong — xem ghi chú dưới bảng |
@@ -2605,6 +2605,62 @@ cho hai đơn KHÁC nhau, đọc lại đúng giá trị; `BITCOIN` qua API tr�
 `payment_intent`, và webhook thanh toán đối chiếu số tiền rồi chuyển đơn
 sang `PAID`. Chính trường `payment_method` của P3-9 là thứ cho phép quy
 tắc "COD KHÔNG có intent" viết được.
+
+**P3-8 — đã xong (06/09).** `fulfillment.EstimateShipping()` nay tồn tại,
+và biểu phí đã rời khỏi checkout về đúng module biết về hãng vận chuyển.
+
+**Lỗi thật sự được sửa không phải "bảng cứng" mà là THU MỘT LẦN CHO CẢ
+ĐƠN.** Hàng của ba nhà bán nằm ở ba kho nên nó đi thành BA kiện và tốn ba
+lần phí, trong khi biểu cũ thu một lần bất kể mấy nguồn. Nghĩa là nền tảng
+bù phần chênh trên mọi đơn nhiều nguồn — và bù nhiều nhất đúng ở loại đơn
+mà cái chợ tồn tại để tạo ra. Không lỗi nào báo, không con số nào âm; nó
+chỉ hiện ra ở bảng lãi lỗ.
+
+**Đây là thay đổi GIÁ mà khách nhìn thấy:** đơn trộn hai nhà bán đi từ
+30.000đ lên 60.000đ. Con số nằm trong `fulfillment/domain` chứ không rải
+rác; chuyển sang `opsconfig` (ADR-0015) để chỉnh lúc chạy là việc tiếp
+theo, chưa làm.
+
+**Nhiều MÓN của cùng một nhà bán vẫn là MỘT kiện** — phí nhân theo số
+NGUỒN, không theo số món. `SellerIDs()` đã lọc trùng sẵn.
+
+**Kiểm phương thức vận chuyển vẫn ở checkout, và đó KHÔNG phải chép đôi.**
+Hai bên kiểm hai câu khác nhau: checkout kiểm tập giá trị API nhận từ
+khách (chuỗi lạ → 400 ngay tại cửa), fulfillment kiểm tập giá trị nó có
+biểu phí. Bỏ chốt ở checkout thì chuỗi lạ đi xuống tận fulfillment rồi
+quay lên thành 500 — `TestPhuongThucVanChuyenPhaiHopLe` bắt được đúng lúc
+tôi bỏ nó.
+
+**Thiếu cổng ước tính thì `SetShippingMethod` TỪ CHỐI**, không rơi về số
+mặc định: đoán phí vận chuyển là đoán tiền khách phải trả.
+
+**Harness e2e tự làm mình dễ, lần thứ hai.** Bài mới đỏ với "phí đơn một
+nhà bán = 0" dù domain đúng và phiên thanh toán đúng. Nguyên nhân:
+`orderPort` trong `internal/e2e` bỏ qua `ShippingFee`, `DiscountAmount`,
+`TaxAmount`, địa chỉ giao và `SourceCheckoutID` — nó chỉ chép dòng hàng.
+Hệ quả rộng hơn bài này: **mọi khẳng định về tiền ở mức đơn trong
+`internal/e2e` trước đây đều vô nghĩa**, vì các con số đó luôn 0 do adapter
+không chép chứ không phải do hệ thống tính ra 0. Đã sửa adapter chép đủ.
+
+Cùng bài học với `stockFor` ở PH-2: một harness dễ hơn thực tế thì bài test
+xanh mà không chứng minh gì.
+
+**CÒN THIẾU, và thiếu DỮ LIỆU chứ không thiếu phép tính:**
+
+```text
+khoảng cách   `stock_location` không có địa chỉ — không tỉnh, không tọa độ
+khối lượng    dòng checkout mang sku_id và số lượng, KHÔNG mang gram
+```
+
+Cả hai cần thêm cột và thêm đường nạp dữ liệu, nên chúng nằm ngoài P3-8.
+Cố ý KHÔNG nhận địa chỉ nhận vào `ShippingEstimateRequest` khi chưa dùng
+được: đó đúng là thứ vừa bị bắt ở PH-40 — một trường đi qua mọi tầng mà
+không ai đọc, và không ai biết nó không được đọc.
+
+**Chính sách MIỄN PHÍ vận chuyển vẫn chưa có.** checkout.md mục 7 nêu câu
+hỏi (áp trên tổng đơn hay trên từng nhà bán?) và khuyến nghị "tổng đơn",
+nhưng khuyến nghị không phải quyết định — đây là quyết định kinh doanh của
+chủ dự án.
 
 **P3-10 — đã xong (06/09).** Dòng cũ ghi "cần cả bốn module thật" và đó
 chính là thứ đã giữ mục này mở suốt từ trước P1.3. Không cần: `offerLookup`

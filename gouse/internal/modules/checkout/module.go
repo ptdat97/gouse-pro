@@ -56,6 +56,12 @@ type Config struct {
 	// chủ là trừ hàng của người khác — im lặng, ở cả hai sổ sách.
 	Seller seller.API
 
+	// Fulfillment ước tính PHÍ VẬN CHUYỂN (checkout.md mục 7).
+	//
+	// Thiếu nó thì `SetShippingMethod` TỪ CHỐI thay vì đoán một con số:
+	// đoán phí vận chuyển là đoán tiền khách phải trả.
+	Fulfillment ShippingAPI
+
 	// Payment ghi Ý ĐỊNH THANH TOÁN cho đơn TRẢ TRƯỚC (ADR-0017).
 	//
 	// Có thể nil: khi đó không intent nào được tạo, và webhook thanh toán
@@ -120,6 +126,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Payment != nil {
 		deps.Payments = &paymentAdapter{api: cfg.Payment}
+	}
+	if cfg.Fulfillment != nil {
+		deps.Shipping = &shippingAdapter{api: cfg.Fulfillment}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil

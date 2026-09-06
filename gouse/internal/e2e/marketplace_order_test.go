@@ -118,7 +118,14 @@ func newWorld(t *testing.T) *world {
 		Commissions: &flatCommission{bp: 1000},
 		Sellers:     &ownerPort{internal: w.internal},
 		Orders:      &orderPort{api: ordModule},
-		Events:      checkout.NewEventPublisher(eventbus.NewOutbox(db.Pool())),
+
+		// Phí vận chuyển đến từ module fulfillment THẬT, không từ bảng
+		// cứng (P3-8). Dùng module thật chứ không bản giả: con số phí là
+		// thứ các bài test tiền bạc ở đây cộng vào tổng đơn, và một bản
+		// giả sẽ cho chúng cộng một con số không tồn tại ngoài đời.
+		Shipping: &shippingPort{api: fulModule},
+
+		Events: checkout.NewEventPublisher(eventbus.NewOutbox(db.Pool())),
 	})
 	return w
 }
@@ -333,6 +340,20 @@ func (f *flatCommission) RateForSeller(
 }
 
 // orderPort nối checkout tới module order THẬT.
+//
+// # Nó phải chép ĐỦ những gì bản production chép
+//
+// Bản đầu của adapter này bỏ qua `ShippingFee`, `DiscountAmount`,
+// `TaxAmount`, địa chỉ giao và `SourceCheckoutID` — nó chỉ chuyển dòng
+// hàng. Hậu quả là MỌI khẳng định về tiền ở mức đơn trong `internal/e2e`
+// đều vô nghĩa: các con số đó luôn bằng 0 vì adapter không chép chúng, chứ
+// không phải vì hệ thống tính ra 0.
+//
+// Phát hiện khi viết bài phí vận chuyển theo nguồn (P3-8): phí đúng ở
+// domain, đúng trên phiên thanh toán, và bằng 0 trên đơn.
+//
+// Bài học giống hệt `stockFor` ở bài hủy từng phần: một harness dễ hơn
+// thực tế thì bài test xanh mà không chứng minh gì.
 type orderPort struct{ api order.API }
 
 func (p *orderPort) PlaceOrder(
@@ -353,13 +374,31 @@ func (p *orderPort) PlaceOrder(
 			CommissionRate: int(l.CommissionRate.Value()),
 		})
 	}
+	tien := func(m money.Money) order.Amount {
+		return order.Amount{Value: m.Amount(), Currency: string(m.Currency())}
+	}
+
 	res, err := p.api.PlaceOrder(ctx, order.PlaceOrderRequest{
-		CustomerID:     in.CustomerID.String(),
-		GuestEmail:     in.GuestEmail,
-		GuestPhone:     in.GuestPhone,
-		Currency:       string(in.Currency),
-		Lines:          lines,
-		IdempotencyKey: in.IdempotencyKey,
+		CustomerID: in.CustomerID.String(),
+		GuestEmail: in.GuestEmail,
+		GuestPhone: in.GuestPhone,
+		ShippingAddress: order.AddressInput{
+			RecipientName: in.ShippingAddress.RecipientName,
+			Phone:         in.ShippingAddress.Phone,
+			StreetAddress: in.ShippingAddress.StreetAddress,
+			Ward:          in.ShippingAddress.Ward,
+			District:      in.ShippingAddress.District,
+			Province:      in.ShippingAddress.Province,
+			CountryCode:   in.ShippingAddress.CountryCode,
+		},
+		Currency:         string(in.Currency),
+		ShippingFee:      tien(in.ShippingFee),
+		DiscountAmount:   tien(in.DiscountAmount),
+		TaxAmount:        tien(in.TaxAmount),
+		Lines:            lines,
+		IdempotencyKey:   in.IdempotencyKey,
+		SourceCheckoutID: in.SourceCheckoutID.String(),
+		PaymentMethod:    in.PaymentMethod,
 	})
 	if err != nil {
 		return checkoutapp.PlacedOrder{}, err
@@ -644,4 +683,23 @@ func (p *orderPort) LayDon(
 		PaymentMethod: v.PaymentMethod,
 		Replayed:      true,
 	}, nil
+}
+
+// shippingPort nối checkout tới ước tính phí của fulfillment.
+type shippingPort struct{ api *fulfillment.Module }
+
+func (p *shippingPort) EstimateShipping(
+	ctx context.Context, method string, sellerIDs []string, currency string,
+) (checkoutapp.UocTinhPhiGiao, error) {
+	sources := make([]fulfillment.NguonHangInput, 0, len(sellerIDs))
+	for _, id := range sellerIDs {
+		sources = append(sources, fulfillment.NguonHangInput{SellerID: id})
+	}
+	res, err := p.api.EstimateShipping(ctx, fulfillment.ShippingEstimateRequest{
+		Method: method, Sources: sources, Currency: currency,
+	})
+	if err != nil {
+		return checkoutapp.UocTinhPhiGiao{}, err
+	}
+	return checkoutapp.UocTinhPhiGiao{Total: res.Total}, nil
 }

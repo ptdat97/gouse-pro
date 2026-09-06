@@ -334,3 +334,95 @@ func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
 		}
 	}
 }
+
+// TestPhiVanChuyenTinhTHEO NGUON qua cả chuỗi thật (P3-8).
+//
+// # Vì sao cần bài này khi domain đã có test
+//
+// Test domain chứng minh `UocTinhPhiGiao` cộng đúng. Bài này chứng minh
+// con số đó THẬT SỰ đi vào tổng đơn — qua `SetShippingMethod`, qua
+// `CompleteCheckout`, vào `Order.ShippingFee` đã đóng băng.
+//
+// Đó là hai việc khác nhau: biểu phí đúng mà tầng trên vẫn dùng bảng cũ
+// thì mọi test domain vẫn xanh, và khách vẫn bị thu sai.
+func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+
+	shopA := ids.MustNew(ids.PrefixSeller)
+	shopB := ids.MustNew(ids.PrefixSeller)
+
+	skuA := ids.MustNew(ids.PrefixSKU)
+	skuB := ids.MustNew(ids.PrefixSKU)
+	w.stockFor(skuA, w.ownerOf(shopA), 10)
+	w.stockFor(skuB, w.ownerOf(shopB), 10)
+
+	// phiCuaDon dựng một đơn với danh sách món cho trước và trả phí ship
+	// ĐÃ ĐÓNG BĂNG trên đơn.
+	phiCuaDon := func(t *testing.T, items []checkoutapp.CartItemSnapshot) int64 {
+		t.Helper()
+
+		cartID := ids.MustNew(ids.PrefixCart)
+		w.cart.put(checkoutapp.CartSnapshot{
+			CartID:     cartID,
+			CustomerID: ids.MustNew(ids.PrefixCustomer),
+			GuestEmail: "khach@example.com",
+			Currency:   money.VND,
+			Items:      items,
+		})
+
+		c, err := w.checkout.StartCheckout(ctx,
+			checkoutapp.StartCheckoutInput{CartID: cartID})
+		if err != nil {
+			t.Fatalf("StartCheckout: %v", err)
+		}
+		if _, err := w.checkout.SetShippingAddress(ctx, c.ID(), address()); err != nil {
+			t.Fatalf("SetShippingAddress: %v", err)
+		}
+		if _, err := w.checkout.SetShippingMethod(ctx, c.ID(), "STANDARD"); err != nil {
+			t.Fatalf("SetShippingMethod: %v", err)
+		}
+		res, err := w.checkout.CompleteCheckout(ctx, c.ID(),
+			ids.MustNew(ids.PrefixRequest).String(), "COD")
+		if err != nil {
+			t.Fatalf("CompleteCheckout: %v", err)
+		}
+
+		don, err := w.ord.GetOrder(ctx, res.OrderID.String())
+		if err != nil {
+			t.Fatalf("GetOrder: %v", err)
+		}
+		w.drain()
+		return don.ShippingFee.Value
+	}
+
+	motNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
+		line(shopA, skuA, 300_000, 1),
+	})
+	haiNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
+		line(shopA, skuA, 300_000, 1),
+		line(shopB, skuB, 450_000, 1),
+	})
+
+	if motNhaBan <= 0 {
+		t.Fatalf("phí đơn một nhà bán = %d, phải > 0", motNhaBan)
+	}
+
+	// HAI nguồn = HAI kiện = HAI lần phí.
+	if haiNhaBan != motNhaBan*2 {
+		t.Errorf("đơn hai nhà bán thu %d, đơn một nhà bán thu %d — "+
+			"phí phải NHÂN ĐÔI vì hàng đi thành hai kiện. Thu một lần "+
+			"nghĩa là nền tảng bù phần chênh trên mọi đơn nhiều nhà bán",
+			haiNhaBan, motNhaBan)
+	}
+
+	// Nhiều MÓN của CÙNG một nhà bán vẫn là MỘT kiện — không nhân lên.
+	haiMonMotNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
+		line(shopA, skuA, 300_000, 2),
+	})
+	if haiMonMotNhaBan != motNhaBan {
+		t.Errorf("hai món cùng một nhà bán thu %d, một món thu %d — "+
+			"cùng nhà bán thì cùng một kiện, phí không được nhân theo SỐ MÓN",
+			haiMonMotNhaBan, motNhaBan)
+	}
+}
