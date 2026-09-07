@@ -218,3 +218,62 @@ func (h *ChuyenSoDuKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event
 		CreatedBy:     "payment.seller_release_on_fulfillment_completed",
 	})
 }
+
+// ---------------------------------------------------- Thu được tiền
+
+// GhiThuTienKhiDonDaTra ghi bút toán chuyển KHOẢN PHẢI THU thành TIỀN MẶT.
+//
+// # Vì sao cần bên nhận này
+//
+// Bút toán doanh thu ghi lúc `checkout.completed` — lúc khách bấm xong
+// phiên thanh toán, KHÔNG phải lúc tiền về. Từ ADR-0018 phần B1 nó ghi NỢ
+// `ACCOUNTS_RECEIVABLE` thay vì `PLATFORM_CASH`, và đây là bên nhận đóng
+// vòng: khi `order.paid` tới thì khoản phải thu đó thành tiền mặt.
+//
+// Không có nó, mọi đơn nằm mãi ở dạng "khách nợ" và số dư tiền mặt của
+// nền tảng luôn bằng 0 — sai theo hướng ngược lại với lỗi cũ, nhưng vẫn
+// là sai.
+type GhiThuTienKhiDonDaTra struct {
+	module *Module
+	log    *slog.Logger
+}
+
+func NewThuTienHandler(m *Module, log *slog.Logger) *GhiThuTienKhiDonDaTra {
+	return &GhiThuTienKhiDonDaTra{module: m, log: log}
+}
+
+var _ eventbus.Handler = (*GhiThuTienKhiDonDaTra)(nil)
+
+func (h *GhiThuTienKhiDonDaTra) Name() string {
+	return "payment.ghi_thu_tien_khi_don_da_tra"
+}
+
+func (h *GhiThuTienKhiDonDaTra) EventTypes() []string {
+	return []string{eventbus.TypeOrderPaid}
+}
+
+type thuTienPayload struct {
+	OrderID  string `json:"order_id"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+}
+
+// Handle ghi bút toán trong GIAO DỊCH của dispatcher.
+//
+// Số tiền lấy từ payload chứ không tính lại: nó là con số `payment_intent`
+// đã đối chiếu tuyệt đối với nhà cung cấp (ADR-0017 phần 4). Tính lại ở
+// đây là mở đường cho hai con số khác nhau cùng nói về một lần thu tiền.
+func (h *GhiThuTienKhiDonDaTra) Handle(ctx context.Context, e eventbus.Event) error {
+	var p thuTienPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event: %w", err)
+	}
+	if p.Amount <= 0 {
+		// Đơn 0 đồng không có gì để thu. Không phải lỗi — trả nil để event
+		// không kẹt trong hàng đợi.
+		h.log.WarnContext(ctx, "order.paid với số tiền không dương",
+			"order_id", p.OrderID, "so_tien", p.Amount)
+		return nil
+	}
+	return h.module.GhiThuTienInEventTx(ctx, p.OrderID, p.Amount, p.Currency)
+}

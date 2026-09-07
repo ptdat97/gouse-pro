@@ -112,10 +112,15 @@ func (s *LedgerStore) ghi(
 	_, err := tx.Exec(ctx, `
 		INSERT INTO ledger_entry (
 			id, entry_type, reference_type, reference_id,
-			description, idempotency_key, created_by, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			description, idempotency_key, created_by, created_at,
+			reverses_entry_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 		e.ID().String(), string(e.Type()), e.ReferenceType(), e.ReferenceID().String(),
-		e.Description(), e.IdempotencyKey(), e.CreatedBy(), e.CreatedAt())
+		e.Description(), e.IdempotencyKey(), e.CreatedBy(), e.CreatedAt(),
+		// NULL thay vì chuỗi rỗng: chỉ mục UNIQUE trên cột này phải cho
+		// phép hàng nghìn bút toán KHÔNG phải đảo cùng tồn tại, và trong
+		// PostgreSQL nhiều NULL không xung đột còn nhiều chuỗi rỗng thì có.
+		nullIfEmpty(e.ReversesEntryID().String()))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.ConstraintName == "ledger_entry_idempotency_key_key" {
@@ -425,4 +430,12 @@ func nullTime(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+// nullIfEmpty trả nil cho chuỗi rỗng để cột nhận NULL.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

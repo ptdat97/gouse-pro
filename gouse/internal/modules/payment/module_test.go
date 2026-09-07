@@ -87,13 +87,24 @@ func TestGhiSoDonMarketplace(t *testing.T) {
 		t.Errorf("số dư seller = %d, mong 250500", balance.Amount.Value)
 	}
 
-	// Tiền mặt nền tảng đang giữ.
+	// KHOẢN PHẢI THU, không phải tiền mặt — ADR-0018 phần B1.
+	//
+	// Đặt đơn xong chưa có đồng nào về. Tiền mặt chỉ tăng khi `order.paid`
+	// tới và bút toán PAYMENT_RECEIVED được ghi.
+	phaiThu, err := m.GetPlatformBalance(ctx, payment.AccountAccountsReceivable)
+	if err != nil {
+		t.Fatalf("GetPlatformBalance: %v", err)
+	}
+	if phaiThu.Amount.Value != 300000 {
+		t.Errorf("khoản phải thu = %d, mong 300000", phaiThu.Amount.Value)
+	}
+
 	cash, err := m.GetPlatformBalance(ctx, payment.AccountPlatformCash)
 	if err != nil {
 		t.Fatalf("GetPlatformBalance: %v", err)
 	}
-	if cash.Amount.Value != 300000 {
-		t.Errorf("tiền mặt = %d, mong 300000", cash.Amount.Value)
+	if cash.Amount.Value != 0 {
+		t.Errorf("tiền mặt = %d, mong 0 — đơn vừa đặt, tiền chưa về", cash.Amount.Value)
 	}
 }
 

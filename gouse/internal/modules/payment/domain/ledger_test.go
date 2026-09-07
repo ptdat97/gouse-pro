@@ -241,11 +241,20 @@ func TestButToanDonMarketplaceKhopDacTa(t *testing.T) {
 		t.Error("bút toán không cân bằng")
 	}
 
-	// Số dư: nền tảng giữ 300.000, nợ seller 250.500.
+	// Số dư: KHÁCH NỢ 300.000, nợ seller 250.500.
+	//
+	// Vế nợ là ACCOUNTS_RECEIVABLE chứ KHÔNG phải PLATFORM_CASH —
+	// ADR-0018 phần B1. Bút toán này ghi lúc `checkout.completed`, tức lúc
+	// khách bấm xong phiên thanh toán; tiền chưa về, kể cả với đơn trả
+	// trước (webhook tới sau) lẫn COD (tiền về lúc giao).
 	balances := domain.ComputeBalances([]*domain.LedgerEntry{e})
+	phaiThu := balances[domain.Account{Type: domain.AccountAccountsReceivable}.Key()]
+	if phaiThu.Amount.Amount() != 300000 {
+		t.Errorf("khoản phải thu = %v, mong 300000", phaiThu.Amount)
+	}
 	cash := balances[domain.Account{Type: domain.AccountPlatformCash}.Key()]
-	if cash.Amount.Amount() != 300000 {
-		t.Errorf("tiền mặt = %v, mong 300000", cash.Amount)
+	if cash.Amount.Amount() != 0 {
+		t.Errorf("tiền mặt = %v, mong 0 — chưa thu được đồng nào", cash.Amount)
 	}
 	sellerAcc := domain.Account{Type: domain.AccountSellerPayable, OwnerID: sellerID}
 	if got := balances[sellerAcc.Key()].Amount.Amount(); got != 250500 {
@@ -330,9 +339,10 @@ func TestSoDuDungDauTheoBanChatTaiKhoan(t *testing.T) {
 // Chi trả cho seller làm GIẢM khoản phải trả.
 func TestChiTraLamGiamKhoanPhaiTra(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
+	orderID := ids.MustNew(ids.PrefixOrder)
 
 	revenue, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
-		OrderID:         ids.MustNew(ids.PrefixOrder),
+		OrderID:         orderID,
 		GrossAmount:     vnd(300000),
 		SellerID:        sellerID,
 		SellerPayable:   vnd(270000),
@@ -350,7 +360,23 @@ func TestChiTraLamGiamKhoanPhaiTra(t *testing.T) {
 		t.Fatalf("NewPayoutEntry: %v", err)
 	}
 
-	balances := domain.ComputeBalances([]*domain.LedgerEntry{revenue, payout})
+	// THU TIỀN trước khi chi trả — ADR-0018 phần B1.
+	//
+	// Bút toán doanh thu chỉ ghi KHOẢN PHẢI THU. Không có bước này thì
+	// tiền mặt đi từ 0 xuống −200.000, và con số âm đó không phải lỗi
+	// tính: nó nói đúng rằng nền tảng đã chi tiền chưa hề thu được.
+	thuTien, err := domain.NewPaymentReceivedEntry(domain.PaymentReceivedParams{
+		OrderID:        orderID,
+		Amount:         vnd(300000),
+		IdempotencyKey: "thu-tien-1",
+		Now:            testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewPaymentReceivedEntry: %v", err)
+	}
+
+	balances := domain.ComputeBalances(
+		[]*domain.LedgerEntry{revenue, thuTien, payout})
 	acc := domain.Account{Type: domain.AccountSellerPayable, OwnerID: sellerID}
 
 	// 270.000 phải trả − 200.000 đã trả = 70.000 còn lại.
@@ -358,10 +384,16 @@ func TestChiTraLamGiamKhoanPhaiTra(t *testing.T) {
 		t.Errorf("còn phải trả = %d, mong 70000", got)
 	}
 
-	// Tiền mặt: nhận 300.000 − chi 200.000 = 100.000.
+	// Tiền mặt: thu 300.000 − chi 200.000 = 100.000.
 	cash := balances[domain.Account{Type: domain.AccountPlatformCash}.Key()]
 	if cash.Amount.Amount() != 100000 {
 		t.Errorf("tiền mặt = %v, mong 100000", cash.Amount)
+	}
+
+	// Khoản phải thu đã về 0: khách hết nợ.
+	phaiThu := balances[domain.Account{Type: domain.AccountAccountsReceivable}.Key()]
+	if phaiThu.Amount.Amount() != 0 {
+		t.Errorf("khoản phải thu = %v, mong 0 sau khi thu tiền", phaiThu.Amount)
 	}
 }
 

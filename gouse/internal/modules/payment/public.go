@@ -280,6 +280,7 @@ const (
 // Danh mục tài khoản, để module khác tra số dư mà không cần đoán tên.
 const (
 	AccountPlatformCash          = "PLATFORM_CASH"
+	AccountAccountsReceivable    = "ACCOUNTS_RECEIVABLE"
 	AccountPlatformRevenue       = "PLATFORM_REVENUE"
 	AccountSellerPayable         = "SELLER_PAYABLE"
 	AccountCreatorPayable        = "CREATOR_PAYABLE"

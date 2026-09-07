@@ -51,7 +51,18 @@ type AccountType string
 
 const (
 	// PLATFORM_CASH — tiền mặt nền tảng đang giữ. TÀI SẢN.
+	//
+	// CHỈ ghi NỢ khi tiền THẬT SỰ đã về (ADR-0018 phần B1). Ghi nó lúc
+	// khách bấm xong phiên thanh toán là khẳng định đang cầm một khoản
+	// tiền chưa tới — và điều đó đi thẳng vào mọi báo cáo số dư.
 	AccountPlatformCash AccountType = "PLATFORM_CASH"
+
+	// ACCOUNTS_RECEIVABLE — khách NỢ nền tảng. TÀI SẢN.
+	//
+	// Ghi lúc đơn phát sinh, chuyển thành PLATFORM_CASH khi thu được.
+	// Không có chủ sở hữu: đây là khoản phải thu gộp của nền tảng, không
+	// phải sổ nợ theo từng khách.
+	AccountAccountsReceivable AccountType = "ACCOUNTS_RECEIVABLE"
 
 	// PLATFORM_REVENUE — doanh thu nền tảng (hoa hồng, phí). DOANH THU.
 	AccountPlatformRevenue AccountType = "PLATFORM_REVENUE"
@@ -94,7 +105,7 @@ const (
 
 func (a AccountType) valid() bool {
 	switch a {
-	case AccountPlatformCash, AccountPlatformRevenue,
+	case AccountPlatformCash, AccountPlatformRevenue, AccountAccountsReceivable,
 		AccountSellerPayable, AccountSellerAvailable,
 		AccountCreatorPayable, AccountCustomerRefundPayable, AccountSupplierPayable,
 		AccountCOGS, AccountFeeExpense, AccountInventoryAsset:
@@ -110,7 +121,11 @@ func (a AccountType) valid() bool {
 // lẽ ra phải dương.
 func (a AccountType) IsDebitNormal() bool {
 	switch a {
-	case AccountPlatformCash, AccountCOGS, AccountFeeExpense, AccountInventoryAsset:
+	// ACCOUNTS_RECEIVABLE là TÀI SẢN — khách nợ ta, nên nó tăng khi ghi
+	// NỢ, đúng như tiền mặt. Xếp nhầm sang nhóm ghi có sẽ làm số dư phải
+	// thu ra ÂM, và mọi báo cáo tài sản lệch đúng bằng con số đó.
+	case AccountPlatformCash, AccountAccountsReceivable,
+		AccountCOGS, AccountFeeExpense, AccountInventoryAsset:
 		return true
 	}
 	return false
@@ -140,7 +155,17 @@ const (
 	// đổi, chỉ đổi chỗ. Nhưng nó VẪN là một bút toán vì số dư được TÍNH
 	// từ sổ cái — sửa thẳng số dư là phá bỏ chính thứ khiến sổ đối chiếu được.
 	EntrySellerRelease EntryType = "SELLER_RELEASE"
-	EntryFee           EntryType = "FEE"
+
+	// EntryPaymentReceived — thu được tiền: phải thu chuyển thành tiền mặt.
+	EntryPaymentReceived EntryType = "PAYMENT_RECEIVED"
+
+	// EntryReversal — ĐẢO một bút toán đã ghi sai.
+	//
+	// Sổ cái bất biến (ADR-0008) không cho xóa, nên sửa sai là ghi một bút
+	// toán ngược chiều. Bút toán đảo trỏ về bút toán gốc qua
+	// `reverses_entry_id`, và mỗi bút toán chỉ được đảo MỘT lần.
+	EntryReversal EntryType = "REVERSAL"
+	EntryFee      EntryType = "FEE"
 )
 
 // Account định danh một tài khoản cụ thể.
@@ -230,6 +255,9 @@ type LedgerEntry struct {
 	id ids.ID
 
 	entryType EntryType
+
+	// reversesEntryID chỉ có giá trị khi entryType = EntryReversal.
+	reversesEntryID ids.ID
 
 	// referenceType và referenceID trỏ tới nguồn gốc sự kiện (đơn hàng,
 	// yêu cầu hoàn tiền, đợt chi trả). Tham chiếu vượt module — chỉ giữ
@@ -368,14 +396,21 @@ func RestoreLedgerEntry(p RestoreEntryParams) *LedgerEntry {
 	}
 }
 
-func (e *LedgerEntry) ID() ids.ID             { return e.id }
-func (e *LedgerEntry) Type() EntryType        { return e.entryType }
-func (e *LedgerEntry) ReferenceType() string  { return e.referenceType }
-func (e *LedgerEntry) ReferenceID() ids.ID    { return e.referenceID }
-func (e *LedgerEntry) Description() string    { return e.description }
-func (e *LedgerEntry) IdempotencyKey() string { return e.idempotencyKey }
-func (e *LedgerEntry) CreatedBy() string      { return e.createdBy }
-func (e *LedgerEntry) CreatedAt() time.Time   { return e.createdAt }
+func (e *LedgerEntry) ID() ids.ID      { return e.id }
+func (e *LedgerEntry) Type() EntryType { return e.entryType }
+
+// ReversesEntryID là bút toán GỐC mà bút toán này đảo.
+//
+// Rỗng với mọi loại trừ REVERSAL. Cột này là thứ duy nhất trả lời được
+// "bút toán kia còn hiệu lực không" bằng một câu truy vấn — nếu chỉ ghi
+// vào phần mô tả thì câu hỏi đó phải đọc bằng mắt.
+func (e *LedgerEntry) ReversesEntryID() ids.ID { return e.reversesEntryID }
+func (e *LedgerEntry) ReferenceType() string   { return e.referenceType }
+func (e *LedgerEntry) ReferenceID() ids.ID     { return e.referenceID }
+func (e *LedgerEntry) Description() string     { return e.description }
+func (e *LedgerEntry) IdempotencyKey() string  { return e.idempotencyKey }
+func (e *LedgerEntry) CreatedBy() string       { return e.createdBy }
+func (e *LedgerEntry) CreatedAt() time.Time    { return e.createdAt }
 
 // Lines trả về bản sao — bút toán bất biến, bên ngoài không được sửa.
 func (e *LedgerEntry) Lines() []Line {

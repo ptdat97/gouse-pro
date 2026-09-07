@@ -747,3 +747,49 @@ func lyDoThatBaiTien(err error) string {
 		return "internal"
 	}
 }
+
+// GhiThuTienInput là dữ liệu bút toán THU ĐƯỢC TIỀN.
+type GhiThuTienInput struct {
+	OrderID        ids.ID
+	Amount         money.Money
+	IdempotencyKey string
+}
+
+// GhiThuTien ghi bút toán chuyển KHOẢN PHẢI THU thành TIỀN MẶT.
+//
+// ADR-0018 phần B1. Gọi bởi bên nhận `order.paid`, nên nó nhận kho sổ cái
+// của giao dịch dispatcher — cùng khuôn với RecordOrderRevenueWith và
+// cùng lý do: ghi sổ thành công mà đánh dấu event thất bại thì lần thử
+// lại ghi LẦN THỨ HAI, và sổ cái là chỗ không được phép đếm hai lần.
+//
+// Trùng khóa idempotency trả ErrDuplicateEntry, và bên gọi coi đó là
+// THÀNH CÔNG: event phát lại là chuyện bình thường.
+func (s *Service) GhiThuTienWith(
+	ctx context.Context, ledger domain.LedgerRepository, in GhiThuTienInput,
+) (*domain.LedgerEntry, error) {
+	e, err := domain.NewPaymentReceivedEntry(domain.PaymentReceivedParams{
+		OrderID:        in.OrderID,
+		Amount:         in.Amount,
+		IdempotencyKey: in.IdempotencyKey,
+		CreatedBy:      "system",
+		Now:            s.clock.Now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	// TRA TRƯỚC khi ghi, không ghi rồi bắt lỗi.
+	//
+	// Event `order.paid` phát lại là đường đi BÌNH THƯỜNG, không phải
+	// ngoại lệ. Để câu INSERT vấp khóa idempotency mỗi lần phát lại là
+	// làm hỏng giao dịch của dispatcher: trong PostgreSQL, một câu lệnh
+	// lỗi làm cả giao dịch không commit được, kể cả khi bên gọi bỏ qua
+	// lỗi đó. Kết quả là event bị thử lại vĩnh viễn.
+	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
+		return cu, nil
+	}
+
+	if err := ledger.Append(ctx, e); err != nil {
+		return nil, err
+	}
+	return e, nil
+}

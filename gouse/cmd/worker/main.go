@@ -426,6 +426,9 @@ func run() error {
 	// Không có bên nhận này thì mọi đơn TRẢ TRƯỚC bị khóa vĩnh viễn —
 	// `SplitOnCheckoutCompleted` khóa chúng và không gì mở ra.
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulfillmentModule, log))
+
+	// Thu được tiền: khoản phải thu chuyển thành tiền mặt (ADR-0018 B1).
+	bus.Subscribe(payment.NewThuTienHandler(paymentModule, log))
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
 	bus.Subscribe(notification.NewOrderNotifier(notificationModule, log))
 	bus.Subscribe(analytics.NewEventRecorder(analyticsModule))

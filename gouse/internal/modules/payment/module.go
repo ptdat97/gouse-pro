@@ -143,6 +143,43 @@ func (m *Module) RecordOrderRevenueInEventTx(
 	return translateErr(err)
 }
 
+// GhiThuTienInEventTx ghi bút toán THU ĐƯỢC TIỀN, bằng giao dịch dispatcher.
+//
+// ADR-0018 phần B1: bút toán doanh thu ghi NỢ `ACCOUNTS_RECEIVABLE` lúc
+// đơn phát sinh; bút toán này chuyển nó thành `PLATFORM_CASH` khi tiền
+// thật sự về.
+//
+// Trùng khóa idempotency KHÔNG phải lỗi — event `order.paid` phát lại là
+// chuyện bình thường, và bút toán thứ hai sẽ ghi nhận tiền về hai lần.
+func (m *Module) GhiThuTienInEventTx(
+	ctx context.Context, orderID string, soTien int64, donVi string,
+) error {
+	id, err := ids.Parse(orderID, ids.PrefixOrder)
+	if err != nil {
+		return ErrInvalidID
+	}
+	amount, err := money.New(soTien, money.Currency(donVi))
+	if err != nil {
+		return err
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.svc.GhiThuTienWith(ctx, paymentpg.LedgerForTx(tx),
+		application.GhiThuTienInput{
+			OrderID: id, Amount: amount,
+			// Khóa theo ĐƠN: một đơn chỉ thu tiền một lần.
+			IdempotencyKey: "thu-tien:" + id.String(),
+		})
+	if errors.Is(err, domain.ErrDuplicateEntry) {
+		return nil
+	}
+	return translateErr(err)
+}
+
 // ChuyenSangRutDuocInEventTx chuyển tiền nhà bán sang rút được, bằng GIAO
 // DỊCH của dispatcher.
 //

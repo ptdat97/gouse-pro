@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -65,11 +67,18 @@ func NewOrderRevenueEntry(p OrderRevenueParams) (*LedgerEntry, error) {
 		return nil, fmt.Errorf("payment: tổng tiền đơn phải lớn hơn 0, nhận %s", p.GrossAmount)
 	}
 
+	// KHOẢN PHẢI THU, không phải tiền mặt — ADR-0018 phần B1.
+	//
+	// Bút toán này ghi lúc `checkout.completed`, tức lúc khách bấm xong
+	// phiên thanh toán. Tiền chưa về, kể cả với đơn trả trước (webhook tới
+	// sau) và nhất là với COD (tiền về lúc giao hàng).
+	//
+	// `NewPaymentReceivedEntry` là bút toán chuyển khoản này thành tiền mặt.
 	lines := []Line{{
-		Account:     Account{Type: AccountPlatformCash},
+		Account:     Account{Type: AccountAccountsReceivable},
 		Direction:   Debit,
 		Amount:      p.GrossAmount,
-		Description: "Tiền khách thanh toán",
+		Description: "Khách nợ — chưa thu được tiền",
 	}}
 
 	// Đơn own brand không có seller payable: tiền thuộc về nền tảng.
@@ -361,4 +370,139 @@ func NewSellerReleaseEntry(p SellerReleaseParams) (*LedgerEntry, error) {
 		CreatedBy:      p.CreatedBy,
 		Now:            p.Now,
 	})
+}
+
+// ---------------------------------------------------- Thu tiền và đảo
+
+// PaymentReceivedParams là dữ liệu bút toán THU ĐƯỢC TIỀN.
+type PaymentReceivedParams struct {
+	OrderID ids.ID
+
+	// Amount là số tiền THẬT SỰ thu được.
+	//
+	// Nó phải bằng tổng đơn đã ghi ở bút toán doanh thu. Bên gọi lấy con
+	// số này từ event `order.paid` — chính con số `payment_intent` đã đối
+	// chiếu với nhà cung cấp (ADR-0017 phần 4), nên nó đã qua một lớp
+	// kiểm tra tuyệt đối trước khi tới đây.
+	Amount money.Money
+
+	IdempotencyKey string
+	CreatedBy      string
+	Now            time.Time
+}
+
+// NewPaymentReceivedEntry dựng bút toán chuyển KHOẢN PHẢI THU thành TIỀN MẶT.
+//
+//	DEBIT   PLATFORM_CASH          300.000   tiền đã về
+//	CREDIT  ACCOUNTS_RECEIVABLE    300.000   khách hết nợ
+//
+// # Vì sao là bút toán RIÊNG, không sửa bút toán doanh thu
+//
+// Sổ cái bất biến (ADR-0008): bút toán đã ghi không sửa được. Và điều đó
+// đúng cả về nghĩa — hai sự kiện KHÁC nhau đã xảy ra ở hai thời điểm
+// khác nhau, nên sổ phải có hai dòng. Gộp lại sẽ xóa mất thông tin "khoản
+// này nằm ở dạng phải thu bao lâu", thứ duy nhất trả lời được câu hỏi
+// dòng tiền thực tế.
+//
+// Bút toán này KHÔNG đụng tới doanh thu: doanh thu đã ghi từ trước và
+// không đổi. Đây thuần túy là một chuyển dịch giữa hai tài khoản TÀI SẢN.
+func NewPaymentReceivedEntry(p PaymentReceivedParams) (*LedgerEntry, error) {
+	if !p.Amount.IsPositive() {
+		return nil, fmt.Errorf(
+			"payment: số tiền thu được phải lớn hơn 0, nhận %s", p.Amount)
+	}
+
+	return NewLedgerEntry(NewEntryParams{
+		Type:          EntryPaymentReceived,
+		ReferenceType: "order",
+		ReferenceID:   p.OrderID,
+		Description:   "Thu được tiền của đơn hàng",
+		Lines: []Line{
+			{
+				Account:     Account{Type: AccountPlatformCash},
+				Direction:   Debit,
+				Amount:      p.Amount,
+				Description: "Tiền đã về tài khoản nền tảng",
+			},
+			{
+				Account:     Account{Type: AccountAccountsReceivable},
+				Direction:   Credit,
+				Amount:      p.Amount,
+				Description: "Xóa khoản khách nợ",
+			},
+		},
+		IdempotencyKey: p.IdempotencyKey,
+		CreatedBy:      p.CreatedBy,
+		Now:            p.Now,
+	})
+}
+
+// DaoNguocParams là dữ liệu bút toán ĐẢO.
+type DaoNguocParams struct {
+	// Goc là bút toán bị đảo. Mọi dòng của nó được ghi NGƯỢC CHIỀU.
+	Goc *LedgerEntry
+
+	// LyDo BẮT BUỘC và được ghi vào mô tả.
+	//
+	// Một bút toán đảo không có lý do là một con số biến mất khỏi sổ mà
+	// không ai giải thích được — đúng thứ kiểm toán tồn tại để chặn.
+	LyDo string
+
+	IdempotencyKey string
+	CreatedBy      string
+	Now            time.Time
+}
+
+// NewDaoNguocEntry dựng bút toán ĐẢO một bút toán đã ghi sai.
+//
+// Mọi dòng đổi chiều: DEBIT thành CREDIT và ngược lại, giữ nguyên tài
+// khoản và số tiền. Tổng hai bút toán cộng lại bằng 0 ở mọi tài khoản —
+// đó là định nghĩa của "hủy tác dụng" trong một sổ cái không xóa được.
+//
+// KHÔNG tự tính lại gì: một bút toán đảo mà con số khác bút toán gốc thì
+// không phải đảo, nó là một bút toán điều chỉnh khác và cần lý do khác.
+func NewDaoNguocEntry(p DaoNguocParams) (*LedgerEntry, error) {
+	if p.Goc == nil {
+		return nil, errors.New("payment: không có bút toán gốc để đảo")
+	}
+	if strings.TrimSpace(p.LyDo) == "" {
+		return nil, errors.New("payment: bút toán đảo BẮT BUỘC phải nêu lý do")
+	}
+	if p.Goc.Type() == EntryReversal {
+		// Đảo một bút toán đảo là quay lại trạng thái ban đầu bằng con
+		// đường vòng — và nó làm chuỗi "cái nào còn hiệu lực" không đọc
+		// được nữa. Muốn ghi lại thì ghi một bút toán MỚI, không đảo ngược.
+		return nil, errors.New("payment: không đảo một bút toán đảo")
+	}
+
+	goc := p.Goc.Lines()
+	lines := make([]Line, 0, len(goc))
+	for _, l := range goc {
+		nguoc := Credit
+		if l.Direction == Credit {
+			nguoc = Debit
+		}
+		lines = append(lines, Line{
+			Account:     l.Account,
+			Direction:   nguoc,
+			Amount:      l.Amount,
+			Description: "Đảo: " + l.Description,
+		})
+	}
+
+	e, err := NewLedgerEntry(NewEntryParams{
+		Type:           EntryReversal,
+		ReferenceType:  p.Goc.ReferenceType(),
+		ReferenceID:    p.Goc.ReferenceID(),
+		Description:    "Đảo bút toán " + p.Goc.ID().String() + " — " + p.LyDo,
+		Lines:          lines,
+		IdempotencyKey: p.IdempotencyKey,
+		CreatedBy:      p.CreatedBy,
+		Now:            p.Now,
+	})
+	if err != nil {
+		return nil, err
+	}
+	e.reversesEntryID = p.Goc.ID()
+	return e, nil
 }

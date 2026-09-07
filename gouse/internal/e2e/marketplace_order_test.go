@@ -18,6 +18,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/order"
+	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
@@ -77,6 +78,8 @@ func newWorld(t *testing.T) *world {
 		"TRUNCATE stock_location CASCADE",
 		"TRUNCATE event_processed",
 		"TRUNCATE event_outbox",
+		"TRUNCATE ledger_line CASCADE",
+		"TRUNCATE ledger_entry CASCADE",
 	} {
 		if _, err := db.Pool().Exec(ctx, stmt); err != nil {
 			t.Fatalf("dọn dữ liệu: %v", err)
@@ -102,6 +105,14 @@ func newWorld(t *testing.T) *world {
 		t.Fatalf("fulfillment.New: %v", err)
 	}
 
+	// Module payment THẬT: các bài bất biến về sổ cái (BB5, BB6) đọc số dư
+	// từ chính bảng ledger_line mà production ghi. Bản giả sẽ kiểm chính
+	// vòng lặp mà production không chạy.
+	payModule, err := payment.New(payment.Config{Storage: "postgres", DB: db})
+	if err != nil {
+		t.Fatalf("payment.New: %v", err)
+	}
+
 	bus := eventbus.NewDispatcher(db.Pool(), log)
 
 	w := &world{
@@ -116,6 +127,12 @@ func newWorld(t *testing.T) *world {
 	// Mở khóa giao hàng khi tiền về — cùng bộ bên nhận mà worker đăng ký.
 	// Thiếu nó thì đơn trả trước bị khóa vĩnh viễn (ADR-0018 phần A2).
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulModule, log))
+	bus.Subscribe(payment.NewThuTienHandler(payModule, log))
+
+	// Ghi doanh thu: KHOẢN PHẢI THU lúc đặt đơn, tiền mặt khi thu được.
+	// `w` tự đóng vai cổng "nhà bán nội bộ hay bên ngoài" — cùng nguồn cờ
+	// mà checkout dùng, nên hai bên không thể lệch nhau trong bài test.
+	bus.Subscribe(payment.NewRevenueHandler(payModule, w, log))
 	bus.Subscribe(order.NewProgressHandler(ordModule, log))
 	bus.Subscribe(inventory.NewCommitHandler(invModule, log))
 	bus.Subscribe(inventory.NewReleaseHandler(invModule, w, log))
@@ -712,4 +729,13 @@ func (p *shippingPort) EstimateShipping(
 		return checkoutapp.UocTinhPhiGiao{}, err
 	}
 	return checkoutapp.UocTinhPhiGiao{Total: res.Total}, nil
+}
+
+// IsInternal cho payment biết nhà bán là gian hàng nội bộ hay bên ngoài.
+//
+// Dùng CÙNG bản đồ `internal` mà checkout dùng: hai nguồn khác nhau cho
+// cùng một câu hỏi là cách chắc chắn để chúng lệch nhau, và ở đây lệch
+// nghĩa là ghi sổ nhầm bên nhận tiền.
+func (w *world) IsInternal(_ context.Context, sellerID string) (bool, error) {
+	return w.internal[ids.ID(sellerID)], nil
 }
