@@ -2581,7 +2581,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-14 | **Tùy chọn khách hàng** (số đo cơ thể, size ưa thích) | Cần thiết kế lưu trữ MÃ HÓA trước; đặc tả tự yêu cầu điều đó |
 | P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | ✅ xong (07/09) — và lộ ra rằng "lịch sử" nằm ở ĐƠN chứ không ở hồ sơ. Xem ghi chú dưới bảng |
 | P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
-| P3-17 | SLA cho đơn thực hiện | Đặc tả khai báo `sla_deadline`; domain chưa có khái niệm này |
+| P3-17 | SLA cho đơn thực hiện | ✅ xong (07/09) — hạn TÍNH RA, không lưu; và bài test tìm ra một chênh lệch thật. Xem ghi chú dưới bảng |
 | P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
 | P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | ✅ xong (20/08) — `GET /api/v1/sellers?ids=` |
 | P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | ✅ xong (20/08) — xem ghi chú dưới bảng |
@@ -2707,6 +2707,46 @@ không ai đọc, và không ai biết nó không được đọc.
 hỏi (áp trên tổng đơn hay trên từng nhà bán?) và khuyến nghị "tổng đơn",
 nhưng khuyến nghị không phải quyết định — đây là quyết định kinh doanh của
 chủ dự án.
+
+**P3-17 — đã xong (07/09).** Đây là lần thứ TƯ của cùng một hình dạng —
+một trường trong hợp đồng API mà không ai điền — sau `payment_method`
+(P3-9), `TaxAmount` (PH-40) và `email_verified_at` (P3-15).
+
+Khác ba lần trước ở một điểm đáng khen: **đặc tả nói thật**. Nó ghi rõ
+"CHƯA được trả về — module `fulfillment` chưa có khái niệm SLA. Xem backlog
+P3-17". Nhưng VÍ DỤ ngay phía trên lại in một giá trị `sla_deadline`, tức
+tài liệu tự mâu thuẫn — cùng lớp với ví dụ `status: PAID` đã sửa ở PH-36.
+
+**Hạn được TÍNH RA, không lưu thành cột**, và quyết định đó đã nằm sẵn
+trong chú thích của `SLAGiaoHang`: đặc tả yêu cầu "chỉ số, ngưỡng, và tác
+động đều công khai và tường minh", nên một thời hạn riêng cho từng đơn mà
+không ai nhìn thấy chính là hộp đen. Hệ quả: đổi
+`fulfillment.shipping_sla_hours` dời hạn của mọi đơn ĐANG CHẠY — cùng hành
+vi mà điểm hiệu suất đã có, và đã ghi trong `HeQua` của tham số đó.
+
+**Rủi ro thật của việc này là HAI CÀI ĐẶT cho một câu hỏi.** "Đơn có đúng
+hạn không" nay có bản Go (màn hình nhà bán) và bản SQL (điểm hiệu suất).
+Lệch nhau nghĩa là nhà bán thấy "còn 3 giờ" trong khi báo cáo ghi trễ —
+tranh chấp không giải quyết được bằng dữ liệu, vì cả hai bên đều đọc đúng
+thứ hệ thống nói với họ.
+
+Nên bài test chính bắt CẢ HAI trả lời trên cùng dữ liệu và so kết quả. Nó
+tìm ra một chênh lệch có thật ngay lần chạy đầu: **hạn hiển thị đi qua
+RFC3339 nên mất phần dưới giây, còn SQL so ở micro-giây** — ca "bàn giao
+đúng mốc hạn" cho hai kết luận ngược nhau, lệch 953 mili-giây.
+
+Không sửa, có chủ ý: một hạn hiển thị cho người đọc thì tính bằng giây là
+đúng, và cắt cả hai bên xuống giây sẽ làm phép chấm điểm bớt chính xác để
+chiều một trường hợp cần bàn giao đúng vào giây thứ 172.800 mới chạm tới.
+Ghi vào chú thích của `HanBanGiao` thay vì im lặng.
+
+**Cờ `sla_breached` chỉ bật cho đơn CHƯA bàn giao.** Đơn bàn giao muộn đã
+bị trừ điểm rồi; hiện lại nhãn trễ trên một đơn đang đi đường làm nhà bán
+tưởng còn việc phải làm. Đơn đã hủy cũng không.
+
+**Phá để kiểm chứng:** dời hạn lệch một giờ → *"MÀN HÌNH nói đúng hạn=true,
+ĐIỂM HIỆU SUẤT nói false"*; cho đơn đã bàn giao mang cờ trễ → *"nhà bán
+tưởng còn việc phải làm"*.
 
 **P3-15 — đã xong (07/09), và nó lộ ra một giả định SAI đã nằm trong
 docs từ đầu.**

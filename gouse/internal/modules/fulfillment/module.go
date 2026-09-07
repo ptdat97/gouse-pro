@@ -113,7 +113,7 @@ func (m *Module) ListSellerFulfillments(
 	if err != nil {
 		return nil, translateErr(err)
 	}
-	return toViews(fos), nil
+	return m.ganHanBanGiao(toViews(fos), fos), nil
 }
 
 func (m *Module) GetSellerFulfillment(
@@ -127,7 +127,8 @@ func (m *Module) GetSellerFulfillment(
 	if err != nil {
 		return nil, translateErr(err)
 	}
-	v := toView(fo)
+	v := m.ganHanBanGiao([]FulfillmentView{toView(fo)},
+		[]*domain.FulfillmentOrder{fo})[0]
 	return &v, nil
 }
 
@@ -240,6 +241,21 @@ func toViews(fos []*domain.FulfillmentOrder) []FulfillmentView {
 		out = append(out, toView(fo))
 	}
 	return out
+}
+
+// ganHanBanGiao điền hạn bàn giao và cờ trễ hạn vào các view.
+//
+// Tách khỏi `toView` vì nó cần SLA đang áp dụng — thứ chỉ tầng application
+// đọc được. `toView` là hàm thuần, và giữ nó thuần thì mọi bên gọi khác
+// không phải kéo theo một phụ thuộc cấu hình.
+func (m *Module) ganHanBanGiao(views []FulfillmentView, fos []*domain.FulfillmentOrder) []FulfillmentView {
+	sla := m.svc.SLAHienTai().SLAGiaoHang
+	now := m.svc.Now()
+	for i := range views {
+		views[i].SLADeadline = formatTime(fos[i].HanBanGiao(sla))
+		views[i].SLABreached = fos[i].TreHan(sla, now)
+	}
+	return views
 }
 
 func toView(fo *domain.FulfillmentOrder) FulfillmentView {

@@ -116,7 +116,22 @@ type sellerFOJSON struct {
 	ShippingProvider string `json:"shipping_provider,omitempty"`
 	TrackingNumber   string `json:"tracking_number,omitempty"`
 
-	CreatedAt   string `json:"created_at"`
+	CreatedAt string `json:"created_at"`
+
+	// SLADeadline là hạn phải bàn giao cho đơn vị vận chuyển.
+	//
+	// Nhà bán ĐƯỢC THẤY thước đo đang dùng để chấm mình — đặc tả yêu cầu
+	// "chỉ số, ngưỡng, và tác động đều công khai và tường minh", vì mô
+	// hình chấm điểm hộp đen tạo tranh chấp không giải quyết được.
+	SLADeadline string `json:"sla_deadline,omitempty"`
+
+	// SLABreached: đơn CHƯA bàn giao và đã quá hạn — việc cần làm NGAY.
+	//
+	// Đơn đã bàn giao muộn KHÔNG mang cờ này: việc đó đã tính vào điểm
+	// hiệu suất rồi, và hiện lại nhãn trễ trên một đơn đang đi đường chỉ
+	// làm nhà bán tưởng còn việc phải làm.
+	SLABreached bool `json:"sla_breached,omitempty"`
+
 	ConfirmedAt string `json:"confirmed_at,omitempty"`
 	PackedAt    string `json:"packed_at,omitempty"`
 	ShippedAt   string `json:"shipped_at,omitempty"`
@@ -167,7 +182,7 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	data := make([]sellerFOJSON, 0, len(list))
 	for _, fo := range list {
-		data = append(data, toSellerFO(fo))
+		data = append(data, h.toSellerFO(fo))
 	}
 	h.ok(w, r, http.StatusOK, listFOResponse{Data: data})
 }
@@ -187,7 +202,7 @@ func (h *SellerHandler) get(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, translateSeller(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSellerFO(fo))
+	h.ok(w, r, http.StatusOK, h.toSellerFO(fo))
 }
 
 type shipRequest struct {
@@ -235,7 +250,7 @@ func (h *SellerHandler) ship(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, translateSeller(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSellerFO(fo))
+	h.ok(w, r, http.StatusOK, h.toSellerFO(fo))
 }
 
 // ---------------------------------------------------------------- Hỗ trợ
@@ -320,7 +335,16 @@ func toMoney(m money.Money) moneyJSON {
 	return moneyJSON{Amount: m.Amount(), Currency: string(m.Currency())}
 }
 
-func toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
+// toSellerFO chuyển đơn thực hiện sang JSON của nhà bán.
+//
+// Là METHOD chứ không hàm thuần vì nó cần SLA đang áp dụng — con số đó do
+// cấu hình vận hành quyết (ADR-0015) và chỉ tầng application đọc được.
+//
+// Đọc từ CÙNG nguồn với phép chấm điểm hiệu suất: hai nơi đọc hai con số
+// khác nhau nghĩa là màn hình nói "còn 3 giờ" trong khi báo cáo ghi trễ.
+func (h *SellerHandler) toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
+	sla := h.svc.SLAHienTai().SLAGiaoHang
+	now := h.svc.Now()
 	lines := fo.Lines()
 	items := make([]foItemJSON, 0, len(lines))
 	for _, l := range lines {
@@ -360,6 +384,8 @@ func toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
 		ShippingProvider:  fo.ShippingProvider(),
 		TrackingNumber:    fo.TrackingNumber(),
 		CreatedAt:         formatTime(fo.CreatedAt()),
+		SLADeadline:       formatTime(fo.HanBanGiao(sla)),
+		SLABreached:       fo.TreHan(sla, now),
 		ConfirmedAt:       formatTime(fo.ConfirmedAt()),
 		PackedAt:          formatTime(fo.PackedAt()),
 		ShippedAt:         formatTime(fo.ShippedAt()),
@@ -402,7 +428,7 @@ func (h *SellerHandler) deliver(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, translateSeller(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSellerFO(fo))
+	h.ok(w, r, http.StatusOK, h.toSellerFO(fo))
 }
 
 type chiSoJSON struct {

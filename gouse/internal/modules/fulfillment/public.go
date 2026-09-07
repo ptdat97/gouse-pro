@@ -148,6 +148,20 @@ type FulfillmentView struct {
 	CompletedAt string
 	CancelledAt string
 	CreatedAt   string
+
+	// SLADeadline là hạn nhà bán phải bàn giao cho đơn vị vận chuyển.
+	//
+	// TÍNH RA từ `CreatedAt + SLA` chứ không lưu: xem
+	// `domain.FulfillmentOrder.HanBanGiao`. Đổi tham số SLA làm DỜI hạn
+	// của mọi đơn đang chạy — hành vi đã ghi trong `HeQua` của tham số đó.
+	SLADeadline string
+
+	// SLABreached = đơn CHƯA bàn giao và đã quá hạn.
+	//
+	// Đơn đã bàn giao KHÔNG còn "trễ" dù bàn giao muộn: việc đó đã tính
+	// vào điểm hiệu suất, và hiện lại nhãn trễ trên một đơn đang đi đường
+	// chỉ làm nhà bán tưởng còn việc phải làm.
+	SLABreached bool
 }
 
 // ---------------------------------------------------------------- Lỗi

@@ -2731,12 +2731,30 @@ export interface components {
             status: components["schemas"]["FulfillmentStatus"];
             created_at?: components["schemas"]["Timestamp"];
             /**
-             * @description Hạn cam kết xử lý. Trễ ảnh hưởng chỉ số hiệu suất.
+             * @description Hạn nhà bán phải **bàn giao cho đơn vị vận chuyển**. Trễ ảnh hưởng
+             *     chỉ số hiệu suất.
              *
-             *     **CHƯA được trả về** — module `fulfillment` chưa có khái niệm SLA.
-             *     Xem backlog P3-17.
+             *     **TÍNH RA** từ `created_at + SLA`, không lưu thành cột. Đặc tả yêu
+             *     cầu "chỉ số, ngưỡng, và tác động đều công khai và tường minh" — một
+             *     thời hạn riêng cho từng đơn mà không ai nhìn thấy chính là hộp đen.
+             *
+             *     Hệ quả phải biết: đổi `fulfillment.shipping_sla_hours` từ giao diện
+             *     quản trị làm **dời hạn của mọi đơn đang chạy**, không chỉ đơn mới.
+             *     Đó là cùng hành vi mà điểm hiệu suất đã có.
+             *
+             *     Dùng CÙNG công thức với phép chấm điểm (`shipped_at <= created_at +
+             *     SLA`), nên con số trên màn hình và con số trong báo cáo không lệch
+             *     nhau.
              */
             sla_deadline?: components["schemas"]["Timestamp"];
+            /**
+             * @description Đơn **chưa bàn giao** và đã quá hạn — việc cần làm ngay.
+             *
+             *     Đơn đã bàn giao muộn **không** mang cờ này: việc đó đã tính vào
+             *     điểm hiệu suất, và hiện lại nhãn trễ trên một đơn đang đi đường chỉ
+             *     làm nhà bán tưởng còn việc phải làm. Đơn đã hủy cũng không.
+             */
+            sla_breached?: boolean;
             items: {
                 sku_id?: components["schemas"]["Id"];
                 /** @description **CHƯA được trả về** — payload event chưa mang trường này. */
@@ -5734,7 +5752,8 @@ export interface operations {
                      *       "fulfillment_number": "FC-2026-08-001234-B",
                      *       "status": "PENDING",
                      *       "created_at": "2026-08-11T14:25:11Z",
-                     *       "sla_deadline": "2026-08-12T14:25:11Z",
+                     *       "sla_deadline": "2026-08-13T14:25:11Z",
+                     *       "sla_breached": false,
                      *       "items": [
                      *         {
                      *           "sku_id": "sku_01J9XABC123DEF456GHJKMNPQR",

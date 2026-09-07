@@ -697,10 +697,7 @@ func (s *Service) TinhHieuSuat(
 	den := s.clock.Now()
 	tu := den.Add(-doDai)
 
-	ng := domain.NguongMacDinh()
-	if s.nguong != nil {
-		ng = s.nguong.Nguong()
-	}
+	ng := s.SLAHienTai()
 
 	so, err := s.repo.DemHieuSuat(ctx, sellerID, tu, den, ng.SLAGiaoHang)
 	if err != nil {
