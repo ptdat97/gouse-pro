@@ -1220,6 +1220,13 @@ func TestCoBaoKhiCoHangLuuXuongDatabase(t *testing.T) {
 // module phối hợp đúng — tài khoản và hồ sơ cùng tồn tại, hoặc không cái
 // nào. Bản giả sẽ luôn "tạo tài khoản thành công" và test không chứng minh
 // được gì về sự phối hợp đó.
+// moduleIdentity là module identity của lần dựng harness gần nhất.
+//
+// Bài xác minh email cần phát token, và việc đó là của identity. Giữ tham
+// chiếu ở đây thay vì đổi chữ ký `newModuleWithIdentity` — hàm đó có hàng
+// chục bên gọi, và đổi chữ ký chỉ để một bài dùng thêm là lan rộng vô ích.
+var moduleIdentity *identity.Module
+
 func newModuleWithIdentity(t *testing.T) (*customer.Module, *pgxpool.Pool) {
 	t.Helper()
 
@@ -1262,6 +1269,7 @@ func newModuleWithIdentity(t *testing.T) (*customer.Module, *pgxpool.Pool) {
 	if err != nil {
 		t.Fatalf("customer.New: %v", err)
 	}
+	moduleIdentity = idm
 	return m, db.Pool()
 }
 
@@ -1313,6 +1321,15 @@ func TestDangKyTaoCaTaiKhoanVaHoSo(t *testing.T) {
 // (docs/04-modules/customer.md mục 5).
 //
 // Gộp chỉ được phép SAU KHI xác minh quyền sở hữu email.
+// Đăng ký bằng email ĐÃ đặt hàng vãng lai: cho phép, nhưng CHƯA gộp hồ sơ.
+//
+// Bản trước 07/09 từ chối hẳn, và từ chối là ĐÚNG khi chưa có cách chứng
+// minh quyền sở hữu email — hồ sơ vãng lai chứa lịch sử mua hàng và địa chỉ
+// nhà. Nhưng nó để khách ở ngõ cụt: không tạo được tài khoản bằng chính
+// email của mình.
+//
+// P3-15 mở ngõ đó bằng cách TÁCH hai việc: tạo tài khoản làm ngay, gộp hồ
+// sơ chờ tới khi bấm liên kết trong hộp thư.
 func TestKhongDangKyDuocBangEmailDaDatHang(t *testing.T) {
 	m, pool := newModuleWithIdentity(t)
 	ctx := context.Background()
@@ -1325,16 +1342,24 @@ func TestKhongDangKyDuocBangEmailDaDatHang(t *testing.T) {
 		t.Fatalf("EnsureByEmail: %v", err)
 	}
 
-	_, err = m.RegisterShopper(ctx, customer.RegisterRequest{
+	res, err := m.RegisterShopper(ctx, customer.RegisterRequest{
 		Email:    "nguoi.khac@example.com",
 		Password: "mat-khau-du-dai-123",
 	})
-	if !errors.Is(err, customer.ErrEmailUsedByGuest) {
-		t.Fatalf("lỗi = %v, mong ErrEmailUsedByGuest — đăng ký bằng email "+
-			"người khác KHÔNG được kế thừa hồ sơ của họ", err)
+	if err != nil {
+		t.Fatalf("RegisterShopper: %v — từ 07/09 (P3-15) đăng ký bằng email "+
+			"đã đặt hàng vãng lai được PHÉP; thứ bị hoãn là việc GỘP hồ sơ", err)
+	}
+	if !res.CanXacMinhEmail {
+		t.Error("CanXacMinhEmail = false — giao diện không biết còn một " +
+			"bước xác minh, và khách sẽ tưởng đã mất lịch sử mua hàng")
 	}
 
-	// Hồ sơ cũ PHẢI còn nguyên và KHÔNG gắn với tài khoản nào.
+	// ĐIỀU QUAN TRỌNG NHẤT: hồ sơ vãng lai VẪN CHƯA gắn vào tài khoản.
+	//
+	// Tài khoản đã tạo, nhưng lịch sử mua hàng và địa chỉ nhà chỉ được gộp
+	// sau khi bấm liên kết trong hộp thư. Gộp ngay lúc đăng ký nghĩa là
+	// bất kỳ ai biết email người khác đều đọc được những thứ đó.
 	var linkedUser string
 	if err := pool.QueryRow(ctx,
 		`SELECT user_id FROM customer WHERE id = $1`, guest.ID,
@@ -1342,20 +1367,21 @@ func TestKhongDangKyDuocBangEmailDaDatHang(t *testing.T) {
 		t.Fatalf("đọc hồ sơ vãng lai: %v", err)
 	}
 	if linkedUser != "" {
-		t.Errorf("hồ sơ vãng lai đã bị gắn vào tài khoản %q", linkedUser)
+		t.Errorf("hồ sơ vãng lai đã bị gắn vào tài khoản %q NGAY LÚC ĐĂNG "+
+			"KÝ — chưa ai chứng minh quyền sở hữu email", linkedUser)
 	}
 
-	// Và KHÔNG được để lại tài khoản mồ côi: kiểm tra hồ sơ phải xảy ra
-	// TRƯỚC khi tạo tài khoản.
+	// Tài khoản CÓ được tạo — đó là thay đổi so với bản cũ. Trước 07/09
+	// đường này từ chối hẳn và để khách ở ngõ cụt: không tạo được tài
+	// khoản bằng chính email của mình.
 	var users int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM "user" WHERE email = $1`, "nguoi.khac@example.com",
 	).Scan(&users); err != nil {
 		t.Fatalf("đếm tài khoản: %v", err)
 	}
-	if users != 0 {
-		t.Errorf("còn %d tài khoản mồ côi — lần đăng ký sau sẽ báo 'email "+
-			"đã dùng' vì chính tài khoản này", users)
+	if users != 1 {
+		t.Errorf("có %d tài khoản, mong 1", users)
 	}
 }
 
@@ -1440,16 +1466,182 @@ func TestPhanBietDaCoTaiKhoanVoiDaDatHangVangLai(t *testing.T) {
 		t.Errorf("email đã có tài khoản: lỗi = %v, mong ErrDuplicateEmail", err)
 	}
 
-	// Trường hợp B: chỉ đặt hàng VÃNG LAI.
+	// Trường hợp B: chỉ đặt hàng VÃNG LAI → ĐƯỢC đăng ký, nhưng phải báo
+	// còn một bước xác minh (P3-15).
+	//
+	// Hai trường hợp vẫn PHẢI phân biệt được, chỉ khác cách: A là lỗi
+	// ("đăng nhập đi"), B là thành công kèm cờ ("kiểm tra hộp thư"). Trả
+	// chung một kết quả đẩy nhóm B đi bấm "quên mật khẩu" cho một tài
+	// khoản không tồn tại.
 	if _, err := m.EnsureByEmail(ctx, customer.CreateRequest{
 		Email: "vang-lai@example.com",
 	}); err != nil {
 		t.Fatalf("EnsureByEmail: %v", err)
 	}
-	_, err = m.RegisterShopper(ctx, customer.RegisterRequest{
+	res, err := m.RegisterShopper(ctx, customer.RegisterRequest{
 		Email: "vang-lai@example.com", Password: "mat-khau-du-dai-123",
 	})
-	if !errors.Is(err, customer.ErrEmailUsedByGuest) {
-		t.Errorf("email vãng lai: lỗi = %v, mong ErrEmailUsedByGuest", err)
+	if err != nil {
+		t.Fatalf("email vãng lai: %v — nay được phép đăng ký", err)
+	}
+	if !res.CanXacMinhEmail {
+		t.Error("email vãng lai: CanXacMinhEmail = false, mong true — " +
+			"không phân biệt được với đăng ký thường thì khách không biết " +
+			"lịch sử cũ đang chờ ở đâu")
+	}
+}
+
+// TestXacMinhEmailMoiGopDuocHoSoVangLai khóa RANH GIỚI BẢO MẬT của P3-15.
+//
+// # Điều đang được bảo vệ
+//
+// Hồ sơ vãng lai chứa lịch sử mua hàng và địa chỉ NHÀ. Gộp nó vào một tài
+// khoản chỉ vì tài khoản đó khai cùng email nghĩa là bất kỳ ai biết email
+// người khác đều đọc được những thứ đó.
+//
+// Bấm được liên kết trong hộp thư là bằng chứng đọc được hộp thư — điều
+// kiện tối thiểu, và là điều kiện chưa từng có trước P3-15.
+func TestXacMinhEmailMoiGopDuocHoSoVangLai(t *testing.T) {
+	m, pool := newModuleWithIdentity(t)
+	idm := moduleIdentity
+	ctx := context.Background()
+
+	const email = "vanglai-gop@example.com"
+
+	guest, err := m.EnsureByEmail(ctx, customer.CreateRequest{Email: email})
+	if err != nil {
+		t.Fatalf("EnsureByEmail: %v", err)
+	}
+
+	res, err := m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email: email, Password: "mat-khau-du-dai-123",
+	})
+	if err != nil {
+		t.Fatalf("RegisterShopper: %v", err)
+	}
+
+	gan := func(t *testing.T) string {
+		t.Helper()
+		var u string
+		if err := pool.QueryRow(ctx,
+			`SELECT user_id FROM customer WHERE id = $1`, guest.ID).Scan(&u); err != nil {
+			t.Fatalf("đọc hồ sơ: %v", err)
+		}
+		return u
+	}
+
+	// TRƯỚC xác minh: hồ sơ CHƯA thuộc về ai.
+	if u := gan(t); u != "" {
+		t.Fatalf("hồ sơ đã gắn vào %q trước khi xác minh", u)
+	}
+
+	// Token SAI không gộp được — đây là chỗ tấn công thật sự.
+	if _, err := m.XacMinhEmailVaGop(ctx, "token-bia-dat"); err == nil {
+		t.Fatal("token bịa đặt vẫn xác minh được")
+	}
+	if u := gan(t); u != "" {
+		t.Fatalf("token SAI vẫn gộp được hồ sơ vào %q", u)
+	}
+
+	// Token ĐÚNG: xác minh và gộp.
+	tok, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	if err != nil {
+		t.Fatalf("PhatTokenXacMinh: %v", err)
+	}
+	out, err := m.XacMinhEmailVaGop(ctx, tok)
+	if err != nil {
+		t.Fatalf("XacMinhEmailVaGop: %v", err)
+	}
+	if !out.DaGopHoSo {
+		t.Error("DaGopHoSo = false, mong true")
+	}
+	if u := gan(t); u != res.UserID {
+		t.Errorf("hồ sơ gắn vào %q, mong %q", u, res.UserID)
+	}
+
+	// Token DÙNG MỘT LẦN: bấm lại liên kết cũ không được nữa.
+	//
+	// Không phải vì lần hai gây hại trực tiếp, mà vì một token còn sống
+	// sau khi đã dùng là một token nằm trong hộp thư có thể bị đọc sau đó.
+	// DÙNG MỘT LẦN có PHÒNG VỆ HAI LỚP, và cần biết điều đó khi đọc bài này:
+	//
+	//	domain      `EmailToken.Dung` từ chối khi `usedAt` khác rỗng
+	//	database    `WHERE used_at IS NULL` trong lệnh cập nhật
+	//
+	// Bỏ RIÊNG lớp nào thì bài test VẪN XANH — lớp kia bắt được. Phải bỏ
+	// CẢ HAI mới thấy đỏ. Lớp thứ hai không thừa: lớp một đọc rồi lớp hai
+	// ghi là hai bước, và hai request tới cùng lúc đều qua được lớp một.
+	if _, err := m.XacMinhEmailVaGop(ctx, tok); err == nil {
+		t.Error("token dùng được LẦN HAI — liên kết trong hộp thư còn sống mãi")
+	}
+}
+
+// TestTokenHetHanThiKhongXacMinhDuoc — liên kết cũ trong hộp thư phải chết.
+func TestTokenHetHanThiKhongXacMinhDuoc(t *testing.T) {
+	m, pool := newModuleWithIdentity(t)
+	idm := moduleIdentity
+	ctx := context.Background()
+
+	const email = "hethan@example.com"
+	if _, err := m.EnsureByEmail(ctx, customer.CreateRequest{Email: email}); err != nil {
+		t.Fatalf("EnsureByEmail: %v", err)
+	}
+	res, err := m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email: email, Password: "mat-khau-du-dai-123",
+	})
+	if err != nil {
+		t.Fatalf("RegisterShopper: %v", err)
+	}
+	tok, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	if err != nil {
+		t.Fatalf("PhatTokenXacMinh: %v", err)
+	}
+
+	// Đẩy hạn về QUÁ KHỨ, mô phỏng liên kết để quên 25 giờ.
+	if _, err := pool.Exec(ctx,
+		`UPDATE email_verification_token SET expires_at = now() - interval '1 hour'
+		  WHERE user_id = $1`, res.UserID); err != nil {
+		t.Fatalf("đẩy hạn: %v", err)
+	}
+
+	if _, err := m.XacMinhEmailVaGop(ctx, tok); err == nil {
+		t.Fatal("token HẾT HẠN vẫn xác minh được")
+	}
+}
+
+// TestPhatTokenMoiGietTokenCU — bấm "gửi lại" phải làm liên kết cũ chết.
+//
+// Người ta bấm "gửi lại" chính vì nghi ngờ thư cũ. Để hai liên kết cùng
+// sống là làm ngược lại điều họ vừa yêu cầu.
+func TestPhatTokenMoiGietTokenCu(t *testing.T) {
+	m, _ := newModuleWithIdentity(t)
+	idm := moduleIdentity
+	ctx := context.Background()
+
+	const email = "guilai@example.com"
+	if _, err := m.EnsureByEmail(ctx, customer.CreateRequest{Email: email}); err != nil {
+		t.Fatalf("EnsureByEmail: %v", err)
+	}
+	res, err := m.RegisterShopper(ctx, customer.RegisterRequest{
+		Email: email, Password: "mat-khau-du-dai-123",
+	})
+	if err != nil {
+		t.Fatalf("RegisterShopper: %v", err)
+	}
+
+	cu, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	if err != nil {
+		t.Fatalf("phát token lần 1: %v", err)
+	}
+	moi, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	if err != nil {
+		t.Fatalf("phát token lần 2: %v", err)
+	}
+
+	if _, err := m.XacMinhEmailVaGop(ctx, cu); err == nil {
+		t.Error("token CŨ vẫn dùng được sau khi đã gửi lại")
+	}
+	if _, err := m.XacMinhEmailVaGop(ctx, moi); err != nil {
+		t.Errorf("token MỚI không dùng được: %v", err)
 	}
 }

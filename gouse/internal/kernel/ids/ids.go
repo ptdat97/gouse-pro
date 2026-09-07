@@ -79,6 +79,7 @@ const (
 	PrefixStockLocation     Prefix = "loc"
 	PrefixLedgerEntry       Prefix = "led"
 	PrefixPaymentIntent     Prefix = "pin"
+	PrefixEmailToken        Prefix = "evt"
 	PrefixSettlement        Prefix = "stl"
 	PrefixPayout            Prefix = "pay"
 	PrefixSupplier          Prefix = "sup"

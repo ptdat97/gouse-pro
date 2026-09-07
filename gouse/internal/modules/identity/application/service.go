@@ -28,6 +28,7 @@ type Service struct {
 	attempts domain.LoginAttemptRepository
 	hasher   domain.PasswordHasher
 	tokens   domain.TokenGenerator
+	emailTok domain.EmailTokenRepository
 	clock    Clock
 }
 
@@ -38,6 +39,10 @@ type Deps struct {
 	Hasher   domain.PasswordHasher
 	Tokens   domain.TokenGenerator
 	Clock    Clock
+
+	// EmailTokens lưu token XÁC MINH EMAIL. Có thể nil ở bản dựng chưa
+	// nối; khi đó luồng xác minh trả lỗi rõ thay vì im lặng không làm gì.
+	EmailTokens domain.EmailTokenRepository
 }
 
 func NewService(d Deps) *Service {
@@ -51,6 +56,7 @@ func NewService(d Deps) *Service {
 		attempts: d.Attempts,
 		hasher:   d.Hasher,
 		tokens:   d.Tokens,
+		emailTok: d.EmailTokens,
 		clock:    clock,
 	}
 }

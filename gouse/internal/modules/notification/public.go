@@ -148,4 +148,11 @@ const (
 	TemplateOrderShipped   = "order_shipped"
 	TemplateOrderDelivered = "order_delivered"
 	TemplateOrderCancelled = "order_cancelled"
+
+	// TemplateXacMinhEmail là thư chứa liên kết xác minh email (P3-15).
+	//
+	// TRANSACTIONAL, không phải MARKETING: khách KHÔNG tắt được nó, vì
+	// không nhận được thư này nghĩa là không gộp được lịch sử mua hàng của
+	// chính mình.
+	TemplateXacMinhEmail = "email_verification"
 )

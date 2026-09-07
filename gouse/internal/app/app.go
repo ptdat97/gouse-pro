@@ -52,6 +52,7 @@ import (
 	inventoryhttp "github.com/fashion-commerce/platform/internal/modules/inventory/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
 	markethttp "github.com/fashion-commerce/platform/internal/modules/marketplace/interfaces/http"
+	"github.com/fashion-commerce/platform/internal/modules/notification"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
@@ -312,6 +313,23 @@ func Build(
 		// customer giữ HỒ SƠ KHÁCH HÀNG — khác với tài khoản đăng nhập của
 		// identity. Ở đây nó có một việc: đổi user_id lấy customer_id để
 		// giỏ hàng của người đã đăng nhập gắn đúng hồ sơ.
+		// Notification dựng ở API để gửi thư XÁC MINH EMAIL trực tiếp.
+		//
+		// Đa số thông báo đi qua event và do worker gửi. Thư xác minh thì
+		// KHÔNG: nó phải tới ngay sau khi khách bấm đăng ký, và
+		// `notification.API` khai rõ đường gửi trực tiếp dành cho đúng
+		// loại này ("ví dụ mã OTP").
+		//
+		// Cùng database, cùng bảng chống gửi trùng — hai tiến trình cùng
+		// ghi vào một nhật ký gửi là chuyện bình thường và đã có chỉ mục
+		// UNIQUE lo.
+		notificationModule, err := notification.New(notification.Config{
+			Storage: "postgres", DB: db, Log: log,
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+
 		customerModule, err = customer.New(customer.Config{
 			Storage: "postgres",
 			DB:      db,
@@ -319,6 +337,14 @@ func Build(
 			// Identity để khách ĐĂNG KÝ được: một lần đăng ký sinh ra tài
 			// khoản đăng nhập (identity) VÀ hồ sơ mua hàng (customer).
 			Identity: identityModule,
+
+			// Notifier để gửi thư XÁC MINH EMAIL (P3-15) — bước mở đường
+			// gộp lịch sử đơn vãng lai.
+			Notifier: &guiXacMinhEmail{api: notificationModule},
+
+			// Orders để CHUYỂN CHỦ các đơn vãng lai sau khi xác minh.
+			// Đây mới là chỗ giữ lịch sử mua hàng của khách vãng lai.
+			Orders: orderModule,
 
 			// Audit để endpoint quản trị ghi vết mọi lần nhân viên MỞ hồ sơ
 			// khách — tên, email, số điện thoại.

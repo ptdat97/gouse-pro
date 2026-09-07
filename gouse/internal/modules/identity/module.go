@@ -89,7 +89,9 @@ func New(cfg Config) (*Module, error) {
 			Attempts: identitypg.NewLoginAttemptStore(pool),
 			Hasher:   crypto.NewBcryptHasher(cfg.BcryptCost),
 			Tokens:   crypto.NewTokenGenerator(),
-			Clock:    cfg.Clock,
+			// Xác minh email (P3-15) — mở đường gộp lịch sử đơn vãng lai.
+			EmailTokens: identitypg.NewEmailTokenStore(pool),
+			Clock:       cfg.Clock,
 		}),
 		issuer:       cfg.Issuer,
 		secureCookie: cfg.SecureCookie,

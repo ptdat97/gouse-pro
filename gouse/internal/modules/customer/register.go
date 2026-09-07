@@ -38,6 +38,13 @@ type RegisterRequest struct {
 type RegisterResult struct {
 	CustomerID string
 	UserID     string
+
+	// CanXacMinhEmail = true khi email này ĐÃ có hồ sơ vãng lai.
+	//
+	// Tài khoản đã tạo nhưng hồ sơ CHƯA gắn vào: lịch sử mua hàng và địa
+	// chỉ nhà chỉ được gộp sau khi bấm liên kết xác minh trong hộp thư.
+	// Giao diện dùng cờ này để nói cho khách biết còn một bước nữa.
+	CanXacMinhEmail bool
 }
 
 // RegisterShopper tạo TÀI KHOẢN ĐĂNG NHẬP và HỒ SƠ KHÁCH HÀNG.
@@ -80,11 +87,21 @@ func (m *Module) RegisterShopper(
 	//
 	//	hồ sơ CÓ user_id     → đã có tài khoản → đăng nhập
 	//	hồ sơ KHÔNG có       → khách vãng lai  → tra đơn bằng mã + SĐT
+	var hoSoVangLai ids.ID
 	if existing, err := m.svc.GetByEmail(ctx, email); err == nil {
 		if !existing.UserID().IsZero() {
 			return out, identity.ErrDuplicateEmail
 		}
-		return out, ErrEmailUsedByGuest
+		// Hồ sơ VÃNG LAI có sẵn: cho đăng ký, nhưng CHƯA gắn (P3-15).
+		//
+		// Trước 07/09 đường này TỪ CHỐI hẳn, và từ chối là đúng khi chưa
+		// có cách chứng minh quyền sở hữu email — hồ sơ vãng lai chứa lịch
+		// sử mua hàng và địa chỉ nhà. Nhưng nó để khách ở ngõ cụt: không
+		// tạo được tài khoản bằng CHÍNH email của mình.
+		//
+		// Nay: tạo tài khoản, chưa gắn hồ sơ. Gộp xảy ra sau khi bấm liên
+		// kết xác minh trong hộp thư — thứ chứng minh họ đọc được email đó.
+		hoSoVangLai = existing.ID()
 	} else if !errors.Is(err, domain.ErrNotFound) {
 		return out, err
 	}
@@ -103,7 +120,38 @@ func (m *Module) RegisterShopper(
 		return out, err
 	}
 
-	// Bước 3: hồ sơ khách hàng, gắn với tài khoản vừa tạo.
+	// Bước 2b: email này có ĐƠN vãng lai đang chờ không?
+	//
+	// Hỏi `order` chứ không tra hồ sơ khách. Khách vãng lai KHÔNG có hồ sơ
+	// — đo trên database phát triển 07/09: 0 hồ sơ vãng lai nhưng 3150 đơn
+	// vãng lai. Kiểm bằng hồ sơ là kiểm một thứ gần như không bao giờ tồn
+	// tại, và khi đó cờ "cần xác minh" không bao giờ bật.
+	coDonVangLai := false
+	if m.orders != nil {
+		if n, errDem := m.orders.DemDonVangLai(ctx, email); errDem == nil && n > 0 {
+			coDonVangLai = true
+		}
+	}
+
+	// Bước 3a: đã có hồ sơ vãng lai thì KHÔNG tạo hồ sơ mới.
+	//
+	// Email là DUY NHẤT trên `customer`, nên hai hồ sơ cùng email là điều
+	// không thể. Hồ sơ vãng lai chính là hồ sơ của người này — chỉ là chưa
+	// được phép gắn vào tài khoản.
+	//
+	// Tài khoản chưa có hồ sơ vẫn mua hàng được: `CustomerIDForUser` trả
+	// rỗng và họ được coi như khách vãng lai, nên đơn mới vẫn rơi đúng vào
+	// hồ sơ đó qua `EnsureByEmail`. Thứ họ CHƯA thấy là lịch sử cũ — đúng
+	// điều đang chờ xác minh.
+	if !hoSoVangLai.IsZero() {
+		return RegisterResult{
+			CustomerID:      hoSoVangLai.String(),
+			UserID:          user.ID,
+			CanXacMinhEmail: true,
+		}, nil
+	}
+
+	// Bước 3b: hồ sơ khách hàng, gắn với tài khoản vừa tạo.
 	c, err := m.svc.Create(ctx, application.CreateInput{
 		Email:       email,
 		Phone:       strings.TrimSpace(req.Phone),
@@ -125,5 +173,11 @@ func (m *Module) RegisterShopper(
 		)
 	}
 
-	return RegisterResult{CustomerID: c.ID().String(), UserID: user.ID}, nil
+	return RegisterResult{
+		CustomerID: c.ID().String(),
+		UserID:     user.ID,
+		// Hồ sơ MỚI nhưng email đã có đơn vãng lai: lịch sử đó chỉ về với
+		// họ sau khi xác minh.
+		CanXacMinhEmail: coDonVangLai,
+	}, nil
 }

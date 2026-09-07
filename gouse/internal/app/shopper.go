@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/modules/customer"
+	"github.com/fashion-commerce/platform/internal/modules/notification"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 )
 
@@ -164,6 +165,20 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 			httpserver.RequireIdempotencyKey(),
 		))
 
+		// Xác minh email (P3-15) — CÙNG mux, KHÁC chuỗi middleware.
+		//
+		// Có giới hạn tần suất: endpoint nhận token từ bên ngoài, và không
+		// giới hạn thì nó là chỗ dò token bằng vét cạn.
+		//
+		// KHÔNG có `RequireIdempotencyKey`: người bấm liên kết trong hộp
+		// thư đang ở trình duyệt, không phải một client tự sinh khóa. Bắt
+		// có khóa ở đây là chặn đúng người mà bước này tồn tại để giúp.
+		// Token vốn đã DÙNG MỘT LẦN, nên gửi trùng không tạo tác dụng phụ.
+		mux.Handle("POST /api/v1/auth/verify-email", httpserver.Chain(
+			publicMux,
+			httpserver.RateLimit(registerLimit, registerWindow),
+		))
+
 		accountMux := http.NewServeMux()
 		m.customer.RegisterRoutes(accountMux, log)
 
@@ -222,4 +237,42 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 // người dùng của chính nó.
 func laDangNhapHong(status int) bool {
 	return status == http.StatusUnauthorized
+}
+
+// guiXacMinhEmail nối customer tới module notification.
+//
+// Adapter nằm ở đây vì module customer KHÔNG import notification: nó chỉ
+// khai một cổng hẹp với đúng một hàm. Chiều phụ thuộc giữ nguyên, và bản
+// giả trong test không phải cài cả `notification.API`.
+type guiXacMinhEmail struct{ api notification.API }
+
+var _ customer.NotifierPort = (*guiXacMinhEmail)(nil)
+
+func (g *guiXacMinhEmail) GuiXacMinhEmail(
+	ctx context.Context, userID, email, token string,
+) error {
+	if g.api == nil {
+		return customer.ErrChuaNoiThongBao
+	}
+
+	// TRANSACTIONAL, không phải MARKETING: khách KHÔNG tắt được thư này,
+	// vì không nhận được nó nghĩa là không gộp được lịch sử mua hàng của
+	// chính mình. Nhầm hai loại là vi phạm pháp luật ở nhiều thị trường.
+	return g.api.Send(ctx, notification.SendRequest{
+		Channel:   "EMAIL",
+		Category:  "TRANSACTIONAL",
+		Template:  notification.TemplateXacMinhEmail,
+		Recipient: email,
+		UserID:    userID,
+		Subject:   "Xác minh địa chỉ email của bạn",
+
+		// Token đi vào THÂN thư và không đi đâu khác. Nó KHÔNG được ghi
+		// log: database chỉ giữ bản băm, nên một dòng log lộ ra là mất
+		// toàn bộ giá trị của việc băm.
+		Body: "Nhấn vào liên kết để xác minh email và xem lại lịch sử đơn " +
+			"hàng của bạn:\n\n" + token + "\n\nLiên kết có hiệu lực 24 giờ.",
+
+		ReferenceType: "user",
+		ReferenceID:   userID,
+	})
 }

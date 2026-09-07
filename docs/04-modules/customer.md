@@ -288,3 +288,34 @@ Giữ lại và ghi rõ vai trò thật của nó, kèm một test cô lập ri�
 - [../01-business/customer.md](../01-business/customer.md) — tác nhân khách hàng
 - [identity.md](identity.md) — tài khoản đăng nhập
 - [../09-operations/security.md](../09-operations/security.md) — bảo vệ dữ liệu cá nhân
+
+
+---
+
+## Gộp danh tính sau khi XÁC MINH EMAIL (P3-15, 07/09/2026)
+
+Khách đặt hàng vãng lai bằng email X **được phép** đăng ký tài khoản bằng
+chính email đó. Thứ bị hoãn không phải việc tạo tài khoản mà là việc **gộp
+lịch sử**.
+
+```text
+đăng ký          → tạo tài khoản ngay; email_verification_required = true
+                   lịch sử cũ VẪN bị che
+bấm liên kết     → xác minh email → chuyển chủ các ĐƠN vãng lai
+```
+
+**Lịch sử vãng lai nằm ở ĐƠN, không ở hồ sơ khách hàng.** Đo trên database
+phát triển 07/09: **0** hồ sơ vãng lai, **3150** đơn vãng lai. `EnsureByEmail`
+không có bên gọi nào, nên hồ sơ vãng lai chưa từng được tạo.
+
+Điều đó làm sai một câu đã nằm trong tài liệu này từ đầu ("hồ sơ vãng lai
+chứa lịch sử mua hàng"), và một cài đặt chỉ gắn `customer.user_id` sẽ chạy
+trơn tru mà khách không thấy đơn nào.
+
+**Chỉ đụng đơn có `customer_id` RỖNG.** Một đơn có thể mang cả `customer_id`
+lẫn `guest_email`; thiếu điều kiện này thì một lần xác minh kéo được đơn của
+người khác về — cùng địa chỉ nhà và số điện thoại trên đơn đó.
+
+**Token:** ngẫu nhiên 256 bit, lưu dạng băm SHA-256 (không phải bcrypt —
+token do máy sinh, không có gì để dò), **dùng một lần**, hết hạn **24 giờ**,
+và phát token mới sẽ vô hiệu token cũ.

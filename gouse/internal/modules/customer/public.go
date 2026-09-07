@@ -389,3 +389,34 @@ const (
 	ConsentDataProcessing  = "DATA_PROCESSING"
 	ConsentPersonalization = "PERSONALIZATION"
 )
+
+// NotifierPort là những gì customer CẦN từ notification.
+//
+// Khai HẸP: module này chỉ gửi đúng một loại thư. Nhận cả
+// `notification.API` buộc mọi bản giả trong test cài thêm những hàm nó
+// không dùng.
+type NotifierPort interface {
+	// GuiXacMinhEmail gửi thư chứa liên kết xác minh (P3-15).
+	//
+	// `token` là bản NGUYÊN VĂN — bên cài đặt đưa vào thân thư và KHÔNG
+	// ghi vào log.
+	GuiXacMinhEmail(ctx context.Context, userID, email, token string) error
+}
+
+// OrderPort là những gì customer CẦN từ order.
+//
+// Khai HẸP: module này chỉ cần một việc — chuyển chủ các đơn vãng lai sau
+// khi đã xác minh quyền sở hữu email.
+type OrderPort interface {
+	// GanDonVangLaiChoKhach gắn đơn vãng lai của một email vào hồ sơ khách.
+	//
+	// Trả SỐ ĐƠN đã gắn.
+	GanDonVangLaiChoKhach(ctx context.Context, guestEmail, customerID string) (int, error)
+
+	// DemDonVangLai đếm đơn VÃNG LAI của một email.
+	//
+	// Dùng lúc đăng ký để biết có lịch sử đang chờ hay không. Phải hỏi
+	// `order` chứ không tra hồ sơ khách: khách vãng lai KHÔNG có hồ sơ —
+	// đo trên database phát triển 07/09 là 0 hồ sơ vãng lai nhưng 3150 đơn.
+	DemDonVangLai(ctx context.Context, guestEmail string) (int, error)
+}

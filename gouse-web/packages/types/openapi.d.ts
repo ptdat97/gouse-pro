@@ -380,10 +380,15 @@ export interface paths {
          *     Hồ sơ cũ có thể chứa lịch sử mua hàng và địa chỉ nhà; gắn nó vào tài
          *     khoản vừa đăng ký nghĩa là bất kỳ ai biết email người khác đều đọc
          *     được những thứ đó. Gộp chỉ được phép **sau khi xác minh quyền sở hữu
-         *     email** — luồng đó chưa dựng, xem `docs/04-modules/customer.md` mục 5.
+         *     email**, và luồng đó nay ĐÃ CÓ — xem `verifyEmail` (P3-15, 07/09).
          *
-         *     Khách gặp trường hợp này vẫn tra cứu được đơn cũ bằng **mã đơn + số
-         *     điện thoại**, không cần tài khoản.
+         *     **Đăng ký bằng email đã đặt hàng vãng lai nay ĐƯỢC PHÉP.** Tài khoản
+         *     tạo ngay và dùng được; thứ bị hoãn là việc GỘP lịch sử. Phản hồi
+         *     `201` mang `email_verification_required: true` để giao diện nói cho
+         *     khách biết còn một bước nữa và lịch sử cũ đang chờ ở đó.
+         *
+         *     Trước 07/09 đường này trả `409` cho trường hợp đó, và nó để khách ở
+         *     ngõ cụt: không tạo được tài khoản bằng chính email của mình.
          *
          *     **Giới hạn tần suất BẮT BUỘC.** Endpoint này cố ý phân biệt "email đã
          *     có tài khoản" với "email chưa dùng" — người dùng thật cần biết vì sao
@@ -391,6 +396,44 @@ export interface paths {
          *     khoản chưa", nên không giới hạn thì nó là công cụ dò danh sách email.
          */
         post: operations["registerCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Xác minh email và gộp lịch sử đơn vãng lai
+         * @description Đổi token trong thư lấy việc **xác minh email**, rồi gắn mọi **đơn
+         *     vãng lai** của địa chỉ đó vào hồ sơ khách hàng.
+         *
+         *     **Vì sao bước này tồn tại.** Đơn hàng chứa địa chỉ nhà và số điện
+         *     thoại người nhận. Gắn chúng vào một tài khoản chỉ vì tài khoản đó
+         *     khai cùng email nghĩa là bất kỳ ai biết email người khác đều đọc được
+         *     những thứ đó. Bấm được liên kết trong hộp thư là bằng chứng đọc được
+         *     hộp thư — điều kiện tối thiểu.
+         *
+         *     **KHÔNG cần đăng nhập.** Người bấm liên kết thường ở trình duyệt khác
+         *     hoặc trên điện thoại; bắt đăng nhập trước là đẩy họ qua đúng bước mà
+         *     luồng này tồn tại để giúp họ vượt qua. Token đã là bằng chứng: ngẫu
+         *     nhiên 256 bit, **dùng một lần**, hết hạn sau **24 giờ**.
+         *
+         *     **Chỉ đụng đơn CHƯA có chủ.** Đơn đã thuộc về một khách khác không
+         *     bao giờ bị chuyển, kể cả khi trùng email.
+         *
+         *     **Giới hạn tần suất bắt buộc:** endpoint nhận token từ bên ngoài, nên
+         *     không giới hạn thì nó là chỗ dò token bằng vét cạn.
+         */
+        post: operations["verifyEmail"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3783,15 +3826,22 @@ export interface operations {
                     "application/json": {
                         customer_id: components["schemas"]["Id"];
                         user_id: components["schemas"]["Id"];
+                        /**
+                         * @description `true` khi email này ĐÃ có đơn hàng vãng lai. Tài khoản
+                         *     dùng được ngay, nhưng lịch sử cũ chỉ hiện ra sau khi
+                         *     khách bấm liên kết trong thư — xem `verifyEmail`.
+                         *
+                         *     Vắng mặt hoặc `false` nghĩa là không có gì đang chờ.
+                         */
+                        email_verification_required?: boolean;
                     };
                 };
             };
             /**
-             * @description Email đã được dùng. Hai lý do KHÁC NHAU, và thông báo phải phân
-             *     biệt được vì chúng dẫn tới hai hành động khác hẳn:
+             * @description Email này đã có **tài khoản** → đăng nhập, hoặc quên mật khẩu.
              *
-             *     - đã có **tài khoản** → đăng nhập, hoặc quên mật khẩu
-             *     - đã **đặt hàng vãng lai** → tra đơn bằng mã đơn + số điện thoại
+             *     Trường hợp "đã đặt hàng vãng lai" KHÔNG còn trả `409` từ 07/09
+             *     (P3-15): nó trả `201` kèm `email_verification_required: true`.
              */
             409: {
                 headers: {
@@ -3803,6 +3853,74 @@ export interface operations {
             };
             422: components["responses"]["UnprocessableEntity"];
             /** @description Vượt giới hạn tần suất. Header `Retry-After` cho biết chờ bao lâu. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    verifyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Token nguyên văn lấy từ liên kết trong thư. */
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Đã xác minh email. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        email: string;
+                        /**
+                         * @description Hồ sơ khách vãng lai có sẵn vừa được gắn vào tài khoản.
+                         *     Thường `false`: khách vãng lai KHÔNG có hồ sơ, lịch sử
+                         *     của họ nằm ở các ĐƠN — xem `orders_merged`.
+                         */
+                        profile_merged?: boolean;
+                        /**
+                         * @description SỐ ĐƠN cũ vừa về với khách — thứ họ thật sự chờ.
+                         *
+                         *     Trả con số chứ không chỉ true/false: "đã tìm thấy 3 đơn
+                         *     cũ" là câu khách kiểm chứng được ngay.
+                         */
+                        orders_merged?: number;
+                    };
+                };
+            };
+            /**
+             * @description Token không hợp lệ, đã dùng, hoặc đã hết hạn.
+             *
+             *     **MỘT thông báo cho cả ba**, có chủ ý: phân biệt chúng cho kẻ dò
+             *     biết token nào TỪNG có thật, và từ đó biết email nào đang chờ xác
+             *     minh. Thông báo vẫn nêu hành động cần làm ("yêu cầu gửi lại"), vì
+             *     người dùng thật gặp lỗi này chủ yếu do liên kết quá 24 giờ.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Vượt giới hạn tần suất. */
             429: {
                 headers: {
                     [name: string]: unknown;

@@ -30,6 +30,17 @@ type fakeRepo struct{ orders []*domain.Order }
 
 var _ domain.Repository = (*fakeRepo)(nil)
 
+// GanDonVangLai không dùng trong các bài ở đây — bản giả chỉ cần thoả
+// interface. Trả 0 chứ không panic: một bản giả panic ở phương thức không
+// liên quan làm bài test đỏ vì lý do sai.
+func (f *fakeRepo) GanDonVangLai(
+	context.Context, string, ids.ID,
+) (int, error) {
+	return 0, nil
+}
+
+func (f *fakeRepo) DemDonVangLai(context.Context, string) (int, error) { return 0, nil }
+
 func (r *fakeRepo) Save(_ context.Context, o *domain.Order) error {
 	r.orders = append(r.orders, o)
 	return nil

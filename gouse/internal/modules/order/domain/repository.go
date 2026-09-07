@@ -15,6 +15,18 @@ import (
 // Đơn thực hiện KHÔNG nằm ở đây — chúng thuộc module fulfillment, được tạo
 // khi module đó nghe event `checkout.completed`.
 type Repository interface {
+	// GanDonVangLai gắn đơn VÃNG LAI của một email vào hồ sơ khách.
+	//
+	// CHỈ đụng đơn có `customer_id` RỖNG: đơn đã thuộc về một khách khác
+	// KHÔNG được chuyển chủ, kể cả khi trùng email. Trả về SỐ ĐƠN đã đổi.
+	//
+	// CHỈ được gọi sau khi đã xác minh quyền sở hữu email (P3-15) — đơn
+	// hàng chứa địa chỉ nhà và số điện thoại người nhận.
+	GanDonVangLai(ctx context.Context, guestEmail string, customerID ids.ID) (int, error)
+
+	// DemDonVangLai đếm đơn vãng lai của một email.
+	DemDonVangLai(ctx context.Context, guestEmail string) (int, error)
+
 	// Save lưu đơn hàng mới.
 	//
 	// KHÔNG ghi đơn thực hiện: chúng thuộc module fulfillment, và module

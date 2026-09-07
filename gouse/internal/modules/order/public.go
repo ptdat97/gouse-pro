@@ -37,6 +37,24 @@ type API interface {
 	// trước khi gửi email xác nhận hay trừ tiền.
 	PlaceOrder(ctx context.Context, req PlaceOrderRequest) (*PlaceOrderResult, error)
 
+	// GanDonVangLaiChoKhach gắn mọi đơn VÃNG LAI của một email vào hồ sơ khách.
+	//
+	// # Vì sao đây mới là "gộp lịch sử", không phải việc gắn hồ sơ
+	//
+	// Đơn của khách vãng lai nằm ở `order` với `guest_email` và `customer_id`
+	// RỖNG — không có hồ sơ khách hàng nào được tạo cho họ. Đo trên database
+	// phát triển ngày 07/09: 0 hồ sơ vãng lai, 3150 đơn vãng lai.
+	//
+	// Nên gắn hồ sơ vào tài khoản KHÔNG mang lại lịch sử nào; thứ phải đổi chủ
+	// là các ĐƠN.
+	//
+	// CHỈ được gọi SAU khi đã xác minh quyền sở hữu email (P3-15). Đơn hàng
+	// chứa địa chỉ nhà và số điện thoại người nhận.
+	//
+	// Trả về SỐ ĐƠN đã gắn — bên gọi dùng để nói với khách "đã tìm thấy N đơn
+	// cũ", và để ghi log khi con số bất thường.
+	GanDonVangLaiChoKhach(ctx context.Context, guestEmail, customerID string) (int, error)
+
 	// ResolveViewableOrder phân giải mã đơn VÀ kiểm tra quyền xem.
 	//
 	// # Vì sao là hàm CỦA MODULE ORDER, không phải của bên hỏi

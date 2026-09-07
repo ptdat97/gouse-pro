@@ -2579,7 +2579,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-12 | Phân trang theo KHÓA thay vì offset | ✅ xong — xem ghi chú dưới bảng |
 | P3-13 | **Dữ liệu mẫu MUA ĐƯỢC**: seed cho offer + tồn kho | ✅ xong — xem ghi chú dưới bảng |
 | P3-14 | **Tùy chọn khách hàng** (số đo cơ thể, size ưa thích) | Cần thiết kế lưu trữ MÃ HÓA trước; đặc tả tự yêu cầu điều đó |
-| P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | Chặn P1.9: khách từng đặt hàng vãng lai chưa đăng ký được bằng email đó |
+| P3-15 | **Xác minh email** → mở đường gộp lịch sử đơn vãng lai | ✅ xong (07/09) — và lộ ra rằng "lịch sử" nằm ở ĐƠN chứ không ở hồ sơ. Xem ghi chú dưới bảng |
 | P3-16 | Bộ đếm tần suất DÙNG CHUNG giữa các tiến trình | Bộ đếm hiện nằm trong bộ nhớ; N bản sao = N lần hạn mức |
 | P3-17 | SLA cho đơn thực hiện | Đặc tả khai báo `sla_deadline`; domain chưa có khái niệm này |
 | P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
@@ -2707,6 +2707,69 @@ không ai đọc, và không ai biết nó không được đọc.
 hỏi (áp trên tổng đơn hay trên từng nhà bán?) và khuyến nghị "tổng đơn",
 nhưng khuyến nghị không phải quyết định — đây là quyết định kinh doanh của
 chủ dự án.
+
+**P3-15 — đã xong (07/09), và nó lộ ra một giả định SAI đã nằm trong
+docs từ đầu.**
+
+Ngõ cụt ban đầu: khách đặt hàng vãng lai bằng email X rồi KHÔNG đăng ký
+được bằng chính email đó. Từ chối là ĐÚNG khi chưa có cách chứng minh
+quyền sở hữu email — đơn hàng chứa địa chỉ nhà và số điện thoại người
+nhận — nhưng nó không để lại đường nào đi tiếp.
+
+**Cách sửa: TÁCH hai việc.** Tạo tài khoản làm ngay; gộp lịch sử chờ tới
+khi khách bấm liên kết trong hộp thư. Bấm được liên kết là bằng chứng đọc
+được hộp thư đó.
+
+**`User.VerifyEmail` là mã chết THỨ BA tìm thấy theo cùng một cách** — sau
+`Order.MarkPaid` (PH-36) và `Checkout.SetTax` (PH-40). Cả ba đều tồn tại
+đủ mọi tầng và không ai gọi. Đáng ghi thành một hình dạng để nhận ra sớm:
+**một phương thức domain không có bên gọi nào ngoài test là một tính năng
+đã dựng một nửa rồi bỏ dở.**
+
+**GIẢ ĐỊNH SAI mà việc cài đặt lộ ra.** Cả backlog lẫn `customer.md` đều
+mô tả "hồ sơ vãng lai chứa lịch sử mua hàng", và bản đầu của tôi gộp đúng
+thứ đó — gắn `customer.user_id`. Chạy trên database phát triển thì `đã gộp
+hồ sơ = false` và khách vẫn không thấy đơn nào.
+
+Đo lại mới thấy:
+
+```text
+hồ sơ khách vãng lai (user_id rỗng)          0
+đơn vãng lai (customer_id rỗng, có email)  3150
+```
+
+`EnsureByEmail` — hàm tạo hồ sơ cho khách vãng lai — **không có bên gọi
+nào** trong toàn hệ thống. Nghĩa là hồ sơ vãng lai chưa từng tồn tại, và
+quyết định bảo mật "email đã đặt hàng thì TỪ CHỐI đăng ký" đang bảo vệ một
+trạng thái không xảy ra.
+
+Lịch sử thật nằm ở `order.guest_email`. Nên phần gộp phải chuyển chủ các
+ĐƠN, và `RegisterShopper` phải hỏi `order` chứ không tra hồ sơ.
+
+**Ba lớp bảo vệ, mỗi lớp có phá để kiểm chứng:**
+
+```text
+token băm SHA-256, không lưu nguyên văn
+token DÙNG MỘT LẦN     hai lớp: domain + `used_at IS NULL` ở lệnh ghi
+hết hạn 24 giờ
+chỉ đụng đơn customer_id RỖNG
+```
+
+Phá `customer_id = ''` khỏi mệnh đề WHERE: bài API một-khách VẪN XANH.
+Phải thêm bài có hai chủ mới đỏ — *"chuyển 2 đơn, mong đúng 1 — con số 2
+nghĩa là đã CƯỚP đơn của khách cus_…"*. Lần thứ ba trong tuần một bài test
+xanh vì DỮ LIỆU DỄ chứ không vì code đúng.
+
+Phá riêng lớp domain của "dùng một lần" cũng xanh — lệnh ghi bắt được.
+Phải bỏ CẢ HAI mới đỏ.
+
+**Kiểm trên hệ thống THẬT:** hai đơn vãng lai → đăng ký bằng chính email
+đó (`email_verification_required = true`, hai đơn VẪN vô chủ) → bấm liên
+kết lấy từ thân thư đã gửi → `orders_merged = 2`, 0 đơn vô chủ.
+
+**Còn nợ:** chưa có endpoint GỬI LẠI liên kết. Hết 24 giờ mà chưa bấm thì
+hiện chưa có đường tự phục hồi — cùng loại ngõ cụt mà P3-15 vừa xóa, chỉ
+hẹp hơn. Nên làm ngay sau.
 
 **P3-10 — đã xong (06/09).** Dòng cũ ghi "cần cả bốn module thật" và đó
 chính là thứ đã giữ mục này mở suốt từ trước P1.3. Không cần: `offerLookup`

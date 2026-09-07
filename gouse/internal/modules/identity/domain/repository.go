@@ -127,3 +127,26 @@ type TokenGenerator interface {
 	// HashToken băm một token có sẵn, để tra cứu.
 	HashToken(plain string) string
 }
+
+// EmailTokenRepository là PORT cho token xác minh email.
+type EmailTokenRepository interface {
+	// Create ghi một token mới.
+	Create(ctx context.Context, t *EmailToken) error
+
+	// FindByHash tra token theo BĂM.
+	//
+	// Nhận băm chứ không nhận bản nguyên văn: tầng dưới không cần biết
+	// token thật, và một bản nguyên văn đi sâu vào hệ thống là một bản
+	// nguyên văn có thể lọt vào log.
+	FindByHash(ctx context.Context, hash string) (*EmailToken, error)
+
+	// MarkUsed ghi nhận token đã dùng.
+	MarkUsed(ctx context.Context, t *EmailToken) error
+
+	// InvalidateForUser vô hiệu mọi token CHƯA dùng của một tài khoản.
+	//
+	// Gọi trước khi phát token mới: hai liên kết còn sống cùng lúc nghĩa
+	// là liên kết cũ trong hộp thư vẫn dùng được sau khi người dùng đã
+	// bấm "gửi lại".
+	InvalidateForUser(ctx context.Context, userID ids.ID, now time.Time) error
+}

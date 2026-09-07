@@ -27,6 +27,19 @@ type Module struct {
 	// chạy. Đó là chủ ý: hồ sơ khách hàng tồn tại độc lập với việc có tài
 	// khoản hay không (khách vãng lai cũng có hồ sơ).
 	identity identity.API
+
+	// orders chuyển chủ các ĐƠN vãng lai sau khi xác minh email (P3-15).
+	//
+	// nil thì xác minh vẫn chạy nhưng KHÔNG gộp được lịch sử — và
+	// `XacMinhEmailVaGop` nói ra điều đó qua `SoDonDaGop = 0`.
+	orders OrderPort
+
+	// notifier gửi thư xác minh email (P3-15).
+	//
+	// nil nghĩa là `GuiLienKetXacMinh` trả lỗi rõ. KHÔNG im lặng bỏ qua:
+	// một luồng xác minh mà thư không bao giờ tới là ngõ cụt giống hệt thứ
+	// P3-15 sinh ra để xóa bỏ.
+	notifier NotifierPort
 }
 
 var _ API = (*Module)(nil)
@@ -46,6 +59,16 @@ type Config struct {
 
 	// Identity tạo tài khoản đăng nhập ở đường ĐĂNG KÝ.
 	//
+	// Orders chuyển chủ các ĐƠN vãng lai sau khi xác minh email (P3-15).
+	//
+	// Đây mới là chỗ giữ lịch sử mua hàng: đơn vãng lai nằm ở `order` với
+	// `guest_email`, KHÔNG có hồ sơ khách hàng nào được tạo cho họ.
+	Orders OrderPort
+
+	// Notifier gửi thư XÁC MINH EMAIL (P3-15). Bỏ trống thì
+	// `GuiLienKetXacMinh` trả lỗi rõ thay vì im lặng không gửi gì.
+	Notifier NotifierPort
+
 	// Bỏ trống thì mọi thứ khác vẫn chạy, chỉ RegisterShopper trả lỗi —
 	// hồ sơ khách hàng không phụ thuộc việc có tài khoản (khách vãng lai
 	// cũng có hồ sơ).
@@ -71,7 +94,7 @@ func New(cfg Config) (*Module, error) {
 
 	pool := cfg.DB.Pool()
 
-	return &Module{identity: cfg.Identity, svc: application.NewService(application.Deps{
+	return &Module{identity: cfg.Identity, notifier: cfg.Notifier, orders: cfg.Orders, svc: application.NewService(application.Deps{
 		Customers: customerpg.NewCustomerStore(pool),
 		Addresses: customerpg.NewAddressStore(pool),
 		Consents:  customerpg.NewConsentStore(pool),
@@ -123,7 +146,13 @@ func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 func (m *Module) RegisterPublicRoutes(mux *http.ServeMux, log *slog.Logger) {
 	customerhttp.NewRegisterHandler(
 		&registerAdapter{m: m}, log,
-		identity.ErrDuplicateEmail, ErrEmailUsedByGuest, identity.ErrWeakPassword,
+		customerhttp.RegisterHandlerErrors{
+			DuplicateEmail:   identity.ErrDuplicateEmail,
+			EmailUsedByGuest: ErrEmailUsedByGuest,
+			WeakPassword:     identity.ErrWeakPassword,
+			TokenKhongHopLe:  identity.ErrTokenXacMinhKhongHopLe,
+			EmailDaDoi:       identity.ErrEmailDaDoiTuKhiGuiLienKet,
+		},
 	).Register(mux)
 }
 
@@ -148,8 +177,25 @@ func (a *registerAdapter) RegisterShopper(
 		return customerhttp.RegisterOutput{}, err
 	}
 	return customerhttp.RegisterOutput{
-		CustomerID: res.CustomerID,
-		UserID:     res.UserID,
+		CustomerID:      res.CustomerID,
+		UserID:          res.UserID,
+		CanXacMinhEmail: res.CanXacMinhEmail,
+	}, nil
+}
+
+func (a *registerAdapter) GuiLienKetXacMinh(ctx context.Context, userID string) error {
+	return a.m.GuiLienKetXacMinh(ctx, userID)
+}
+
+func (a *registerAdapter) XacMinhEmailVaGop(
+	ctx context.Context, token string,
+) (customerhttp.XacMinhOutput, error) {
+	res, err := a.m.XacMinhEmailVaGop(ctx, token)
+	if err != nil {
+		return customerhttp.XacMinhOutput{}, err
+	}
+	return customerhttp.XacMinhOutput{
+		Email: res.Email, DaGopHoSo: res.DaGopHoSo, SoDonDaGop: res.SoDonDaGop,
 	}, nil
 }
 
