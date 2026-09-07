@@ -22,6 +22,14 @@ import (
 // Module là cài đặt của API công khai.
 type Module struct {
 	svc *application.Service
+
+	// nguongBatTin đọc ngưỡng "im lặng bao lâu thì coi là mất tin".
+	//
+	// Giữ ở Module chứ không nhét vào `domain.Nguong`: bộ ngưỡng đó là
+	// của phép CHẤM ĐIỂM nhà bán, còn con số này là của phép đối chiếu
+	// vận hành. Trộn hai thứ lại sẽ có một trường mà phép chấm điểm không
+	// bao giờ dùng tới.
+	nguongBatTin func() time.Duration
 }
 
 var _ API = (*Module)(nil)
@@ -74,7 +82,10 @@ func New(cfg Config) (*Module, error) {
 		deps.Nguong = &nguongAdapter{cfg: cfg.OpsConfig}
 	}
 
-	return &Module{svc: application.NewService(deps)}, nil
+	return &Module{
+		svc:          application.NewService(deps),
+		nguongBatTin: nguongBatTinTu(cfg.OpsConfig),
+	}, nil
 }
 
 // Service trả về tầng application cho tầng interfaces của CHÍNH module này.
@@ -204,6 +215,39 @@ func (m *Module) CancelFulfillment(
 func (m *Module) CompleteDelivered(ctx context.Context, limit int) (int, error) {
 	n, err := m.svc.CompleteDelivered(ctx, limit)
 	return n, translateErr(err)
+}
+
+// DoiSoatGiaoHang trả danh sách gói hàng MẤT TIN từ đơn vị vận chuyển.
+//
+// Yêu cầu 5 của `api/paths/webhooks.yaml` — xem
+// `application.DoiSoatGiaoHang` về việc vì sao nó chỉ đọc.
+//
+// Ngưỡng đọc từ cấu hình vận hành tại MỖI lần chạy, không chụp lại lúc
+// khởi động: đổi tham số phải có tác dụng ở vòng chạy kế tiếp, không phải
+// sau lần khởi động lại kế tiếp.
+func (m *Module) DoiSoatGiaoHang(ctx context.Context, limit int) ([]GoiBatTinView, error) {
+	if m.nguongBatTin == nil {
+		return nil, ErrChuaNoiCauHinh
+	}
+	goi, err := m.svc.DoiSoatGiaoHang(ctx, m.nguongBatTin(), limit)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	out := make([]GoiBatTinView, 0, len(goi))
+	for _, g := range goi {
+		out = append(out, GoiBatTinView{
+			FulfillmentID: g.FulfillmentID.String(),
+			FONumber:      g.FONumber,
+			OrderID:       g.OrderID.String(),
+			SellerID:      g.SellerID.String(),
+			NhaVanChuyen:  g.NhaVanChuyen,
+			MaVanDon:      g.MaVanDon,
+			TrangThai:     g.TrangThai,
+			ShippedAt:     g.ShippedAt,
+			ImLang:        g.ImLang,
+		})
+	}
+	return out, nil
 }
 
 func (m *Module) step(
@@ -365,6 +409,15 @@ func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
 type nguongAdapter struct{ cfg *opsconfig.Store }
 
 var _ application.NguongPort = (*nguongAdapter)(nil)
+
+func nguongBatTinTu(cfg *opsconfig.Store) func() time.Duration {
+	if cfg == nil {
+		return nil
+	}
+	return func() time.Duration {
+		return cfg.DocThoiLuong(opsconfig.KeyNguongBatTinGiaoHang)
+	}
+}
 
 func (a *nguongAdapter) Nguong() domain.Nguong {
 	return domain.Nguong{

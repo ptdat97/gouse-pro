@@ -52,6 +52,8 @@ const (
 	KeyNguongGiaoDungHan = "fulfillment.min_on_time_rate"
 	KeyMauToiThieu       = "fulfillment.min_sample_size"
 
+	KeyNguongBatTinGiaoHang = "fulfillment.delivery_silence_hours"
+
 	KeyTranSoLuongSKU = "inventory.max_quantity_per_sku"
 
 	KeyThueSuat          = "checkout.tax_rate_bp"
@@ -109,6 +111,17 @@ var soDangKy = map[string]ThamSo{
 		MacDinh: 0.03, Min: 0, Max: 1,
 		MoTa:  "Tỷ lệ hủy đơn TỐI ĐA còn được coi là đạt.",
 		HeQua: "Ngưỡng chặt hơn làm nhiều gian hàng chuyển sang CẢNH BÁO.",
+	},
+	KeyNguongBatTinGiaoHang: {
+		Khoa: KeyNguongBatTinGiaoHang, Kieu: KieuThoiLuong,
+		MacDinh: 168, Min: 24, Max: 720,
+		MoTa: "Gói hàng đã bàn giao mà KHÔNG có cập nhật nào lâu hơn khoảng " +
+			"này thì bị coi là mất tin và đưa vào danh sách đi hỏi đơn vị " +
+			"vận chuyển. Đây là ngưỡng NGHI NGỜ, không phải hạn giao hàng.",
+		HeQua: "Hạ xuống thì bắt được webhook mất sớm hơn, nhưng những gói " +
+			"đang giao bình thường ở tuyến xa cũng bị gọi tên — và một " +
+			"cảnh báo luôn kêu thì không ai đọc. Nâng lên thì tiền của nhà " +
+			"bán nằm im lâu hơn trước khi có người phát hiện.",
 	},
 	KeyNguongGiaoDungHan: {
 		Khoa: KeyNguongGiaoDungHan, Kieu: KieuTyLe,

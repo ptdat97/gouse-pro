@@ -169,11 +169,31 @@ Module `fulfillment` **không biết tên nhà vận chuyển nào** trong domai
 ```text
 Hai cơ chế, cần cả hai:
 
-1. Webhook từ đối tác  → cập nhật thời gian thực
-2. Hỏi định kỳ         → phòng khi webhook mất
+1. Webhook từ đối tác  → cập nhật thời gian thực     ✅ đã cài
+2. Hỏi định kỳ         → phòng khi webhook mất       🟡 một nửa
 
 Yêu cầu: idempotent — cùng một cập nhật có thể đến hai lần
 ```
+
+**Trạng thái cơ chế 2 (07/09).** Nửa ĐI HỎI đối tác chưa cài: nó cần
+adapter của hãng vận chuyển thật, thứ chưa có. Nửa đã cài là nửa NỘI BỘ —
+hệ thống tự phát hiện gói im lặng bất thường mà không cần hỏi ai:
+
+```text
+job    "tìm gói hàng mất tin vận chuyển"   nhịp 1 giờ
+lọc    HANDED_OVER hoặc IN_TRANSIT, shipped_at cũ hơn ngưỡng
+ngưỡng fulfillment.delivery_silence_hours  (mặc định 168 giờ)
+ra     log WARN từng gói + gauge gouse_fulfillment_delivery_silent
+```
+
+Job **CHỈ ĐỌC**. Nó không đánh dấu đã giao: suy "chắc giao rồi" từ việc im
+lặng là bịa ra một sự kiện chưa xảy ra, và DELIVERED mở đường cho
+`CompleteDelivered` chuyển số dư nhà bán sang khả dụng — tức là chi tiền
+cho một lần giao hàng không ai xác nhận.
+
+Đó cũng là lý do việc này quan trọng hơn vẻ ngoài: gói kẹt ở HANDED_OVER
+không bao giờ tới COMPLETED, nên **tiền phải trả nhà bán nằm im vô thời
+hạn**. Xem P3-26 trong backlog.
 
 ---
 

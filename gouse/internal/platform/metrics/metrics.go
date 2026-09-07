@@ -233,6 +233,21 @@ var PaymentIntentChoThuQuaHan = prometheus.NewGauge(prometheus.GaugeOpts{
 	Help: "Số ý định thanh toán còn chờ thu và đã quá hạn.",
 })
 
+// GiaoHangBatTin là số gói đã bàn giao mà lâu rồi không có tin.
+//
+// KHÁC 0 là đáng xem, nhưng KHÔNG phải sự cố chắc chắn như
+// `PaymentLechDoiSoat`: một gói đi tuyến xa vẫn có thể im lặng lâu một
+// cách hợp lệ. Ngưỡng nằm ở `fulfillment.delivery_silence_hours` và chỉnh
+// được — chính vì phân định "bất thường" ở đây là việc của vận hành.
+//
+// Điều làm nó đáng theo dõi là hệ quả tiền: mỗi gói kẹt là một khoản phải
+// trả nhà bán bị giữ lại, vì số dư chỉ chuyển sang khả dụng khi đơn đi hết
+// DELIVERED → COMPLETED.
+var GiaoHangBatTin = prometheus.NewGauge(prometheus.GaugeOpts{
+	Name: "gouse_fulfillment_delivery_silent",
+	Help: "Số gói đã bàn giao mà quá lâu không có cập nhật từ đơn vị vận chuyển.",
+})
+
 // ---------------------------------------------------------------- Đăng ký
 
 func init() {
@@ -243,6 +258,7 @@ func init() {
 		WorkerJobDuration, WorkerJobFailures,
 		HandlerFailures, BusinessFailures, EventVersionSkew,
 		PaymentLechDoiSoat, PaymentIntentChoThuQuaHan,
+		GiaoHangBatTin,
 
 		// Chỉ số của chính tiến trình Go: số goroutine, bộ nhớ, GC.
 		//

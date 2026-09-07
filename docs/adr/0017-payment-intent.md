@@ -168,9 +168,10 @@ thay đổi lớn hơn ADR này và động tới cả COD.
   chuyển ghi nhận sang lúc thu tiền, mà điều đó động tới cả COD (tiền về
   lúc giao hàng, không phải lúc đặt) — việc lớn hơn hẳn, và là quyết định
   của chủ dự án. **Ghi vào backlog, không giấu.**
-- Chưa có job đối chiếu định kỳ, nên webhook MẤT vẫn để đơn treo. Yêu cầu
-  5 của `webhooks.yaml` vì vậy vẫn chưa đạt — giống hệt webhook vận
-  chuyển, và cần làm cho cả hai cùng lúc.
+- Yêu cầu 5 của `webhooks.yaml` đạt MỘT NỬA. Nửa nội bộ — hệ thống tự
+  phát hiện bất nhất mà không cần hỏi ai — nay có ở cả hai webhook. Nửa
+  ĐI HỎI nhà cung cấp vẫn thiếu, và nó là nửa duy nhất phân biệt được
+  "webhook mất" với "nhà cung cấp chưa gửi".
 - `provider_intent_id` để trống cho tới khi có PSP thật, nên hôm nay
   webhook phải tra intent bằng mã nội bộ. Đó là đường mà PSP thật sẽ
   không dùng.
@@ -209,6 +210,8 @@ lúc đó nó đang chạy thật.
 ✅ Webhook + ba lớp bảo vệ              internal/modules/payment/interfaces/http
 ✅ Thu tiền → MarkPaid + event
 ✅ Test: lệch số tiền bị TỪ CHỐI
-⬜ Job đối chiếu định kỳ (yêu cầu 5)    chung với webhook vận chuyển
+🟡 Job đối chiếu định kỳ (yêu cầu 5)    nửa NỘI BỘ xong cho CẢ HAI webhook
+                                       (thanh toán 06/09, vận chuyển 07/09);
+                                       nửa ĐI HỎI nhà cung cấp vẫn thiếu
 ⬜ Adapter PSP thật                     chưa có nhà cung cấp
 ```

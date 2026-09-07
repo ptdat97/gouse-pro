@@ -70,6 +70,20 @@ type Repository interface {
 	// danh sách này là tiền của seller đang bị giữ lại chờ hết hạn đổi trả.
 	ListDeliveredBefore(ctx context.Context, before time.Time, limit int) ([]*FulfillmentOrder, error)
 
+	// ListDangGiaoTruoc lấy gói hàng ĐANG TRÊN ĐƯỜNG mà bàn giao trước
+	// một mốc thời gian.
+	//
+	// Đầu vào của phép đối chiếu giao hàng (yêu cầu 5 của
+	// `api/paths/webhooks.yaml`). Lọc theo `shipped_at` chứ không theo
+	// `updated_at`: mốc bàn giao là thứ KHÔNG đổi, nên cùng một câu truy
+	// vấn chạy hai lần cho cùng một tập — còn `updated_at` nhúc nhích vì
+	// những lý do không liên quan và sẽ làm gói hàng trượt ra khỏi danh
+	// sách rồi quay lại.
+	//
+	// Sắp xếp theo `shipped_at` tăng dần: gói im lặng lâu nhất được xem
+	// trước, vì đó là gói khả năng mất tin cao nhất.
+	ListDangGiaoTruoc(ctx context.Context, before time.Time, limit int) ([]*FulfillmentOrder, error)
+
 	// ExistsForOrder cho biết đơn hàng này đã được tách chưa.
 	//
 	// Dùng cho idempotency: event `checkout.completed` có thể được phát

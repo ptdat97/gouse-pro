@@ -286,6 +286,26 @@ func (s *FulfillmentStore) ListDeliveredBefore(
 		 LIMIT $2`, before, limitOr(limit, 100))
 }
 
+// ListDangGiaoTruoc lấy gói ĐANG TRÊN ĐƯỜNG bàn giao trước một mốc.
+//
+// Hai trạng thái phải khớp `domain.DangTrenDuong`. Chúng được viết thẳng
+// vào SQL vì bộ lọc phải chạy trong database — kéo cả bảng về rồi lọc
+// bằng Go sẽ đọc hàng nghìn dòng để lấy vài chục.
+//
+// DELIVERY_FAILED KHÔNG nằm trong danh sách: đó là tin đã về, không phải
+// mất tin. Xem `domain.BatTinGiaoHang`.
+func (s *FulfillmentStore) ListDangGiaoTruoc(
+	ctx context.Context, before time.Time, limit int,
+) ([]*domain.FulfillmentOrder, error) {
+	return s.queryFOs(ctx, `SELECT`+foCols+`
+		  FROM fulfillment_order
+		 WHERE status IN ('HANDED_OVER', 'IN_TRANSIT')
+		   AND shipped_at IS NOT NULL
+		   AND shipped_at < $1
+		 ORDER BY shipped_at
+		 LIMIT $2`, before, limitOr(limit, 100))
+}
+
 func (s *FulfillmentStore) ListByOrder(
 	ctx context.Context, orderID ids.ID,
 ) ([]*domain.FulfillmentOrder, error) {

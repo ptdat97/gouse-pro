@@ -44,6 +44,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 	"github.com/fashion-commerce/platform/internal/platform/metrics"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 var version = "dev"
@@ -124,6 +125,22 @@ const (
 	doiSoatThanhToanCuaSo = time.Hour
 
 	doiSoatThanhToanBatch = 500
+
+	// doiSoatGiaoHangInterval là nhịp tìm gói hàng mất tin vận chuyển.
+	//
+	// Một giờ, thưa hơn hẳn đối soát thanh toán, vì đại lượng đo được tính
+	// bằng NGÀY: ngưỡng mặc định là 168 giờ im lặng. Chạy dày hơn chỉ in
+	// lại cùng một danh sách nhanh hơn — và một cảnh báo lặp lại mỗi năm
+	// phút là cách chắc chắn nhất để người trực học cách bỏ qua nó.
+	doiSoatGiaoHangInterval = time.Hour
+
+	// doiSoatGiaoHangBatch chặn số dòng một lượt chạy in ra.
+	//
+	// Nhỏ hơn hẳn các batch khác, có chủ ý: mỗi dòng ở đây là một việc
+	// cần NGƯỜI đi hỏi đơn vị vận chuyển, không phải một bản ghi được xử
+	// lý tự động. Một sự cố kéo dài mà đổ ra hàng nghìn dòng thì không ai
+	// xử lý nổi, và chỉ số gauge vẫn cho biết quy mô thật.
+	doiSoatGiaoHangBatch = 100
 
 	// intentChoThuQuaHan là mốc coi một ý định thanh toán là "quá hạn".
 	//
@@ -297,10 +314,22 @@ func run() error {
 
 	// fulfillment là GÓC NHÌN VẬN HÀNH của đơn hàng: nó tách đơn theo nguồn
 	// hàng và theo dõi tiến trình giao.
+	// Tham số vận hành cho worker.
+	//
+	// API đã có store riêng (internal/app); đây là tiến trình KHÁC nên nó
+	// cần store của mình. Hai bộ đệm đọc cùng một bảng, nên đổi tham số
+	// qua API có tác dụng ở worker sau lần làm mới bộ đệm kế tiếp.
+	//
+	// Không có nó thì job đối chiếu giao hàng báo lỗi "chưa nối cấu hình
+	// vận hành" mỗi lượt — và nó BÁO thay vì lặng lẽ trả rỗng, đúng như
+	// `fulfillment.ErrChuaNoiCauHinh` mô tả.
+	opsConfigStore := opsconfig.NewStore(ctx, db.Pool())
+
 	fulfillmentModule, err := fulfillment.New(fulfillment.Config{
-		Storage: "postgres",
-		DB:      db,
-		Events:  eventbus.NewOutbox(db.Pool()),
+		Storage:   "postgres",
+		DB:        db,
+		Events:    eventbus.NewOutbox(db.Pool()),
+		OpsConfig: opsConfigStore,
 	})
 	if err != nil {
 		return err
@@ -431,6 +460,11 @@ func run() error {
 			name:     "đối soát tiền đã thu với trạng thái đơn",
 			interval: doiSoatThanhToanInterval,
 			run:      doiSoatThanhToan(paymentModule, orderModule, log),
+		},
+		{
+			name:     "tìm gói hàng mất tin vận chuyển",
+			interval: doiSoatGiaoHangInterval,
+			run:      doiSoatGiaoHang(fulfillmentModule, log),
 		},
 	}
 
@@ -963,6 +997,60 @@ func doiSoatThanhToan(
 		}
 		metrics.PaymentIntentChoThuQuaHan.Set(float64(quaHan))
 
+		return nil
+	}
+}
+
+// doiSoatGiaoHang tìm gói hàng đã bàn giao mà lâu rồi không có tin.
+//
+// Yêu cầu 5 của `api/paths/webhooks.yaml`, nửa nội bộ — xem
+// `fulfillment.API.DoiSoatGiaoHang`. Nửa còn lại (đi HỎI hãng vận chuyển)
+// cần adapter thật, chưa có.
+//
+// Job này KHÔNG sửa gì. Nó chỉ làm cho một webhook mất thôi không còn vô
+// hình: trước nó, thứ duy nhất phát hiện được là có người tình cờ mở đơn
+// ra xem.
+func doiSoatGiaoHang(
+	ful *fulfillment.Module, log *slog.Logger,
+) func(context.Context) error {
+	return func(ctx context.Context) error {
+		if ful == nil {
+			return nil
+		}
+
+		goi, err := ful.DoiSoatGiaoHang(ctx, doiSoatGiaoHangBatch)
+		if err != nil {
+			return fmt.Errorf("đối soát giao hàng: %w", err)
+		}
+
+		metrics.GiaoHangBatTin.Set(float64(len(goi)))
+		if len(goi) == 0 {
+			return nil
+		}
+
+		// Mức WARN, không phải ERROR: khác đối soát thanh toán, ở đây CÓ
+		// ca hợp lệ — một gói đi tuyến xa im lặng lâu hơn thường lệ. Dùng
+		// ERROR cho một thứ đôi khi kêu oan là cách làm hỏng ý nghĩa của
+		// ERROR ở mọi chỗ khác.
+		for _, g := range goi {
+			log.Warn("gói hàng MẤT TIN vận chuyển — cần đi hỏi đơn vị vận chuyển",
+				"fulfillment_id", g.FulfillmentID, "fo_number", g.FONumber,
+				"order_id", g.OrderID, "seller_id", g.SellerID,
+				"nha_van_chuyen", g.NhaVanChuyen, "ma_van_don", g.MaVanDon,
+				"trang_thai", g.TrangThai,
+				"ban_giao_luc", g.ShippedAt.Format(time.RFC3339),
+				"im_lang_gio", int(g.ImLang.Hours()),
+				"goi_y", "tra mã vận đơn trên hệ thống hãng vận chuyển rồi "+
+					"cập nhật tay; KHÔNG tự đánh dấu đã giao")
+		}
+
+		// Tiền đang bị giữ lại vì những gói này — nói ra bằng số, vì đó là
+		// thứ khiến việc được ưu tiên.
+		log.Warn("số gói mất tin vận chuyển",
+			"so_luong", len(goi),
+			"het_batch", len(goi) == doiSoatGiaoHangBatch,
+			"anh_huong", "mỗi gói là một khoản phải trả nhà bán chưa chuyển "+
+				"sang khả dụng")
 		return nil
 	}
 }

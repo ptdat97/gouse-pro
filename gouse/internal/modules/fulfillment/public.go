@@ -26,6 +26,7 @@ package fulfillment
 
 import (
 	"context"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
@@ -86,6 +87,40 @@ type API interface {
 	// Chạy sớm nghĩa là trả tiền cho seller trước khi biết khách có hoàn
 	// hàng không — và tiền đã chi thì đòi lại rất khó.
 	CompleteDelivered(ctx context.Context, limit int) (int, error)
+
+	// DoiSoatGiaoHang trả các gói đã bàn giao mà lâu rồi không có tin.
+	//
+	// Yêu cầu 5 của `api/paths/webhooks.yaml`: "KHÔNG TIN TUYỆT ĐỐI — phải
+	// có đối chiếu định kỳ, vì webhook có thể mất."
+	//
+	// CHỈ ĐỌC, và đó là chủ ý. Mỗi gói trong danh sách này là một khoản
+	// phải trả nhà bán đang bị giữ lại: `CompleteDelivered` ở trên chỉ
+	// nhận đơn DELIVERED, nên một webhook mất là tiền nằm im vô thời hạn.
+	// Nhưng tự đánh dấu đã giao để gỡ kẹt là trả tiền cho một lần giao
+	// hàng không ai xác nhận — xem `application.DoiSoatGiaoHang`.
+	DoiSoatGiaoHang(ctx context.Context, limit int) ([]GoiBatTinView, error)
+}
+
+// GoiBatTinView là một gói hàng mất tin, mô tả đủ để đi hỏi ngay.
+//
+// Mốc thời gian ở đây là `time.Time`, khác `FulfillmentView` dùng chuỗi
+// RFC3339. Có chủ ý: view kia đi ra HTTP nên phải đóng băng cách định
+// dạng, còn view này chỉ tới tiến trình nền — nơi cần so sánh và tính
+// khoảng thời gian, và nơi việc bắt Go chuyển chuỗi ngược lại là vô ích.
+type GoiBatTinView struct {
+	FulfillmentID string
+	FONumber      string
+	OrderID       string
+	SellerID      string
+
+	NhaVanChuyen string
+	MaVanDon     string
+
+	TrangThai string
+	ShippedAt time.Time
+
+	// ImLang là thời gian kể từ lần cuối có tin về gói hàng.
+	ImLang time.Duration
 }
 
 // ---------------------------------------------------------------- DTO
@@ -174,7 +209,21 @@ var (
 
 	// ErrForbidden khi seller thao tác trên đơn không phải của mình.
 	ErrForbidden = errForbidden{}
+
+	// ErrChuaNoiCauHinh khi bản dựng không có cấu hình vận hành.
+	//
+	// Báo lỗi thay vì lặng lẽ trả danh sách rỗng: một job đối chiếu không
+	// bao giờ tìm thấy gì trông y hệt một hệ thống khỏe mạnh. Đó chính là
+	// dạng hỏng mà công việc này sinh ra để bắt, nên nó không được phép
+	// tồn tại trong chính nó.
+	ErrChuaNoiCauHinh = errChuaNoiCauHinh{}
 )
+
+type errChuaNoiCauHinh struct{}
+
+func (errChuaNoiCauHinh) Error() string {
+	return "fulfillment: chưa nối cấu hình vận hành"
+}
 
 type errNotFound struct{}
 

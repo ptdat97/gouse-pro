@@ -2590,6 +2590,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
 | P3-24 | **"Khách mua được không" có BA câu trả lời khác nhau** | ✅ xong (06/09) — xem ghi chú dưới bảng |
 | P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ⛔ mở — hàng hóa chỉ vào hệ thống được qua seed. Xem ghi chú |
+| P3-26 | **Webhook vận chuyển MẤT thì không ai biết** (yêu cầu 5) | ✅ nửa nội bộ xong (07/09) — đo được 20 gói kẹt thật. Xem ghi chú |
 
 **P3-9 — phần GHI NHẬN đã xong (06/09); phần THU TIỀN vẫn chặn.**
 
@@ -3285,6 +3286,71 @@ lần thứ hai.
 Cái chặn thật là **không có đường NHẬP nào cả** — xem P3-25. Thêm
 `color_hex` vào hợp đồng API lúc này sẽ là **lần thứ bảy** của đúng dạng
 lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. Nên không thêm.
+
+**P3-26 — webhook vận chuyển mất thì không ai biết (07/09).**
+
+Yêu cầu 5 của `api/paths/webhooks.yaml` — "KHÔNG TIN TUYỆT ĐỐI — phải có
+đối chiếu định kỳ, vì webhook có thể mất" — đã được trả một nửa cho webhook
+THANH TOÁN hôm 06/09. Nửa vận chuyển thì chưa, dù đặc tả của chính endpoint
+đó nói rõ hơn: hệ thống dùng "hai cơ chế song song: webhook (thời gian
+thực) và hỏi định kỳ (phòng khi webhook mất)". Chỉ có cơ chế thứ nhất.
+
+**Đo trên dữ liệu thật trước khi viết dòng nào** (mục 8, bước 3):
+
+```text
+fulfillment_order   PENDING      3171
+                    HANDED_OVER    24   ← già nhất 18 ngày
+                    DELIVERED       0
+                    COMPLETED       0
+webhook_event       cong-tt         2   ← KHÔNG có webhook vận chuyển nào
+ledger_entry        ORDER_REVENUE 3106  ← chỉ một loại
+SELLER_PAYABLE      353.503.920 đ       ← chưa đồng nào được giải phóng
+settlement          0 dòng
+```
+
+Chuỗi hệ quả có thật, không phải suy đoán: `CompleteDelivered` chỉ nhận đơn
+DELIVERED, và nó là chỗ số dư nhà bán chuyển từ Pending sang Available. Gói
+kẹt ở HANDED_OVER ⇒ không bao giờ COMPLETED ⇒ tiền nhà bán nằm im vô thời
+hạn. Không có gì phát hiện được điều đó ngoài việc có người tình cờ mở đơn
+ra xem.
+
+**Làm nửa NỘI BỘ, cùng lý do với đối soát thanh toán.** Nửa ĐI HỎI cần
+adapter hãng vận chuyển thật (chưa có, như PSP ở ADR-0017). Nửa nội bộ là
+hệ thống TỰ BIẾT gói nào im lặng quá lâu — không thay được nửa kia, nhưng
+biến một webhook mất từ vô hình thành một dòng cảnh báo.
+
+**KHÔNG tự đánh dấu đã giao.** Cám dỗ rất thật vì nó gỡ kẹt tiền ngay, và
+đó chính là lý do phải viết ra: suy "chắc giao rồi" từ việc im lặng là bịa
+ra một sự kiện chưa xảy ra, mà ở đây nó bịa ra tiền — DELIVERED mở đường
+cho `CompleteDelivered` chi trả cho một lần giao hàng không ai xác nhận.
+Cùng nguyên tắc ADR-0017 phần 4: ghi nhận nghĩa là đã tin.
+
+Ngưỡng nằm ở `fulfillment.delivery_silence_hours` (mặc định 168 giờ), đọc
+lại MỖI lượt chạy chứ không chụp lúc khởi động. Mức log là WARN chứ không
+ERROR: khác đối soát thanh toán, ở đây CÓ ca hợp lệ (tuyến xa im lâu), và
+dùng ERROR cho thứ đôi khi kêu oan là cách làm hỏng ý nghĩa của ERROR ở mọi
+chỗ khác.
+
+**Hai điều chỉ chạy thật mới thấy:**
+
+1. Job đầu tiên báo `chưa nối cấu hình vận hành` — worker dựng module
+   fulfillment KHÔNG truyền `OpsConfig`, chỉ API mới truyền. Nếu hàm đã trả
+   danh sách rỗng cho êm thay vì báo lỗi thì job này sẽ báo "0 gói kẹt" mãi
+   mãi, và đó đúng là dạng hỏng nó sinh ra để bắt — hỏng ngay bên trong
+   chính nó. Đây là lý do `ErrChuaNoiCauHinh` tồn tại.
+2. Một lần phá — thêm `Deliver()` vào vòng lặp — LỌT qua cả sáu bài test
+   đang có. Quy tắc quan trọng nhất của tính năng lại là quy tắc không ai
+   kiểm. Đã bổ sung `TestDoiSoatKhongDuocTuDanhDauDaGiao`, đọc thẳng
+   `status` và `delivered_at` từ database.
+
+Chạy trên dữ liệu thật: **20 gói mất tin** (24 gói HANDED_OVER trừ 4 gói
+mới bàn giao dưới ngưỡng), im lặng lâu nhất 454 giờ, kèm mã vận đơn thật.
+`gouse_fulfillment_delivery_silent` = 20.
+
+Còn thiếu: nửa ĐI HỎI hãng vận chuyển. Nó là nửa duy nhất phân biệt được
+"webhook mất" với "hàng thật sự chưa đi tới đâu".
+
+---
 
 **P3-25 — toàn bộ phía GHI của product không có endpoint nào (07/09).**
 
