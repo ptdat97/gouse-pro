@@ -526,3 +526,21 @@ func translateErr(err error) error {
 	}
 	return err
 }
+
+// DaoButToan ghi bút toán ĐẢO cho một bút toán đã ghi sai.
+func (m *Module) DaoButToan(
+	ctx context.Context, entryID, lyDo, suaBoi string,
+) (*EntryView, error) {
+	id, err := ids.Parse(entryID, ids.PrefixLedgerEntry)
+	if err != nil {
+		return nil, ErrInvalidID
+	}
+	e, err := m.svc.DaoButToan(ctx, application.DaoButToanInput{
+		EntryID: id, LyDo: lyDo, SuaBoi: suaBoi,
+	})
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	v := toEntryView(e)
+	return &v, nil
+}

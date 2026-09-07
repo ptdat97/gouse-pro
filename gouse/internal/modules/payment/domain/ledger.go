@@ -370,6 +370,13 @@ func checkBalanced(lines []Line) error {
 
 // RestoreEntryParams dựng lại từ kho lưu trữ.
 type RestoreEntryParams struct {
+	// ReversesEntryID là bút toán gốc mà bút toán này đảo.
+	//
+	// Đọc lại được, không chỉ ghi xuống: một trường ghi mà không đọc là
+	// trường không ai kiểm chứng, và ở sổ cái nó là câu hỏi "bút toán kia
+	// còn hiệu lực không".
+	ReversesEntryID ids.ID
+
 	ID             ids.ID
 	Type           EntryType
 	ReferenceType  string
@@ -384,15 +391,16 @@ type RestoreEntryParams struct {
 // RestoreLedgerEntry dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
 func RestoreLedgerEntry(p RestoreEntryParams) *LedgerEntry {
 	return &LedgerEntry{
-		id:             p.ID,
-		entryType:      p.Type,
-		referenceType:  p.ReferenceType,
-		referenceID:    p.ReferenceID,
-		description:    p.Description,
-		idempotencyKey: p.IdempotencyKey,
-		lines:          p.Lines,
-		createdBy:      p.CreatedBy,
-		createdAt:      p.CreatedAt,
+		id:              p.ID,
+		entryType:       p.Type,
+		reversesEntryID: p.ReversesEntryID,
+		referenceType:   p.ReferenceType,
+		referenceID:     p.ReferenceID,
+		description:     p.Description,
+		idempotencyKey:  p.IdempotencyKey,
+		lines:           p.Lines,
+		createdBy:       p.CreatedBy,
+		createdAt:       p.CreatedAt,
 	}
 }
 

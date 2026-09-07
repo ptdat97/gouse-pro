@@ -566,3 +566,100 @@ func TestTinhChatButToanKep(t *testing.T) {
 		t.Errorf("%d bút toán không cân bằng", len(report.UnbalancedEntries))
 	}
 }
+
+// TestDaoNguocLamButToanHetHieuLuc — ADR-0018, bước dọn dữ liệu cũ.
+//
+// Sổ cái bất biến (ADR-0008) không cho xóa, nên "hủy" một bút toán ghi sai
+// là ghi một bút toán NGƯỢC CHIỀU. Kiểm chứng ở đây là: cộng cả hai lại,
+// MỌI tài khoản về đúng số dư trước đó.
+func TestDaoNguocLamButToanHetHieuLuc(t *testing.T) {
+	sellerID := ids.MustNew(ids.PrefixSeller)
+	orderID := ids.MustNew(ids.PrefixOrder)
+
+	goc, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
+		OrderID:         orderID,
+		GrossAmount:     vnd(300000),
+		SellerID:        sellerID,
+		SellerPayable:   vnd(270000),
+		PlatformRevenue: vnd(30000),
+		IdempotencyKey:  "rev-dao-1",
+		Now:             testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewOrderRevenueEntry: %v", err)
+	}
+
+	dao, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
+		Goc:            goc,
+		LyDo:           "ghi tiền mặt cho đơn chưa thu được tiền",
+		IdempotencyKey: "dao:" + goc.ID().String(),
+		Now:            testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewDaoNguocEntry: %v", err)
+	}
+
+	if dao.ReversesEntryID() != goc.ID() {
+		t.Errorf("bút toán đảo trỏ về %q, mong %q", dao.ReversesEntryID(), goc.ID())
+	}
+
+	// MỌI tài khoản phải về 0 sau khi cộng cả hai.
+	balances := domain.ComputeBalances([]*domain.LedgerEntry{goc, dao})
+	for key, b := range balances {
+		if b.Amount.Amount() != 0 {
+			t.Errorf("tài khoản %s còn %v sau khi đảo, mong 0", key, b.Amount)
+		}
+	}
+}
+
+// TestDaoNguocBATBUOCCoLyDo.
+//
+// Một khoản tiền biến mất khỏi sổ mà không ai giải thích được là đúng thứ
+// kiểm toán tồn tại để chặn.
+func TestDaoNguocBatBuocCoLyDo(t *testing.T) {
+	goc, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
+		OrderID:         ids.MustNew(ids.PrefixOrder),
+		GrossAmount:     vnd(100000),
+		PlatformRevenue: vnd(100000),
+		IdempotencyKey:  "rev-dao-2",
+		Now:             testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewOrderRevenueEntry: %v", err)
+	}
+
+	if _, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
+		Goc: goc, LyDo: "   ", IdempotencyKey: "k", Now: testNow,
+	}); err == nil {
+		t.Error("đảo bút toán KHÔNG có lý do phải bị chặn")
+	}
+}
+
+// TestKhongDaoMotButToanDAO.
+//
+// Đảo một bút toán đảo là quay về trạng thái ban đầu bằng đường vòng, và
+// nó làm chuỗi "cái nào còn hiệu lực" không đọc được nữa.
+func TestKhongDaoMotButToanDao(t *testing.T) {
+	goc, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
+		OrderID:         ids.MustNew(ids.PrefixOrder),
+		GrossAmount:     vnd(100000),
+		PlatformRevenue: vnd(100000),
+		IdempotencyKey:  "rev-dao-3",
+		Now:             testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewOrderRevenueEntry: %v", err)
+	}
+	dao, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
+		Goc: goc, LyDo: "sai", IdempotencyKey: "dao-1", Now: testNow,
+	})
+	if err != nil {
+		t.Fatalf("NewDaoNguocEntry: %v", err)
+	}
+
+	if _, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
+		Goc: dao, LyDo: "đổi ý", IdempotencyKey: "dao-2", Now: testNow,
+	}); err == nil {
+		t.Error("đảo một bút toán ĐẢO phải bị chặn")
+	}
+}

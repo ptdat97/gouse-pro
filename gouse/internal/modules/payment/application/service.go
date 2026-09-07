@@ -793,3 +793,60 @@ func (s *Service) GhiThuTienWith(
 	}
 	return e, nil
 }
+
+// DaoButToanInput là dữ liệu đảo một bút toán đã ghi sai.
+type DaoButToanInput struct {
+	// EntryID là bút toán GỐC cần đảo.
+	EntryID ids.ID
+
+	// LyDo BẮT BUỘC — xem domain.NewDaoNguocEntry.
+	LyDo string
+
+	SuaBoi string
+}
+
+// DaoButToan ghi bút toán ĐẢO cho một bút toán đã ghi sai.
+//
+// # Vì sao đây là thao tác NGUY HIỂM NHẤT trong hệ thống
+//
+// Nó là đường duy nhất làm một con số biến mất khỏi số dư. Chú thích của
+// `AppendWithAudit` đã nói: điều chỉnh sổ cái là thao tác duy nhất có thể
+// tạo ra tiền từ hư không nếu làm sai. Vì vậy:
+//
+//   - LÝ DO bắt buộc, và đi vào mô tả bút toán
+//   - mỗi bút toán chỉ đảo được MỘT lần, cưỡng chế bằng chỉ mục UNIQUE
+//     trên `reverses_entry_id` chứ không bằng câu SELECT ở đây
+//   - KHÔNG đảo một bút toán đảo
+//   - số tiền lấy nguyên từ bút toán gốc, không tính lại
+//
+// Idempotency key suy ra TỪ bút toán gốc, nên gọi lại hai lần cho cùng
+// một bút toán không sinh hai lần đảo.
+func (s *Service) DaoButToan(
+	ctx context.Context, in DaoButToanInput,
+) (*domain.LedgerEntry, error) {
+	goc, err := s.ledger.FindByID(ctx, in.EntryID)
+	if err != nil {
+		return nil, err
+	}
+
+	key := "dao:" + in.EntryID.String()
+	if cu, err := s.ledger.FindByIdempotencyKey(ctx, key); err == nil && cu != nil {
+		return cu, nil
+	}
+
+	e, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
+		Goc:            goc,
+		LyDo:           in.LyDo,
+		IdempotencyKey: key,
+		CreatedBy:      in.SuaBoi,
+		Now:            s.clock.Now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.ledger.Append(ctx, e); err != nil {
+		return nil, err
+	}
+	return e, nil
+}

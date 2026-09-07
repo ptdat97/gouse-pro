@@ -154,7 +154,8 @@ func (s *LedgerStore) ghi(
 
 const entryCols = `
 	id, entry_type, reference_type, reference_id,
-	description, idempotency_key, created_by, created_at`
+	description, idempotency_key, created_by, created_at,
+	reverses_entry_id`
 
 func (s *LedgerStore) FindByID(ctx context.Context, id ids.ID) (*domain.LedgerEntry, error) {
 	return s.findOne(ctx, `SELECT `+entryCols+` FROM ledger_entry WHERE id = $1`, id.String())
@@ -171,10 +172,12 @@ func (s *LedgerStore) findOne(ctx context.Context, q string, args ...any) (*doma
 	var (
 		p                    domain.RestoreEntryParams
 		id, entryType, refID string
+		daoCua               *string
 	)
 	err := s.q.QueryRow(ctx, q, args...).Scan(
 		&id, &entryType, &p.ReferenceType, &refID,
-		&p.Description, &p.IdempotencyKey, &p.CreatedBy, &p.CreatedAt)
+		&p.Description, &p.IdempotencyKey, &p.CreatedBy, &p.CreatedAt,
+		&daoCua)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -185,6 +188,9 @@ func (s *LedgerStore) findOne(ctx context.Context, q string, args ...any) (*doma
 	p.ID = ids.ID(id)
 	p.Type = domain.EntryType(entryType)
 	p.ReferenceID = ids.ID(refID)
+	if daoCua != nil {
+		p.ReversesEntryID = ids.ID(*daoCua)
+	}
 
 	lines, err := s.linesFor(ctx, p.ID)
 	if err != nil {
@@ -269,15 +275,20 @@ func (s *LedgerStore) findMany(
 		var (
 			h                    header
 			id, entryType, refID string
+			daoCua               *string
 		)
 		if err := rows.Scan(&id, &entryType, &h.p.ReferenceType, &refID,
-			&h.p.Description, &h.p.IdempotencyKey, &h.p.CreatedBy, &h.p.CreatedAt); err != nil {
+			&h.p.Description, &h.p.IdempotencyKey, &h.p.CreatedBy, &h.p.CreatedAt,
+			&daoCua); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("payment: đọc bút toán: %w", err)
 		}
 		h.p.ID = ids.ID(id)
 		h.p.Type = domain.EntryType(entryType)
 		h.p.ReferenceID = ids.ID(refID)
+		if daoCua != nil {
+			h.p.ReversesEntryID = ids.ID(*daoCua)
+		}
 		headers = append(headers, h)
 	}
 	if err := rows.Err(); err != nil {

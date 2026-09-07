@@ -44,6 +44,14 @@ type API interface {
 	// bút toán cân bằng · lý do có ý nghĩa · vết kiểm toán.
 	CreateLedgerAdjustment(ctx context.Context, req AdjustmentRequest) (*EntryView, error)
 
+	// DaoButToan ghi bút toán ĐẢO cho một bút toán đã ghi sai.
+	//
+	// Sổ cái bất biến (ADR-0008) không cho xóa, nên đây là đường DUY NHẤT
+	// làm một con số ghi nhầm hết hiệu lực. Cũng vì vậy nó là thao tác
+	// nguy hiểm nhất trong hệ thống: lý do BẮT BUỘC, mỗi bút toán chỉ đảo
+	// được một lần, và không đảo một bút toán đảo.
+	DaoButToan(ctx context.Context, entryID, lyDo, suaBoi string) (*EntryView, error)
+
 	// GetSellerBalance trả số dư của một nhà bán.
 	//
 	// Module seller gọi hàm này thay vì tự lưu số dư (quy tắc 4 của seller).
