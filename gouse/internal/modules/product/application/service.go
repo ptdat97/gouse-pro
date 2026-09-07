@@ -56,6 +56,33 @@ type CatalogPort interface {
 	// SizeChartExistsFor kiểm tra có bảng size cho (thương hiệu, loại sản
 	// phẩm) không.
 	SizeChartExistsFor(ctx context.Context, brandID ids.ID, productType string) (ids.ID, bool, error)
+
+	// GetSizeChart lấy bảng size theo định danh, kèm SỐ ĐO THỰC TẾ.
+	//
+	// found=false khi bảng size không còn tồn tại. Đó KHÔNG phải lỗi: sản
+	// phẩm vẫn bán được, chỉ là trang thiếu bảng số đo.
+	GetSizeChart(ctx context.Context, id ids.ID) (chart SizeChartInfo, found bool, err error)
+}
+
+// SizeChartInfo là bảng size mà product lấy từ catalog để hiển thị.
+//
+// Đây là kiểu RIÊNG của product, không phải catalog.SizeChartView: tầng
+// application không được import module khác (quy tắc R1). Adapter ở
+// module.go dịch giữa hai kiểu.
+type SizeChartInfo struct {
+	ID      string
+	System  string
+	Note    string
+	Entries []SizeChartEntryInfo
+}
+
+// SizeChartEntryInfo là một dòng trong bảng size.
+//
+// Measurements dùng map vì số đo khác nhau theo loại sản phẩm: áo có
+// chest_cm, quần có waist_cm, giày có foot_length_cm.
+type SizeChartEntryInfo struct {
+	Size         string
+	Measurements map[string]string
 }
 
 // Service là tầng application của module product.
@@ -375,6 +402,33 @@ func (s *Service) changeStatus(
 
 func (s *Service) GetProduct(ctx context.Context, id ids.ID) (*domain.Product, error) {
 	return s.products.FindByID(ctx, id)
+}
+
+// SizeChartOf lấy bảng size của một sản phẩm để hiển thị trên trang chi tiết.
+//
+// # Vì sao nó đáng một lời gọi sang catalog
+//
+// Sai size là nguyên nhân hoàn hàng SỐ MỘT trong thời trang
+// (docs/01-business/kpi.md mục 3), và `api/paths/storefront.yaml` hứa đúng
+// trường này ở chi tiết sản phẩm. Không có endpoint bảng size nào khác, nên
+// nếu ở đây không trả thì khách KHÔNG có đường nào tới số đo.
+//
+// Chỉ dùng cho CHI TIẾT (một sản phẩm, một lời gọi). Danh sách sản phẩm
+// không gọi — ở đó nó thành N+1 và đặc tả cũng không khai trường này.
+//
+// Bảng size thiếu trả về nil, không trả lỗi: xem ghi chú ở CatalogPort.
+func (s *Service) SizeChartOf(ctx context.Context, p *domain.Product) (*SizeChartInfo, error) {
+	if p == nil || p.SizeChartID().IsZero() {
+		return nil, nil
+	}
+	chart, found, err := s.catalog.GetSizeChart(ctx, p.SizeChartID())
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	return &chart, nil
 }
 
 func (s *Service) GetProductBySlug(ctx context.Context, slug string) (*domain.Product, error) {

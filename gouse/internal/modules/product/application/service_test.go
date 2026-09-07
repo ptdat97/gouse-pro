@@ -32,6 +32,10 @@ type fakeCatalog struct {
 	sizeChartID   ids.ID
 	sizeChartOK   bool
 	sellCallCount int
+
+	chart         *application.SizeChartInfo
+	chartErr      error
+	getChartCount int
 }
 
 func (f *fakeCatalog) BrandExists(context.Context, ids.ID) (bool, error) {
@@ -45,6 +49,17 @@ func (f *fakeCatalog) CanSellerSellBrand(context.Context, ids.ID, ids.ID) (bool,
 
 func (f *fakeCatalog) SizeChartExistsFor(context.Context, ids.ID, string) (ids.ID, bool, error) {
 	return f.sizeChartID, f.sizeChartOK, nil
+}
+
+func (f *fakeCatalog) GetSizeChart(context.Context, ids.ID) (application.SizeChartInfo, bool, error) {
+	f.getChartCount++
+	if f.chartErr != nil {
+		return application.SizeChartInfo{}, false, f.chartErr
+	}
+	if f.chart == nil {
+		return application.SizeChartInfo{}, false, nil
+	}
+	return *f.chart, true, nil
 }
 
 func newCatalogOK() *fakeCatalog {
@@ -576,5 +591,55 @@ func TestTimKiemKhongLoHangChuaDuyet(t *testing.T) {
 	// Và vì khách không thấy gì, đây VẪN là nhu cầu không được đáp ứng.
 	if len(sig.queries) != 1 {
 		t.Errorf("phải ghi tín hiệu khi khách không thấy gì, nhận %d", len(sig.queries))
+	}
+}
+
+// TestSizeChartOfKhongCoBangSizeTraNil kiểm tra sản phẩm không gắn bảng size.
+//
+// Túi và phụ kiện không cần bảng size (ProductType.NeedsSizeChart). Với
+// chúng KHÔNG được gọi sang catalog: một lời gọi chắc chắn không ra gì là
+// độ trễ thừa trên mọi trang phụ kiện.
+func TestSizeChartOfKhongCoBangSizeTraNil(t *testing.T) {
+	cat := newCatalogOK()
+	svc := newService(t, cat)
+
+	in := baseInput()
+	in.ProductType = domain.ProductTypeBag
+	in.SizeChartID = ""
+	p, err := svc.CreateProduct(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+
+	chart, err := svc.SizeChartOf(context.Background(), p)
+	if err != nil {
+		t.Fatalf("SizeChartOf lỗi: %v", err)
+	}
+	if chart != nil {
+		t.Errorf("chart = %+v, mong nil khi sản phẩm không gắn bảng size", chart)
+	}
+	if cat.getChartCount != 0 {
+		t.Errorf("gọi catalog %d lần, mong 0", cat.getChartCount)
+	}
+}
+
+// TestSizeChartOfLoiCatalogTraLoi kiểm tra lỗi được ĐẨY LÊN, không nuốt.
+//
+// Tầng application không tự quyết định "thiếu bảng size thì thôi" — đó là
+// quyết định trình bày và nó nằm ở handler. Nuốt lỗi ở đây sẽ khiến một
+// catalog hỏng trông y hệt một sản phẩm không có bảng size, và không ai
+// biết trang sản phẩm đang mất số đo.
+func TestSizeChartOfLoiCatalogTraLoi(t *testing.T) {
+	cat := newCatalogOK()
+	cat.chartErr = errors.New("catalog sập")
+	svc := newService(t, cat)
+
+	p, err := svc.CreateProduct(context.Background(), baseInput())
+	if err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+
+	if _, err := svc.SizeChartOf(context.Background(), p); err == nil {
+		t.Fatal("mong lỗi khi catalog hỏng, nhận nil")
 	}
 }

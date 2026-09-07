@@ -104,12 +104,15 @@ type skuSummary struct {
 }
 
 // sizeChart khớp common.yaml#/schemas/SizeChart.
+//
+// KHÔNG có `product_type`: đặc tả không khai, và chi tiết sản phẩm đã trả
+// `product_type` của chính nó ở cấp trên — bảng size luôn tra theo đúng
+// loại đó nên bản sao thứ hai chỉ tạo chỗ cho hai giá trị lệch nhau.
 type sizeChart struct {
-	ID          string           `json:"id,omitempty"`
-	ProductType string           `json:"product_type,omitempty"`
-	System      string           `json:"system,omitempty"`
-	Note        string           `json:"note,omitempty"`
-	Entries     []sizeChartEntry `json:"entries"`
+	ID      string           `json:"id,omitempty"`
+	System  string           `json:"system,omitempty"`
+	Note    string           `json:"note,omitempty"`
+	Entries []sizeChartEntry `json:"entries"`
 }
 
 type sizeChartEntry struct {

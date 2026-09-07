@@ -31,6 +31,20 @@ func (catalogOK) SizeChartExistsFor(context.Context, ids.ID, string) (ids.ID, bo
 	return "", false, nil
 }
 
+// GetSizeChart trả bảng size THẬT — có hệ size và số đo — vì đó chính là
+// thứ trang chi tiết phải chuyển tới khách.
+func (catalogOK) GetSizeChart(context.Context, ids.ID) (application.SizeChartInfo, bool, error) {
+	return application.SizeChartInfo{
+		ID:     "szc_test",
+		System: "ALPHA",
+		Note:   "Bảng size khác nhau theo thương hiệu",
+		Entries: []application.SizeChartEntryInfo{
+			{Size: "M", Measurements: map[string]string{"chest_cm": "96"}},
+			{Size: "L", Measurements: map[string]string{"chest_cm": "102"}},
+		},
+	}, true, nil
+}
+
 func newServer(t *testing.T) (*http.ServeMux, *application.Service) {
 	t.Helper()
 	// Dựng service qua application, KHÔNG import infrastructure trực tiếp:
@@ -513,5 +527,49 @@ func TestQuaNhieuMaBiTuChoi(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("mã trạng thái = %d, mong 400", rec.Code)
+	}
+}
+
+// TestChiTietTraBangSize kiểm tra trang chi tiết trả BẢNG SIZE.
+//
+// # Vì sao đây là một test riêng, không gộp vào TestChiTietSanPhamKhopDacTa
+//
+// `size_chart` từng được khai ở DTO, ở common.yaml và ở storefront.yaml
+// mà KHÔNG chỗ nào điền. Test cũ chỉ liệt kê tên trường nên nó xanh suốt
+// trong khi khách không bao giờ thấy số đo. Test này khẳng định GIÁ TRỊ,
+// không phải sự có mặt của khóa.
+//
+// Sai size là nguyên nhân hoàn hàng số một (docs/01-business/kpi.md mục 3).
+func TestChiTietTraBangSize(t *testing.T) {
+	mux, svc := newServer(t)
+	p := taoSanPham(t, svc, "ao-so-mi-bang-size", true)
+
+	_, body := do(t, mux, "/api/v1/products/"+p.ID().String())
+
+	chart, ok := body["size_chart"].(map[string]any)
+	if !ok {
+		t.Fatalf("thiếu size_chart. Response: %v", body)
+	}
+
+	// HỆ SIZE là thứ làm "M" có nghĩa: M của thương hiệu này khác M của
+	// thương hiệu khác, và 38 giày khác 38 quần.
+	if chart["system"] != "ALPHA" {
+		t.Errorf("system = %v, mong ALPHA", chart["system"])
+	}
+
+	entries, ok := chart["entries"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("entries = %v, mong 2 dòng", chart["entries"])
+	}
+
+	// SỐ ĐO THỰC TẾ — không chỉ ký hiệu S/M/L. Đây là phần giúp khách chọn
+	// đúng; thiếu nó thì bảng size chỉ lặp lại thứ đã có trên SKU.
+	first := entries[0].(map[string]any)
+	if first["size"] != "M" {
+		t.Errorf("size dòng đầu = %v, mong M", first["size"])
+	}
+	m, ok := first["measurements"].(map[string]any)
+	if !ok || m["chest_cm"] != "96" {
+		t.Errorf("measurements = %v, mong chest_cm=96", first["measurements"])
 	}
 }

@@ -115,7 +115,19 @@ func (h *Handler) getProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.ok(w, r, toProductDetail(p))
+	// Bảng size lấy từ catalog. Lỗi ở đây KHÔNG chặn trang sản phẩm: thiếu
+	// số đo thì khách khó chọn size, còn trang lỗi thì khách không mua được
+	// gì cả.
+	chart, err := h.svc.SizeChartOf(r.Context(), p)
+	if err != nil {
+		h.log.WarnContext(r.Context(), "không lấy được bảng size",
+			"product_id", p.ID().String(),
+			"size_chart_id", p.SizeChartID().String(),
+			"error", err)
+		chart = nil
+	}
+
+	h.ok(w, r, toProductDetail(p, chart))
 }
 
 // listProducts phục vụ GET /api/v1/products.
@@ -262,7 +274,7 @@ func (h *Handler) listByIDs(w http.ResponseWriter, r *http.Request, raw string) 
 
 // ---------------------------------------------------------------- Chuyển đổi
 
-func toProductDetail(p *domain.Product) productDetail {
+func toProductDetail(p *domain.Product, chart *application.SizeChartInfo) productDetail {
 	out := productDetail{
 		ID:                  p.ID().String(),
 		Name:                p.Name(),
@@ -290,7 +302,30 @@ func toProductDetail(p *domain.Product) productDetail {
 		out.Collection = &collectionRef{ID: p.CollectionID().String()}
 	}
 
+	// Bảng size mang theo HỆ SIZE (`system`) — thứ làm "M" và "38" có nghĩa.
+	// Không có nó thì size trên SKU chỉ là một chuỗi không quy chiếu.
+	if chart != nil {
+		out.SizeChart = toSizeChart(*chart)
+	}
+
 	return out
+}
+
+func toSizeChart(c application.SizeChartInfo) *sizeChart {
+	// Entries không dùng omitempty ở DTO: mảng rỗng khác với thiếu trường.
+	entries := make([]sizeChartEntry, 0, len(c.Entries))
+	for _, e := range c.Entries {
+		entries = append(entries, sizeChartEntry{
+			Size:         e.Size,
+			Measurements: e.Measurements,
+		})
+	}
+	return &sizeChart{
+		ID:      c.ID,
+		System:  c.System,
+		Note:    c.Note,
+		Entries: entries,
+	}
 }
 
 func toProductSummary(p *domain.Product) productSummary {

@@ -158,6 +158,38 @@ func (a *catalogAdapter) SizeChartExistsFor(
 	return id, true, nil
 }
 
+func (a *catalogAdapter) GetSizeChart(
+	ctx context.Context, id ids.ID,
+) (application.SizeChartInfo, bool, error) {
+	sc, err := a.api.GetSizeChart(ctx, id.String())
+	if err != nil {
+		if errors.Is(err, catalog.ErrNotFound) {
+			return application.SizeChartInfo{}, false, nil
+		}
+		return application.SizeChartInfo{}, false, err
+	}
+
+	entries := make([]application.SizeChartEntryInfo, 0, len(sc.Entries))
+	for _, e := range sc.Entries {
+		// Sao chép map: view của catalog không được chia sẻ sang product.
+		m := make(map[string]string, len(e.Measurements))
+		for k, v := range e.Measurements {
+			m[k] = v
+		}
+		entries = append(entries, application.SizeChartEntryInfo{
+			Size:         e.Size,
+			Measurements: m,
+		})
+	}
+
+	return application.SizeChartInfo{
+		ID:      sc.ID,
+		System:  sc.System,
+		Note:    sc.Note,
+		Entries: entries,
+	}, true, nil
+}
+
 // ---------------------------------------------------------------- API
 
 func (m *Module) GetProduct(ctx context.Context, productID string) (*ProductView, error) {

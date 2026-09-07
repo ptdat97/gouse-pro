@@ -205,12 +205,14 @@ Variant:
 
         **Là CHUỖI, không phải object `Color`.** Domain lưu thuộc tính biến
         thể trong một map `{color, size, ...}` — dùng map vì mỗi loại hàng
-        có thuộc tính khác nhau (áo có độ dài tay, quần có kiểu ống) — nên
-        chưa có chỗ cho mã màu hex hay nhóm màu.
+        có thuộc tính khác nhau (áo có độ dài tay, quần có kiểu ống).
 
-        Ô màu thật (`hex_code`) và lọc theo nhóm màu là việc riêng, xem
-        P3-22 trong backlog: chúng cần thêm trường ở domain chứ không chỉ
-        đổi hình dạng JSON.
+        Nhóm màu để LỌC đã có: `color_family` suy ra từ tên màu và được
+        đánh chỉ mục (migration 000038). Nó không trả ở đây vì khách lọc
+        bằng tham số truy vấn chứ không đọc nhóm màu trên trang.
+
+        Ô màu thật (`hex_code`) thì CHƯA có: nó phải do người bán nhập,
+        không suy ra được từ tên. Xem P3-22 trong backlog.
       examples: ['Trắng']
     images:
       type: array
@@ -237,6 +239,11 @@ SKUSummary:
       type: string
       description: |
         Kích cỡ, ví dụ "M" hoặc "38".
+
+        **Chỉ là KÝ HIỆU.** Hệ quy chiếu làm ký hiệu này có nghĩa nằm ở
+        `ProductDetail.size_chart.system` (ALPHA, EU, US...) cùng số đo
+        thực tế — vì hệ size gắn với (thương hiệu, loại hàng), không gắn
+        với từng SKU.
 
         **Là CHUỖI, không phải object `Size`.** Cùng lý do với
         `Variant.color`: domain giữ thuộc tính biến thể trong một map, nên

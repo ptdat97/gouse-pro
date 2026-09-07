@@ -3233,6 +3233,49 @@ Cái mất là thật, và lý do nằm ngay trong chính đặc tả cũ:
 Cần thêm trường ở domain + migration + chỗ nhập ở admin, nên không gộp
 vào việc dựng lại luồng chọn hàng.
 
+**Nửa `system` xong (07/09) — và nó KHÔNG cần trường mới nào.**
+
+Đoạn trên đoán sai. Đọc mã thì hệ size đã có đủ từ trước:
+`catalog.SizeChart` có `system` (ALPHA/NUMERIC/EU/US/UK/JP/FREE) cùng số
+đo thực tế, `Product.SizeChartID` trỏ tới nó, và hai sản phẩm thật trong
+DB đều gắn bảng size đúng. Không thiếu trường, thiếu ĐƯỜNG RA.
+
+Thứ thực sự sai là một trường được khai ba nơi và không nơi nào điền:
+
+```text
+api/paths/storefront.yaml:142   hứa đích danh `size_chart`
+api/components/schemas.yaml     ProductDetail.size_chart
+dto.go:53                       SizeChart *sizeChart
+                                → toProductDetail KHÔNG bao giờ gán
+catalog.GetSizeChart            đủ ba tầng, KHÔNG ai gọi
+```
+
+Và không có endpoint bảng size nào khác, nên khách không có đường nào tới
+số đo — trên chính thứ mà `docs/01-business/kpi.md` mục 3 gọi là nguyên
+nhân hoàn hàng số một.
+
+Lần thứ SÁU cùng một dạng lỗi: `payment_method` (P3-9), `TaxAmount`
+(PH-40), `email_verified_at` (P3-15), `sla_deadline` (P3-17), rồi
+`size_chart`. Bốn trong sáu lần kèm theo một hàm domain không ai gọi.
+Xem "Trường không ai điền" ở cuối tài liệu này.
+
+Đã nối: `CatalogPort.GetSizeChart` → `Service.SizeChartOf` → handler.
+Chỉ ở CHI TIẾT sản phẩm, không ở danh sách (ở đó nó là N+1 và đặc tả cũng
+không khai). Sản phẩm không cần bảng size (túi, phụ kiện) không gọi
+catalog. Lỗi catalog KHÔNG chặn trang: thiếu số đo còn hơn không mua được.
+
+Kiểm chứng trên hệ thống thật, cùng một sản phẩm, cùng một DB:
+
+```text
+mã trước:  "size_chart" không có trong response
+mã sau:    system=ALPHA, entries=[S/M/L], nguc 86-90, eo 70-74 (cm)
+```
+
+**Còn lại của P3-22: `hex_code`.** Nửa này thì đúng là cần trường mới —
+mã màu phải do người bán NHẬP, không suy ra được từ tên (khác
+`color_family`, thứ đã có sẵn: migration 000038 suy ra từ tên và đánh chỉ
+mục GIN, nên lọc theo nhóm màu đã chạy).
+
 **P3-23 — offer không bao giờ tự chuyển `OUT_OF_STOCK` (20/08).**
 
 `Offer.MarkOutOfStock` tồn tại, có chú thích ghi rõ "do module inventory
@@ -3516,7 +3559,54 @@ Và:
 
 ---
 
-## 8. Tài liệu liên quan
+## 8. Trường không ai điền — dạng lỗi hay gặp nhất của dự án này
+
+Sáu lần trong khoảng một tháng, cùng một hình dạng: **một trường có trong
+hợp đồng API, có cột trong DB, có phương thức domain — và không dòng mã nào
+gán giá trị cho nó.**
+
+| Trường | Mục | Hệ quả khi chưa sửa |
+|---|---|---|
+| `payment_method` | P3-9 | không biết đơn nào COD, không biết đơn nào chờ thu tiền |
+| `TaxAmount` | PH-40 | thuế luôn bằng 0 trên mọi đơn |
+| `email_verified_at` | P3-15 | không phân biệt được email đã xác minh |
+| `sla_deadline` | P3-17 | không biết đơn nào trễ hạn bàn giao |
+| `size_chart` | P3-22 | khách không thấy số đo — hoàn hàng vì sai size |
+| `AvailableForSKUs` theo chủ sở hữu | PH-2 | tồn kho cộng chung giữa các người bán |
+
+Bốn trong sáu lần đi kèm một **phương thức domain không ai gọi**:
+`Order.MarkPaid`, `Checkout.SetTax`, `User.VerifyEmail`,
+`catalog.GetSizeChart`. Chúng được viết đúng, được test đúng, và không
+nằm trên đường đi nào cả.
+
+### Vì sao test không bắt được
+
+Vì test kiểm tra thứ nó gọi. Một use case không ai gọi vẫn có test xanh
+của riêng nó; một trường không ai gán vẫn có DTO đúng đặc tả. Cả hai đầu
+đều xanh, còn khoảng trống ở giữa thì không ai đứng.
+
+Test kiểm tra SỰ CÓ MẶT của khóa JSON cũng không bắt được: `size_chart`
+vắng mặt hợp lệ (`omitempty`) nên response vẫn hợp đặc tả. Test cũ liệt kê
+tên trường và xanh suốt trong lúc khách không bao giờ thấy số đo.
+
+### Cách phát hiện, theo thứ tự rẻ dần
+
+```text
+1. grep tên trường trong hợp đồng API → có ai GÁN nó không (không tính
+   khai báo struct và tên cột)
+2. grep phương thức domain → có ai GỌI ngoài chính test của nó không
+3. đo trên dữ liệu THẬT: đếm bản ghi có giá trị khác rỗng/0
+4. chạy hệ thống thật và đọc response — cách duy nhất bắt được cả bốn
+   trường hợp trên
+```
+
+Bước 3 đã một lần lật ngược kết luận: P3-15 ban đầu định gộp hồ sơ khách,
+đo ra 0 hồ sơ khách vãng lai và 3150 đơn vãng lai, nên việc phải làm là
+gộp ĐƠN.
+
+---
+
+## 9. Tài liệu liên quan
 
 - [../README.md](../README.md) — Architecture Freeze
 - [todo.md](todo.md) — việc đã làm và bằng chứng kiểm chứng
