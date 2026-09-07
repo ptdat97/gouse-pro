@@ -66,9 +66,34 @@ groups:
       # GIẢ: một lượt chạy dài hơn ngưỡng KHÔNG phải sự cố, nó chỉ là một
       # lượt chạy dài. Chỉ khi job KHÔNG đang chạy mà vẫn lâu không thành
       # công thì mới là treo.
+      #
+      # Ngưỡng tính THEO NHỊP CỦA CHÍNH JOB, không phải một con số chung.
+      #
+      # Bản trước dùng 300 giây cho mọi job. Nhịp thật trải từ 5 giây tới
+      # 1 giờ, nên ba job (10 phút, 1 giờ, 1 giờ) luôn vượt ngưỡng khi
+      # khỏe mạnh: promtool xác nhận một job nhịp 10 phút làm luật này kêu
+      # ở phút thứ 9. Một cảnh báo critical luôn kêu làm hỏng mọi cảnh báo
+      # còn lại, vì người trực học cách bỏ qua cả bảng.
+      #
+      # Ba lần nhịp: lỡ một lượt là chuyện có thể xảy ra (một truy vấn
+      # chậm, một lần khóa); lỡ ba lượt liên tiếp thì không.
+      #
+      # `on(job_name)` vì hai vế là hai chuỗi khác nhau cùng nhãn đó —
+      # thiếu nó thì biểu thức không khớp dòng nào và luật im lặng vĩnh
+      # viễn, đúng kiểu hỏng alerts_test.yml cảnh báo ở đầu file.
+      #
+      # `group_left` để GIỮ nhãn của vế trái. Không có nó, `on(...)` chỉ
+      # giữ đúng `job_name` và nhãn `job` bị rơi — cảnh báo mất luôn thông
+      # tin nó đến từ tiến trình nào, thứ người trực cần đầu tiên.
+      #
+      # Nhân với 3 phải nằm TRONG ngoặc: PromQL không cho ghép nhãn giữa
+      # một số vô hướng và một vector.
       - alert: WorkerJobStalled
         expr: >-
-          (time() - gouse_worker_job_last_success_timestamp_seconds > 300)
+          (
+            (time() - gouse_worker_job_last_success_timestamp_seconds)
+            > on(job_name) group_left() (3 * gouse_worker_job_interval_seconds)
+          )
           and on(job_name) (gouse_worker_job_running == 0)
         for: 2m
         labels:
@@ -76,8 +101,8 @@ groups:
         annotations:
           summary: "Job {{ $labels.job_name }} lâu không chạy xong thành công"
           description: >-
-            Job không thành công lần nào trong 5 phút VÀ hiện không chạy.
-            Đây là treo thật, không phải một lượt chạy dài.
+            Job đã lỡ ba nhịp liên tiếp VÀ hiện không chạy. Đây là treo
+            thật, không phải một lượt chạy dài.
 
       # Job chạy quá lâu — cảnh báo NHẸ, vì nó có thể là tải cao.
       - alert: WorkerJobRunningTooLong
@@ -182,6 +207,78 @@ groups:
           description: >-
             Xem nhãn `reason` để biết loại: hết hàng là chuyện thường lúc
             cao điểm, `internal` thì không.
+
+  # -------------------------------------------------------------------
+  # ĐỐI SOÁT TIỀN — nhóm này canh KẾT QUẢ của các job đối chiếu.
+  # -------------------------------------------------------------------
+  #
+  # Ba job đối chiếu tồn tại để biến một hỏng hóc VÔ HÌNH thành một con số:
+  # webhook mất, tiền về mà đơn không cập nhật, gói hàng bặt tin. Trước
+  # nhóm luật này, con số đó nằm trong một gauge KHÔNG AI CANH — tức là
+  # công việc dừng lại đúng một bước trước khi có tác dụng.
+  #
+  # Đây cũng là lý do nhóm nằm riêng: mọi luật ở trên nói về HẠ TẦNG (tiến
+  # trình, hàng đợi, pool). Những luật dưới đây nói về TIỀN, và chúng vẫn
+  # phải kêu ngay cả khi mọi chỉ số hạ tầng đều xanh.
+  - name: gouse-doi-soat-tien
+    rules:
+      # ĐÃ THU TIỀN mà đơn chưa cập nhật — luôn là sự cố.
+      #
+      # Chỉ số này được thiết kế để KHÔNG BAO GIỜ kêu oan: không có ca hợp
+      # lệ nào cho "tiền đã vào tài khoản mà khách vẫn thấy đơn chờ thanh
+      # toán". Vì vậy ngưỡng là > 0, không phải một con số tùy chọn.
+      #
+      # `for: 5m` chứ không phải 0: job chạy mỗi 5 phút và webhook xử lý
+      # đồng bộ, nên một chênh lệch thoáng qua giữa hai lượt là bình
+      # thường. Kéo dài qua một lượt chạy nữa thì không.
+      - alert: PaymentReconcileMismatch
+        expr: gouse_payment_reconcile_mismatch > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Có {{ $value }} đơn ĐÃ THU TIỀN mà trạng thái chưa cập nhật"
+          description: >-
+            Tiền đã vào tài khoản nhưng khách vẫn thấy đơn chờ thanh toán.
+            Không có ca hợp lệ nào cho tình trạng này. Xem log worker mức
+            ERROR để lấy intent_id và order_id, rồi kiểm tra vì sao
+            MarkOrderPaid không chạy.
+          runbook: docs/09-operations/observability.md
+
+      # Gói hàng bặt tin vận chuyển — canh XU HƯỚNG, không canh mức.
+      #
+      # Khác luật trên: ở đây CÓ ca hợp lệ. Một gói đi tuyến xa im lặng lâu
+      # hơn thường lệ là chuyện thật, nên `> 0` sẽ kêu suốt và thành vô
+      # dụng — trên dữ liệu hiện tại con số đã là 20.
+      #
+      # Thứ đáng báo động không phải "có gói bặt tin" mà là "số gói bặt tin
+      # TĂNG ĐỀU": đó là hình dạng của một nguồn webhook đã chết, khác với
+      # vài gói lẻ mắc kẹt. Cùng cách nghĩ với OutboxBacklogGrowing.
+      #
+      # Job chạy mỗi giờ nên cửa sổ phải rộng hơn nhiều lần nhịp đó; 6 giờ
+      # cho ít nhất năm điểm đo.
+      - alert: DeliverySilenceGrowing
+        expr: deriv(gouse_fulfillment_delivery_silent[6h]) > 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Số gói bặt tin vận chuyển đang tăng đều"
+          description: >-
+            Tăng liên tục trong 6 giờ nghĩa là cập nhật từ hãng vận chuyển
+            đã ngừng tới, không phải vài gói lẻ mắc kẹt. Mỗi gói là một
+            khoản phải trả nhà bán chưa chuyển sang khả dụng, vì số dư chỉ
+            giải phóng khi đơn đi hết DELIVERED → COMPLETED.
+          runbook: docs/09-operations/observability.md
+
+      # KHÔNG có luật cho gouse_payment_intent_pending_stale — CÓ CHỦ Ý.
+      #
+      # Phần lớn ý định thanh toán quá hạn là khách bỏ giữa chừng: chuyện
+      # bình thường và nhiều. Chỉ số đó để THEO DÕI XU HƯỚNG trên bảng, và
+      # chú thích của nó trong metrics.go đã ghi rõ điều này.
+      #
+      # Ghi ra đây để lần sau không ai "hoàn thiện cho đủ bộ" — một cảnh
+      # báo luôn kêu còn tệ hơn không có cảnh báo nào.
 
   - name: gouse-database
     rules:

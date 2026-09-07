@@ -731,6 +731,12 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 			jobLog := log.With("job", j.name)
 			jobLog.Info("job đã khởi động", "nhịp", j.interval.String())
 
+			// Công bố nhịp để luật cảnh báo tự điều chỉnh ngưỡng theo
+			// từng job. Xem metrics.WorkerJobInterval: một ngưỡng cố định
+			// cho mọi job làm job chạy thưa bị báo là treo.
+			metrics.WorkerJobInterval.WithLabelValues(j.name).
+				Set(j.interval.Seconds())
+
 			// Chạy NGAY một lượt lúc khởi động, không chờ hết nhịp đầu:
 			// nếu worker vừa khởi động lại sau sự cố, có thể đang có tồn
 			// đọng cần dọn ngay.

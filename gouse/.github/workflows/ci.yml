@@ -172,6 +172,32 @@ jobs:
           wait $API_PID 2>/dev/null || true
           echo "API tắt có kiểm soát"
 
+  alerts:
+    name: Luật cảnh báo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Bản phát hành chính thức, ghim phiên bản: promtool đổi cách chấm
+      # bài giữa các phiên bản, và một bài "xanh vì công cụ khác đi" thì
+      # tệ hơn không có bài.
+      - name: Cài promtool
+        run: |
+          V=2.55.1
+          curl -sL -o /tmp/prom.tgz \
+            "https://github.com/prometheus/prometheus/releases/download/v${V}/prometheus-${V}.linux-amd64.tar.gz"
+          tar xzf /tmp/prom.tgz -C /tmp
+          sudo install "/tmp/prometheus-${V}.linux-amd64/promtool" /usr/local/bin/
+
+      - name: Cú pháp luật cảnh báo
+        run: promtool check rules deploy/prometheus/alerts.yml
+
+      # `check rules` chỉ nói biểu thức hợp cú pháp. Bước này nạp chuỗi số
+      # liệu thật và khẳng định cảnh báo kêu đúng lúc, kèm cả bài NGƯỢC —
+      # thứ bắt được một luật "kêu với mọi thứ".
+      - name: Bài kiểm luật cảnh báo
+        run: promtool test rules deploy/prometheus/alerts_test.yml
+
   api-spec:
     name: Đặc tả OpenAPI
     runs-on: ubuntu-latest

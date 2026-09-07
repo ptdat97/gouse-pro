@@ -2591,6 +2591,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-24 | **"Khách mua được không" có BA câu trả lời khác nhau** | ✅ xong (06/09) — xem ghi chú dưới bảng |
 | P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ⛔ mở — hàng hóa chỉ vào hệ thống được qua seed. Xem ghi chú |
 | P3-26 | **Webhook vận chuyển MẤT thì không ai biết** (yêu cầu 5) | ✅ nửa nội bộ xong (07/09) — đo được 20 gói kẹt thật. Xem ghi chú |
+| P3-27 | **Chỉ số đối soát tiền KHÔNG AI CANH; và một cảnh báo critical kêu oan vĩnh viễn** | ✅ xong (07/09) — promtool nay chạy trong CI. Xem ghi chú |
 
 **P3-9 — phần GHI NHẬN đã xong (06/09); phần THU TIỀN vẫn chặn.**
 
@@ -3286,6 +3287,68 @@ lần thứ hai.
 Cái chặn thật là **không có đường NHẬP nào cả** — xem P3-25. Thêm
 `color_hex` vào hợp đồng API lúc này sẽ là **lần thứ bảy** của đúng dạng
 lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. Nên không thêm.
+
+**P3-27 — chỉ số có rồi mà không ai canh (07/09).**
+
+Cùng dạng lỗi của mục 8, lùi ra một bước: không phải "trường không ai điền"
+mà là **tín hiệu không ai nghe**. Ba job đối chiếu (P3-26 và bản thanh toán
+06/09) sinh ra để biến hỏng hóc vô hình thành một con số — rồi con số đó
+nằm trong gauge mà `deploy/prometheus/alerts.yml` không hề nhắc tới:
+
+```text
+gouse_payment_reconcile_mismatch      0 luật cảnh báo
+gouse_payment_intent_pending_stale    0 luật
+gouse_fulfillment_delivery_silent     0 luật
+```
+
+17 luật hiện có phủ kín HẠ TẦNG — tiến trình sống, outbox, pool, tỷ lệ 5xx
+— và không luật nào nói về TIỀN. Công việc dừng đúng một bước trước khi có
+tác dụng.
+
+**Và tìm ra một lỗi lớn hơn trong lúc làm.** `WorkerJobStalled` (mức
+critical) dùng ngưỡng CỐ ĐỊNH 300 giây cho mọi job, trong khi nhịp thật
+trải từ 5 giây tới 1 giờ:
+
+```text
+5s · 30s · 60s     dưới ngưỡng, đúng
+300s · 300s        chạm đúng ngưỡng
+600s               VƯỢT — luôn kêu
+3600s · 3600s      VƯỢT — luôn kêu
+```
+
+Ba job luôn vượt ngưỡng khi hoàn toàn khỏe mạnh, nên bảng cảnh báo có một
+dòng critical đỏ vĩnh viễn — thứ làm người trực học cách bỏ qua CẢ BẢNG,
+và làm mọi luật khác trong file trở nên vô nghĩa.
+
+Chứng minh bằng promtool chứ không suy luận: job nhịp 10 phút làm luật kêu
+ở phút thứ 9, kèm đúng chú thích "Đây là treo thật, không phải một lượt
+chạy dài".
+
+Sửa bằng cách công bố nhịp thành chỉ số (`gouse_worker_job_interval_seconds`)
+rồi so tương đối `> 3 × nhịp`. Luật tự điều chỉnh: thêm job hay đổi nhịp
+không phải sửa luật. Chú thích của `WorkerJobLastSuccess` vốn đã nói đúng
+điều cần làm — "ngưỡng khác nhau [theo job]" — nhưng luật không có cách nào
+BIẾT nhịp, nên nó không làm được.
+
+**Bài kiểm cảnh báo trước nay không ai chạy.** `alerts_test.yml` tồn tại từ
+lâu, viết kỹ, có cả bài ngược — và `promtool` không có trong Makefile lẫn
+CI. Đã thêm target `make alerts` và một job CI cài promtool ghim phiên bản.
+Không gộp vào `make check` vì nó cần công cụ ngoài, đúng theo tiền lệ của
+`api-lint`.
+
+Kiểm chứng bằng cách phá — ba lần, mỗi lần một bài đỏ:
+
+```text
+WorkerJobStalled quay lại ngưỡng cố định 300s  → bài job nhịp 10 phút
+DeliverySilenceGrowing đổi thành `> 0`         → bài "đứng yên ở mức 20"
+PaymentReconcileMismatch nới lên `> 5`         → bài lệch kéo dài
+```
+
+Một chỉ số CỐ Ý không có cảnh báo: `gouse_payment_intent_pending_stale`.
+Phần lớn là khách bỏ giữa chừng. Lý do ghi thẳng trong `alerts.yml` để lần
+sau không ai "hoàn thiện cho đủ bộ".
+
+---
 
 **P3-26 — webhook vận chuyển mất thì không ai biết (07/09).**
 

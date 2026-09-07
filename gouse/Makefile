@@ -85,6 +85,14 @@ arch: ## Kiểm tra ranh giới module (VI PHẠM = THẤT BẠI)
 api-lint: ## Kiểm tra đặc tả OpenAPI
 	npx --yes @redocly/cli@latest lint api/openapi.yaml
 
+.PHONY: alerts
+alerts: ## Kiểm tra luật cảnh báo Prometheus
+	@command -v promtool >/dev/null 2>&1 || { \
+		echo "cần promtool — tải từ https://prometheus.io/download/"; \
+		echo "hoặc: brew install prometheus"; exit 1; }
+	@promtool check rules deploy/prometheus/alerts.yml
+	@promtool test rules deploy/prometheus/alerts_test.yml
+
 .PHONY: check
 check: fmt-check vet arch test ## Chạy toàn bộ kiểm tra như CI
 	@echo -e "$(GREEN)✓ Mọi kiểm tra đều đạt$(RESET)"

@@ -12,10 +12,10 @@ còn lại với hiểu biết đó.
 | **Correlation ID xuyên tiến trình** | ✅ mặc định ở outbox, kế thừa qua bên nhận |
 | **Metrics kỹ thuật** (mục 3) | ✅ Prometheus — độ trễ HTTP, request đang xử lý, goroutine, bộ nhớ |
 | **Metrics outbox** | ✅ tồn đọng · dead letter · tuổi event cũ nhất |
-| **Metrics nghiệp vụ** (mục 4) | 🟡 thất bại theo bước (reservation, checkout); payment và fulfillment chưa nối |
+| **Metrics nghiệp vụ** (mục 4) | ✅ thất bại theo bước + ba chỉ số ĐỐI SOÁT TIỀN — xem mục 4.1 |
 | Distributed tracing (mục 5) | ⬜ hoãn có chủ ý — xem dưới |
 | **Sức khỏe worker** | ✅ 4 chỉ số phân biệt 4 câu hỏi khác nhau — xem mục 0.1 |
-| **Luật cảnh báo** | ✅ `deploy/prometheus/alerts.yml` — 10 luật |
+| **Luật cảnh báo** | ✅ `deploy/prometheus/alerts.yml` — 17 luật, có bài kiểm chạy trong CI |
 | Cảnh báo (mục 7) · Dashboard (mục 8) | 🟡 chỉ số đã đủ để đặt cảnh báo, chưa dựng dashboard |
 | Nhật ký kiểm toán (`platform/audit`) | ✅ có, kèm ranh giới giao dịch |
 
@@ -187,6 +187,48 @@ Marketplace:
 Creator:
     - Tỷ lệ quy kết bị đảo ngược
 ```
+
+### 4.1 Đối soát tiền — ba chỉ số, hai cảnh báo
+
+Ba job đối chiếu biến một hỏng hóc VÔ HÌNH thành một con số. Chúng chỉ có
+tác dụng nếu có người canh con số đó:
+
+| Chỉ số | Cảnh báo | Vì sao |
+|---|---|---|
+| `gouse_payment_reconcile_mismatch` | `PaymentReconcileMismatch` (critical, `> 0`, `for: 5m`) | Tiền đã vào tài khoản mà đơn chưa cập nhật. KHÔNG có ca hợp lệ nào, nên ngưỡng là 0 |
+| `gouse_fulfillment_delivery_silent` | `DeliverySilenceGrowing` (warning, `deriv(...[6h]) > 0`, `for: 2h`) | Canh XU HƯỚNG, không canh mức: vài gói bặt tin là chuyện thường (đo được 20 trên dữ liệu thật), tăng đều mới là nguồn webhook đã chết |
+| `gouse_payment_intent_pending_stale` | **cố ý KHÔNG có** | Phần lớn là khách bỏ giữa chừng. Chỉ để theo dõi xu hướng trên bảng |
+
+Dòng cuối quan trọng ngang hai dòng trên: **không phải chỉ số nào cũng
+đáng một cảnh báo.** Một cảnh báo luôn kêu làm người trực học cách bỏ qua
+cả bảng, và khi đó nó tệ hơn không có cảnh báo nào.
+
+Cùng lý do đó, `DeliverySilenceGrowing` canh đạo hàm chứ không canh mức:
+luật `> 0` sẽ đỏ ngay ngày đầu và đỏ mãi.
+
+### 4.2 Ngưỡng cảnh báo phải theo NHỊP CỦA JOB
+
+`WorkerJobStalled` từng dùng một ngưỡng cố định 300 giây cho mọi job. Nhịp
+thật của worker trải từ 5 giây tới 1 giờ:
+
+```text
+phát domain event                 5s
+dọn giữ hàng quá hạn             30s
+dọn phiên thanh toán quá hạn     60s
+tính chỉ số phân tích           300s   ← chạm ngưỡng
+đối soát tiền đã thu            300s   ← chạm ngưỡng
+hoàn tất đơn đã giao            600s   ← VƯỢT
+tạo đợt đối soát cho nhà bán   3600s   ← VƯỢT
+tìm gói hàng mất tin           3600s   ← VƯỢT
+```
+
+Ba job luôn vượt ngưỡng khi hoàn toàn khỏe mạnh, nên bảng cảnh báo có một
+dòng **critical đỏ vĩnh viễn**. promtool xác nhận: job nhịp 10 phút làm
+luật kêu ở phút thứ 9.
+
+Sửa bằng cách công bố nhịp thành chỉ số (`gouse_worker_job_interval_seconds`)
+rồi so tương đối — `> 3 × nhịp`. Luật tự điều chỉnh, nên thêm job mới hay
+đổi nhịp không phải sửa luật, và luật không bao giờ lệch khỏi mã nguồn.
 
 ### Ví dụ cảnh báo nghiệp vụ
 

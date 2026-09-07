@@ -57,6 +57,7 @@ tests:
         summary: Vòng lặp điều phối của worker đã dừng
         description: Nhịp tim cũ hơn 60 giây trong khi nó phải đập mỗi 5 giây. Tiến trình còn trả lời
           nhưng bộ điều phối không chạy — kiểm tra deadlock hoặc goroutine bị chặn.
+# Job nhịp 30 giây mà 10 phút không thành công: TREO thật.
 - interval: 1m
   input_series:
   - series: gouse_worker_job_last_success_timestamp_seconds{job="gouse-worker", job_name="dọn giữ hàng
@@ -64,6 +65,8 @@ tests:
     values: 0+0x20
   - series: gouse_worker_job_running{job="gouse-worker", job_name="dọn giữ hàng quá hạn"}
     values: 0+0x20
+  - series: gouse_worker_job_interval_seconds{job="gouse-worker", job_name="dọn giữ hàng quá hạn"}
+    values: 30+0x20
   alert_rule_test:
   - eval_time: 10m
     alertname: WorkerJobStalled
@@ -74,16 +77,48 @@ tests:
         job_name: dọn giữ hàng quá hạn
       exp_annotations:
         summary: Job dọn giữ hàng quá hạn lâu không chạy xong thành công
-        description: Job không thành công lần nào trong 5 phút VÀ hiện không chạy. Đây là treo thật, không
-          phải một lượt chạy dài.
+        description: Job đã lỡ ba nhịp liên tiếp VÀ hiện không chạy. Đây là treo thật, không phải một
+          lượt chạy dài.
+
+# Bài NGƯỢC 1: job đang CHẠY thì không phải treo, dù lâu chưa thành công.
 - interval: 1m
   input_series:
   - series: gouse_worker_job_last_success_timestamp_seconds{job="gouse-worker", job_name="job chạy lâu"}
     values: 0+0x20
   - series: gouse_worker_job_running{job="gouse-worker", job_name="job chạy lâu"}
     values: 1+0x20
+  - series: gouse_worker_job_interval_seconds{job="gouse-worker", job_name="job chạy lâu"}
+    values: 30+0x20
   alert_rule_test:
   - eval_time: 10m
+    alertname: WorkerJobStalled
+    exp_alerts: []
+
+# Bài NGƯỢC 2 — bài quan trọng nhất của nhóm này.
+#
+# Job nhịp 10 PHÚT, thành công lúc phút 0, chưa tới lượt kế tiếp: KHỎE.
+#
+# Bản luật trước dùng ngưỡng cố định 300 giây nên nó kêu ở phút thứ 9 —
+# mức critical, cho một job hoàn toàn bình thường. Ba job thật của worker
+# chạy thưa hơn 300 giây (10 phút, 1 giờ, 1 giờ), nên bảng cảnh báo có
+# một dòng critical đỏ vĩnh viễn, và người trực học cách bỏ qua cả bảng.
+- interval: 1m
+  input_series:
+  - series: gouse_worker_job_last_success_timestamp_seconds{job="gouse-worker", job_name="hoàn tất đơn
+      đã giao quá hạn đổi trả"}
+    values: 0+0x20
+  - series: gouse_worker_job_running{job="gouse-worker", job_name="hoàn tất đơn đã giao quá hạn đổi trả"}
+    values: 0+0x20
+  - series: gouse_worker_job_interval_seconds{job="gouse-worker", job_name="hoàn tất đơn đã giao quá hạn
+      đổi trả"}
+    values: 600+0x20
+  alert_rule_test:
+  # Phút 9: chưa tới lượt chạy kế tiếp. Đây là lúc luật cũ kêu oan.
+  - eval_time: 9m
+    alertname: WorkerJobStalled
+    exp_alerts: []
+  # Phút 20: đã lỡ hai nhịp — vẫn chưa đủ, ngưỡng là ba nhịp.
+  - eval_time: 20m
     alertname: WorkerJobStalled
     exp_alerts: []
 - interval: 1m
@@ -132,3 +167,73 @@ tests:
         severity: critical
       exp_annotations:
         summary: Hơn 1% request trả lỗi máy chủ
+
+# --------------------------------------------------------------------
+# Đối soát tiền
+# --------------------------------------------------------------------
+
+# Chênh lệch thoáng qua giữa hai lượt job: KHÔNG kêu.
+# Chênh lệch kéo dài: kêu, mức critical.
+- interval: 1m
+  input_series:
+  - series: gouse_payment_reconcile_mismatch{job="gouse-worker"}
+    values: 0 0 2 0 0 0 0 0 0 0
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: PaymentReconcileMismatch
+    exp_alerts: []
+- interval: 1m
+  input_series:
+  - series: gouse_payment_reconcile_mismatch{job="gouse-worker"}
+    values: 0 0 2+0x12
+  alert_rule_test:
+  # Phút 5: mới lệch 3 phút, chưa đủ `for: 5m`.
+  - eval_time: 5m
+    alertname: PaymentReconcileMismatch
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: PaymentReconcileMismatch
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: gouse-worker
+      exp_annotations:
+        summary: Có 2 đơn ĐÃ THU TIỀN mà trạng thái chưa cập nhật
+        description: Tiền đã vào tài khoản nhưng khách vẫn thấy đơn chờ thanh toán. Không có ca hợp lệ
+          nào cho tình trạng này. Xem log worker mức ERROR để lấy intent_id và order_id, rồi kiểm tra
+          vì sao MarkOrderPaid không chạy.
+        runbook: docs/09-operations/observability.md
+
+# Bài NGƯỢC — bài quan trọng nhất của nhóm này.
+#
+# Số gói bặt tin ĐỨNG YÊN ở mức cao (20, đúng con số đo được trên dữ liệu
+# thật) thì KHÔNG kêu: đó là vài chục gói lẻ mắc kẹt, không phải nguồn
+# webhook đã chết. Không có bài này thì một luật `> 0` vẫn qua mọi bài còn
+# lại — trong khi nó kêu suốt ngày đầu tiên và không ai đọc nữa.
+- interval: 10m
+  input_series:
+  - series: gouse_fulfillment_delivery_silent{job="gouse-worker"}
+    values: 20+0x60
+  alert_rule_test:
+  - eval_time: 8h
+    alertname: DeliverySilenceGrowing
+    exp_alerts: []
+
+# Số gói TĂNG ĐỀU: nguồn webhook đã ngừng tới — kêu.
+- interval: 10m
+  input_series:
+  - series: gouse_fulfillment_delivery_silent{job="gouse-worker"}
+    values: 0+1x60
+  alert_rule_test:
+  - eval_time: 8h
+    alertname: DeliverySilenceGrowing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: gouse-worker
+      exp_annotations:
+        summary: Số gói bặt tin vận chuyển đang tăng đều
+        description: Tăng liên tục trong 6 giờ nghĩa là cập nhật từ hãng vận chuyển đã ngừng tới, không
+          phải vài gói lẻ mắc kẹt. Mỗi gói là một khoản phải trả nhà bán chưa chuyển sang khả dụng, vì
+          số dư chỉ giải phóng khi đơn đi hết DELIVERED → COMPLETED.
+        runbook: docs/09-operations/observability.md

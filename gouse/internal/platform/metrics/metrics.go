@@ -141,11 +141,33 @@ var (
 	// `exported_job`, và mọi biểu thức viết theo `job` sẽ khớp nhầm hoặc
 	// không khớp gì. Lỗi này chỉ lộ ra khi chạy Prometheus thật.
 	//
-	// Tên job là một tập ĐÓNG và nhỏ (5 giá trị) — không có nguy cơ bùng
-	// nổ số chuỗi thời gian.
+	// Tên job là một tập ĐÓNG và nhỏ — không có nguy cơ bùng nổ số chuỗi
+	// thời gian.
 	WorkerJobLastSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "gouse_worker_job_last_success_timestamp_seconds",
 		Help: "Dấu thời gian Unix lần cuối job chạy xong thành công.",
+	}, []string{"job_name"})
+
+	// WorkerJobInterval là NHỊP đã cấu hình của mỗi job, tính bằng giây.
+	//
+	// # Vì sao một hằng số lại phải thành chỉ số
+	//
+	// Chú thích của `WorkerJobLastSuccess` nói đúng điều cần làm: "ngưỡng
+	// khác nhau [theo job] vì job phát event chạy mỗi 5 giây, job tính chỉ
+	// số chạy mỗi 5 phút". Nhưng luật cảnh báo không có cách nào BIẾT nhịp
+	// của từng job, nên nó dùng một con số duy nhất cho tất cả — và con số
+	// đó (300 giây) nhỏ hơn nhịp của ba job.
+	//
+	// Hệ quả đã kiểm chứng bằng promtool: một job chạy mỗi 10 phút làm
+	// `WorkerJobStalled` (mức critical) kêu ở phút thứ 9, trong khi nó
+	// hoàn toàn khỏe mạnh. Một cảnh báo critical luôn kêu là cách chắc
+	// chắn nhất để mọi cảnh báo khác bị bỏ qua.
+	//
+	// Xuất nhịp ra làm luật TỰ ĐIỀU CHỈNH: thêm job mới hoặc đổi nhịp
+	// không phải sửa luật, và luật không bao giờ lệch khỏi mã nguồn.
+	WorkerJobInterval = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gouse_worker_job_interval_seconds",
+		Help: "Nhịp chạy đã cấu hình của job, tính bằng giây.",
 	}, []string{"job_name"})
 
 	// WorkerJobRunning cho biết job có ĐANG chạy hay không (1 hoặc 0).
@@ -255,6 +277,7 @@ func init() {
 		HTTPDuration, HTTPInFlight,
 		OutboxPending, OutboxDeadLettered, OutboxOldestAgeSeconds,
 		WorkerHeartbeat, WorkerJobLastSuccess, WorkerJobRunning,
+		WorkerJobInterval,
 		WorkerJobDuration, WorkerJobFailures,
 		HandlerFailures, BusinessFailures, EventVersionSkew,
 		PaymentLechDoiSoat, PaymentIntentChoThuQuaHan,
