@@ -58,7 +58,7 @@ func (h *RecordSignalsFromEvents) Name() string {
 // chọn cơ chế hoãn thay vì thả cho bên nhận đọc thiếu trường.
 func (h *RecordSignalsFromEvents) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 2
+		return 3
 	}
 	return eventbus.DefaultMaxEventVersion
 }

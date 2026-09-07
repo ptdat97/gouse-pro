@@ -218,6 +218,15 @@ type CheckoutCompleted struct {
 	// PHIÊN BẢN theo ADR-0016 phần 1 — không phải trường thuần hiển thị.
 	PaymentMethod string
 
+	// ShippingFee là phí vận chuyển khách trả — THÊM Ở PHIÊN BẢN 3.
+	//
+	// Payment BẮT BUỘC phải có nó. Bút toán doanh thu trước nay chỉ ghi
+	// tổng dòng HÀNG, nên khoản phí vận chuyển khách trả không nằm ở đâu
+	// trong sổ cái cả. Lỗ hổng đó vô hình cho tới ADR-0018: khi bút toán
+	// thu tiền ghi CÓ khoản phải thu đúng bằng số tiền khách trả, phần
+	// chênh lệch lộ ra thành số dư phải thu ÂM.
+	ShippingFee money.Money
+
 	// ShippingAddress là nơi hàng phải đến.
 	//
 	// SELLER cần nó để in phiếu giao hàng. Không có nó thì họ biết nhặt gì
@@ -1332,6 +1341,7 @@ func (s *Service) completedEvent(
 		GuestEmail:      c.GuestEmail(),
 		GuestPhone:      c.GuestPhone(),
 		PaymentMethod:   paymentMethod,
+		ShippingFee:     c.ShippingFee(),
 		ShippingAddress: c.ShippingAddress(),
 		Currency:        c.Currency(),
 		Reservations:    reservations,

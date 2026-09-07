@@ -143,6 +143,43 @@ func (m *Module) RecordOrderRevenueInEventTx(
 	return translateErr(err)
 }
 
+// GhiPhiVanChuyenInEventTx ghi bút toán doanh thu PHÍ VẬN CHUYỂN.
+//
+// Phí khách trả cho việc giao hàng trước nay KHÔNG nằm ở đâu trong sổ cái
+// — xem domain.NewShippingRevenueEntry.
+func (m *Module) GhiPhiVanChuyenInEventTx(
+	ctx context.Context, orderID string, phi int64, donVi string,
+) error {
+	if phi <= 0 {
+		// Miễn phí vận chuyển (PH-40) là chuyện bình thường: không có
+		// khoản nào để ghi.
+		return nil
+	}
+	id, err := ids.Parse(orderID, ids.PrefixOrder)
+	if err != nil {
+		return ErrInvalidID
+	}
+	fee, err := money.New(phi, money.Currency(donVi))
+	if err != nil {
+		return err
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.svc.GhiPhiVanChuyenWith(ctx, paymentpg.LedgerForTx(tx),
+		application.GhiPhiVanChuyenInput{
+			OrderID: id, Fee: fee,
+			IdempotencyKey: "phi-ship:" + id.String(),
+		})
+	if errors.Is(err, domain.ErrDuplicateEntry) {
+		return nil
+	}
+	return translateErr(err)
+}
+
 // GhiThuTienInEventTx ghi bút toán THU ĐƯỢC TIỀN, bằng giao dịch dispatcher.
 //
 // ADR-0018 phần B1: bút toán doanh thu ghi NỢ `ACCOUNTS_RECEIVABLE` lúc

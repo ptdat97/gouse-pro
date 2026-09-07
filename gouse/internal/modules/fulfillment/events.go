@@ -143,7 +143,7 @@ func (h *SplitOnCheckoutCompleted) EventTypes() []string {
 // khóa chờ tiền không. Một bản dựng cũ chưa khai con số này sẽ được
 // dispatcher HOÃN event thay vì đọc thiếu trường rồi tạo đơn KHÔNG khóa
 // cho một đơn trả trước. Đó chính là ca ADR-0016 sinh ra để chặn.
-func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 2 }
+func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 3 }
 
 // splitPayload là phần dữ liệu bên nhận này cần.
 type splitPayload struct {

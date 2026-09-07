@@ -506,3 +506,70 @@ func NewDaoNguocEntry(p DaoNguocParams) (*LedgerEntry, error) {
 	e.reversesEntryID = p.Goc.ID()
 	return e, nil
 }
+
+// ShippingRevenueParams là dữ liệu bút toán DOANH THU VẬN CHUYỂN.
+type ShippingRevenueParams struct {
+	OrderID ids.ID
+	Fee     money.Money
+
+	IdempotencyKey string
+	CreatedBy      string
+	Now            time.Time
+}
+
+// NewShippingRevenueEntry dựng bút toán cho PHÍ VẬN CHUYỂN khách trả.
+//
+//	DEBIT   ACCOUNTS_RECEIVABLE    30.000   khách nợ thêm khoản phí này
+//	CREDIT  PLATFORM_REVENUE       30.000   nền tảng thu phí
+//
+// # Vì sao nó phải tồn tại
+//
+// Bút toán doanh thu đơn hàng chỉ ghi tổng dòng HÀNG. Phí vận chuyển
+// khách trả không nằm ở đâu trong sổ cái — nền tảng thu một khoản tiền mà
+// sổ sách không ghi.
+//
+// Lỗ hổng này vô hình cho tới ADR-0018: trước đó sổ ghi NỢ tiền mặt bằng
+// tiền hàng và không có gì đối chiếu lại. Khi bút toán thu tiền ghi CÓ
+// khoản phải thu đúng bằng số khách trả, phần chênh lộ ra thành số dư
+// phải thu ÂM — và bài P3-3 (chuỗi đầy đủ) là chỗ nó lộ ra.
+//
+// # Vì sao là PLATFORM_REVENUE, và điều đó CHƯA quyết xong
+//
+// Nền tảng là bên thu phí của khách. Chi phí trả cho hãng vận chuyển là
+// một bút toán KHÁC, ghi khi nó phát sinh — và chính bút toán đó mới nói
+// ai thật sự hưởng phần chênh. Ghi vào doanh thu nền tảng ở đây KHÔNG kết
+// luận điều đó; nó chỉ ngừng việc bỏ sót một khoản tiền có thật.
+//
+// Bút toán RIÊNG, không gộp vào bút toán doanh thu đơn: phí vận chuyển là
+// khoản của CẢ ĐƠN, còn doanh thu ghi theo TỪNG nhà bán. Gộp lại sẽ phải
+// chia phí cho từng bên — một câu hỏi nghiệp vụ chưa có câu trả lời.
+func NewShippingRevenueEntry(p ShippingRevenueParams) (*LedgerEntry, error) {
+	if !p.Fee.IsPositive() {
+		return nil, fmt.Errorf(
+			"payment: phí vận chuyển phải lớn hơn 0, nhận %s", p.Fee)
+	}
+
+	return NewLedgerEntry(NewEntryParams{
+		Type:          EntryOrderRevenue,
+		ReferenceType: "order",
+		ReferenceID:   p.OrderID,
+		Description:   "Phí vận chuyển khách trả",
+		Lines: []Line{
+			{
+				Account:     Account{Type: AccountAccountsReceivable},
+				Direction:   Debit,
+				Amount:      p.Fee,
+				Description: "Khách nợ phí vận chuyển",
+			},
+			{
+				Account:     Account{Type: AccountPlatformRevenue},
+				Direction:   Credit,
+				Amount:      p.Fee,
+				Description: "Doanh thu phí vận chuyển",
+			},
+		},
+		IdempotencyKey: p.IdempotencyKey,
+		CreatedBy:      p.CreatedBy,
+		Now:            p.Now,
+	})
+}

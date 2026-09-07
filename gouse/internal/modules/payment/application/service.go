@@ -850,3 +850,37 @@ func (s *Service) DaoButToan(
 	}
 	return e, nil
 }
+
+// GhiPhiVanChuyenInput là dữ liệu bút toán phí vận chuyển.
+type GhiPhiVanChuyenInput struct {
+	OrderID        ids.ID
+	Fee            money.Money
+	IdempotencyKey string
+}
+
+// GhiPhiVanChuyenWith ghi bút toán doanh thu PHÍ VẬN CHUYỂN.
+//
+// Xem domain.NewShippingRevenueEntry. Trùng khóa idempotency là đường đi
+// bình thường của một event phát lại, nên tra TRƯỚC khi ghi.
+func (s *Service) GhiPhiVanChuyenWith(
+	ctx context.Context, ledger domain.LedgerRepository, in GhiPhiVanChuyenInput,
+) (*domain.LedgerEntry, error) {
+	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
+		return cu, nil
+	}
+
+	e, err := domain.NewShippingRevenueEntry(domain.ShippingRevenueParams{
+		OrderID:        in.OrderID,
+		Fee:            in.Fee,
+		IdempotencyKey: in.IdempotencyKey,
+		CreatedBy:      "payment.revenue_on_checkout_completed",
+		Now:            s.clock.Now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := ledger.Append(ctx, e); err != nil {
+		return nil, err
+	}
+	return e, nil
+}

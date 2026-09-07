@@ -2567,7 +2567,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 |---|---|---|
 | P3-1 | **Test HTTP cho auth và audit-log** | ✅ xong — dòng ghi chú cũ đã lạc hậu; xem ghi chú dưới bảng |
 | P3-2 | **Sửa test suite chập chờn** | ✅ xong — xem ghi chú dưới bảng |
-| P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | Sau P1 |
+| P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | ✅ xong (07/09) — `api_chuoi_day_du_test.go`; và nó tìm ra một khoản tiền không nằm ở đâu trong sổ. Xem ghi chú |
 | P3-4 | Rate limit (`429` + `X-RateLimit-*`) | ✅ xong — xem ghi chú dưới bảng |
 | P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | Tăng cường SAU phát hành — chủ dự án đã gỡ khỏi điều kiện chặn (15/08) |
 | P3-6 | Observability: metrics, tracing | |
@@ -3288,6 +3288,49 @@ lần thứ hai.
 Cái chặn thật là **không có đường NHẬP nào cả** — xem P3-25. Thêm
 `color_hex` vào hợp đồng API lúc này sẽ là **lần thứ bảy** của đúng dạng
 lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. Nên không thêm.
+
+**P3-3 — chuỗi đầy đủ, và khoản tiền không nằm ở đâu (07/09).**
+
+Bài này trước nay KHÔNG viết được: mắt xích PAYMENT không tồn tại.
+`payment_intent` chỉ có từ PH-36 (06/09), và `order.paid` — thứ nối tiền về
+với việc giao hàng — chỉ có từ ADR-0018 (07/09).
+
+`internal/app/api_chuoi_day_du_test.go` đi hết chuỗi qua HTTP thật và
+khẳng định TRẠNG THÁI TIỀN ở từng chặng, không chỉ mã HTTP:
+
+```text
+đặt đơn CARD   → đơn PENDING_PAYMENT, đơn thực hiện KHÓA,
+                 sổ ghi KHÁCH NỢ, tiền mặt = 0
+nhà bán giao   → BỊ CHẶN
+webhook thu    → đơn PAID
+phát event     → mở khóa, phải thu → tiền mặt
+nhà bán giao   → được, rồi DELIVERED
+kết            → Σ nợ = Σ có
+```
+
+**Và ngay lần chạy đầu nó tìm ra một lỗ thật:** số dư phải thu ra **âm
+30.000 đ**. Bút toán doanh thu chỉ ghi tổng dòng HÀNG, nên **phí vận
+chuyển khách trả không nằm ở đâu trong sổ cái cả** — nền tảng thu một
+khoản tiền mà sổ sách không ghi.
+
+Lỗ này có từ lâu và vô hình: trước ADR-0018, sổ ghi NỢ tiền mặt bằng tiền
+hàng và không có gì đối chiếu lại. Chỉ khi bút toán thu tiền ghi CÓ khoản
+phải thu đúng bằng số khách trả thì phần chênh mới lộ ra. Đây đúng là loại
+lỗi mà một bài chuỗi đầy đủ sinh ra để bắt — không bài lẻ nào thấy được,
+vì mỗi bên đều tự nhất quán.
+
+Đã sửa: `checkout.completed` lên **phiên bản 3** với `shipping_fee`, và
+`NewShippingRevenueEntry` ghi `DEBIT ACCOUNTS_RECEIVABLE / CREDIT
+PLATFORM_REVENUE`. Bút toán RIÊNG của cả đơn, không gộp vào bút toán theo
+từng nhà bán: chia phí cho từng bên là câu hỏi nghiệp vụ chưa có câu trả
+lời. Ghi vào doanh thu nền tảng KHÔNG kết luận ai hưởng phần chênh — bút
+toán chi phí trả hãng vận chuyển mới nói điều đó, và nó chưa tồn tại.
+
+**Còn mở:** khoản GIẢM GIÁ chưa được kiểm ở đây (các bài hiện tại không áp
+mã giảm). Nếu nó cũng không vào sổ thì cùng dạng lỗi, và bài này sẽ bắt
+được ngay khi có đơn có giảm giá.
+
+---
 
 **P3-28 — `checkout.completed` bị dùng như "đã trả tiền" (07/09).**
 

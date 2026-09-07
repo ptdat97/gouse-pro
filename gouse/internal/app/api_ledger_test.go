@@ -39,6 +39,11 @@ func (a *apiTest) phatEvent(t *testing.T) int {
 		a.mods.payment, payment.NewSellerKind(a.mods.seller), log))
 	bus.Subscribe(payment.NewSellerReleaseHandler(a.mods.payment, log))
 
+	// Hai bên nhận của `order.paid` — ADR-0018. Thiếu chúng thì đơn trả
+	// trước bị khóa vĩnh viễn và tiền mặt không bao giờ được ghi nhận.
+	bus.Subscribe(payment.NewThuTienHandler(a.mods.payment, log))
+	bus.Subscribe(fulfillment.NewMoKhoaHandler(a.mods.fulfillment, log))
+
 	n, err := bus.DispatchBatch(context.Background(), 100)
 	if err != nil {
 		t.Fatalf("phát event: %v", err)

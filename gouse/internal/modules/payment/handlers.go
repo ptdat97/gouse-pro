@@ -62,7 +62,7 @@ func (h *RevenueOnCheckoutCompleted) Name() string {
 // chọn cơ chế hoãn thay vì thả cho bên nhận đọc thiếu trường.
 func (h *RevenueOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 2
+		return 3
 	}
 	return eventbus.DefaultMaxEventVersion
 }
@@ -83,6 +83,11 @@ type revenuePayload struct {
 		LineTotal        int64  `json:"line_total"`
 		CommissionAmount int64  `json:"commission_amount"`
 	} `json:"reservations"`
+	// ShippingFee có từ PHIÊN BẢN 3 của `checkout.completed`.
+	//
+	// Khoản phí khách trả cho việc giao hàng. Trước v3 nó không nằm ở đâu
+	// trong sổ cái — xem domain.NewShippingRevenueEntry.
+	ShippingFee int64 `json:"shipping_fee"`
 }
 
 // phanCuaNhaBan là phần tiền của một nhà bán trong một đơn.
@@ -147,6 +152,17 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 		if err := h.module.RecordOrderRevenueInEventTx(ctx, req); err != nil {
 			return fmt.Errorf("ghi doanh thu nhà bán %s: %w", g.sellerID, err)
 		}
+	}
+
+	// PHÍ VẬN CHUYỂN — bút toán RIÊNG của cả đơn.
+	//
+	// Không gộp vào bút toán theo từng nhà bán ở trên: phí là khoản của
+	// CẢ ĐƠN, và chia nó cho từng bên là một câu hỏi nghiệp vụ chưa có
+	// câu trả lời. Miễn phí vận chuyển (PH-40) thì phí bằng 0 và không có
+	// bút toán nào.
+	if err := h.module.GhiPhiVanChuyenInEventTx(
+		ctx, p.OrderID, p.ShippingFee, p.Currency); err != nil {
+		return fmt.Errorf("ghi phí vận chuyển: %w", err)
 	}
 
 	return nil
