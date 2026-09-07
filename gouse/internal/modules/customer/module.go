@@ -152,6 +152,7 @@ func (m *Module) RegisterPublicRoutes(mux *http.ServeMux, log *slog.Logger) {
 			WeakPassword:     identity.ErrWeakPassword,
 			TokenKhongHopLe:  identity.ErrTokenXacMinhKhongHopLe,
 			EmailDaDoi:       identity.ErrEmailDaDoiTuKhiGuiLienKet,
+			EmailDaXacMinh:   identity.ErrEmailDaXacMinhRoi,
 		},
 	).Register(mux)
 }

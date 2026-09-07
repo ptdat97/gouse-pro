@@ -179,6 +179,22 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 			httpserver.RateLimit(registerLimit, registerWindow),
 		))
 
+		// GỬI LẠI liên kết — CẦN đăng nhập.
+		//
+		// Khác `verify-email` ở đúng một điểm: đường kia nhận TOKEN, thứ
+		// bản thân nó đã là bằng chứng. Đường này nếu nhận EMAIL thì trở
+		// thành công cụ dò danh sách email — phản hồi khác nhau đã đủ nói
+		// "địa chỉ này có tài khoản chưa". Lấy danh tính từ token đăng
+		// nhập thì không có gì để dò.
+		//
+		// Vẫn giữ giới hạn tần suất: một tài khoản bấm liên tục là gửi thư
+		// rác vào hộp thư của chính chủ.
+		mux.Handle("POST /api/v1/auth/verify-email/resend", httpserver.Chain(
+			publicMux,
+			httpserver.RateLimit(registerLimit, registerWindow),
+			httpserver.Auth(m.identity),
+		))
+
 		accountMux := http.NewServeMux()
 		m.customer.RegisterRoutes(accountMux, log)
 

@@ -440,6 +440,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/verify-email/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gửi lại liên kết xác minh email
+         * @description Phát token mới và gửi lại thư xác minh. Token cũ bị **vô hiệu** —
+         *     người ta bấm "gửi lại" chính vì nghi ngờ thư cũ, nên để hai liên kết
+         *     cùng sống là làm ngược điều họ vừa yêu cầu.
+         *
+         *     **CẦN ĐĂNG NHẬP**, khác `verifyEmail`. Hai đường nhận hai thứ khác
+         *     nhau: đường kia nhận TOKEN — bản thân nó đã là bằng chứng. Đường này
+         *     nếu nhận EMAIL thì bất kỳ ai cũng hỏi được "địa chỉ này có tài khoản
+         *     chưa" qua việc phản hồi khác nhau, tức là công cụ dò danh sách email.
+         *     Lấy danh tính từ token đăng nhập thì không có gì để dò.
+         *
+         *     Yêu cầu đăng nhập KHÔNG chặn ai: tài khoản dùng được ngay từ lúc
+         *     đăng ký, kể cả khi email chưa xác minh. Thứ chưa có là lịch sử đơn cũ.
+         */
+        post: operations["resendVerificationEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cart": {
         parameters: {
             query?: never;
@@ -3913,6 +3944,52 @@ export interface operations {
              *     người dùng thật gặp lỗi này chủ yếu do liên kết quá 24 giờ.
              */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Vượt giới hạn tần suất. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resendVerificationEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã gửi lại thư. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        sent?: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description Email đã được xác minh — không cần gửi lại.
+             *
+             *     Nói thẳng ra được vì người gọi đã đăng nhập: đây là email của
+             *     chính họ, không lộ gì cho ai.
+             */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

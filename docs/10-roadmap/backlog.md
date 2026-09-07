@@ -2767,9 +2767,29 @@ Phải bỏ CẢ HAI mới đỏ.
 đó (`email_verification_required = true`, hai đơn VẪN vô chủ) → bấm liên
 kết lấy từ thân thư đã gửi → `orders_merged = 2`, 0 đơn vô chủ.
 
-**Còn nợ:** chưa có endpoint GỬI LẠI liên kết. Hết 24 giờ mà chưa bấm thì
-hiện chưa có đường tự phục hồi — cùng loại ngõ cụt mà P3-15 vừa xóa, chỉ
-hẹp hơn. Nên làm ngay sau.
+**Gửi lại liên kết — làm ngay sau, cùng ngày.** Hết 24 giờ mà chưa bấm thì
+không có đường tự phục hồi, tức cùng loại ngõ cụt P3-15 vừa xóa.
+
+`POST /api/v1/auth/verify-email/resend` **cần đăng nhập**, khác
+`verify-email`. Lý do nằm ở thứ mỗi đường nhận vào: đường kia nhận TOKEN,
+bản thân nó đã là bằng chứng. Đường này nếu nhận EMAIL thì bất kỳ ai cũng
+hỏi được "địa chỉ này có tài khoản chưa" qua việc phản hồi khác nhau — tức
+là công cụ dò danh sách email, đúng thứ `identity/public.go` đã cảnh báo
+cho đường đăng ký.
+
+Yêu cầu đăng nhập KHÔNG chặn ai: tài khoản dùng được ngay từ lúc đăng ký,
+kể cả khi email chưa xác minh. Thứ chưa có là lịch sử đơn cũ.
+
+Token mới VÔ HIỆU token cũ — người ta bấm "gửi lại" chính vì nghi ngờ thư
+cũ, nên để hai liên kết cùng sống là làm ngược điều họ vừa yêu cầu.
+
+**Lại một lần phá bị nuốt, và lần này nó dạy tôi đọc sai chính bản sửa của
+mình.** Bỏ `httpserver.Auth` khỏi route thì bài test đỏ — nhưng đỏ ở lời
+gọi ĐÃ đăng nhập (middleware không parse token nữa nên handler thấy danh
+tính rỗng), không phải ở lời gọi chưa đăng nhập. Bỏ riêng chốt trong
+handler thì VẪN XANH — middleware bắt được. Phải bỏ CẢ HAI mới thấy lời
+gọi không đăng nhập đi lọt, và khi đó là 500 chứ không phải "gửi lại được":
+`ids.Parse` trên chuỗi rỗng vẫn chặn ở lớp thứ ba.
 
 **P3-10 — đã xong (06/09).** Dòng cũ ghi "cần cả bốn module thật" và đó
 chính là thứ đã giữ mục này mở suốt từ trước P1.3. Không cần: `offerLookup`

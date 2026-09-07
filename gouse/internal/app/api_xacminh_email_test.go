@@ -129,3 +129,96 @@ func tachToken(t *testing.T, than string) string {
 	t.Fatalf("không tách được token từ thư: %q", than)
 	return ""
 }
+
+// TestGuiLaiLienKetCanDANGNHAP khóa lý do đường này khác `verify-email`.
+//
+// # Hai đường, hai thứ nhận vào
+//
+//	verify-email   nhận TOKEN — bản thân nó đã là bằng chứng, nên không
+//	               cần đăng nhập (người bấm liên kết thường ở trình duyệt
+//	               khác hoặc trên điện thoại)
+//	resend         nếu nhận EMAIL thì bất kỳ ai cũng hỏi được "địa chỉ này
+//	               có tài khoản chưa" qua việc phản hồi khác nhau
+//
+// Lấy danh tính từ TOKEN ĐĂNG NHẬP thì không có gì để dò: người gọi đã
+// chứng minh mình là ai, và chỉ gửi lại được cho chính mình.
+func TestGuiLaiLienKetCanDangNhap(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	const email = "guilai-lienket@apitest.local"
+	const dienThoai = "0900777333"
+
+	// Khách vãng lai đặt một đơn, rồi đăng ký bằng chính email đó.
+	maPhien := a.dungPhienSanHoanTat(email, dienThoai)
+	if res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
+		map[string]any{"payment_method": "COD"}, khoaIdem()); res.code != http.StatusOK &&
+		res.code != http.StatusCreated {
+		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
+	}
+	if dk := a.call(http.MethodPost, "/api/v1/auth/register",
+		map[string]any{"email": email, "password": "MatKhauDuDai@2026"},
+		khoaIdem()); dk.code != http.StatusCreated {
+		t.Fatalf("đăng ký: HTTP %d — %s", dk.code, dk.raw)
+	}
+
+	demToken := func(t *testing.T) int {
+		t.Helper()
+		var n int
+		if err := a.db.Pool().QueryRow(ctx, `
+			SELECT count(*) FROM email_verification_token t
+			  JOIN "user" u ON u.id = t.user_id
+			 WHERE u.email = $1 AND t.used_at IS NULL`, email).Scan(&n); err != nil {
+			t.Fatalf("đếm token: %v", err)
+		}
+		return n
+	}
+
+	// PHÒNG VỆ HAI LỚP, và cần biết điều đó khi đọc bài này:
+	//
+	//	middleware   `httpserver.Auth` chặn request không có token hợp lệ
+	//	handler      `ac.UserID == ""` chặn khi ngữ cảnh không có danh tính
+	//
+	// Bỏ RIÊNG lớp nào thì bài test VẪN XANH — lớp kia bắt được. Phải bỏ
+	// CẢ HAI mới thấy đỏ, và khi đó là 500 chứ không phải "gửi lại được":
+	// lớp sâu hơn (`ids.Parse` trên chuỗi rỗng) vẫn không cho đi tiếp.
+	//
+	// Ghi lại vì nó dễ dẫn tới kết luận sai theo cả hai chiều: tưởng một
+	// lớp là đủ nên gỡ lớp kia, hoặc tưởng bài test vô dụng vì phá một lớp
+	// mà vẫn xanh.
+
+	// KHÔNG đăng nhập → từ chối, và KHÔNG phát token nào.
+	truoc := demToken(t)
+	khong := a.call(http.MethodPost, "/api/v1/auth/verify-email/resend", nil, nil)
+	if khong.code != http.StatusUnauthorized {
+		t.Errorf("HTTP %d, cần 401 — không đăng nhập mà gửi lại được thì "+
+			"endpoint này là công cụ dò danh sách email: %s", khong.code, khong.raw)
+	}
+	if demToken(t) != truoc {
+		t.Error("lời gọi KHÔNG đăng nhập vẫn phát token — thư rác gửi vào " +
+			"hộp thư của người khác")
+	}
+
+	// Đăng nhập rồi gửi lại → được.
+	dn := a.call(http.MethodPost, "/api/v1/auth/login",
+		map[string]any{"email": email, "password": "MatKhauDuDai@2026"}, nil)
+	tok, _ := dn.body["access_token"].(string)
+	if tok == "" {
+		t.Fatalf("đăng nhập: %s", dn.raw)
+	}
+
+	got := a.call(http.MethodPost, "/api/v1/auth/verify-email/resend", nil,
+		map[string]string{"Authorization": "Bearer " + tok})
+	if got.code != http.StatusOK {
+		t.Fatalf("gửi lại: HTTP %d — %s", got.code, got.raw)
+	}
+
+	// Vẫn ĐÚNG MỘT token còn sống: bản mới giết bản cũ.
+	//
+	// Người ta bấm "gửi lại" chính vì nghi ngờ thư cũ; để hai liên kết
+	// cùng sống là làm ngược điều họ vừa yêu cầu.
+	if n := demToken(t); n != 1 {
+		t.Errorf("còn %d token chưa dùng, mong đúng 1 — liên kết cũ vẫn "+
+			"sống sau khi đã gửi lại", n)
+	}
+}

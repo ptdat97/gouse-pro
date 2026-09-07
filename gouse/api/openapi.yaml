@@ -118,6 +118,8 @@ paths:
     $ref: './paths/auth.yaml#/register'
   /api/v1/auth/verify-email:
     $ref: './paths/auth.yaml#/verify_email'
+  /api/v1/auth/verify-email/resend:
+    $ref: './paths/auth.yaml#/resend_verification_email'
 
   /api/v1/cart:
     $ref: './paths/cart-checkout.yaml#/cart'

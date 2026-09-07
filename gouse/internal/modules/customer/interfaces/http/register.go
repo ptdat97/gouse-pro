@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
+	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
@@ -65,9 +66,11 @@ type RegisterHandler struct {
 	emailUsedByGuest error
 	weakPassword     error
 
-	// tokenKhongHopLe và emailDaDoi là lỗi của luồng XÁC MINH email.
+	// tokenKhongHopLe, emailDaDoi và emailDaXacMinh là lỗi của luồng
+	// XÁC MINH email.
 	tokenKhongHopLe error
 	emailDaDoi      error
+	emailDaXacMinh  error
 }
 
 // RegisterHandlerErrors gom các lỗi mà gói cha định nghĩa.
@@ -82,6 +85,7 @@ type RegisterHandlerErrors struct {
 	WeakPassword     error
 	TokenKhongHopLe  error
 	EmailDaDoi       error
+	EmailDaXacMinh   error
 }
 
 func NewRegisterHandler(
@@ -94,6 +98,7 @@ func NewRegisterHandler(
 		weakPassword:     errs.WeakPassword,
 		tokenKhongHopLe:  errs.TokenKhongHopLe,
 		emailDaDoi:       errs.EmailDaDoi,
+		emailDaXacMinh:   errs.EmailDaXacMinh,
 	}
 }
 
@@ -108,6 +113,62 @@ func (h *RegisterHandler) Register(mux *http.ServeMux) {
 	// Xác minh email cũng CẦN giới hạn tần suất: nó nhận token từ bên
 	// ngoài, và không giới hạn thì nó là chỗ để dò token bằng vét cạn.
 	mux.Handle("POST /api/v1/auth/verify-email", http.HandlerFunc(h.xacMinh))
+
+	// GỬI LẠI liên kết — mux truyền vào PHẢI đã bọc Auth.
+	//
+	// Xem `guiLai` cho lý do đường này cần đăng nhập còn `verify-email`
+	// thì không.
+	mux.Handle("POST /api/v1/auth/verify-email/resend", http.HandlerFunc(h.guiLai))
+}
+
+type guiLaiResponse struct {
+	// Sent luôn là true khi trả 200. Có trường này để phản hồi không rỗng
+	// và để client phân biệt được với 204.
+	Sent bool `json:"sent"`
+}
+
+// guiLai phục vụ POST /api/v1/auth/verify-email/resend
+// (operationId: resendVerificationEmail).
+//
+// # Vì sao đường NÀY cần đăng nhập còn `verify-email` thì không
+//
+// Hai đường nhận hai thứ khác nhau:
+//
+//	verify-email   nhận TOKEN — bản thân nó đã là bằng chứng
+//	resend         nhận... gì? Nếu nhận EMAIL thì bất kỳ ai cũng hỏi được
+//	               "địa chỉ này có tài khoản chưa" qua việc phản hồi khác
+//	               nhau, và đó là công cụ dò danh sách email.
+//
+// Lấy danh tính từ TOKEN ĐĂNG NHẬP thì không có gì để dò: người gọi đã
+// chứng minh mình là ai, và họ chỉ gửi lại được cho chính mình.
+//
+// Và nó KHÔNG chặn ai: tài khoản dùng được ngay từ lúc đăng ký, kể cả khi
+// email chưa xác minh. Thứ chưa có là lịch sử đơn cũ.
+func (h *RegisterHandler) guiLai(w http.ResponseWriter, r *http.Request) {
+	ac, ok := httpserver.AuthContextFrom(r.Context())
+	if !ok || ac.UserID == "" {
+		h.fail(w, r, apierror.New(apierror.CodeUnauthorized,
+			"Cần đăng nhập để gửi lại liên kết xác minh"))
+		return
+	}
+
+	if err := h.port.GuiLienKetXacMinh(r.Context(), ac.UserID); err != nil {
+		h.fail(w, r, h.translateGuiLai(err))
+		return
+	}
+	h.ok(w, r, http.StatusOK, guiLaiResponse{Sent: true})
+}
+
+// translateGuiLai dịch lỗi gửi lại thành thông báo hữu ích.
+func (h *RegisterHandler) translateGuiLai(err error) error {
+	if h.emailDaXacMinh != nil && errors.Is(err, h.emailDaXacMinh) {
+		// 409 chứ không 400: yêu cầu hợp lệ, chỉ là đã xong rồi. Và nói
+		// thẳng ra — người gọi đã đăng nhập nên đây là email của chính họ,
+		// không lộ gì cho ai.
+		return apierror.New(apierror.CodeConflict,
+			"Email của bạn đã được xác minh — không cần gửi lại.")
+	}
+	return apierror.From(err)
 }
 
 type xacMinhRequest struct {

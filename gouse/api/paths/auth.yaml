@@ -419,3 +419,52 @@ verify_email:
           application/json:
             schema:
               $ref: '../components/common.yaml#/schemas/Error'
+
+resend_verification_email:
+  post:
+    tags: [Auth]
+    summary: Gửi lại liên kết xác minh email
+    description: |
+      Phát token mới và gửi lại thư xác minh. Token cũ bị **vô hiệu** —
+      người ta bấm "gửi lại" chính vì nghi ngờ thư cũ, nên để hai liên kết
+      cùng sống là làm ngược điều họ vừa yêu cầu.
+
+      **CẦN ĐĂNG NHẬP**, khác `verifyEmail`. Hai đường nhận hai thứ khác
+      nhau: đường kia nhận TOKEN — bản thân nó đã là bằng chứng. Đường này
+      nếu nhận EMAIL thì bất kỳ ai cũng hỏi được "địa chỉ này có tài khoản
+      chưa" qua việc phản hồi khác nhau, tức là công cụ dò danh sách email.
+      Lấy danh tính từ token đăng nhập thì không có gì để dò.
+
+      Yêu cầu đăng nhập KHÔNG chặn ai: tài khoản dùng được ngay từ lúc
+      đăng ký, kể cả khi email chưa xác minh. Thứ chưa có là lịch sử đơn cũ.
+    operationId: resendVerificationEmail
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Đã gửi lại thư.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sent:
+                  type: boolean
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '409':
+        description: |
+          Email đã được xác minh — không cần gửi lại.
+
+          Nói thẳng ra được vì người gọi đã đăng nhập: đây là email của
+          chính họ, không lộ gì cho ai.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '429':
+        description: Vượt giới hạn tần suất.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
