@@ -2,7 +2,8 @@
 
 **Trạng thái:** Accepted (07/09) — chủ dự án chọn **A2 + B1 + dựng quy trình đảo bút toán**
 
-Phần A2 **đã triển khai**; B1 và quy trình đảo bút toán chưa.
+**Đã triển khai đầy đủ** (07/09): A2, B1, quy trình đảo bút toán, và dọn
+3110 bút toán ghi khống trên dữ liệu thật.
 
 ---
 

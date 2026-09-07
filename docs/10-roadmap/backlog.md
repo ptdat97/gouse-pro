@@ -2592,7 +2592,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ⛔ mở — hàng hóa chỉ vào hệ thống được qua seed. Xem ghi chú |
 | P3-26 | **Webhook vận chuyển MẤT thì không ai biết** (yêu cầu 5) | ✅ nửa nội bộ xong (07/09) — đo được 20 gói kẹt thật. Xem ghi chú |
 | P3-27 | **Chỉ số đối soát tiền KHÔNG AI CANH; và một cảnh báo critical kêu oan vĩnh viễn** | ✅ xong (07/09) — promtool nay chạy trong CI. Xem ghi chú |
-| P3-28 | **Giao hàng và ghi sổ đều chạy TRƯỚC khi tiền về** | 🟡 A2 xong (07/09) — hàng không rời kho khi chưa thu tiền. B1 (sổ cái) và quy trình đảo bút toán còn lại. [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md) |
+| P3-28 | **Giao hàng và ghi sổ đều chạy TRƯỚC khi tiền về** | ✅ xong (07/09) — A2 + B1 + đảo 3110 bút toán + ma trận E2E. [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md) |
 
 **P3-9 — phần GHI NHẬN đã xong (06/09); phần THU TIỀN vẫn chặn.**
 
@@ -3354,8 +3354,46 @@ báo đúng tình huống này: "trường nào quên là trường đó bị x�
 đọc — và lỗi chỉ lộ ra ở test đọc lại sau khi ghi". Bài e2e bắt được vì nó
 đi qua ghi rồi đọc lại, không phải kiểm trong bộ nhớ.
 
-**Còn lại:** B1 (sổ cái ghi khoản phải thu) và quy trình đảo bút toán cho
-3110 bút toán đã ghi sai.
+**Phần B1 và dọn dữ liệu cũ đã xong (07/09).**
+
+```text
+ORDER_REVENUE      nay ghi NỢ ACCOUNTS_RECEIVABLE, không phải tiền mặt
+PAYMENT_RECEIVED   bút toán mới: phải thu → tiền mặt, khi order.paid
+REVERSAL           bút toán mới: đảo một bút toán đã ghi sai
+cmd/doisoatso      công cụ đối chiếu + đảo hàng loạt, mặc định CHỈ BÁO CÁO
+```
+
+Chạy trên dữ liệu thật:
+
+```text
+trước:  PLATFORM_CASH  1.130.767.000 đ  (3110 đơn PENDING_PAYMENT)
+sau:    PLATFORM_CASH      2.784.000 đ  (7 đơn đã thật sự đi tiếp)
+Σ NỢ = Σ CÓ = 2.267.330.000            lệch 0
+```
+
+CỐ Ý chỉ đảo đơn PENDING_PAYMENT. Bảy đơn đã SHIPPED/PAID giữ nguyên: với
+chúng "tiền đã về chưa" là câu hỏi mập mờ (COD thu lúc giao), và đảo một
+bút toán mà không chắc nó sai là tạo ra đúng loại lỗi ngược lại.
+
+**Ma trận E2E của luồng thanh toán** — sáu tình huống, bốn cái cuối là nơi
+hệ thống phân phối hỏng theo kiểu không ai thấy:
+
+```text
+trả trước THÀNH CÔNG   TestThuTienXongThiMoKhoaGiaoHang · BB5
+trả trước THẤT BẠI     TestMT_TraTruocThatBaiThiHangVanNamIm
+COD                    TestDonCODGiaoDuocNgay · BB2
+thu tiền ĐỒNG THỜI     TestMT_ThuTienDongThoiChiGhiMotLan (4 goroutine THẬT)
+phát lại webhook       api_webhook_thanhtoan_test.go — đã có từ trước
+phát lại order.paid    TestMT_PhatLaiOrderPaidKhongLamHaiLan · BB6
+```
+
+Sáu bất biến (BB1–BB6) viết thành test thay vì tài liệu — xem
+`internal/e2e/bat_bien_thanh_toan_test.go`. Không module nào một mình kiểm
+được chúng.
+
+**Một trường GHI mà không ĐỌC, tự gây ra trong chính commit chống nó:**
+`reverses_entry_id` viết xuống database mà hai đường đọc đều không nạp
+lại. Lần thứ tám của dạng lỗi mục 8, và lần này nằm trong tay tôi.
 
 **Vì sao ban đầu dừng ở ADR:** ADR-0017 đã ghi việc này "là
 quyết định của chủ dự án", và nó động tới thời điểm ghi doanh thu — thứ
