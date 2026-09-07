@@ -2592,6 +2592,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ⛔ mở — hàng hóa chỉ vào hệ thống được qua seed. Xem ghi chú |
 | P3-26 | **Webhook vận chuyển MẤT thì không ai biết** (yêu cầu 5) | ✅ nửa nội bộ xong (07/09) — đo được 20 gói kẹt thật. Xem ghi chú |
 | P3-27 | **Chỉ số đối soát tiền KHÔNG AI CANH; và một cảnh báo critical kêu oan vĩnh viễn** | ✅ xong (07/09) — promtool nay chạy trong CI. Xem ghi chú |
+| P3-28 | **Giao hàng và ghi sổ đều chạy TRƯỚC khi tiền về** | ⛔ chờ quyết định — [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md). Đo được 1,13 tỷ đ tiền mặt ghi khống |
 
 **P3-9 — phần GHI NHẬN đã xong (06/09); phần THU TIỀN vẫn chặn.**
 
@@ -3287,6 +3288,45 @@ lần thứ hai.
 Cái chặn thật là **không có đường NHẬP nào cả** — xem P3-25. Thêm
 `color_hex` vào hợp đồng API lúc này sẽ là **lần thứ bảy** của đúng dạng
 lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. Nên không thêm.
+
+**P3-28 — `checkout.completed` bị dùng như "đã trả tiền" (07/09).**
+
+Đi tìm việc cho P3-3 (E2E đủ chuỗi) thì thấy chuỗi này đứt ở một chỗ khác
+hẳn chỗ đang tìm. Chi tiết ở [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md);
+tóm tắt:
+
+```text
+payment.RevenueOnCheckoutCompleted    ghi doanh thu + PLATFORM_CASH
+fulfillment.SplitOnCheckoutCompleted  tạo việc cho nhà bán
+                                      ↑ cả hai treo trên MỘT event
+                                        chỉ đúng nếu nó nghĩa là "tiền đã về"
+```
+
+Đo trên dữ liệu thật: **1.132.273.000 đ ghi NỢ `PLATFORM_CASH` cho 3110
+đơn còn PENDING_PAYMENT**, trong khi đúng MỘT đơn thật sự đã trả tiền. Sổ
+cái bất biến (ADR-0008) nên chỉ sửa được bằng bút toán đảo.
+
+Và `docs/07-workflows/marketplace-order.md` mục 3 đã vẽ mốc đúng từ trước:
+`Bus->>Ful: order.paid`. Event đó có trong sổ đăng ký với **0 nơi phát, 0
+nơi nghe** — lần thứ bảy của dạng lỗi mục 8. `order.MarkPaid` đổi trạng
+thái rồi im lặng.
+
+Không có chỗ nào trong fulfillment kiểm tra thanh toán, nên nhà bán đưa
+được đơn từ PENDING tới HANDED_OVER — hàng rời kho — cho một đơn CARD chưa
+trả đồng nào. Với COD thì đây là hành vi ĐÚNG; phân biệt COD ↔ trả trước
+chỉ diễn đạt được từ 06/09 khi P3-9 nối `payment_method`.
+
+**Vì sao dừng ở ADR chứ không sửa luôn:** ADR-0017 đã ghi việc này "là
+quyết định của chủ dự án", và nó động tới thời điểm ghi doanh thu — thứ
+làm đổi nghĩa mọi báo cáo. Quy tắc nhận việc (mục 7) cũng nói rõ: cần đổi
+kiến trúc thì viết ADR TRƯỚC.
+
+Đề xuất trong ADR: **A2** (giữ mốc tách, nhưng đơn trả trước sinh ra ở
+trạng thái chưa được phép hành động, `order.paid` mở khóa) và **B1** (ghi
+KHOẢN PHẢI THU thay vì tiền mặt, chuyển thành tiền mặt khi thu được). Cả
+hai đều bỏ đúng một câu nói sai mà không mở lại tranh luận lớn hơn.
+
+---
 
 **P3-27 — chỉ số có rồi mà không ai canh (07/09).**
 
