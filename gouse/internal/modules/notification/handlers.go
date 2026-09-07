@@ -44,6 +44,21 @@ func (h *NotifyOnOrderEvents) Name() string {
 	return "notification.notify_on_order_events"
 }
 
+// MaxEventVersion khai bên nhận này hiểu tới phiên bản 2 của
+// `checkout.completed`.
+//
+// Nó KHÔNG dùng trường `payment_method` mà phiên bản 2 thêm vào — trường
+// đó dành cho fulfillment (ADR-0018). Khai ở đây vì ADR-0016 bắt MỌI bên
+// nhận của một event nói rõ mình hiểu tới đâu: thiếu một khai báo là
+// dispatcher HOÃN event cho tất cả, và đó là cái giá đã chấp nhận khi
+// chọn cơ chế hoãn thay vì thả cho bên nhận đọc thiếu trường.
+func (h *NotifyOnOrderEvents) MaxEventVersion(eventType string) int {
+	if eventType == eventbus.TypeCheckoutCompleted {
+		return 2
+	}
+	return eventbus.DefaultMaxEventVersion
+}
+
 func (h *NotifyOnOrderEvents) EventTypes() []string {
 	return []string{
 		eventbus.TypeCheckoutCompleted,

@@ -762,3 +762,32 @@ func thongDiep(
 		return "Có chỉ số chưa đạt ngưỡng."
 	}
 }
+
+// MoKhoaTheoDon mở khóa mọi đơn thực hiện của một đơn hàng.
+//
+// Đầu kia của cửa chặn thanh toán (ADR-0018 phần A2): đơn TRẢ TRƯỚC sinh
+// ra bị khóa, và đây là đường duy nhất mở. Thiếu nó thì hàng kẹt vĩnh viễn.
+//
+// Bỏ qua đơn đã mở sẵn thay vì ghi lại: ghi lại sẽ đẩy `version` và
+// `updated_at` tới trước mỗi lần event được phát lại, làm mọi báo cáo
+// "đơn này đổi lúc nào" nói sai — và event phát lại là chuyện bình thường.
+func (s *Service) MoKhoaTheoDon(ctx context.Context, orderID ids.ID) (int, error) {
+	fos, err := s.repo.ListByOrder(ctx, orderID)
+	if err != nil {
+		return 0, err
+	}
+
+	var n int
+	for _, fo := range fos {
+		if !fo.ChoThanhToan() {
+			continue
+		}
+		fo.MoKhoaThanhToan()
+		if err := s.repo.Update(ctx, fo); err != nil {
+			return n, fmt.Errorf(
+				"fulfillment: mở khóa đơn %s: %w", fo.FONumber(), err)
+		}
+		n++
+	}
+	return n, nil
+}

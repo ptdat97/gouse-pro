@@ -120,6 +120,10 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			GuestEmail  string `json:"guest_email"`
 			GuestPhone  string `json:"guest_phone"`
 
+			// PaymentMethod quyết định đơn thực hiện có được giao ngay
+			// không — xem ADR-0018. Trường này làm payload lên PHIÊN BẢN 2.
+			PaymentMethod string `json:"payment_method"`
+
 			// ShippingAddress để SELLER in được phiếu giao hàng.
 			//
 			// Không có nó thì họ biết nhặt gì mà không biết gửi đi đâu — và
@@ -137,6 +141,8 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			CustomerID:  in.CustomerID.String(),
 			GuestEmail:  in.GuestEmail,
 			GuestPhone:  in.GuestPhone,
+
+			PaymentMethod: in.PaymentMethod,
 			ShippingAddress: addressPayload{
 				RecipientName: in.ShippingAddress.RecipientName,
 				Phone:         in.ShippingAddress.Phone,
@@ -152,6 +158,14 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 	if err != nil {
 		return err
 	}
+
+	// PHIÊN BẢN 2 — thêm `payment_method`, thứ fulfillment bắt buộc phải
+	// có để biết đơn thực hiện được giao ngay hay phải chờ tiền về.
+	//
+	// Bên nhận nào chưa khai hiểu phiên bản 2 sẽ bị dispatcher HOÃN event
+	// thay vì nhận thiếu trường rồi mở khóa nhầm cho đơn chưa trả tiền
+	// (ADR-0016).
+	e = e.WithVersion(2)
 
 	// CorrelationID là mã đơn: mọi việc xảy ra sau khi đặt hàng đều truy
 	// ngược được về một đơn cụ thể.

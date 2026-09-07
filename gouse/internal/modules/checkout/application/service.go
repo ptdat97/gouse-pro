@@ -208,6 +208,16 @@ type CheckoutCompleted struct {
 	GuestEmail string
 	GuestPhone string
 
+	// PaymentMethod là cách khách chọn trả tiền — THÊM Ở PHIÊN BẢN 2.
+	//
+	// Fulfillment BẮT BUỘC phải có nó: nó quyết định đơn thực hiện sinh ra
+	// đã được phép giao hàng chưa. COD được phép ngay (tiền về lúc giao);
+	// đơn trả trước phải chờ `order.paid` (ADR-0018 phần A2).
+	//
+	// Vì bên nhận không làm đúng việc nếu thiếu trường này, nó là ca TĂNG
+	// PHIÊN BẢN theo ADR-0016 phần 1 — không phải trường thuần hiển thị.
+	PaymentMethod string
+
 	// ShippingAddress là nơi hàng phải đến.
 	//
 	// SELLER cần nó để in phiếu giao hàng. Không có nó thì họ biết nhặt gì
@@ -1238,7 +1248,7 @@ func (s *Service) CompleteCheckout(
 			return nil
 		}
 		return s.events.PublishCheckoutCompleted(txCtx,
-			s.completedEvent(c, placed.OrderID, placed.OrderNumber))
+			s.completedEvent(c, placed.OrderID, placed.OrderNumber, paymentMethod))
 	}); err != nil {
 		return nil, err
 	}
@@ -1285,7 +1295,7 @@ func (s *Service) phanBoGiamGia(
 
 // completedEvent dựng dữ liệu event từ phiên đã hoàn tất.
 func (s *Service) completedEvent(
-	c *domain.Checkout, orderID ids.ID, orderNumber string,
+	c *domain.Checkout, orderID ids.ID, orderNumber, paymentMethod string,
 ) CheckoutCompleted {
 	lines := c.Lines()
 	reservations := make([]ReservedLine, 0, len(lines))
@@ -1321,6 +1331,7 @@ func (s *Service) completedEvent(
 		CustomerID:      c.CustomerID(),
 		GuestEmail:      c.GuestEmail(),
 		GuestPhone:      c.GuestPhone(),
+		PaymentMethod:   paymentMethod,
 		ShippingAddress: c.ShippingAddress(),
 		Currency:        c.Currency(),
 		Reservations:    reservations,

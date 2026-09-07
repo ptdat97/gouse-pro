@@ -81,9 +81,9 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 			fulfillment_type, customer_id, notify_email, notify_phone,
 			ship_recipient_name, ship_phone, ship_street,
 			ship_ward, ship_district, ship_province, ship_country_code,
-			created_at, updated_at
+			created_at, updated_at, cho_thanh_toan
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-		          $14,$15,$16,$17,$18,$19,$20,$21,$22)
+		          $14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		ON CONFLICT (id) DO NOTHING`,
 		fo.ID().String(), fo.OrderID().String(), fo.FONumber(),
 		fo.SellerID().String(), string(fo.Status()),
@@ -93,7 +93,7 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 		fo.NotifyEmail(), fo.NotifyPhone(),
 		addr.RecipientName, addr.Phone, addr.StreetAddress,
 		addr.Ward, addr.District, addr.Province, defaultCountry(addr.CountryCode),
-		fo.CreatedAt(), fo.UpdatedAt())
+		fo.CreatedAt(), fo.UpdatedAt(), fo.ChoThanhToan())
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,8 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		       shipping_provider = $7, tracking_number = $8,
 		       confirmed_at = $9, packed_at = $10, shipped_at = $11,
 		       delivered_at = $12, cancelled_at = $13, completed_at = $14,
-		       updated_at = $15, version = version + 1
+		       updated_at = $15, cho_thanh_toan = $18,
+		       version = version + 1
 		 WHERE id = $1 AND seller_id = $16 AND version = $17`,
 		fo.ID().String(), string(fo.Status()), fo.CancelReason(),
 		fo.FailureReason(), fo.StockLocationID().String(),
@@ -166,7 +167,10 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		// thì hai lệnh song song cùng đọc PACKED, cùng thấy hợp lệ, cùng
 		// ghi — và mỗi lần ghi phát một event tiến độ, nên khách nhận hai
 		// email "đơn đã gửi".
-		fo.Version())
+		fo.Version(),
+		// cho_thanh_toan ghi được ở đây vì đó là đường MỞ KHÓA: event
+		// `order.paid` đọc đơn, gọi MoKhoaThanhToan, rồi ghi lại.
+		fo.ChoThanhToan())
 	if err != nil {
 		return fmt.Errorf("order: cập nhật đơn thực hiện: %w", err)
 	}
@@ -198,7 +202,7 @@ const foCols = `
 	stock_location_id, fulfillment_type, shipping_method, shipping_provider,
 	tracking_number, estimated_delivery_date,
 	confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
-	completed_at, created_at, updated_at, version`
+	completed_at, created_at, updated_at, version, cho_thanh_toan`
 
 // FindByTracking tra đơn thực hiện theo NHÀ VẬN CHUYỂN và mã vận đơn.
 //
@@ -394,6 +398,7 @@ func (s *FulfillmentStore) withLineIDs(
 	// đọc lại sau khi ghi, không lộ ra lúc ghi.
 	return domain.RestoreFulfillmentOrder(domain.RestoreFOParams{
 		ID:                fo.ID(),
+		ChoThanhToan:      fo.ChoThanhToan(),
 		OrderID:           fo.OrderID(),
 		FONumber:          fo.FONumber(),
 		SellerID:          fo.SellerID(),
@@ -450,7 +455,7 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 		&addr.Ward, &addr.District, &addr.Province, &addr.CountryCode,
 		&locationID, &foType, &method, &provider, &tracking, &estimatedDelivery,
 		&confirmed, &packed, &shipped, &delivered, &cancelled,
-		&completed, &p.CreatedAt, &p.UpdatedAt, &p.Version,
+		&completed, &p.CreatedAt, &p.UpdatedAt, &p.Version, &p.ChoThanhToan,
 	); err != nil {
 		return nil, err
 	}

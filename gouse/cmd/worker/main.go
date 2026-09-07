@@ -295,7 +295,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	orderModule, err := order.New(order.Config{Storage: "postgres", DB: db})
+	orderModule, err := order.New(order.Config{
+		Storage: "postgres", DB: db, Events: eventbus.NewOutbox(db.Pool()),
+	})
 	if err != nil {
 		return err
 	}
@@ -418,6 +420,12 @@ func run() error {
 		inventoryModule, &sellerOwner{sellers: sellerModule}, log))
 	bus.Subscribe(supplychain.NewSignalHandler(supplyModule))
 	bus.Subscribe(fulfillment.NewSplitHandler(fulfillmentModule, log))
+
+	// Mở khóa giao hàng khi tiền về (ADR-0018 phần A2).
+	//
+	// Không có bên nhận này thì mọi đơn TRẢ TRƯỚC bị khóa vĩnh viễn —
+	// `SplitOnCheckoutCompleted` khóa chúng và không gì mở ra.
+	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulfillmentModule, log))
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
 	bus.Subscribe(notification.NewOrderNotifier(notificationModule, log))
 	bus.Subscribe(analytics.NewEventRecorder(analyticsModule))

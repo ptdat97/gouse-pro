@@ -72,10 +72,42 @@ type OrderCancelRecord struct {
 }
 
 // Service là tầng application của module order.
+// EventPublisher phát domain event của module order.
+//
+// # Vì sao module này trước nay KHÔNG phát event nào
+//
+// `order` là HỢP ĐỒNG với khách (ADR-0007); các module khác vốn chỉ đọc nó
+// qua API. Nhưng có đúng một thời điểm mà bên ngoài PHẢI biết ngay:
+// tiền về. Nó đổi việc được phép làm ở hai module khác — fulfillment được
+// phép giao hàng, payment được ghi nhận tiền mặt (ADR-0018).
+//
+// Hỏi ngược thì cả hai phải hỏi định kỳ "đơn này trả tiền chưa" cho hàng
+// nghìn đơn. Event trả lời đúng một lần, đúng lúc.
+type EventPublisher interface {
+	// PublishOrderPaid phát `order.paid` BẰNG giao dịch của kho lưu trữ.
+	PublishOrderPaid(ctx context.Context, in OrderPaid) error
+}
+
+// OrderPaid là dữ liệu của event `order.paid`.
+//
+// Mang sẵn `PaymentMethod` vì bên nhận cần phân biệt COD với trả trước mà
+// KHÔNG phải gọi ngược module order — cùng lý do payload của
+// `checkout.completed` mang sẵn dòng hàng.
+type OrderPaid struct {
+	OrderID       ids.ID
+	OrderNumber   string
+	CustomerID    ids.ID
+	PaymentMethod string
+	Total         money.Money
+	Currency      string
+	PaidAt        time.Time
+}
+
 type Service struct {
 	orders  domain.Repository
 	numbers domain.NumberGenerator
 	audit   AuditRecorder
+	events  EventPublisher
 	clock   Clock
 }
 
@@ -87,6 +119,11 @@ type Deps struct {
 	// Audit có thể nil: luồng đặt hàng của khách không cần. Chỉ các use
 	// case quản trị bắt buộc có nó.
 	Audit AuditRecorder
+
+	// Events có thể nil ở test không quan tâm tới event. Ở production thì
+	// KHÔNG được nil: thiếu nó thì `order.paid` không bao giờ phát, và
+	// hàng của đơn trả trước không bao giờ được mở khóa.
+	Events EventPublisher
 }
 
 func NewService(d Deps) *Service {
@@ -98,6 +135,7 @@ func NewService(d Deps) *Service {
 		orders:  d.Orders,
 		numbers: d.Numbers,
 		audit:   d.Audit,
+		events:  d.Events,
 		clock:   clock,
 	}
 }
@@ -348,7 +386,31 @@ func (s *Service) MarkPaid(ctx context.Context, orderID ids.ID) error {
 	if err := o.MarkPaid(now); err != nil {
 		return err
 	}
-	return s.orders.Update(ctx, o)
+
+	// Trạng thái và event vào CÙNG một giao dịch.
+	//
+	// Đây là chỗ ADR-0018 dựa vào. `order.paid` là mốc DUY NHẤT nói "tiền
+	// đã về", và hai việc treo trên nó đều là việc không được phép chạy
+	// sớm: mở khóa cho nhà bán giao hàng, và chuyển khoản phải thu thành
+	// tiền mặt trong sổ cái.
+	//
+	// Ghi rời sẽ để lại đúng khoảng trống nguy hiểm: đơn PAID mà không ai
+	// biết, nên hàng không đi và tiền mặt không được ghi nhận — và không
+	// tiến trình nào đi tìm, vì nhìn từ ngoài đơn trông đã xong.
+	if s.events == nil {
+		return s.orders.Update(ctx, o)
+	}
+	return s.orders.UpdateWithAudit(ctx, o, func(txCtx context.Context) error {
+		return s.events.PublishOrderPaid(txCtx, OrderPaid{
+			OrderID:       o.ID(),
+			OrderNumber:   o.OrderNumber(),
+			CustomerID:    o.CustomerID(),
+			PaymentMethod: string(o.PaymentMethod()),
+			Total:         o.Total(),
+			Currency:      string(o.Currency()),
+			PaidAt:        now,
+		})
+	})
 }
 
 // CancelOrder hủy toàn bộ đơn theo yêu cầu của khách.

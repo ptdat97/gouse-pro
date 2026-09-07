@@ -302,6 +302,7 @@ func Build(
 			Storage: "postgres",
 			DB:      db,
 			Audit:   auditRecorder,
+			Events:  eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
 			return Modules{}, err

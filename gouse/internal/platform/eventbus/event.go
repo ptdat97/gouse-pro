@@ -121,6 +121,22 @@ func NewEvent(eventType, aggregateType string, aggregateID ids.ID, payload any) 
 	}, nil
 }
 
+// WithVersion đặt phiên bản payload của event.
+//
+// Dùng khi payload thêm một trường mà bên nhận BẮT BUỘC phải có để làm
+// đúng việc — xem ADR-0016 phần 1. Thêm trường thuần hiển thị thì KHÔNG
+// tăng phiên bản, vì mỗi lần tăng là một lần mọi bên nhận phải khai lại.
+//
+// Bên phát tăng phiên bản TRƯỚC, bên nhận khai `MaxEventVersion` sau; giữa
+// hai lần triển khai, dispatcher HOÃN event thay vì đưa cho bên nhận chưa
+// hiểu. Đó là toàn bộ mục đích của cơ chế này.
+func (e Event) WithVersion(v int) Event {
+	if v > 0 {
+		e.Version = v
+	}
+	return e
+}
+
 // WithTrace gắn thông tin truy vết vào event.
 func (e Event) WithTrace(correlationID, causationID string) Event {
 	e.CorrelationID = correlationID

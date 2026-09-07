@@ -2592,7 +2592,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ⛔ mở — hàng hóa chỉ vào hệ thống được qua seed. Xem ghi chú |
 | P3-26 | **Webhook vận chuyển MẤT thì không ai biết** (yêu cầu 5) | ✅ nửa nội bộ xong (07/09) — đo được 20 gói kẹt thật. Xem ghi chú |
 | P3-27 | **Chỉ số đối soát tiền KHÔNG AI CANH; và một cảnh báo critical kêu oan vĩnh viễn** | ✅ xong (07/09) — promtool nay chạy trong CI. Xem ghi chú |
-| P3-28 | **Giao hàng và ghi sổ đều chạy TRƯỚC khi tiền về** | ⛔ chờ quyết định — [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md). Đo được 1,13 tỷ đ tiền mặt ghi khống |
+| P3-28 | **Giao hàng và ghi sổ đều chạy TRƯỚC khi tiền về** | 🟡 A2 xong (07/09) — hàng không rời kho khi chưa thu tiền. B1 (sổ cái) và quy trình đảo bút toán còn lại. [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md) |
 
 **P3-9 — phần GHI NHẬN đã xong (06/09); phần THU TIỀN vẫn chặn.**
 
@@ -3316,7 +3316,48 @@ Không có chỗ nào trong fulfillment kiểm tra thanh toán, nên nhà bán �
 trả đồng nào. Với COD thì đây là hành vi ĐÚNG; phân biệt COD ↔ trả trước
 chỉ diễn đạt được từ 06/09 khi P3-9 nối `payment_method`.
 
-**Vì sao dừng ở ADR chứ không sửa luôn:** ADR-0017 đã ghi việc này "là
+**Phần A2 đã triển khai (07/09).** Chủ dự án chọn A2 + B1 + dựng quy trình
+đảo bút toán.
+
+```text
+order.MarkPaid          nay phát `order.paid` TRONG cùng giao dịch
+checkout.completed      lên PHIÊN BẢN 2, thêm `payment_method`
+fulfillment_order       thêm cột `cho_thanh_toan` (migration 000044)
+FulfillmentOrder.transition  chặn MỌI bước tiến khi đang khóa, trừ HỦY
+fulfillment.MoKhoaTheoDon    bên nhận `order.paid` mở khóa
+```
+
+Cửa chặn đặt ở `transition`, không rải ở từng use case: `Confirm`, `Pick`,
+`Pack`, `HandOver`, `Deliver` đều đi qua đúng hàm đó. Rải ra năm chỗ là bảo
+đảm chỗ thứ sáu — hàm thêm vào tháng sau — sẽ quên, và cái quên đó nghĩa là
+hàng rời kho.
+
+HỦY vẫn được phép: khách bỏ đơn chưa thanh toán là đường thoát phổ biến
+nhất của chính những đơn đang bị khóa.
+
+**Đây là lần đầu cơ chế phiên bản event của ADR-0016 được dùng thật.**
+`WithVersion` chưa từng tồn tại — mọi event đều là phiên bản 1, nên cỗ máy
+hoãn chưa bao giờ chạy. Nó chạy đúng như thiết kế và chi phí cũng đúng như
+ADR-0016 đã ghi: SÁU bên nhận phải khai lại `MaxEventVersion`, kể cả năm
+bên không dùng trường mới, kể cả bản giả trong test. Thiếu một khai báo là
+dispatcher hoãn event cho tất cả.
+
+**Migration mặc định FALSE, có chủ ý.** 3153 đơn cũ để trống
+`payment_method` nên không suy ngược được đơn nào trả trước; đặt TRUE cho
+tất cả sẽ khóa hàng nghìn đơn mà không ai mở nổi. Quy tắc mới chỉ áp cho
+đơn tạo từ đây trở đi.
+
+**Một lỗi tự gây ra, và chỗ nó bị bắt.** `withLineIDs` dựng lại thực thể từ
+đầu và liệt kê từng trường; tôi quên `ChoThanhToan`, nên cờ ghi đúng xuống
+database rồi bị XÓA TRẮNG lúc đọc lên. Chú thích ngay trên hàm đó đã cảnh
+báo đúng tình huống này: "trường nào quên là trường đó bị xóa trắng khi
+đọc — và lỗi chỉ lộ ra ở test đọc lại sau khi ghi". Bài e2e bắt được vì nó
+đi qua ghi rồi đọc lại, không phải kiểm trong bộ nhớ.
+
+**Còn lại:** B1 (sổ cái ghi khoản phải thu) và quy trình đảo bút toán cho
+3110 bút toán đã ghi sai.
+
+**Vì sao ban đầu dừng ở ADR:** ADR-0017 đã ghi việc này "là
 quyết định của chủ dự án", và nó động tới thời điểm ghi doanh thu — thứ
 làm đổi nghĩa mọi báo cáo. Quy tắc nhận việc (mục 7) cũng nói rõ: cần đổi
 kiến trúc thì viết ADR TRƯỚC.

@@ -1,6 +1,8 @@
 # ADR-0018: `checkout.completed` KHÔNG phải "đã trả tiền"
 
-**Trạng thái:** Đề xuất — **cần chủ dự án quyết**, xem mục Quyết định cần lấy
+**Trạng thái:** Accepted (07/09) — chủ dự án chọn **A2 + B1 + dựng quy trình đảo bút toán**
+
+Phần A2 **đã triển khai**; B1 và quy trình đảo bút toán chưa.
 
 ---
 

@@ -17,6 +17,7 @@ import (
 	orderhttp "github.com/fashion-commerce/platform/internal/modules/order/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // Module là cài đặt của API công khai.
@@ -38,6 +39,14 @@ type Config struct {
 	Storage string
 
 	DB *database.DB
+
+	// Events là outbox để phát `order.paid`.
+	//
+	// Thiếu nó thì đơn vẫn chuyển sang PAID nhưng KHÔNG ai được báo — và
+	// hai việc treo trên mốc đó không chạy: mở khóa giao hàng cho đơn trả
+	// trước, và ghi nhận tiền mặt trong sổ cái (ADR-0018). Đơn trông đã
+	// xong trong khi hàng không đi.
+	Events *eventbus.Outbox
 
 	// Audit là nơi ghi nhật ký thao tác quản trị (xem chi tiết đơn, hủy đơn).
 	//
@@ -66,6 +75,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Audit != nil {
 		deps.Audit = NewAuditRecorder(cfg.Audit)
+	}
+	if cfg.Events != nil {
+		deps.Events = NewEventPublisher(cfg.Events)
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil

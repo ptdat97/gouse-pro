@@ -52,6 +52,10 @@ type world struct {
 	// owners quyết định "hàng của nhà bán này thuộc về ai" — cùng quy tắc
 	// production dùng, chỉ khác nguồn cờ INTERNAL.
 	internal map[ids.ID]bool
+
+	// orderIDCuoi là đơn vừa đặt qua helper, để bài test khỏi phải trả về
+	// thêm một giá trị chỉ dùng ở nửa số bài.
+	orderIDCuoi ids.ID
 }
 
 func newWorld(t *testing.T) *world {
@@ -85,7 +89,9 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatalf("inventory.New: %v", err)
 	}
-	ordModule, err := order.New(order.Config{Storage: "postgres", DB: db})
+	ordModule, err := order.New(order.Config{
+		Storage: "postgres", DB: db, Events: eventbus.NewOutbox(db.Pool()),
+	})
 	if err != nil {
 		t.Fatalf("order.New: %v", err)
 	}
@@ -106,6 +112,10 @@ func newWorld(t *testing.T) *world {
 	// Đăng ký bên nhận SAU khi có `w`: handler trả hàng cần đường tra chủ
 	// sở hữu tồn kho, và chính `w` cài cổng đó.
 	bus.Subscribe(fulfillment.NewSplitHandler(fulModule, log))
+
+	// Mở khóa giao hàng khi tiền về — cùng bộ bên nhận mà worker đăng ký.
+	// Thiếu nó thì đơn trả trước bị khóa vĩnh viễn (ADR-0018 phần A2).
+	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulModule, log))
 	bus.Subscribe(order.NewProgressHandler(ordModule, log))
 	bus.Subscribe(inventory.NewCommitHandler(invModule, log))
 	bus.Subscribe(inventory.NewReleaseHandler(invModule, w, log))

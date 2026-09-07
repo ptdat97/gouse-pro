@@ -137,6 +137,14 @@ func (h *SplitOnCheckoutCompleted) EventTypes() []string {
 	return []string{eventbus.TypeCheckoutCompleted}
 }
 
+// MaxEventVersion khai bên nhận này hiểu tới phiên bản 2.
+//
+// Phiên bản 2 thêm `payment_method` — thứ quyết định đơn thực hiện có bị
+// khóa chờ tiền không. Một bản dựng cũ chưa khai con số này sẽ được
+// dispatcher HOÃN event thay vì đọc thiếu trường rồi tạo đơn KHÔNG khóa
+// cho một đơn trả trước. Đó chính là ca ADR-0016 sinh ra để chặn.
+func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 2 }
+
 // splitPayload là phần dữ liệu bên nhận này cần.
 type splitPayload struct {
 	OrderID     string `json:"order_id"`
@@ -148,6 +156,13 @@ type splitPayload struct {
 	CustomerID string `json:"customer_id"`
 	GuestEmail string `json:"guest_email"`
 	GuestPhone string `json:"guest_phone"`
+
+	// PaymentMethod có từ PHIÊN BẢN 2 của `checkout.completed`.
+	//
+	// Bắt buộc phải có để biết đơn thực hiện sinh ra đã được phép giao
+	// chưa (ADR-0018 phần A2) — nên bên nhận này khai `MaxEventVersion` 2
+	// và dispatcher hoãn event cũ hơn thay vì để nó mở khóa nhầm.
+	PaymentMethod string `json:"payment_method"`
 
 	// ShippingAddress là nơi hàng phải đến — SELLER cần để in phiếu giao.
 	ShippingAddress struct {
@@ -206,10 +221,16 @@ func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event)
 	in := domain.SplitInput{
 		OrderID:     ids.ID(p.OrderID),
 		OrderNumber: p.OrderNumber,
-		Currency:    currency,
-		CustomerID:  ids.ID(p.CustomerID),
-		NotifyEmail: p.GuestEmail,
-		NotifyPhone: p.GuestPhone,
+
+		// Đơn TRẢ TRƯỚC sinh ra ở trạng thái khóa: nhà bán thấy việc sắp
+		// tới nhưng chưa được đụng vào cho tới khi `order.paid` mở khóa.
+		// COD không khóa — tiền về lúc giao, nên chờ là chặn chính đường
+		// thu tiền. Xem ADR-0018 phần A2.
+		ChoThanhToan: domain.PhuongThucTraTruoc(p.PaymentMethod),
+		Currency:     currency,
+		CustomerID:   ids.ID(p.CustomerID),
+		NotifyEmail:  p.GuestEmail,
+		NotifyPhone:  p.GuestPhone,
 		ShippingAddress: domain.ShippingAddress{
 			RecipientName: p.ShippingAddress.RecipientName,
 			Phone:         p.ShippingAddress.Phone,
@@ -363,4 +384,65 @@ func (p *eventPublisher) PublishCompleted(
 		return err
 	}
 	return p.outbox.Publish(ctx, e)
+}
+
+// ---------------------------------------------------------------- Mở khóa
+
+// MoKhoaKhiDaTraTien mở khóa đơn thực hiện khi tiền của đơn đã về.
+//
+// # Vì sao bên nhận này tồn tại
+//
+// `SplitOnCheckoutCompleted` tạo đơn thực hiện cho đơn TRẢ TRƯỚC ở trạng
+// thái khóa: nhà bán thấy việc sắp tới nhưng chưa được đụng vào. Đây là
+// đầu kia của quy tắc đó — không có nó thì đơn trả trước bị khóa vĩnh
+// viễn và không món hàng nào rời kho nữa. Xem ADR-0018 phần A2.
+//
+// COD không bao giờ đi qua đây: nó không bị khóa từ đầu.
+type MoKhoaKhiDaTraTien struct {
+	module *Module
+	log    *slog.Logger
+}
+
+// NewMoKhoaHandler tạo bên nhận mở khóa giao hàng.
+func NewMoKhoaHandler(m *Module, log *slog.Logger) *MoKhoaKhiDaTraTien {
+	return &MoKhoaKhiDaTraTien{module: m, log: log}
+}
+
+var _ eventbus.Handler = (*MoKhoaKhiDaTraTien)(nil)
+
+func (h *MoKhoaKhiDaTraTien) Name() string {
+	return "fulfillment.mo_khoa_khi_da_tra_tien"
+}
+
+func (h *MoKhoaKhiDaTraTien) EventTypes() []string {
+	return []string{eventbus.TypeOrderPaid}
+}
+
+type orderPaidPayload struct {
+	OrderID string `json:"order_id"`
+}
+
+// Handle mở khóa MỌI đơn thực hiện của đơn hàng.
+//
+// Một đơn hàng có thể tách thành nhiều đơn thực hiện (mỗi nguồn hàng một
+// gói), và tiền về là tiền của CẢ đơn — nên mở khóa từng phần là sai:
+// khách trả đủ mà chỉ một seller được giao.
+//
+// IDEMPOTENT: `MoKhoaThanhToan` gọi lại trên đơn đã mở không phải lỗi, và
+// event có thể tới hai lần theo đúng thiết kế giao-ít-nhất-một-lần.
+func (h *MoKhoaKhiDaTraTien) Handle(ctx context.Context, e eventbus.Event) error {
+	var p orderPaidPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event: %w", err)
+	}
+
+	n, err := h.module.MoKhoaTheoDon(ctx, p.OrderID)
+	if err != nil {
+		return fmt.Errorf("mở khóa đơn thực hiện: %w", err)
+	}
+	if n > 0 {
+		h.log.InfoContext(ctx, "đã mở khóa giao hàng sau khi thu được tiền",
+			"order_id", p.OrderID, "so_don_thuc_hien", n)
+	}
+	return nil
 }

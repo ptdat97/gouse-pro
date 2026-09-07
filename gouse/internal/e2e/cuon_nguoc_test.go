@@ -29,6 +29,19 @@ type benNhanHayHong struct {
 
 func (h *benNhanHayHong) Name() string { return "e2e.ben_nhan_hay_hong" }
 
+// MaxEventVersion khai hiểu tới phiên bản 2 của `checkout.completed`.
+//
+// Thiếu dòng này, dispatcher HOÃN event cho MỌI bên nhận — kể cả inventory
+// — nên tồn kho không chuyển sang cam kết và bài test đỏ ở một chỗ chẳng
+// liên quan gì tới điều nó muốn kiểm. Đó là cái giá của cơ chế hoãn
+// (ADR-0016), và nó áp cả cho bản giả trong test.
+func (h *benNhanHayHong) MaxEventVersion(eventType string) int {
+	if eventType == eventbus.TypeCheckoutCompleted {
+		return 2
+	}
+	return eventbus.DefaultMaxEventVersion
+}
+
 func (h *benNhanHayHong) EventTypes() []string {
 	return []string{eventbus.TypeCheckoutCompleted}
 }

@@ -217,6 +217,19 @@ func (m *Module) CompleteDelivered(ctx context.Context, limit int) (int, error) 
 	return n, translateErr(err)
 }
 
+// MoKhoaTheoDon mở khóa giao hàng cho mọi đơn thực hiện của một đơn hàng.
+//
+// Gọi bởi bên nhận event `order.paid` — xem ADR-0018 phần A2. Trả về SỐ
+// đơn thực hiện đã đổi (0 nghĩa là không có gì bị khóa, ví dụ đơn COD).
+func (m *Module) MoKhoaTheoDon(ctx context.Context, orderID string) (int, error) {
+	id, err := ids.Parse(orderID, ids.PrefixOrder)
+	if err != nil {
+		return 0, ErrInvalidID
+	}
+	n, err := m.svc.MoKhoaTheoDon(ctx, id)
+	return n, translateErr(err)
+}
+
 // DoiSoatGiaoHang trả danh sách gói hàng MẤT TIN từ đơn vị vận chuyển.
 //
 // Yêu cầu 5 của `api/paths/webhooks.yaml` — xem
