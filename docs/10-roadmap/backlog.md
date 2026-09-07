@@ -2585,10 +2585,11 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
 | P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | ✅ xong (20/08) — `GET /api/v1/sellers?ids=` |
 | P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | ✅ xong (20/08) — xem ghi chú dưới bảng |
-| P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | Đặc tả từng khai object; domain chưa có trường. Xem ghi chú |
+| P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | 🟡 nửa `system` xong (07/09); `hex_code` BỊ CHẶN bởi P3-25 |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | ✅ xong — bỏ hẳn trạng thái đó; xem ghi chú dưới bảng |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
 | P3-24 | **"Khách mua được không" có BA câu trả lời khác nhau** | ✅ xong (06/09) — xem ghi chú dưới bảng |
+| P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ⛔ mở — hàng hóa chỉ vào hệ thống được qua seed. Xem ghi chú |
 
 **P3-9 — phần GHI NHẬN đã xong (06/09); phần THU TIỀN vẫn chặn.**
 
@@ -3271,10 +3272,62 @@ mã trước:  "size_chart" không có trong response
 mã sau:    system=ALPHA, entries=[S/M/L], nguc 86-90, eo 70-74 (cm)
 ```
 
-**Còn lại của P3-22: `hex_code`.** Nửa này thì đúng là cần trường mới —
-mã màu phải do người bán NHẬP, không suy ra được từ tên (khác
-`color_family`, thứ đã có sẵn: migration 000038 suy ra từ tên và đánh chỉ
-mục GIN, nên lọc theo nhóm màu đã chạy).
+**Còn lại của P3-22: `hex_code` — BỊ CHẶN, và không phải vì thiếu trường.**
+
+Mã màu phải do người bán NHẬP: khác `color_family`, nó không suy ra được
+từ tên (`color_family` đã có sẵn — migration 000038 suy ra từ tên và đánh
+chỉ mục GIN, nên lọc theo nhóm màu đã chạy).
+
+Về lưu trữ thì KHÔNG cần migration: `color_family` nằm trong map
+`attributes` (JSONB), nên `color_hex` cũng vậy. Backlog đoán sai điểm này
+lần thứ hai.
+
+Cái chặn thật là **không có đường NHẬP nào cả** — xem P3-25. Thêm
+`color_hex` vào hợp đồng API lúc này sẽ là **lần thứ bảy** của đúng dạng
+lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. Nên không thêm.
+
+**P3-25 — toàn bộ phía GHI của product không có endpoint nào (07/09).**
+
+Phát hiện khi tìm chỗ nhập `hex_code` cho P3-22. Module product đăng ký
+đúng BA route, cả ba đều là đọc:
+
+```text
+GET /api/v1/products/{product_id}
+GET /api/v1/products
+GET /api/v1/search
+```
+
+Trong khi tầng application có tám use case GHI, đủ cả quy trình duyệt mà
+`docs/04-modules/product.md` mục 1 khai là trách nhiệm của module:
+
+```text
+CreateProduct  AddVariant  AddSKU  SubmitForReview
+Approve  Reject  Deactivate  Reactivate  Archive
+```
+
+Số nơi gọi chúng ngoài domain/seed/test: **0**. (`Approve` có ba kết quả
+grep nhưng đều là `seller.Approve` và `catalog.Approve` — module khác.)
+
+Domain có `StatusDraft`, `RejectionReason`, `CreatedBySellerID` — cả một
+quy trình người bán tạo → sàn duyệt, cài xong xuôi, test xanh, và không
+có cửa nào đi vào.
+
+Hệ quả hôm nay: **hàng hóa chỉ vào hệ thống được qua `seed.go` hoặc ghi
+thẳng vào DB.** Người bán tạo được OFFER (`POST /api/v1/seller/offers` —
+một mức giá trên SKU có sẵn) nhưng không tạo được SKU để mà bán.
+
+Đặc tả cũng chưa khai endpoint ghi nào cho product, nên đây không phải
+"cài thiếu so với hợp đồng" mà là **một mặt của sản phẩm chưa được thiết
+kế**. Theo quy tắc nhận việc (mục 7), việc này cần quyết định trước khi
+code: ai được tạo sản phẩm — người bán tự tạo rồi sàn duyệt, hay sàn tạo
+tập trung? Marketplace này định danh hàng hóa CHUNG (`SKUSummary`: "ba
+seller đang bán cùng một món hàng"), nên để mỗi người bán tự tạo SKU sẽ
+sinh trùng lặp và phá chính điều đó. Đây là câu hỏi ADR, không phải câu
+hỏi triển khai.
+
+Chặn: nửa `hex_code` của P3-22, và mọi việc cần dữ liệu sản phẩm thật.
+
+---
 
 **P3-23 — offer không bao giờ tự chuyển `OUT_OF_STOCK` (20/08).**
 
@@ -3572,7 +3625,13 @@ gán giá trị cho nó.**
 | `email_verified_at` | P3-15 | không phân biệt được email đã xác minh |
 | `sla_deadline` | P3-17 | không biết đơn nào trễ hạn bàn giao |
 | `size_chart` | P3-22 | khách không thấy số đo — hoàn hàng vì sai size |
-| `AvailableForSKUs` theo chủ sở hữu | PH-2 | tồn kho cộng chung giữa các người bán |
+| `buy_box_offer` | P3-20 | khai ở `ProductDetail`, không bao giờ được trả |
+
+**Hai cách kết thúc, và phải phân biệt.** Năm dòng đầu là trường ĐÚNG mà
+chưa nối dây → nối dây. `buy_box_offer` thì khác: buy box quyết theo SKU
+(mỗi size là một cuộc cạnh tranh riêng), nên trường ở mức sản phẩm không
+có nghĩa đúng — nó bị BỎ khỏi đặc tả. Không phải trường nào trống cũng
+đáng điền; câu hỏi đầu tiên luôn là "giá trị đúng của nó là gì".
 
 Bốn trong sáu lần đi kèm một **phương thức domain không ai gọi**:
 `Order.MarkPaid`, `Checkout.SetTax`, `User.VerifyEmail`,
@@ -3603,6 +3662,15 @@ tên trường và xanh suốt trong lúc khách không bao giờ thấy số đ
 Bước 3 đã một lần lật ngược kết luận: P3-15 ban đầu định gộp hồ sơ khách,
 đo ra 0 hồ sơ khách vãng lai và 3150 đơn vãng lai, nên việc phải làm là
 gộp ĐƠN.
+
+Bước 4 bắt được lỗi mà cả bốn bước trên lẫn test xanh đều không: khi làm
+P3-22, ba test đơn vị xanh và bản dựng thật vẫn trả 404 — vì máy chủ chạy
+`storage=memory`. Chỉ khi chạy đúng `MODULES_STORAGE=postgres` trên dữ
+liệu thật mới thấy được bảng size ra hay không ra.
+
+Bước 2 chạy rộng thì bắt được thứ lớn hơn một trường: cũng phép grep ấy
+cho thấy TÁM use case ghi của product không ai gọi — tức cả một mặt của
+sản phẩm chưa có cửa vào. Xem P3-25.
 
 ---
 
