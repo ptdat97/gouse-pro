@@ -367,10 +367,18 @@ func (c *Checkout) Subtotal() money.Money {
 //	subtotal + phí ship + thuế − giảm giá
 //
 // Đây là CON SỐ KHÁCH NHÌN THẤY, và nó phải bằng đúng con số vào đơn hàng.
+// Total là số tiền khách THỰC TRẢ.
+//
+// KHÔNG cộng `taxAmount`, có chủ ý: giá niêm yết là giá ĐÃ GỒM VAT
+// (checkout.md mục 7b), nên thuế đã nằm sẵn trong `Subtotal()` và trong
+// phí vận chuyển. `taxAmount` là phần thuế TÁCH RA để ghi hóa đơn, không
+// phải một khoản cộng thêm.
+//
+// Cộng nó vào là thu thuế HAI LẦN — một lần đã nằm trong giá, một lần
+// cộng thêm — và tổng vẫn trông hợp lý nên không ai thấy.
 func (c *Checkout) Total() money.Money {
 	total := c.Subtotal()
 	total, _ = total.Add(c.shippingFee)
-	total, _ = total.Add(c.taxAmount)
 	total, _ = total.Sub(c.discountAmount)
 	return total
 }

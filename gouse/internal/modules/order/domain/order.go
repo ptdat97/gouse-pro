@@ -518,10 +518,18 @@ func (o *Order) Subtotal() money.Money {
 // LƯU Ý về phí ship khi hủy một phần (mục 6.3): KHÔNG thu lại phí ship dù
 // đơn không còn đạt ngưỡng miễn phí. Chi phí xử lý tranh chấp và tổn hại
 // trải nghiệm lớn hơn số tiền thu về, và khách bị phạt vì lỗi của seller.
+// Total là số tiền khách THỰC TRẢ.
+//
+// KHÔNG cộng `taxAmount`: giá niêm yết đã gồm VAT, nên thuế nằm sẵn trong
+// `Subtotal()` và trong phí vận chuyển. `taxAmount` là phần TÁCH RA để ghi
+// hóa đơn — cộng nó vào là thu thuế hai lần.
+//
+// Phải khớp `Checkout.Total()`: hai công thức khác nhau nghĩa là con số ở
+// màn hình thanh toán khác con số vào đơn, đúng thứ việc đóng băng giá
+// sinh ra để chặn.
 func (o *Order) Total() money.Money {
 	total := o.Subtotal()
 	total, _ = total.Add(o.shippingFee)
-	total, _ = total.Add(o.taxAmount)
 	total, _ = total.Sub(o.discountAmount)
 	return total
 }

@@ -155,6 +155,56 @@ func (m Money) ApplyRate(rate types.BasisPoints, mode Rounding) Money {
 	return Money{amount: result, currency: m.currency}
 }
 
+// ExtractRate tách phần thuế ĐÃ NẰM TRONG số tiền.
+//
+// Ngược chiều với `ApplyRate`. Dùng khi giá niêm yết là giá ĐÃ GỒM thuế:
+// tổng khách trả không đổi, chỉ cần biết bao nhiêu trong đó là thuế để
+// ghi hóa đơn.
+//
+//	MustNew(420000, VND).ExtractRate(MustNewBasisPoints(800), RoundHalfUp)
+//	  → 31.111đ  (phần VAT 8% nằm TRONG 420.000đ)
+//
+// Công thức là `m × r / (10000 + r)`, KHÔNG phải `m × r / 10000`. Nhầm hai
+// cái cho kết quả lệch nhau 8% của chính số thuế — 33.600 thay vì 31.111 —
+// và cả hai đều trông hợp lý nếu không đối chiếu ngược:
+//
+//	đúng:  388.889 (chưa thuế) + 31.111 (thuế) = 420.000 ✓
+//	sai:   386.400 (chưa thuế) + 33.600 (thuế) = 420.000 ✗ (386.400 sai)
+//
+// Nhân bằng 128 bit rồi chia, cùng lý do với `AllocateProportional`: tích
+// `m × r` tràn int64 khi số tiền lớn, và tràn ở đây làm số thuế sai mà
+// tổng vẫn khớp — kiểu hỏng không có gì báo.
+func (m Money) ExtractRate(rate types.BasisPoints, mode Rounding) Money {
+	const scale = 10000
+
+	mauSo := uint64(scale + int64(rate.Value()))
+	if mauSo == 0 {
+		return Money{amount: 0, currency: m.currency}
+	}
+
+	negative := m.amount < 0
+	amount := m.amount
+	if negative {
+		amount = -amount
+	}
+
+	hi, lo := bits.Mul64(uint64(amount), uint64(rate.Value()))
+	result := int64(chia128(hi, lo, mauSo))
+
+	if mode == RoundHalfUp {
+		// Phần dư: tich − result×mauSo, so với nửa mẫu số.
+		du := int64(lo - uint64(result)*mauSo)
+		if du*2 >= int64(mauSo) {
+			result++
+		}
+	}
+
+	if negative {
+		result = -result
+	}
+	return Money{amount: result, currency: m.currency}
+}
+
 // chia128 chia số 128 bit (hi:lo) cho y, trả thương 64 bit.
 //
 // `bits.Div64` PANIC khi thương không vừa 64 bit. Ở đây điều đó không xảy

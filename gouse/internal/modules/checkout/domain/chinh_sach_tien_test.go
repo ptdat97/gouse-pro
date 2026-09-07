@@ -36,14 +36,17 @@ func TestThueTinhTrenCaPhiVanChuyen(t *testing.T) {
 		t.Fatalf("ApDungPhiVaThue: %v", err)
 	}
 
-	// 8% × (100.000 + 30.000) = 10.400
-	if got := c.TaxAmount().Amount(); got != 10_400 {
-		t.Errorf("thuế = %d, mong 10400 = 8%% × (100.000 tiền hàng + "+
-			"30.000 phí ship). Tính thuế chỉ trên tiền hàng ra 8.000 — "+
-			"thiếu 2.400 cho mỗi đơn", got)
+	// Khách trả 130.000 (đã gồm VAT). Thuế TÁCH RA:
+	// 130.000 × 800/10800 = 9.629,6 → 9.630.
+	if got := c.TaxAmount().Amount(); got != 9_630 {
+		t.Errorf("thuế = %d, mong 9630 — phần VAT nằm trong 130.000 "+
+			"(100.000 tiền hàng + 30.000 phí ship). Bỏ phí ra khỏi phần "+
+			"tách ra 7.407, tức hóa đơn thiếu thuế của dịch vụ vận chuyển", got)
 	}
-	if got := c.Total().Amount(); got != 140_400 {
-		t.Errorf("tổng = %d, mong 140400", got)
+	// Tổng KHÔNG đổi khi có thuế: thuế đã nằm trong giá.
+	if got := c.Total().Amount(); got != 130_000 {
+		t.Errorf("tổng = %d, mong 130000 — cộng thuế vào ra 139.630, tức "+
+			"thu thuế hai lần", got)
 	}
 }
 
@@ -114,11 +117,11 @@ func TestThueTinhTrenTienHangSauGiamGia(t *testing.T) {
 		t.Fatalf("ApDungPhiVaThue: %v", err)
 	}
 
-	// 8% × 150.000 = 12.000
-	if got := c.TaxAmount().Amount(); got != 12_000 {
-		t.Errorf("thuế = %d, mong 12000 = 8%% × 150.000 (sau giảm giá). "+
-			"Tính trên 200.000 ra 16.000 — thu thuế của khoản khách "+
-			"không trả", got)
+	// 150.000 đã gồm VAT → thuế = 150.000 × 800/10800 = 11.111,1 → 11.111.
+	if got := c.TaxAmount().Amount(); got != 11_111 {
+		t.Errorf("thuế = %d, mong 11111 — phần VAT trong 150.000 (sau "+
+			"giảm giá). Tách trên 200.000 ra 14.815 — ghi hóa đơn phần "+
+			"thuế của khoản khách không trả", got)
 	}
 }
 
@@ -165,15 +168,15 @@ func TestThueSuatKhongThiKhongThuThue(t *testing.T) {
 // định". Hoa hồng làm tròn XUỐNG; trộn hai quy tắc làm đối soát ra hai
 // kết quả khác nhau cho cùng một đơn.
 func TestLamTronNuaLen(t *testing.T) {
-	// 8% × 12.507 = 1000,56 → làm tròn nửa lên = 1001, làm tròn xuống = 1000.
-	c := phienCoHang(t, 12_507)
+	// 102.000 × 800/10800 = 7.555,55 → nửa lên = 7.556, xuống = 7.555.
+	c := phienCoHang(t, 102_000)
 	if err := c.ApDungPhiVaThue(
 		money.Zero(money.VND), chinhSach(800, 10_000_000), testNow,
 	); err != nil {
 		t.Fatalf("ApDungPhiVaThue: %v", err)
 	}
-	if got := c.TaxAmount().Amount(); got != 1001 {
-		t.Errorf("thuế = %d, mong 1001 (làm tròn NỬA LÊN). Làm tròn xuống "+
-			"cho 1000 — đúng quy tắc của hoa hồng, sai quy tắc của thuế", got)
+	if got := c.TaxAmount().Amount(); got != 7_556 {
+		t.Errorf("thuế = %d, mong 7556 (làm tròn NỬA LÊN). Làm tròn xuống "+
+			"cho 7555 — đúng quy tắc của hoa hồng, sai quy tắc của thuế", got)
 	}
 }

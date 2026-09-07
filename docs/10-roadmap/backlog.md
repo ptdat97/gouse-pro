@@ -592,12 +592,16 @@ chuyển áp trên TỔNG ĐƠN, ngưỡng mặc định 499.000đ
 (`checkout.free_shipping_threshold`). Đặc tả ở
 [checkout.md mục 7 và 7b](../04-modules/checkout.md).
 
+**Giá niêm yết là giá ĐÃ GỒM VAT** (chủ dự án quyết 07/09). Khách trả đúng
+con số đã thấy; thuế TÁCH NGƯỢC ra để ghi hóa đơn, không cộng thêm.
+
 **Thứ tự tính, và vì sao nó phải nằm ở MỘT chỗ:**
 
 ```text
-tiền hàng = subtotal − giảm giá
+tiền hàng = subtotal − giảm giá          đã gồm VAT
 phí ship  = 0 nếu tiền hàng ≥ ngưỡng, ngược lại = phí theo từng nguồn
-thuế      = thuế suất × (tiền hàng + phí ship)
+tổng      = tiền hàng + phí ship         khách trả đúng con số này
+thuế      = tổng × r / (10000 + r)       phần VAT nằm TRONG tổng
 ```
 
 Ba con số PHỤ THUỘC NHAU theo đúng thứ tự đó. Giảm giá đổi thì ngưỡng miễn
@@ -610,12 +614,14 @@ một mảnh là cách chắc chắn để ba con số lệch nhau.
 mới đặt phí ở lần ghi thứ hai; nếu lần thứ hai hỏng, phiên nằm lại với ba
 con số không khớp — vĩnh viễn.
 
-**Ba quyết định nhỏ, mỗi cái có phá để kiểm chứng:**
+**Bốn quyết định nhỏ, mỗi cái có phá để kiểm chứng:**
 
 ```text
-thuế tính trên CẢ phí ship    phá → "thuế 8000, mong 10400, thiếu 2.400/đơn"
-ngưỡng xét SAU giảm giá        phá → "phí 0, mong 30000"
-làm tròn NỬA LÊN               phá → "thuế 1000, mong 1001"
+TÁCH ngược, không cộng thêm    phá → "thuế 10400, mong 9630"
+Total() KHÔNG cộng thuế         phá → "tổng 139630, mong 130000 — hai lần"
+thuế tách từ CẢ phí ship        phá → "bỏ phí ra ngoài còn 7.407"
+ngưỡng xét SAU giảm giá         phá → "phí 0, mong 30000"
+làm tròn NỬA LÊN                phá → "thuế 7555, mong 7556"
 ```
 
 Vận chuyển là dịch vụ chịu thuế, không phải khoản thu hộ. Ngưỡng xét trên
@@ -627,10 +633,15 @@ kết quả cho cùng một đơn.
 **Phá lại đúng lỗi gốc để chắc bài test có giá trị:** bỏ lời gọi đặt thuế
 → `"thuế trên ĐƠN = 0, mong 10400"`. Đó chính là trạng thái PH-40 mô tả.
 
-**Giả định cần biết: giá niêm yết là giá CHƯA gồm thuế.** Docs không nói
-giá đã gồm VAT ở đâu, và `Total()` cộng thuế vào, nên đây là mô hình cộng
-thêm. Nếu chính sách thật là giá đã gồm VAT thì đó là thay đổi khác hẳn —
-phải tách ngược thuế ra khỏi giá. Ghi ở đây để nếu sai thì sai ồn ào.
+**Bản đầu (06/09) cài NHẦM mô hình, và việc ghi giả định ra đã cứu nó.**
+Docs không nói giá đã gồm VAT ở đâu và `Total()` cộng thuế vào, nên tôi cài
+theo mô hình CỘNG THÊM rồi ghi rõ giả định đó vào checkout.md và commit
+message. Chủ dự án đọc và sửa lại ngay hôm sau: giá niêm yết ĐÃ gồm VAT.
+
+Sửa lại đụng ba chỗ, không chỉ một: thêm `money.ExtractRate`, bỏ
+`Add(taxAmount)` khỏi `Total()` ở CẢ `Checkout` lẫn `Order`, và đổi mọi con
+số trong test. Nếu giả định không được ghi ra, mô hình sai đã chạy tiếp và
+mỗi đơn thu thừa 8%.
 
 **CÒN THIẾU, do "một tầng":** thuế suất theo loại hàng, miễn thuế theo
 nhóm khách, và câu hỏi marketplace "nền tảng hay nhà bán xuất hóa đơn".

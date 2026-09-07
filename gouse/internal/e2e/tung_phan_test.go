@@ -488,36 +488,38 @@ func TestThueVaMienPhiShipDiVaoDon(t *testing.T) {
 		return don.ShippingFee.Value, don.TaxAmount.Value, don.Total.Value
 	}
 
-	t.Run("dưới ngưỡng: có phí ship, thuế trên cả phí", func(t *testing.T) {
-		// tiền hàng 100.000 · phí 30.000 · thuế 8% × 130.000 = 10.400
+	t.Run("dưới ngưỡng: có phí ship, thuế tách từ cả phí", func(t *testing.T) {
+		// tiền hàng 100.000 + phí 30.000 = 130.000 khách trả (đã gồm VAT).
+		// Thuế tách ra: 130.000 × 800/10800 = 9.630.
 		phi, thue, tong := datDon(t, 100_000, 1)
 
 		if phi != 30_000 {
 			t.Errorf("phí ship = %d, mong 30000 (dưới ngưỡng 499.000)", phi)
 		}
-		if thue != 10_400 {
-			t.Errorf("thuế trên ĐƠN = %d, mong 10400 — thuế bằng 0 ở đây "+
+		if thue != 9_630 {
+			t.Errorf("thuế trên ĐƠN = %d, mong 9630 — thuế bằng 0 ở đây "+
 				"đúng là PH-40: domain tính được mà không ai gọi", thue)
 		}
-		if tong != 140_400 {
-			t.Errorf("tổng = %d, mong 140400", tong)
+		// Tổng = tiền hàng + phí, KHÔNG cộng thuế: giá đã gồm VAT.
+		if tong != 130_000 {
+			t.Errorf("tổng = %d, mong 130000 — cộng thuế vào ra 139.630, "+
+				"tức thu thuế hai lần", tong)
 		}
 	})
 
-	t.Run("đạt ngưỡng: miễn phí ship, vẫn có thuế", func(t *testing.T) {
-		// tiền hàng 500.000 ≥ 499.000 → phí 0 · thuế 8% × 500.000 = 40.000
+	t.Run("đạt ngưỡng: miễn phí ship, thuế tách từ tiền hàng", func(t *testing.T) {
+		// 500.000 ≥ 499.000 → phí 0. Thuế = 500.000 × 800/10800 = 37.037.
 		phi, thue, tong := datDon(t, 500_000, 1)
 
 		if phi != 0 {
 			t.Errorf("phí ship = %d, mong 0 — đơn 500.000đ đạt ngưỡng "+
 				"499.000đ", phi)
 		}
-		if thue != 40_000 {
-			t.Errorf("thuế = %d, mong 40000 = 8%% × 500.000 (phí ship đã "+
-				"miễn nên không cộng vào)", thue)
+		if thue != 37_037 {
+			t.Errorf("thuế = %d, mong 37037 — phần VAT trong 500.000", thue)
 		}
-		if tong != 540_000 {
-			t.Errorf("tổng = %d, mong 540000", tong)
+		if tong != 500_000 {
+			t.Errorf("tổng = %d, mong 500000 — khách trả đúng giá đã thấy", tong)
 		}
 	})
 }

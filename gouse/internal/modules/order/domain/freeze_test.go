@@ -361,7 +361,12 @@ func TestDonPhaiCoItNhatMotDong(t *testing.T) {
 	}
 }
 
-// Tổng tiền: subtotal + phí ship + thuế − giảm giá.
+// Tổng tiền: subtotal + phí ship − giảm giá. THUẾ KHÔNG CỘNG VÀO.
+//
+// Giá niêm yết là giá ĐÃ GỒM VAT (checkout.md mục 7b), nên thuế nằm sẵn
+// trong subtotal và trong phí ship. `TaxAmount` là phần TÁCH RA để ghi hóa
+// đơn — cộng nó vào tổng là thu thuế hai lần, và tổng vẫn trông hợp lý nên
+// không ai thấy.
 func TestTinhTongTienDonHang(t *testing.T) {
 	line := newLine(t, ids.MustNew(ids.PrefixSeller), 500000, 2, 1000)
 
@@ -379,12 +384,13 @@ func TestTinhTongTienDonHang(t *testing.T) {
 		t.Fatalf("NewOrder: %v", err)
 	}
 
-	// 1.000.000 + 30.000 + 50.000 − 100.000 = 980.000.
+	// 1.000.000 + 30.000 − 100.000 = 930.000. Thuế 50.000 KHÔNG cộng vào.
 	if o.Subtotal().Amount() != 1000000 {
 		t.Errorf("subtotal = %v, mong 1000000", o.Subtotal())
 	}
-	if o.Total().Amount() != 980000 {
-		t.Errorf("tổng = %v, mong 980000", o.Total())
+	if o.Total().Amount() != 930000 {
+		t.Errorf("tổng = %v, mong 930000 — cộng thuế vào ra 980.000, tức "+
+			"thu thuế hai lần vì nó đã nằm trong giá", o.Total())
 	}
 }
 

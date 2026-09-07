@@ -529,7 +529,7 @@ Nguy hiểm hơn hẳn ba nhóm sau: code trông như đã có, nên không ai �
 
 | Miền | Thực tế |
 |---|---|
-| **Thuế** | ✅ ĐÃ SỬA 06/09 (PH-40) — một tầng, mặc định 8%, sửa được lúc chạy. Trước đó `SetTax` chỉ được gọi từ một bài test với giá trị 0. |
+| **Thuế** | ✅ ĐÃ SỬA 06–07/09 (PH-40) — một tầng, mặc định 8%, sửa được lúc chạy, giá niêm yết ĐÃ GỒM VAT. Trước đó `SetTax` chỉ được gọi từ một bài test với giá trị 0. |
 | **Phí vận chuyển** | ✅ ĐÃ SỬA 06/09 (P3-8) — theo từng nguồn hàng, kèm ngưỡng miễn phí 499.000đ. Vẫn chưa theo khoảng cách/khối lượng vì thiếu dữ liệu. |
 
 Cùng một hình dạng với `payment_method` trước P3-9: một trường đi qua mọi

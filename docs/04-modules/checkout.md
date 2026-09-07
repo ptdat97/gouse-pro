@@ -180,18 +180,40 @@ Miễn phí do **mã giảm giá** cấp là một đường khác, không đi q
 
 ## 7b. Thuế
 
-**ĐÃ QUYẾT (06/09/2026):** thuế **một tầng**, áp cho mọi mặt hàng, thuế suất mặc định **8%** và sửa được lúc chạy qua `checkout.tax_rate_bp` (phần vạn: 800 = 8%).
+**ĐÃ QUYẾT (07/09/2026):** thuế **một tầng**, áp cho mọi mặt hàng, thuế suất mặc định **8%** và sửa được lúc chạy qua `checkout.tax_rate_bp` (phần vạn: 800 = 8%).
+
+**Giá niêm yết là giá ĐÃ GỒM VAT.** Khách trả đúng con số đã thấy trên trang; thuế được **tách ngược** ra để ghi hóa đơn, không cộng thêm vào tổng.
 
 ```text
-tiền hàng = subtotal − giảm giá
+tiền hàng = subtotal − giảm giá          ĐÃ GỒM VAT
 phí ship  = 0 nếu tiền hàng ≥ ngưỡng, ngược lại = phí theo từng nguồn
-thuế      = thuế suất × (tiền hàng + phí ship)
-tổng      = tiền hàng + phí ship + thuế
+tổng      = tiền hàng + phí ship         khách trả ĐÚNG con số này
+thuế      = phần VAT nằm TRONG tổng, tách ra để ghi hóa đơn
 ```
 
-**Thuế CỘNG THÊM, không gộp trong giá niêm yết.** Đây là giả định cần biết: giá hiển thị trên cửa hàng là giá **chưa gồm thuế**, và tổng tiền khách trả cao hơn tổng giá niêm yết 8%. Nếu chính sách thật là giá đã gồm VAT thì đây là thay đổi khác hẳn — phải tách ngược thuế ra khỏi giá, không phải cộng vào.
+Ví dụ, đơn 390.000đ hàng + 30.000đ ship:
 
-**Thuế tính trên CẢ phí vận chuyển.** Vận chuyển là dịch vụ chịu thuế, không phải khoản thu hộ. Tính thuế chỉ trên tiền hàng ra số thấp hơn thực tế phải nộp.
+```text
+Giá niêm yết        390.000đ   ← đã gồm VAT
+Phí vận chuyển       30.000đ   ← đã gồm VAT
+─────────────────────────────
+KHÁCH TRẢ           420.000đ
+
+(trong đó thuế       31.111đ)  ← tách ra, chỉ để ghi hóa đơn
+```
+
+**Công thức tách là `tổng × r / (10000 + r)`, KHÔNG phải `tổng × r / 10000`.** Nhầm hai cái cho 33.600đ thay vì 31.111đ trên đơn 420.000đ, và cả hai đều trông hợp lý nếu không đối chiếu ngược:
+
+```text
+đúng:  388.889 (chưa thuế) + 31.111 (thuế) = 420.000 ✓
+sai:   386.400 (chưa thuế) + 33.600 (thuế) = 420.000 ✗  (386.400 sai)
+```
+
+Cài ở `money.ExtractRate`, nhân bằng 128 bit để không tràn — tràn ở đây làm số thuế sai mà tổng vẫn khớp, tức không có gì báo.
+
+**`Total()` KHÔNG cộng `taxAmount`**, ở cả `Checkout` lẫn `Order`. Cộng vào là thu thuế hai lần — một lần đã nằm trong giá, một lần cộng thêm — và tổng vẫn trông hợp lý nên không ai thấy. Hai công thức phải khớp nhau, nếu không con số ở màn hình thanh toán khác con số vào đơn.
+
+**Thuế tách từ CẢ phí vận chuyển.** Vận chuyển là dịch vụ chịu thuế, không phải khoản thu hộ. Bỏ phí ra khỏi phần tách sẽ ghi hóa đơn thiếu phần thuế của dịch vụ vận chuyển.
 
 **Làm tròn NỬA LÊN** (`money.RoundHalfUp`), khác hoa hồng và phí vốn làm tròn xuống. Hai quy tắc cho hai loại số khác nhau; trộn chúng làm đối soát ra hai kết quả cho cùng một đơn.
 

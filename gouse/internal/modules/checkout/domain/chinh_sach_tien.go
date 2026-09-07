@@ -25,10 +25,10 @@ type ChinhSachTien struct {
 //
 // # THỨ TỰ TÍNH, và vì sao nó phải nằm ở MỘT chỗ
 //
-//	tiền hàng = subtotal − giảm giá          khách thực trả cho HÀNG
-//	phí ship  = 0 nếu tiền hàng ≥ ngưỡng, ngược lại = phí gốc
-//	thuế      = thuế suất × (tiền hàng + phí ship)
-//	tổng      = tiền hàng + phí ship + thuế
+//	tiền hàng = subtotal − giảm giá          ĐÃ GỒM VAT
+//	phí ship  = 0 nếu tiền hàng ≥ ngưỡng, ngược lại = phí gốc (đã gồm VAT)
+//	tổng      = tiền hàng + phí ship         khách trả ĐÚNG con số này
+//	thuế      = phần VAT nằm TRONG tổng, tách ra để ghi hóa đơn
 //
 // Ba con số PHỤ THUỘC NHAU theo đúng thứ tự đó: giảm giá đổi thì ngưỡng
 // miễn phí ship phải xét lại, và phí ship đổi thì thuế phải tính lại. Để
@@ -44,10 +44,19 @@ type ChinhSachTien struct {
 // thì một mã giảm 200.000đ biến đơn 400.000đ thành đơn được miễn phí ship
 // — nền tảng chịu cả hai khoản cho một đơn nhỏ hơn ngưỡng.
 //
+// # Thuế là phần TÁCH RA, không phải khoản CỘNG THÊM
+//
+// Giá niêm yết trên cửa hàng là giá ĐÃ GỒM VAT (checkout.md mục 7b), nên
+// khách trả đúng con số đã thấy. `taxAmount` chỉ để ghi hóa đơn.
+//
+// Công thức là `tổng × r / (10000 + r)`, KHÔNG phải `tổng × r / 10000`.
+// Nhầm hai cái cho 33.600 thay vì 31.111 trên đơn 420.000đ, và cả hai đều
+// trông hợp lý nếu không đối chiếu ngược — xem `money.ExtractRate`.
+//
 // # Thuế tính TRÊN CẢ phí vận chuyển
 //
-// Vận chuyển là một dịch vụ chịu thuế, không phải khoản thu hộ. Tính thuế
-// chỉ trên tiền hàng sẽ ra số thuế thấp hơn thực tế phải nộp.
+// Vận chuyển là một dịch vụ chịu thuế, không phải khoản thu hộ. Bỏ phí ra
+// khỏi phần tách sẽ ghi hóa đơn thiếu phần thuế của dịch vụ vận chuyển.
 //
 // # Làm tròn NỬA LÊN
 //
@@ -86,13 +95,15 @@ func (c *Checkout) ApDungPhiVaThue(
 		}
 	}
 
-	chiuThue, err := tienHang.Add(phi)
+	// Tổng khách trả — và thuế nằm SẴN TRONG con số này.
+	khachTra, err := tienHang.Add(phi)
 	if err != nil {
 		return err
 	}
 
 	c.shippingFee = phi
-	c.taxAmount = chiuThue.ApplyRate(cs.ThueSuat, money.RoundHalfUp)
+	// TÁCH ngược, không CỘNG thêm: giá niêm yết đã gồm VAT.
+	c.taxAmount = khachTra.ExtractRate(cs.ThueSuat, money.RoundHalfUp)
 	c.touch(now)
 	return nil
 }
