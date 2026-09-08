@@ -573,3 +573,71 @@ func NewShippingRevenueEntry(p ShippingRevenueParams) (*LedgerEntry, error) {
 		Now:            p.Now,
 	})
 }
+
+// DiscountParams là dữ liệu bút toán KHOẢN GIẢM GIÁ.
+type DiscountParams struct {
+	OrderID  ids.ID
+	Discount money.Money
+
+	IdempotencyKey string
+	CreatedBy      string
+	Now            time.Time
+}
+
+// NewDiscountEntry dựng bút toán cho khoản GIẢM GIÁ đã cho khách.
+//
+//	DEBIT   PLATFORM_REVENUE       49.000   nền tảng chịu phần giảm
+//	CREDIT  ACCOUNTS_RECEIVABLE    49.000   khách bớt nợ đúng khoản đó
+//
+// # Vì sao nó phải tồn tại
+//
+// Bút toán doanh thu ghi tổng dòng hàng GỐC, còn khách chỉ trả phần đã
+// trừ. Không ghi khoản giảm thì sau khi thu tiền, khoản phải thu còn dư
+// đúng bằng số đã giảm — sổ cái nói khách còn nợ một khoản không ai đòi,
+// và con số đó lớn dần theo mỗi đơn dùng mã.
+//
+// # Vì sao ghi vào PLATFORM_REVENUE, và điều đó CHƯA đầy đủ
+//
+// Nó khớp với thứ đang xảy ra với TIỀN hôm nay: bút toán doanh thu trả
+// nhà bán theo `SellerPayable` tính từ giá GỐC, nên phần giảm thực tế do
+// nền tảng gánh dù mã là của ai.
+//
+// Nhưng `promotion` ĐÃ có quy tắc chia khoản này — `AllocateCost` với ba
+// bên chịu (nền tảng, nhà bán, chia đôi) và bất biến "tổng luôn bằng đúng
+// số tiền giảm". Kết quả đó được tính rồi KHÔNG ai đọc: `CostAllocations`
+// không có bên tiêu thụ nào ngoài chính module promotion.
+//
+// Nối nó vào đây là việc TIẾP THEO, và nó cần mở rộng cổng giữa checkout
+// và promotion (cổng hiện tại vứt allocations đi). Ghi vào doanh thu nền
+// tảng KHÔNG kết luận ai chịu — nó chỉ ngừng việc để một khoản tiền có
+// thật nằm ngoài sổ.
+func NewDiscountEntry(p DiscountParams) (*LedgerEntry, error) {
+	if !p.Discount.IsPositive() {
+		return nil, fmt.Errorf(
+			"payment: khoản giảm giá phải lớn hơn 0, nhận %s", p.Discount)
+	}
+
+	return NewLedgerEntry(NewEntryParams{
+		Type:          EntryOrderRevenue,
+		ReferenceType: "order",
+		ReferenceID:   p.OrderID,
+		Description:   "Giảm giá cho khách",
+		Lines: []Line{
+			{
+				Account:     Account{Type: AccountPlatformRevenue},
+				Direction:   Debit,
+				Amount:      p.Discount,
+				Description: "Nền tảng chịu khoản giảm giá",
+			},
+			{
+				Account:     Account{Type: AccountAccountsReceivable},
+				Direction:   Credit,
+				Amount:      p.Discount,
+				Description: "Khách bớt nợ phần được giảm",
+			},
+		},
+		IdempotencyKey: p.IdempotencyKey,
+		CreatedBy:      p.CreatedBy,
+		Now:            p.Now,
+	})
+}

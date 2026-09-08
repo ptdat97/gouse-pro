@@ -83,6 +83,15 @@ func chay() error {
 	}
 	defer db.Close()
 
+	// Rà lớp thứ hai TRƯỚC: khoản phải thu có khớp với số khách nợ không.
+	//
+	// Nó CHỈ BÁO CÁO, không có đường sửa tự động — thêm một bút toán còn
+	// thiếu vào quá khứ là quyết định khác hẳn với đảo một bút toán sai,
+	// và nó cần người quyết cho từng đơn.
+	if err := raSoatPhaiThu(ctx, db.Pool()); err != nil {
+		return err
+	}
+
 	sai, err := timButToanSai(ctx, db.Pool(), *gioiHan)
 	if err != nil {
 		return err
@@ -178,4 +187,81 @@ func timButToanSai(
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// raSoatPhaiThu báo các đơn có khoản tiền KHÔNG nằm trong sổ cái.
+//
+// # Vì sao cần lớp rà này
+//
+// Bút toán doanh thu chỉ ghi tổng dòng HÀNG. Phí vận chuyển và khoản giảm
+// giá là hai khoản tiền có thật mà trước ADR-0018 không nằm ở đâu cả:
+//
+//	phí vận chuyển   khách TRẢ thêm  → phải thu THIẾU đúng khoản đó
+//	giảm giá         khách trả BỚT   → phải thu THỪA đúng khoản đó
+//
+// Hai lỗ này vô hình cho tới khi bút toán thu tiền ghi CÓ khoản phải thu
+// đúng bằng số khách trả. Từ đó trở đi chúng lộ ra thành số dư phải thu
+// không về 0 — nhưng chỉ với đơn ĐÃ thu tiền, nên lớp rà này đi tìm cả
+// những đơn chưa thu.
+//
+// KHÔNG sửa tự động: xem chú thích ở chỗ gọi.
+func raSoatPhaiThu(ctx context.Context, pool *pgxpool.Pool) error {
+	rows, err := pool.Query(ctx, `
+		SELECT o.id, o.shipping_fee, o.discount_amount
+		  FROM "order" o
+		 WHERE (o.shipping_fee > 0 OR o.discount_amount > 0)
+		   AND EXISTS (
+		       SELECT 1 FROM ledger_entry e
+		        WHERE e.reference_id = o.id
+		          AND e.entry_type = 'ORDER_REVENUE'
+		          AND e.description NOT IN (
+		              'Phí vận chuyển khách trả', 'Giảm giá cho khách')
+		          AND NOT EXISTS (
+		              SELECT 1 FROM ledger_entry d
+		               WHERE d.reverses_entry_id = e.id))
+		   AND (
+		       (o.shipping_fee > 0 AND NOT EXISTS (
+		            SELECT 1 FROM ledger_entry s
+		             WHERE s.reference_id = o.id
+		               AND s.description = 'Phí vận chuyển khách trả'))
+		    OR (o.discount_amount > 0 AND NOT EXISTS (
+		            SELECT 1 FROM ledger_entry g
+		             WHERE g.reference_id = o.id
+		               AND g.description = 'Giảm giá cho khách')))`)
+	if err != nil {
+		return fmt.Errorf("rà soát khoản phải thu: %w", err)
+	}
+	defer rows.Close()
+
+	var soDon int
+	var tongShip, tongGiam int64
+	for rows.Next() {
+		var id string
+		var ship, giam int64
+		if err := rows.Scan(&id, &ship, &giam); err != nil {
+			return fmt.Errorf("đọc đơn: %w", err)
+		}
+		soDon++
+		tongShip += ship
+		tongGiam += giam
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if soDon == 0 {
+		fmt.Println("Khoản phải thu: mọi đơn còn hiệu lực đều đã ghi đủ phí " +
+			"vận chuyển và giảm giá.")
+		fmt.Println()
+		return nil
+	}
+
+	fmt.Printf("CẢNH BÁO — %d đơn có khoản tiền KHÔNG nằm trong sổ cái:\n", soDon)
+	fmt.Printf("  phí vận chuyển chưa ghi: %d đ\n", tongShip)
+	fmt.Printf("  giảm giá chưa ghi:       %d đ\n", tongGiam)
+	fmt.Println("  → đơn tạo TỪ ADR-0018 trở đi đã ghi đủ; đây là đơn cũ.")
+	fmt.Println("  → thêm bút toán còn thiếu vào quá khứ là quyết định riêng")
+	fmt.Println("    cho từng đơn, nên công cụ này KHÔNG tự sửa.")
+	fmt.Println()
+	return nil
 }

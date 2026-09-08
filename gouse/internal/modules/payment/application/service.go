@@ -884,3 +884,37 @@ func (s *Service) GhiPhiVanChuyenWith(
 	}
 	return e, nil
 }
+
+// GhiGiamGiaInput là dữ liệu bút toán khoản giảm giá.
+type GhiGiamGiaInput struct {
+	OrderID        ids.ID
+	Discount       money.Money
+	IdempotencyKey string
+}
+
+// GhiGiamGiaWith ghi bút toán khoản GIẢM GIÁ đã cho khách.
+//
+// Xem domain.NewDiscountEntry. Tra idempotency TRƯỚC khi ghi, cùng lý do
+// với GhiThuTienWith: event phát lại là đường đi bình thường.
+func (s *Service) GhiGiamGiaWith(
+	ctx context.Context, ledger domain.LedgerRepository, in GhiGiamGiaInput,
+) (*domain.LedgerEntry, error) {
+	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
+		return cu, nil
+	}
+
+	e, err := domain.NewDiscountEntry(domain.DiscountParams{
+		OrderID:        in.OrderID,
+		Discount:       in.Discount,
+		IdempotencyKey: in.IdempotencyKey,
+		CreatedBy:      "payment.revenue_on_checkout_completed",
+		Now:            s.clock.Now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := ledger.Append(ctx, e); err != nil {
+		return nil, err
+	}
+	return e, nil
+}

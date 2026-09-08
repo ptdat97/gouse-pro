@@ -227,6 +227,15 @@ type CheckoutCompleted struct {
 	// chênh lệch lộ ra thành số dư phải thu ÂM.
 	ShippingFee money.Money
 
+	// DiscountAmount là khoản giảm giá — THÊM Ở PHIÊN BẢN 4.
+	//
+	// Payment BẮT BUỘC phải có nó, và lệch theo hướng NGƯỢC với phí vận
+	// chuyển: bút toán doanh thu ghi tổng dòng hàng GỐC, còn khách chỉ
+	// trả phần đã trừ. Không ghi khoản giảm thì sau khi thu tiền, khoản
+	// phải thu còn dư đúng bằng số đã giảm — khách "nợ" vĩnh viễn một
+	// khoản không ai đòi.
+	DiscountAmount money.Money
+
 	// ShippingAddress là nơi hàng phải đến.
 	//
 	// SELLER cần nó để in phiếu giao hàng. Không có nó thì họ biết nhặt gì
@@ -1342,6 +1351,7 @@ func (s *Service) completedEvent(
 		GuestPhone:      c.GuestPhone(),
 		PaymentMethod:   paymentMethod,
 		ShippingFee:     c.ShippingFee(),
+		DiscountAmount:  c.DiscountAmount(),
 		ShippingAddress: c.ShippingAddress(),
 		Currency:        c.Currency(),
 		Reservations:    reservations,

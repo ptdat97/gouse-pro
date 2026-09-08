@@ -194,3 +194,116 @@ func (a *apiTest) soDuSoCai(t *testing.T, orderID string) (tienMat, phaiThu int6
 	}
 	return tienMat, phaiThu
 }
+
+// TestChuoiDayDuCoGiamGia — cùng chuỗi, nhưng đơn CÓ mã giảm giá.
+//
+// # Vì sao tách thành bài riêng
+//
+// Bài chuỗi ở trên tìm ra rằng PHÍ VẬN CHUYỂN không nằm ở đâu trong sổ
+// cái. Khoản GIẢM GIÁ là câu hỏi đối xứng, và nó lệch theo hướng NGƯỢC
+// LẠI: bút toán doanh thu ghi tổng dòng hàng GỐC, còn khách chỉ trả phần
+// đã trừ. Nếu sổ không ghi khoản giảm thì sau khi thu tiền, khoản phải thu
+// còn dư đúng bằng số tiền đã giảm — khách "nợ" vĩnh viễn một khoản không
+// ai đòi.
+//
+// Đây chính là mục "còn mở" mà bài chuỗi đầu tiên ghi lại.
+func TestChuoiDayDuCoGiamGia(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	const ma = "CHUOIGIAM10"
+	a.dungMaGiamGia(t, ma, 1000) // giảm 10%
+
+	maOffer := a.timOfferBanDuoc()
+	if maOffer == "" {
+		t.Skip("không có offer nào bán được")
+	}
+
+	res := a.call(http.MethodPost, "/api/v1/cart/items",
+		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+	if res.code != http.StatusOK {
+		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
+	}
+	gio, _ := res.body["cart"].(map[string]any)
+	maGio, _ := gio["id"].(string)
+
+	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
+		"cart_id": maGio, "guest_email": emailMoi("chuoigiam"),
+		"guest_phone": "0900777222",
+	}, khoaIdem())
+	if res.code != http.StatusCreated && res.code != http.StatusOK {
+		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
+	}
+	maPhien, _ := res.body["id"].(string)
+
+	if got := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/coupon",
+		map[string]any{"code": ma}, khoaIdem()); got.code != http.StatusOK {
+		t.Fatalf("áp mã: HTTP %d — %s", got.code, got.raw)
+	}
+	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+		map[string]any{
+			"recipient_name": "Khách Giảm", "phone": "0900777222",
+			"street_address": "1 Đường Thử", "ward": "P1",
+			"district": "Q1", "province": "TP.HCM", "country_code": "VN",
+		}, khoaIdem())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+
+	res = a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
+		map[string]any{"payment_method": "CARD"}, khoaIdem())
+	if res.code != http.StatusOK && res.code != http.StatusCreated {
+		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
+	}
+	don, _ := res.body["order"].(map[string]any)
+	maDon, _ := don["id"].(string)
+	tong, _ := don["total"].(map[string]any)
+	soTien := int64(tong["amount"].(float64))
+
+	a.phatEvent(t)
+
+	// Khoản phải thu phải bằng ĐÚNG số khách sẽ trả — không hơn.
+	_, phaiThu := a.soDuSoCai(t, maDon)
+	if phaiThu != soTien {
+		t.Errorf("khoản phải thu = %d nhưng khách chỉ trả %d — lệch %d, "+
+			"đúng bằng phần giảm giá không được ghi sổ",
+			phaiThu, soTien, phaiThu-soTien)
+	}
+
+	// Thu tiền.
+	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
+		"event_id":   "evt_chuoi_giam_1",
+		"event_type": "payment.succeeded",
+		"data": map[string]any{
+			"payment_intent_id": "pi_chuoi_giam",
+			"amount":            soTien,
+			"currency":          "VND",
+			"metadata":          map[string]any{"order_id": maDon},
+		},
+	}, biMatCongTT)
+	if whRes.code != http.StatusOK {
+		t.Fatalf("webhook: HTTP %d — %s", whRes.code, whRes.raw)
+	}
+	a.phatEvent(t)
+
+	tien, phaiThu := a.soDuSoCai(t, maDon)
+	if phaiThu != 0 {
+		t.Errorf("sau khi thu tiền: phải thu = %d, cần 0 — khách còn 'nợ' "+
+			"một khoản không ai đòi", phaiThu)
+	}
+	if tien != soTien {
+		t.Errorf("tiền mặt = %d, cần %d", tien, soTien)
+	}
+
+	var no, co int64
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'DEBIT'), 0),
+		       COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'CREDIT'), 0)
+		  FROM ledger_line  l
+		  JOIN ledger_entry e ON e.id = l.entry_id
+		 WHERE e.reference_id = $1`, maDon).Scan(&no, &co); err != nil {
+		t.Fatalf("đọc sổ cái: %v", err)
+	}
+	if no != co {
+		t.Errorf("sổ cái LỆCH: Σ nợ = %d, Σ có = %d", no, co)
+	}
+}

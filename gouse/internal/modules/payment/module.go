@@ -180,6 +180,42 @@ func (m *Module) GhiPhiVanChuyenInEventTx(
 	return translateErr(err)
 }
 
+// GhiGiamGiaInEventTx ghi bút toán khoản GIẢM GIÁ.
+//
+// Xem domain.NewDiscountEntry: không ghi thì khoản phải thu còn dư đúng
+// bằng số đã giảm, và khách "nợ" vĩnh viễn một khoản không ai đòi.
+func (m *Module) GhiGiamGiaInEventTx(
+	ctx context.Context, orderID string, giam int64, donVi string,
+) error {
+	if giam <= 0 {
+		// Đơn không dùng mã giảm là đường đi phổ biến nhất.
+		return nil
+	}
+	id, err := ids.Parse(orderID, ids.PrefixOrder)
+	if err != nil {
+		return ErrInvalidID
+	}
+	amount, err := money.New(giam, money.Currency(donVi))
+	if err != nil {
+		return err
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.svc.GhiGiamGiaWith(ctx, paymentpg.LedgerForTx(tx),
+		application.GhiGiamGiaInput{
+			OrderID: id, Discount: amount,
+			IdempotencyKey: "giam-gia:" + id.String(),
+		})
+	if errors.Is(err, domain.ErrDuplicateEntry) {
+		return nil
+	}
+	return translateErr(err)
+}
+
 // GhiThuTienInEventTx ghi bút toán THU ĐƯỢC TIỀN, bằng giao dịch dispatcher.
 //
 // ADR-0018 phần B1: bút toán doanh thu ghi NỢ `ACCOUNTS_RECEIVABLE` lúc

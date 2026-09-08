@@ -3326,9 +3326,41 @@ từng nhà bán: chia phí cho từng bên là câu hỏi nghiệp vụ chưa c
 lời. Ghi vào doanh thu nền tảng KHÔNG kết luận ai hưởng phần chênh — bút
 toán chi phí trả hãng vận chuyển mới nói điều đó, và nó chưa tồn tại.
 
-**Còn mở:** khoản GIẢM GIÁ chưa được kiểm ở đây (các bài hiện tại không áp
-mã giảm). Nếu nó cũng không vào sổ thì cùng dạng lỗi, và bài này sẽ bắt
-được ngay khi có đơn có giảm giá.
+**Khoản GIẢM GIÁ: đúng như dự đoán, và lệch theo hướng NGƯỢC LẠI (08/09).**
+
+`TestChuoiDayDuCoGiamGia` dựng đơn có mã giảm 10% rồi đi hết chuỗi. Kết
+quả ngay lần chạy đầu:
+
+```text
+phải thu = 520.000  (hàng 490.000 + ship 30.000)
+khách trả = 471.000  (đã trừ 49.000)
+sau khi thu tiền: phải thu còn 49.000 — khách "nợ" vĩnh viễn một khoản
+                                        không ai đòi
+```
+
+Phí vận chuyển làm phải thu THIẾU; giảm giá làm phải thu THỪA. Cùng một
+gốc: bút toán doanh thu chỉ ghi tổng dòng HÀNG.
+
+Đã sửa: `checkout.completed` lên **phiên bản 4** với `discount_amount`, và
+`NewDiscountEntry` ghi `DEBIT PLATFORM_REVENUE / CREDIT ACCOUNTS_RECEIVABLE`.
+
+**Và nó lộ ra lần thứ CHÍN của dạng lỗi mục 8.** `promotion` đã có sẵn quy
+tắc chia khoản giảm — `AllocateCost` với ba bên chịu (nền tảng, nhà bán,
+chia đôi) và bất biến "tổng luôn bằng đúng số tiền giảm". Kết quả được
+tính rồi **không ai đọc**: `CostAllocations` không có bên tiêu thụ nào
+ngoài chính module promotion, vì cổng giữa checkout và promotion vứt nó đi.
+
+Ghi vào `PLATFORM_REVENUE` khớp với thứ đang xảy ra với TIỀN hôm nay: bút
+toán doanh thu trả nhà bán theo `SellerPayable` tính từ giá GỐC, nên phần
+giảm thực tế do nền tảng gánh dù mã là của ai. Nó KHÔNG kết luận ai chịu —
+nối `CostAllocations` vào là việc tiếp theo, và cần mở rộng cổng
+checkout ↔ promotion.
+
+**Đo trên dữ liệu thật:** 3192 đơn có phí ship (95.760.000 đ) chưa từng
+vào sổ, nhưng phần lớn thuộc 3110 đơn đã bị đảo bút toán. Còn hiệu lực chỉ
+**5 đơn / 150.000 đ**. `cmd/doisoatso` nay báo cả lớp này và CỐ Ý không tự
+sửa: thêm một bút toán còn thiếu vào quá khứ là quyết định khác hẳn với
+đảo một bút toán sai, và cần người quyết cho từng đơn.
 
 ---
 

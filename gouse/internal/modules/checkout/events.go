@@ -128,6 +128,10 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			// Trường này làm payload lên PHIÊN BẢN 3.
 			ShippingFee int64 `json:"shipping_fee"`
 
+			// DiscountAmount để sổ cái ghi được khoản đã giảm cho khách.
+			// Trường này làm payload lên PHIÊN BẢN 4.
+			DiscountAmount int64 `json:"discount_amount"`
+
 			// ShippingAddress để SELLER in được phiếu giao hàng.
 			//
 			// Không có nó thì họ biết nhặt gì mà không biết gửi đi đâu — và
@@ -146,8 +150,9 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			GuestEmail:  in.GuestEmail,
 			GuestPhone:  in.GuestPhone,
 
-			PaymentMethod: in.PaymentMethod,
-			ShippingFee:   in.ShippingFee.Amount(),
+			PaymentMethod:  in.PaymentMethod,
+			ShippingFee:    in.ShippingFee.Amount(),
+			DiscountAmount: in.DiscountAmount.Amount(),
 			ShippingAddress: addressPayload{
 				RecipientName: in.ShippingAddress.RecipientName,
 				Phone:         in.ShippingAddress.Phone,
@@ -164,17 +169,18 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 		return err
 	}
 
-	// PHIÊN BẢN 3.
+	// PHIÊN BẢN 4.
 	//
 	//	v2  thêm `payment_method` — fulfillment cần để biết đơn thực hiện
 	//	    được giao ngay hay phải chờ tiền về
 	//	v3  thêm `shipping_fee`  — payment cần để ghi khoản phí khách trả
 	//	    vào sổ cái; trước đó nó không nằm ở đâu cả
+	//	v4  thêm `discount_amount` — cùng lý do, lệch theo hướng ngược lại
 	//
 	// Bên nhận nào chưa khai hiểu phiên bản 2 sẽ bị dispatcher HOÃN event
 	// thay vì nhận thiếu trường rồi mở khóa nhầm cho đơn chưa trả tiền
 	// (ADR-0016).
-	e = e.WithVersion(3)
+	e = e.WithVersion(4)
 
 	// CorrelationID là mã đơn: mọi việc xảy ra sau khi đặt hàng đều truy
 	// ngược được về một đơn cụ thể.
