@@ -2244,11 +2244,23 @@ export interface components {
              *     đánh chỉ mục (migration 000038). Nó không trả ở đây vì khách lọc
              *     bằng tham số truy vấn chứ không đọc nhóm màu trên trang.
              *
-             *     Ô màu thật (`hex_code`) thì CHƯA có: nó phải do người bán nhập,
-             *     không suy ra được từ tên. Xem P3-22 trong backlog.
+             *     Ô màu thật ở `color_hex` bên dưới — TÙY CHỌN, do người bán nhập.
              * @example Trắng
              */
             color: string;
+            /**
+             * @description Ô màu thật để khách chọn theo MÀU NHÌN THẤY, không theo tên —
+             *     `common.yaml#/schemas/Color` nêu đúng lý do này từ đầu.
+             *
+             *     TÙY CHỌN: khác `color_family` (suy được từ tên màu), mã màu phải
+             *     do người bán NHẬP — "Xanh navy" ra được nhóm BLUE nhưng không ra
+             *     được #1B2A49. Thiếu thì giao diện hiện ô chữ như cũ.
+             *
+             *     Luôn CHỮ HOA: "#ff0000" và "#FF0000" là một màu, và để hai cách
+             *     viết cùng tồn tại nghĩa là lọc theo mã màu bỏ sót một nửa.
+             * @example #1B2A49
+             */
+            color_hex?: string;
             images?: components["schemas"]["Image"][];
             skus: components["schemas"]["SKUSummary"][];
         };
