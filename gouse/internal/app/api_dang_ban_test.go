@@ -78,10 +78,16 @@ func TestNhaBanDangBanSanPhamQuaAPI(t *testing.T) {
 			"CheckReadyForReview tồn tại để chặn đúng chỗ này", res.code)
 	}
 
-	// ---- Thêm biến thể ----
+	// ---- Thêm biến thể, KÈM MÃ MÀU (P3-22) ----
+	//
+	// Mã màu là nửa còn lại của P3-22, và nó bị chặn cho tới khi có chỗ
+	// nhập liệu — tức là cho tới chính commit này. Cố ý nhập chữ THƯỜNG
+	// để kiểm luôn phép chuẩn hóa.
 	res = a.call(http.MethodPost, "/api/v1/seller/products/"+maSP+"/variants", map[string]any{
-		"attributes": map[string]string{"color": "Đen", "size": "M"},
-		"images":     []string{"https://cdn.example.com/a.jpg"},
+		"attributes": map[string]string{
+			"color": "Đen", "size": "M", "color_hex": "#1b2a49",
+		},
+		"images": []string{"https://cdn.example.com/a.jpg"},
 		"skus": []map[string]any{{
 			"sku_code":    "DB-" + ids.MustNew(ids.PrefixRequest).String()[22:],
 			"weight_gram": 200, "length_mm": 200, "width_mm": 150, "height_mm": 20,
@@ -125,9 +131,20 @@ func TestNhaBanDangBanSanPhamQuaAPI(t *testing.T) {
 		t.Errorf("trạng thái = %v, cần ACTIVE", res.body["status"])
 	}
 
-	// ---- Khách NAY mới thấy ----
-	if got := a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, nil); got.code != http.StatusOK {
-		t.Errorf("khách xem hàng ĐÃ DUYỆT: HTTP %d, cần 200 — %s", got.code, got.raw)
+	// ---- Khách NAY mới thấy, KÈM ô màu thật ----
+	got := a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, nil)
+	if got.code != http.StatusOK {
+		t.Fatalf("khách xem hàng ĐÃ DUYỆT: HTTP %d, cần 200 — %s", got.code, got.raw)
+	}
+
+	bienThe, _ := got.body["variants"].([]any)
+	if len(bienThe) != 1 {
+		t.Fatalf("variants = %v, mong 1", got.body["variants"])
+	}
+	bt, _ := bienThe[0].(map[string]any)
+	if bt["color_hex"] != "#1B2A49" {
+		t.Errorf("color_hex = %v, mong #1B2A49 (chữ HOA) — mã màu nhà bán "+
+			"nhập phải tới được khách", bt["color_hex"])
 	}
 }
 

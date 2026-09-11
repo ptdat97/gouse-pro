@@ -87,8 +87,16 @@ type image struct {
 
 // variant khớp schemas.yaml#/Variant.
 type variant struct {
-	ID     string       `json:"id"`
-	Color  string       `json:"color,omitempty"`
+	ID    string `json:"id"`
+	Color string `json:"color,omitempty"`
+
+	// ColorHex là Ô MÀU THẬT, dạng "#RRGGBB".
+	//
+	// omitempty vì nó TÙY CHỌN: nhà bán chưa khai thì giao diện hiện ô
+	// chữ như cũ. Trả chuỗi rỗng tệ hơn là bỏ trường — "#" rỗng hiện ra
+	// thành ô đen hoặc trong suốt, và khách chọn theo thứ nhìn thấy.
+	ColorHex string `json:"color_hex,omitempty"`
+
 	Images []image      `json:"images,omitempty"`
 	SKUs   []skuSummary `json:"skus"`
 }

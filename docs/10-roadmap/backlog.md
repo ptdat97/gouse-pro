@@ -2586,7 +2586,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-18 | **Giữ hàng chọn nhầm CHỦ SỞ HỮU tồn kho** | ✅ xong (19/08) — xem ghi chú dưới bảng |
 | P3-19 | **Endpoint công khai tra hồ sơ nhà bán** | ✅ xong (20/08) — `GET /api/v1/sellers?ids=` |
 | P3-21 | **Trang sản phẩm chưa cho chọn màu/size** | ✅ xong (20/08) — xem ghi chú dưới bảng |
-| P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | 🟡 nửa `system` xong (07/09); `hex_code` BỊ CHẶN bởi P3-25 |
+| P3-22 | `Color` và `Size` là CHUỖI, chưa có mã màu và hệ size | ✅ xong (11/09) — `system` (07/09) và `color_hex` (11/09) |
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | ✅ xong — bỏ hẳn trạng thái đó; xem ghi chú dưới bảng |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
 | P3-24 | **"Khách mua được không" có BA câu trả lời khác nhau** | ✅ xong (06/09) — xem ghi chú dưới bảng |
@@ -3289,6 +3289,30 @@ lần thứ hai.
 Cái chặn thật là **không có đường NHẬP nào cả** — xem P3-25. Thêm
 `color_hex` vào hợp đồng API lúc này sẽ là **lần thứ bảy** của đúng dạng
 lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. Nên không thêm.
+
+**Đã làm (11/09), ngay sau khi P3-25 mở được chỗ nhập liệu.**
+
+```text
+AttrColorHex       "color_hex" trong attributes, như color_family
+ChuanHoaMaMau      kiểm ^#[0-9A-Fa-f]{6}$, chuẩn hóa CHỮ HOA
+khóa định danh     LOẠI hex ra, cùng lý do với color_family
+Variant.color_hex  trả ra cửa hàng, omitempty
+```
+
+Ba quyết định đáng ghi:
+
+1. **TÙY CHỌN.** Bắt buộc sẽ chặn mọi sản phẩm hiện có và mọi nhà bán chưa
+   kịp lấy mã màu. Thiếu hex thì giao diện hiện ô chữ như cũ.
+2. **Từ chối dạng rút gọn `#FFF`** dù hợp lệ trong CSS: nó tạo hai cách
+   viết cho cùng một màu, và phép so sánh chuỗi ở mọi nơi khác sẽ coi
+   chúng là hai màu khác nhau. Cùng lý do với việc chuẩn hóa chữ hoa.
+3. **KHÔNG vào khóa định danh biến thể.** Hai biến thể cùng màu "Đen" mà
+   mã màu khác nhau không phải hai biến thể — đó là một lần nhập sai, và
+   đưa hex vào khóa sẽ cho cả hai cùng tồn tại. Bài dễ bỏ sót nhất, nên
+   có test riêng.
+
+Bài chuỗi P3-25 nay đi luôn cả mã màu: nhà bán nhập `#1b2a49` chữ thường,
+khách nhận `#1B2A49`.
 
 **P3-29 — vế CHI PHÍ của mảng vận chuyển (08/09).**
 

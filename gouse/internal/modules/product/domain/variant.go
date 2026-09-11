@@ -83,6 +83,23 @@ func NewVariant(p NewVariantParams) (*Variant, error) {
 		attrs[key] = val
 	}
 
+	// MÃ MÀU: kiểm định dạng và chuẩn hóa chữ HOA.
+	//
+	// Sai định dạng thì TỪ CHỐI chứ không bỏ qua: một mã màu hỏng hiện ra
+	// thành ô màu đen hoặc trong suốt trên trang, và khách chọn theo thứ
+	// nhìn thấy — tệ hơn hẳn việc không có ô màu nào.
+	if hex, co := attrs[AttrColorHex]; co {
+		chuan, err := ChuanHoaMaMau(hex)
+		if err != nil {
+			return nil, err
+		}
+		if chuan == "" {
+			delete(attrs, AttrColorHex)
+		} else {
+			attrs[AttrColorHex] = chuan
+		}
+	}
+
 	// Suy ra NHÓM MÀU từ tên màu, tự động.
 	//
 	// Bắt người bán khai thêm một trường là bảo đảm trường ấy sẽ trống ở
@@ -173,6 +190,12 @@ func (v *Variant) Attribute(key string) (string, bool) {
 func (v *Variant) Color() string { val, _ := v.Attribute(AttrColor); return val }
 func (v *Variant) Size() string  { val, _ := v.Attribute(AttrSize); return val }
 
+// ColorHex là mã màu dạng "#RRGGBB". Rỗng khi nhà bán chưa khai.
+func (v *Variant) ColorHex() string {
+	val, _ := v.Attribute(AttrColorHex)
+	return val
+}
+
 func (v *Variant) Images() []string {
 	return append([]string(nil), v.images...)
 }
@@ -195,7 +218,11 @@ func (v *Variant) AttributeKey() string {
 		// phân biệt nào. Đưa nó vào khóa khiến biến thể tạo trước khi có
 		// nhóm màu và biến thể tạo sau có khóa KHÁC nhau — và phép chống
 		// trùng bỏ lọt một biến thể trùng thật.
-		if k == AttrColorFamily {
+		// `color_hex` cũng bị loại, cùng lý do: nó là thuộc tính TRÌNH
+		// BÀY. Hai biến thể cùng màu "Đen" mà mã màu khác nhau không phải
+		// hai biến thể — đó là một lần nhập sai, và đưa hex vào khóa sẽ
+		// cho cả hai cùng tồn tại.
+		if k == AttrColorFamily || k == AttrColorHex {
 			continue
 		}
 		keys = append(keys, k)

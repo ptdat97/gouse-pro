@@ -375,9 +375,10 @@ func toVariants(list []*domain.Variant) []variant {
 			continue
 		}
 		out = append(out, variant{
-			ID:     v.ID().String(),
-			Color:  v.Color(),
-			Images: toImages(v.Images()),
+			ID:       v.ID().String(),
+			Color:    v.Color(),
+			ColorHex: v.ColorHex(),
+			Images:   toImages(v.Images()),
 			// Size là thuộc tính của BIẾN THỂ, nhưng client cần nó ở mức
 			// SKU để dựng danh sách size chọn được — nên truyền xuống.
 			SKUs: toSKUSummaries(v.SKUs(), v.Size()),

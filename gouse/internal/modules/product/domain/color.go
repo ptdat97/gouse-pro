@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"errors"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -111,4 +113,49 @@ func SuyRaNhomMau(tenMau string) NhomMau {
 		}
 	}
 	return MauKhac
+}
+
+// AttrColorHex là MÃ MÀU của biến thể, dạng "#RRGGBB".
+//
+// # Vì sao nó phải do NGƯỜI BÁN NHẬP
+//
+// Khác `color_family`: nhóm màu suy được từ TÊN màu (`SuyRaNhomMau`), còn
+// mã màu thì không. "Xanh navy" ra được nhóm BLUE, nhưng ra #1B2A49 hay
+// #0A1F44 thì chỉ người cầm sản phẩm mới biết.
+//
+// Đặc tả khai từ đầu và nêu đúng lý do cần: "khách chọn theo màu nhìn
+// thấy, không theo tên" (`common.yaml#/schemas/Color`). Bộ chọn màu bằng
+// CHỮ bắt khách dịch "Xanh rêu" thành hình ảnh trong đầu, và đoán sai thì
+// hàng bị trả về.
+//
+// TÙY CHỌN, có chủ ý: bắt buộc nó sẽ chặn mọi sản phẩm hiện có và mọi nhà
+// bán chưa kịp lấy mã màu. Thiếu hex thì giao diện hiện ô chữ như cũ.
+const AttrColorHex = "color_hex"
+
+// ErrMaMauKhongHopLe khi mã màu sai định dạng.
+var ErrMaMauKhongHopLe = errors.New(
+	"product: mã màu phải có dạng #RRGGBB")
+
+// dangMaMau khớp ĐÚNG sáu chữ số hex sau dấu thăng.
+//
+// KHÔNG chấp nhận dạng rút gọn ba ký tự (#FFF): nó hợp lệ trong CSS nhưng
+// tạo ra hai cách viết cho cùng một màu, và phép so sánh chuỗi ở mọi nơi
+// khác sẽ coi chúng là hai màu khác nhau.
+var dangMaMau = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+
+// ChuanHoaMaMau kiểm và chuẩn hóa mã màu về CHỮ HOA.
+//
+// Chuỗi rỗng hợp lệ và trả về rỗng: mã màu là tùy chọn.
+//
+// Chuẩn hóa chữ hoa vì "#ff0000" và "#FF0000" là một màu, và để hai cách
+// viết cùng tồn tại nghĩa là lọc theo mã màu sẽ bỏ sót một nửa.
+func ChuanHoaMaMau(ma string) (string, error) {
+	ma = strings.TrimSpace(ma)
+	if ma == "" {
+		return "", nil
+	}
+	if !dangMaMau.MatchString(ma) {
+		return "", ErrMaMauKhongHopLe
+	}
+	return strings.ToUpper(ma), nil
 }
