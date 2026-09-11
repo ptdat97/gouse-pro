@@ -52,6 +52,7 @@ func duongCanQuyen() []struct {
 		{http.MethodGet, "/api/v1/admin/sellers/sel_01J9XABC123DEF456GHJKMNPQR"},
 		{http.MethodPost, "/api/v1/admin/ledger/adjustments"},
 		{http.MethodPost, "/api/v1/admin/orders/ord_01J9XABC123DEF456GHJKMNPQR/cancel"},
+		{http.MethodPost, "/api/v1/admin/sellers/sel_01J9XABC123DEF456GHJKMNPQR/submit-review"},
 		{http.MethodPost, "/api/v1/admin/sellers/sel_01J9XABC123DEF456GHJKMNPQR/approve"},
 		{http.MethodPost, "/api/v1/admin/sellers/sel_01J9XABC123DEF456GHJKMNPQR/suspend"},
 

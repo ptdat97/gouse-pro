@@ -220,6 +220,8 @@ paths:
     $ref: './paths/admin.yaml#/sellers'
   /api/v1/admin/sellers/{seller_id}:
     $ref: './paths/admin.yaml#/seller_detail'
+  /api/v1/admin/sellers/{seller_id}/submit-review:
+    $ref: './paths/admin.yaml#/seller_submit_review'
   /api/v1/admin/sellers/{seller_id}/approve:
     $ref: './paths/admin.yaml#/seller_approve'
   /api/v1/admin/sellers/{seller_id}/suspend:

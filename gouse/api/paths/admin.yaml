@@ -129,6 +129,48 @@ seller_detail:
       '404':
         $ref: '../components/common.yaml#/responses/NotFound'
 
+seller_submit_review:
+  post:
+    tags: [Admin]
+    summary: Đưa hồ sơ nhà bán vào hàng đợi rà soát
+    description: |
+      Chuyển `APPLIED` → `PENDING_REVIEW`.
+
+      **Bước RIÊNG chứ không gộp vào lúc nộp hồ sơ.** `APPLIED` là "đã nộp,
+      chưa ai xem"; `PENDING_REVIEW` là "đã vào hàng đợi của người duyệt".
+      Gộp hai bước sẽ mất hàng rào chống duyệt tắt — hồ sơ vừa nộp sẽ duyệt
+      được ngay.
+
+      `approveSeller` chỉ nhận hồ sơ ở `PENDING_REVIEW`, nên không có bước
+      này thì hồ sơ nộp qua `applyAsSeller` không bao giờ duyệt được.
+    operationId: submitSellerForReview
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: seller_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    responses:
+      '200':
+        description: Hồ sơ đã vào hàng đợi rà soát
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                status:
+                  type: string
+                  enum: [PENDING_REVIEW]
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+
 seller_approve:
   post:
     tags: [Admin]

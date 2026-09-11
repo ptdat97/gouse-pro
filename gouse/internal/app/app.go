@@ -768,6 +768,7 @@ func RegisterRoutes(
 			)
 			mux.Handle("GET /api/v1/admin/sellers", authed)
 			mux.Handle("GET /api/v1/admin/sellers/{seller_id}", authed)
+			mux.Handle("POST /api/v1/admin/sellers/{seller_id}/submit-review", authed)
 			mux.Handle("POST /api/v1/admin/sellers/{seller_id}/approve", authed)
 			mux.Handle("POST /api/v1/admin/sellers/{seller_id}/suspend", authed)
 		}

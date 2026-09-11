@@ -165,7 +165,7 @@ func TestSanHoaHongChanDuyetDuoiSan(t *testing.T) {
 
 	duyet := func(nhan string, tyLe int) reply {
 		t.Helper()
-		maNB := a.nhaBanChoDuyet(t, nhan)
+		maNB := a.nhaBanChoDuyet(t, nhan, tok)
 		h := khoaIdem()
 		h["Authorization"] = "Bearer " + tok
 		return a.call(http.MethodPost,
@@ -203,7 +203,7 @@ func TestSanHoaHongChanDuyetDuoiSan(t *testing.T) {
 // tỷ lệ khác nhau, và một hồ sơ chỉ duyệt được MỘT lần. Dùng lại hồ sơ cũ
 // thì lần thứ hai hỏng vì sai trạng thái — một lý do chẳng liên quan gì
 // tới sàn hoa hồng.
-func (a *apiTest) nhaBanChoDuyet(t *testing.T, nhan string) string {
+func (a *apiTest) nhaBanChoDuyet(t *testing.T, nhan, tokAdmin string) string {
 	t.Helper()
 
 	sel, err := a.mods.seller.ApplyAsSeller(context.Background(),
@@ -224,22 +224,16 @@ func (a *apiTest) nhaBanChoDuyet(t *testing.T, nhan string) string {
 		t.Fatalf("nộp hồ sơ nhà bán: %v", err)
 	}
 
-	// ĐẨY THẲNG sang PENDING_REVIEW bằng SQL, và đó KHÔNG phải chuyện
-	// thường — ghi ra đây vì nó là một khoảng hở có thật.
+	// Đưa hồ sơ vào HÀNG ĐỢI RÀ SOÁT qua đúng tuyến quản trị.
 	//
-	// Bảng chuyển trạng thái cho phép APPLIED → PENDING_REVIEW →
-	// APPROVED, nhưng KHÔNG dòng mã nào thực hiện bước giữa: grep
-	// `StatusPendingReview` chỉ ra đúng một tệp, chính tệp khai nó. Nghĩa
-	// là hồ sơ nộp qua `ApplyAsSeller` không bao giờ duyệt được bằng
-	// đường thật.
-	//
-	// Bài này cần một hồ sơ duyệt được để kiểm SÀN HOA HỒNG, nên nó đi
-	// vòng. Khi bước rà soát có đường đi thật, thay đoạn này bằng lời gọi
-	// đó — và bài test sẽ mạnh hơn chứ không yếu đi.
-	if _, err := a.db.Pool().Exec(context.Background(),
-		`UPDATE seller SET status = 'PENDING_REVIEW' WHERE id = $1`,
-		sel.ID); err != nil {
-		t.Fatalf("đưa hồ sơ sang chờ rà soát: %v", err)
+	// Trước đây đoạn này phải đi vòng bằng SQL: `SubmitForReview` có đủ ở
+	// domain và application mà KHÔNG cửa nào ở production gọi tới, nên hồ
+	// sơ nộp thật không bao giờ duyệt được.
+	h := khoaIdem()
+	h["Authorization"] = "Bearer " + tokAdmin
+	if res := a.call(http.MethodPost,
+		"/api/v1/admin/sellers/"+sel.ID+"/submit-review", nil, h); res.code != http.StatusOK {
+		t.Fatalf("đưa hồ sơ vào hàng đợi rà soát: HTTP %d — %s", res.code, res.raw)
 	}
 	return sel.ID
 }

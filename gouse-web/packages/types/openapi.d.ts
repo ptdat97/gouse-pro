@@ -1564,6 +1564,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/sellers/{seller_id}/submit-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Đưa hồ sơ nhà bán vào hàng đợi rà soát
+         * @description Chuyển `APPLIED` → `PENDING_REVIEW`.
+         *
+         *     **Bước RIÊNG chứ không gộp vào lúc nộp hồ sơ.** `APPLIED` là "đã nộp,
+         *     chưa ai xem"; `PENDING_REVIEW` là "đã vào hàng đợi của người duyệt".
+         *     Gộp hai bước sẽ mất hàng rào chống duyệt tắt — hồ sơ vừa nộp sẽ duyệt
+         *     được ngay.
+         *
+         *     `approveSeller` chỉ nhận hồ sơ ở `PENDING_REVIEW`, nên không có bước
+         *     này thì hồ sơ nộp qua `applyAsSeller` không bao giờ duyệt được.
+         */
+        post: operations["submitSellerForReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/sellers/{seller_id}/approve": {
         parameters: {
             query?: never;
@@ -7310,6 +7338,45 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    submitSellerForReview: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                seller_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hồ sơ đã vào hàng đợi rà soát */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id?: components["schemas"]["Id"];
+                        /** @enum {string} */
+                        status?: "PENDING_REVIEW";
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     approveSeller: {

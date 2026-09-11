@@ -56,6 +56,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/sellers", http.HandlerFunc(h.listSellers))
 	mux.Handle("GET /api/v1/admin/sellers/{seller_id}",
 		http.HandlerFunc(h.getSellerDetail))
+	mux.Handle("POST /api/v1/admin/sellers/{seller_id}/submit-review",
+		http.HandlerFunc(h.submitForReview))
 	mux.Handle("POST /api/v1/admin/sellers/{seller_id}/approve",
 		http.HandlerFunc(h.approveSeller))
 	mux.Handle("POST /api/v1/admin/sellers/{seller_id}/suspend",
@@ -188,6 +190,41 @@ func (h *Handler) approveSeller(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.ok(w, r, out)
+}
+
+// submitForReview phục vụ POST /api/v1/admin/sellers/{id}/submit-review
+// (operationId: submitSellerForReview).
+//
+// # Vì sao tuyến này phải tồn tại
+//
+// `SubmitForReview` đã có đủ ở domain VÀ application, và chỉ test gọi nó.
+// Không cửa nào ở production đưa hồ sơ từ APPLIED sang PENDING_REVIEW, mà
+// `Approve` lại đòi PENDING_REVIEW — nên hồ sơ nộp qua `ApplyAsSeller`
+// KHÔNG BAO GIỜ duyệt được. Đo trên dữ liệu thật: 1 hồ sơ kẹt.
+//
+// # Vì sao là bước RIÊNG chứ không gộp vào lúc nộp
+//
+// Gộp thì mất hàng rào "không được duyệt tắt qua rà soát" — hồ sơ vừa nộp
+// sẽ duyệt được ngay. APPLIED là "đã nộp, chưa ai xem"; PENDING_REVIEW là
+// "đã vào hàng đợi của người duyệt". Hai việc khác nhau, và người vận hành
+// cần phân biệt để biết còn bao nhiêu hồ sơ chưa ai chạm tới.
+func (h *Handler) submitForReview(w http.ResponseWriter, r *http.Request) {
+	id, err := parseSellerID(r.PathValue("seller_id"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	sel, err := h.svc.SubmitForReview(r.Context(), id)
+	if err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+
+	h.ok(w, r, approvedSeller{
+		ID:     sel.ID().String(),
+		Status: string(sel.Status()),
+	})
 }
 
 // ---------------------------------------------------------------- Danh sách
