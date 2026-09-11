@@ -11,9 +11,24 @@ import (
 )
 
 // giaCoDinh là bảng giá hãng vận chuyển cho test.
+//
+// # Vì sao nó NHẠY với phương thức giao
+//
+// Bản cũ có chữ ký `GiaMotKien(string) int64` — VỨT BỎ tham số và luôn
+// trả cùng một giá. Bài test vì thế xanh bất kể `shipping_method` của đơn
+// thực hiện có giá trị hay không, và nó rỗng trên CẢ 3.207 đơn thật: không
+// ai từng gán trường đó. Một bản giả bỏ qua đầu vào thì che mất đúng cái
+// đầu vào đang thiếu.
+//
+// Nay phương thức rỗng trả 0, nên bài test đỏ ngay nếu dây bị đứt lại.
 type giaCoDinh int64
 
-func (g giaCoDinh) GiaMotKien(string) int64 { return int64(g) }
+func (g giaCoDinh) GiaMotKien(phuongThuc string) int64 {
+	if phuongThuc == "" {
+		return 0
+	}
+	return int64(g)
+}
 
 // TestChiPhiHangVanChuyenVaoSoKhiBanGiao.
 //

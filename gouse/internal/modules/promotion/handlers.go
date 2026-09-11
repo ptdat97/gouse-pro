@@ -50,7 +50,7 @@ func (h *GhiLuotDungKhiHoanTat) EventTypes() []string {
 // MaxEventVersion: cần phiên bản 7 để có `coupon_code`.
 func (h *GhiLuotDungKhiHoanTat) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 7
+		return 8
 	}
 	return eventbus.DefaultMaxEventVersion
 }

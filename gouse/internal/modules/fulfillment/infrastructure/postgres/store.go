@@ -81,9 +81,9 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 			fulfillment_type, customer_id, notify_email, notify_phone,
 			ship_recipient_name, ship_phone, ship_street,
 			ship_ward, ship_district, ship_province, ship_country_code,
-			created_at, updated_at, cho_thanh_toan
+			created_at, updated_at, cho_thanh_toan, shipping_method
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-		          $14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+		          $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
 		ON CONFLICT (id) DO NOTHING`,
 		fo.ID().String(), fo.OrderID().String(), fo.FONumber(),
 		fo.SellerID().String(), string(fo.Status()),
@@ -93,7 +93,12 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 		fo.NotifyEmail(), fo.NotifyPhone(),
 		addr.RecipientName, addr.Phone, addr.StreetAddress,
 		addr.Ward, addr.District, addr.Province, defaultCountry(addr.CountryCode),
-		fo.CreatedAt(), fo.UpdatedAt(), fo.ChoThanhToan())
+		fo.CreatedAt(), fo.UpdatedAt(), fo.ChoThanhToan(),
+		// shipping_method phải có Ở ĐÂY, không chỉ ở Update: đơn thực hiện
+		// được TẠO ra đã mang phương thức giao, và `payment` tra giá trả
+		// hãng theo nó ngay ở bước bàn giao. Bỏ sót thì trường này rỗng
+		// vĩnh viễn — đã rỗng trên cả 3.207 đơn thật.
+		fo.ShippingMethod())
 	if err != nil {
 		return err
 	}
@@ -151,6 +156,7 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		       confirmed_at = $9, packed_at = $10, shipped_at = $11,
 		       delivered_at = $12, cancelled_at = $13, completed_at = $14,
 		       updated_at = $15, cho_thanh_toan = $18,
+		       estimated_delivery_date = $19,
 		       version = version + 1
 		 WHERE id = $1 AND seller_id = $16 AND version = $17`,
 		fo.ID().String(), string(fo.Status()), fo.CancelReason(),
@@ -170,7 +176,11 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		fo.Version(),
 		// cho_thanh_toan ghi được ở đây vì đó là đường MỞ KHÓA: event
 		// `order.paid` đọc đơn, gọi MoKhoaThanhToan, rồi ghi lại.
-		fo.ChoThanhToan())
+		fo.ChoThanhToan(),
+		// estimated_delivery_date: gán lúc BÀN GIAO, nên chỉ đường cập
+		// nhật ghi được nó. Thiếu ở đây thì cột rỗng vĩnh viễn — và trang
+		// theo dõi đơn trả cho KHÁCH một `estimated_arrival` trống.
+		nullTime(fo.EstimatedDelivery()))
 	if err != nil {
 		return fmt.Errorf("order: cập nhật đơn thực hiện: %w", err)
 	}

@@ -37,7 +37,7 @@ func (h *benNhanHayHong) Name() string { return "e2e.ben_nhan_hay_hong" }
 // (ADR-0016), và nó áp cả cho bản giả trong test.
 func (h *benNhanHayHong) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 7
+		return 8
 	}
 	return eventbus.DefaultMaxEventVersion
 }

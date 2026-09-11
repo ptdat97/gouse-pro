@@ -4320,6 +4320,81 @@ event chẳng liên quan, và xanh nếu event phát ra là loại khác nhưng 
 lượng. Bài đầu là lỗi cô lập kinh điển — xanh khi chạy riêng, đỏ khi chạy
 cả gói, và thông điệp chỉ vào nghiệp vụ chứ không vào hàng đợi.
 
+### P3-36 — đơn thực hiện nhớ được phương thức giao
+
+**Đã xong (11/09).**
+
+Quét cột DB không bao giờ đổi giá trị. `fulfillment_order.shipping_method`
+rỗng trên **cả 3.207 dòng**.
+
+Trường này CÓ trong domain, CÓ cột, nằm trong câu `UPDATE`, được đọc lại
+trong `SELECT` — chỉ câu `INSERT` là thiếu. Nhìn ở bất kỳ một chỗ nào cũng
+thấy đúng.
+
+**Nó là trường chịu lực.** `payment` tra giá trả hãng vận chuyển theo đúng
+nó (ADR-0018). Nên bút toán chi phí hãng im lặng vì HAI lý do độc lập —
+chưa khai giá, và không biết phương thức — mà chú thích chỉ nói một. Quyết
+định "để tôi tự khai giá sau" sẽ KHÔNG chấm dứt sự im lặng ấy: khai xong
+vẫn không có bút toán nào, và nhìn như cấu hình không ăn.
+
+**Bản giả trong test đã che đúng chỗ hỏng.** `giaCoDinh` có chữ ký
+`GiaMotKien(string) int64` — vứt bỏ tham số, luôn trả cùng một giá. Bài
+test vì thế xanh bất kể phương thức rỗng hay không. Nay phương thức rỗng
+trả 0.
+
+Đã nối: `checkout.completed` mang thêm `shipping_method` (PHIÊN BẢN 8, 8
+bên nhận khai lại) → `SplitInput` → đơn thực hiện → câu `INSERT`.
+
+**Việc phát sinh: `estimated_delivery_date`.** Test khứ hồi mới viết tìm ra
+ngay ca thứ hai — câu `UPDATE` không ghi cột này, và không đường nào gán
+nó. Nó được trả cho KHÁCH ở trang theo dõi đơn dưới tên `estimated_arrival`,
+nên khách luôn thấy trống.
+
+Giá trị đúng có sẵn: `bieuPhi` đã mang `SoNgayDuKien` (chuẩn 3 ngày, nhanh
+1 ngày) — chính con số đã báo cho khách lúc thanh toán. Nay tính TẠI lúc
+bàn giao, vì đồng hồ của hãng bắt đầu chạy khi họ nhận hàng; thời gian nhà
+bán chuẩn bị là phần của người khác.
+
+**Múi giờ là cái bẫy ở đây.** Cột kiểu `DATE` chỉ mang ngày lịch. Cắt ngày
+theo UTC thì gần một phần ba số giờ trong ngày cho ra ngày khác với lịch
+của khách: 02:00 ngày 12/09 giờ Việt Nam là 19:00 ngày **11/09** theo UTC.
+Đã thêm `types.DauNgay` và một bài test ghim đúng vùng nguy hiểm đó.
+
+#### Hàng rào cho cả LỚP lỗi này
+
+[khu_hoi_test.go](../../gouse/internal/modules/fulfillment/infrastructure/postgres/khu_hoi_test.go)
+lưu rồi đọc lại một thực thể có MỌI trường khác rỗng, và đối chiếu từng
+trường. Hai thiết kế làm nó không tự mắc lại chính lỗi nó canh:
+
+1. **Reflect bắt buộc mọi trường khác rỗng.** Thêm một trường mà quên điền
+   thì bài DỪNG kèm tên trường — vì lưu 0 rồi đọc lại 0 luôn khớp, kể cả
+   khi cột bị bỏ quên hoàn toàn.
+2. **Danh sách `rongLucTao` liệt kê trường được phép rỗng lúc TẠO**, không
+   liệt kê trường phải khứ hồi. Mặc định của một trường mới là "phải khứ
+   hồi được" — quên xử lý thì test ĐỎ, không phải xanh.
+
+Ba lần cùng lớp lỗi trước đó: `withLineIDs` quên `ChoThanhToan`, `withLines`
+quên `BenChiuGiamGia`, và lần này. Hai lần đầu chữa bằng cách sao chép
+struct thay vì liệt kê trường; lần này không chữa được như thế vì SQL buộc
+phải liệt kê — nên chữa bằng hàng rào.
+
+`cmd/doisoatgiao` điền lại 3.207 đơn cũ từ phiên thanh toán. 24 đơn đã bàn
+giao thì bút toán chi phí đã lỡ; 3.183 đơn chưa bàn giao thì còn kịp.
+KHÔNG dựng lại `estimated_delivery_date` cho đơn cũ: ngày ấy tính từ lúc
+bàn giao, và bịa một "ngày dự kiến" trong quá khứ là bịa một lời hứa chưa
+từng được đưa ra.
+
+### Quét cấu hình: KHÔNG có khoảng hở
+
+Hướng "cấu hình khai mà không ai đọc" chạy xong và sạch — cả 11 khóa
+`opsconfig` đều có nơi đọc thật. Đo thêm trên dữ liệu thật: chỉ **một** khóa
+từng được đặt giá trị (`checkout.tax_rate_bp` = 800, đúng bằng mặc định).
+Mười khóa còn lại chạy bằng mặc định, và chỉ hai khóa giá hãng vận chuyển
+có mặc định 0 — đúng phần im lặng có chủ ý đã chốt.
+
+Ghi lại kết quả ÂM này vì nó cũng là thông tin: `opsconfig` không mang lớp
+lỗi đang săn, nên lần sau không cần quét lại hướng đó.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này
@@ -4435,7 +4510,7 @@ Và:
 
 ## 8. Trường không ai điền — dạng lỗi hay gặp nhất của dự án này
 
-Bảy lần trong khoảng một tháng, cùng một hình dạng: **một trường có trong
+Chín lần trong khoảng một tháng, cùng một hình dạng: **một trường có trong
 hợp đồng API, có cột trong DB, có phương thức domain — và không dòng mã nào
 gán giá trị cho nó.**
 
@@ -4448,8 +4523,10 @@ gán giá trị cho nó.**
 | `size_chart` | P3-22 | khách không thấy số đo — hoàn hàng vì sai size |
 | `buy_box_offer` | P3-20 | khai ở `ProductDetail`, không bao giờ được trả |
 | lượt dùng mã | — | `max_uses`, `max_uses_per_customer` và `max_budget` đều vô hiệu; một mã dùng được vô hạn lần bởi vô hạn người |
+| `shipping_method` của đơn thực hiện | P3-36 | rỗng trên CẢ 3.207 đơn; bút toán chi phí hãng vận chuyển không bao giờ ghi được |
+| `estimated_delivery_date` | P3-36 | trang theo dõi trả cho KHÁCH một `estimated_arrival` trống |
 
-**Hai cách kết thúc, và phải phân biệt.** Sáu dòng là trường ĐÚNG mà
+**Hai cách kết thúc, và phải phân biệt.** Tám dòng là trường ĐÚNG mà
 chưa nối dây → nối dây. `buy_box_offer` thì khác: buy box quyết theo SKU
 (mỗi size là một cuộc cạnh tranh riêng), nên trường ở mức sản phẩm không
 có nghĩa đúng — nó bị BỎ khỏi đặc tả. Không phải trường nào trống cũng
@@ -4486,7 +4563,15 @@ tên trường và xanh suốt trong lúc khách không bao giờ thấy số đ
 3. đo trên dữ liệu THẬT: đếm bản ghi có giá trị khác rỗng/0
 4. chạy hệ thống thật và đọc response — cách duy nhất bắt được cả bốn
    trường hợp trên
+5. quét CỘT DB không bao giờ đổi giá trị: một cột chỉ có DUY NHẤT một giá
+   trị trên hàng nghìn dòng thì hoặc là hằng số cố ý, hoặc là không ai ghi
 ```
+
+Bước 5 rẻ nhất trong cả năm, và nó bắt được thứ bốn bước kia bỏ sót:
+`shipping_method` CÓ mặt trong câu `UPDATE` nên grep tìm thấy phép gán, có
+mặt trong `SELECT` nên đọc lại được, có phương thức domain được gọi — chỉ
+câu `INSERT` là thiếu. Nhìn ở bất kỳ một chỗ nào cũng thấy đúng. Chỉ dữ
+liệu mới nói thật: 3.207 dòng, một giá trị duy nhất, rỗng.
 
 Bước 3 đã một lần lật ngược kết luận: P3-15 ban đầu định gộp hồ sơ khách,
 đo ra 0 hồ sơ khách vãng lai và 3150 đơn vãng lai, nên việc phải làm là

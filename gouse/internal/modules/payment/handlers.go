@@ -63,7 +63,7 @@ func (h *RevenueOnCheckoutCompleted) Name() string {
 // còn đoạn văn này thì không.
 func (h *RevenueOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 7
+		return 8
 	}
 	return eventbus.DefaultMaxEventVersion
 }

@@ -288,6 +288,17 @@ type CheckoutCompleted struct {
 	// bởi vô hạn người.
 	CouponCode string
 
+	// ShippingMethod là phương thức vận chuyển khách đã chọn — THÊM Ở
+	// PHIÊN BẢN 8.
+	//
+	// `fulfillment` BẮT BUỘC phải có nó: đơn thực hiện lưu phương thức
+	// giao, và `payment` tra giá trả hãng vận chuyển theo đúng trường đó
+	// (ADR-0018). Trước phiên bản này, trường `shipping_method` của đơn
+	// thực hiện RỖNG trên cả 3.207 dòng — không ai từng gán nó — nên bút
+	// toán chi phí hãng im lặng vì MỘT lý do thứ hai, độc lập với việc
+	// chưa khai giá, và không chú thích nào nói ra.
+	ShippingMethod string
+
 	// PhanBoGiam là bảng chia chi phí khoản giảm — THÊM Ở PHIÊN BẢN 6.
 	//
 	// Thay cho `discount_seller_id` của phiên bản 5: một mã gian hàng chỉ
@@ -1495,6 +1506,7 @@ func (s *Service) completedEvent(
 		ShippingFee:    c.ShippingFee(),
 		DiscountAmount: c.DiscountAmount(),
 		CouponCode:     c.CouponCode(),
+		ShippingMethod: c.ShippingMethod(),
 
 		PhanBoGiam:      c.PhanBoGiam(),
 		ShippingAddress: c.ShippingAddress(),

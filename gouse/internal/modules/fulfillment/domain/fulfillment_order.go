@@ -14,6 +14,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 )
 
 var (
@@ -356,6 +357,15 @@ type NewFulfillmentOrderParams struct {
 	// ShippingAddress là nơi hàng phải đến — seller cần để in phiếu giao.
 	ShippingAddress ShippingAddress
 
+	// ShippingMethod là phương thức giao khách đã chọn, sao chép xuống
+	// từ phiên thanh toán.
+	//
+	// KHÔNG phải trường trang trí: `payment` tra giá trả hãng vận chuyển
+	// theo đúng nó (ADR-0018). Bỏ trống thì bút toán chi phí hãng KHÔNG
+	// bao giờ được ghi — và nó im lặng, vì "chưa khai giá" và "không biết
+	// phương thức" cùng dẫn tới giá 0.
+	ShippingMethod string
+
 	// Type mặc định SELLER nếu để trống — đó là trường hợp phổ biến nhất
 	// của marketplace.
 	Type FulfillmentType
@@ -405,6 +415,7 @@ func NewFulfillmentOrder(p NewFulfillmentOrderParams) (*FulfillmentOrder, error)
 		notifyEmail:      strings.TrimSpace(p.NotifyEmail),
 		notifyPhone:      strings.TrimSpace(p.NotifyPhone),
 		shippingAddress:  p.ShippingAddress,
+		shippingMethod:   strings.TrimSpace(p.ShippingMethod),
 		fulfillmentType:  fulfillmentType,
 		createdAt:        now,
 		updatedAt:        now,
@@ -601,6 +612,25 @@ func (f *FulfillmentOrder) HandOver(provider, trackingNumber string, now time.Ti
 	f.shippingProvider = strings.TrimSpace(provider)
 	f.trackingNumber = strings.TrimSpace(trackingNumber)
 	f.shippedAt = now
+
+	// NGÀY GIAO DỰ KIẾN tính TẠI ĐÂY, không sớm hơn.
+	//
+	// Đồng hồ của hãng vận chuyển bắt đầu chạy lúc họ nhận hàng, không
+	// phải lúc khách đặt: thời gian nhà bán chuẩn bị là phần của người
+	// khác (`handling_time_hours` của offer). Tính lúc đặt hàng nghĩa là
+	// hứa với khách một ngày mà một nhà bán chậm sẽ làm trượt.
+	//
+	// Con số ngày lấy từ CHÍNH biểu phí đã dùng để báo giá cho khách ở
+	// bước thanh toán — nên ngày hiện trên trang theo dõi khớp với lời
+	// hứa lúc mua, thay vì là hai ước tính rời nhau.
+	//
+	// Phương thức rỗng hoặc lạ thì KHÔNG đoán: để trống còn hơn hứa sai.
+	//
+	// CẮT VỀ NGÀY: cột lưu có kiểu DATE, nên giữ giờ phút trong bộ nhớ
+	// nghĩa là giá trị ghi xuống khác giá trị đọc lên — im lặng.
+	if muc, ok := bieuPhi[PhuongThucGiao(f.shippingMethod)]; ok {
+		f.estimatedDelivery = types.DauNgay(now.AddDate(0, 0, muc.SoNgayDuKien))
+	}
 	return nil
 }
 
@@ -745,6 +775,10 @@ type SplitInput struct {
 	// phần của mình tới cùng một nơi, và mỗi người cần phiếu giao riêng.
 	ShippingAddress ShippingAddress
 
+	// ShippingMethod sao chép xuống TỪNG đơn thực hiện: mỗi kiện hàng
+	// được tính giá hãng vận chuyển riêng.
+	ShippingMethod string
+
 	Lines []SplitLine
 }
 
@@ -847,6 +881,7 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 			NotifyEmail:      in.NotifyEmail,
 			NotifyPhone:      in.NotifyPhone,
 			ShippingAddress:  in.ShippingAddress,
+			ShippingMethod:   in.ShippingMethod,
 			Now:              now,
 		})
 		if err != nil {

@@ -137,6 +137,11 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			// thì mọi giới hạn của mã đều vô hiệu. PHIÊN BẢN 7.
 			CouponCode string `json:"coupon_code"`
 
+			// ShippingMethod để fulfillment lưu vào đơn thực hiện, và
+			// payment tra giá trả hãng theo nó. Làm payload lên PHIÊN
+			// BẢN 8.
+			ShippingMethod string `json:"shipping_method"`
+
 			// DiscountAllocations: mỗi bên gánh bao nhiêu đồng. Thay cho
 			// `discount_seller_id` của v5, vì mã gian hàng không diễn tả
 			// được chương trình CHIA ĐÔI. Làm payload lên PHIÊN BẢN 6.
@@ -164,6 +169,7 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			ShippingFee:         in.ShippingFee.Amount(),
 			DiscountAmount:      in.DiscountAmount.Amount(),
 			CouponCode:          in.CouponCode,
+			ShippingMethod:      in.ShippingMethod,
 			DiscountAllocations: phanBoPayloadTu(in.PhanBoGiam),
 			ShippingAddress: addressPayload{
 				RecipientName: in.ShippingAddress.RecipientName,
@@ -193,11 +199,14 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 	//	    chương trình CHIA ĐÔI, nơi mỗi bên gánh một phần
 	//	v7  thêm `coupon_code` — promotion cần để ghi nhận lượt dùng;
 	//	    thiếu nó thì mọi giới hạn của mã đều vô hiệu
+	//	v8  thêm `shipping_method` — fulfillment lưu vào đơn thực hiện và
+	//	    payment tra giá trả hãng theo nó; trước đó trường ấy rỗng trên
+	//	    MỌI đơn thực hiện vì không ai từng gán
 	//
 	// Bên nhận nào chưa khai hiểu phiên bản 2 sẽ bị dispatcher HOÃN event
 	// thay vì nhận thiếu trường rồi mở khóa nhầm cho đơn chưa trả tiền
 	// (ADR-0016).
-	e = e.WithVersion(7)
+	e = e.WithVersion(8)
 
 	// CorrelationID là mã đơn: mọi việc xảy ra sau khi đặt hàng đều truy
 	// ngược được về một đơn cụ thể.

@@ -156,7 +156,7 @@ func (h *SplitOnCheckoutCompleted) EventTypes() []string {
 // khóa chờ tiền không. Một bản dựng cũ chưa khai con số này sẽ được
 // dispatcher HOÃN event thay vì đọc thiếu trường rồi tạo đơn KHÔNG khóa
 // cho một đơn trả trước. Đó chính là ca ADR-0016 sinh ra để chặn.
-func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 7 }
+func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 8 }
 
 // splitPayload là phần dữ liệu bên nhận này cần.
 type splitPayload struct {
@@ -176,6 +176,13 @@ type splitPayload struct {
 	// chưa (ADR-0018 phần A2) — nên bên nhận này khai `MaxEventVersion` 2
 	// và dispatcher hoãn event cũ hơn thay vì để nó mở khóa nhầm.
 	PaymentMethod string `json:"payment_method"`
+
+	// ShippingMethod có từ PHIÊN BẢN 8 của `checkout.completed`.
+	//
+	// Đơn thực hiện lưu nó, và `payment` tra giá trả hãng vận chuyển theo
+	// đúng trường đó. Trước phiên bản này không ai gán, nên nó rỗng trên
+	// MỌI đơn thực hiện và bút toán chi phí hãng im lặng.
+	ShippingMethod string `json:"shipping_method"`
 
 	// ShippingAddress là nơi hàng phải đến — SELLER cần để in phiếu giao.
 	ShippingAddress struct {
@@ -239,11 +246,12 @@ func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event)
 		// tới nhưng chưa được đụng vào cho tới khi `order.paid` mở khóa.
 		// COD không khóa — tiền về lúc giao, nên chờ là chặn chính đường
 		// thu tiền. Xem ADR-0018 phần A2.
-		ChoThanhToan: domain.PhuongThucTraTruoc(p.PaymentMethod),
-		Currency:     currency,
-		CustomerID:   ids.ID(p.CustomerID),
-		NotifyEmail:  p.GuestEmail,
-		NotifyPhone:  p.GuestPhone,
+		ChoThanhToan:   domain.PhuongThucTraTruoc(p.PaymentMethod),
+		ShippingMethod: p.ShippingMethod,
+		Currency:       currency,
+		CustomerID:     ids.ID(p.CustomerID),
+		NotifyEmail:    p.GuestEmail,
+		NotifyPhone:    p.GuestPhone,
 		ShippingAddress: domain.ShippingAddress{
 			RecipientName: p.ShippingAddress.RecipientName,
 			Phone:         p.ShippingAddress.Phone,

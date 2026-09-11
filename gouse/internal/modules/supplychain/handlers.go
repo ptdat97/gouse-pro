@@ -59,7 +59,7 @@ func (h *RecordSignalsFromEvents) Name() string {
 // còn đoạn văn này thì không.
 func (h *RecordSignalsFromEvents) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 7
+		return 8
 	}
 	return eventbus.DefaultMaxEventVersion
 }

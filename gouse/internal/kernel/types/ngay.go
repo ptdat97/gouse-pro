@@ -48,3 +48,21 @@ func PhanTichNgay(s string) (time.Time, error) {
 func CuoiNgay(t time.Time) time.Time {
 	return t.Add(24*time.Hour - time.Nanosecond)
 }
+
+// DauNgay cắt `t` về nửa đêm của ngày chứa nó, theo giờ nghiệp vụ.
+//
+// # Vì sao cần cắt, và vì sao phải cắt theo GIỜ VIỆT NAM
+//
+// Có những giá trị chỉ có nghĩa ở mức NGÀY — ngày giao dự kiến báo cho
+// khách là một ví dụ: không ai hứa "14/09 lúc 10:23". Cột lưu chúng có
+// kiểu DATE, nên nếu trong bộ nhớ vẫn giữ giờ phút thì giá trị ghi xuống
+// và giá trị đọc lên KHÁC NHAU, và không lỗi nào báo.
+//
+// Cắt theo UTC thì sai lệch một ngày với gần một phần ba số giờ trong
+// ngày: 20:00 ngày 11/09 giờ Việt Nam là 13:00 cùng ngày theo UTC — nhưng
+// 02:00 ngày 12/09 giờ Việt Nam lại là 19:00 ngày 11/09 theo UTC. Khách ở
+// Việt Nam đọc ngày theo lịch của họ.
+func DauNgay(t time.Time) time.Time {
+	tv := t.In(MuiGioNghiepVu)
+	return time.Date(tv.Year(), tv.Month(), tv.Day(), 0, 0, 0, 0, MuiGioNghiepVu)
+}
