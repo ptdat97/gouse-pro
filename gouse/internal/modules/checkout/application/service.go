@@ -236,12 +236,14 @@ type CheckoutCompleted struct {
 	// khoản không ai đòi.
 	DiscountAmount money.Money
 
-	// DiscountSellerID là gian hàng CHỊU khoản giảm — THÊM Ở PHIÊN BẢN 5.
+	// PhanBoGiam là bảng chia chi phí khoản giảm — THÊM Ở PHIÊN BẢN 6.
 	//
-	// Rỗng nghĩa là nền tảng chịu. Payment cần nó để trừ đúng bên: khoản
-	// giảm của chương trình do nhà bán tự chạy phải trừ vào tiền phải trả
-	// gian hàng đó, không phải vào doanh thu nền tảng.
-	DiscountSellerID ids.ID
+	// Thay cho `discount_seller_id` của phiên bản 5: một mã gian hàng chỉ
+	// nói được "ai chịu TRỌN", không nói được chương trình CHIA ĐÔI mỗi
+	// bên gánh bao nhiêu đồng. Payment ghi một dòng NỢ cho mỗi phần.
+	//
+	// Rỗng nghĩa là nền tảng gánh trọn.
+	PhanBoGiam []domain.PhanBoChiPhiGiam
 
 	// ShippingAddress là nơi hàng phải đến.
 	//
@@ -512,7 +514,19 @@ type PromotionPort interface {
 	ValidateCoupon(
 		ctx context.Context, code, customerID string, sellerID ids.ID,
 		orderTotal money.Money,
-	) (discount money.Money, freeShipping bool, benChiu string, err error)
+	) (res KetQuaMaGiam, err error)
+}
+
+// KetQuaMaGiam là kết quả kiểm tra một mã giảm giá.
+//
+// Gộp thành struct thay vì bốn giá trị trả về: danh sách đã dài tới mức
+// gọi sai thứ tự vẫn biên dịch được, và `benChiu` với `phanBo` nói cùng
+// một chuyện ở hai mức chi tiết nên chúng phải đi cùng nhau.
+type KetQuaMaGiam struct {
+	Giam        money.Money
+	MienPhiShip bool
+	BenChiu     string
+	PhanBo      []domain.PhanBoChiPhiGiam
 }
 
 type Deps struct {
@@ -940,7 +954,7 @@ func (s *Service) ApplyDiscount(
 		// Giảm giá đặt tay (không qua mã) thì nền tảng chịu: không có
 		// chương trình nào để tra bên chịu, và đoán sang nhà bán là lấy
 		// tiền của người ngoài công ty.
-		return c.ApplyDiscount(code, amount, domain.BenChiuNenTang, now)
+		return c.ApplyDiscount(code, amount, domain.BenChiuNenTang, nil, now)
 	})
 }
 
@@ -977,10 +991,28 @@ func (s *Service) ApplyCouponCode(
 		sellerID = ds[0]
 	}
 
-	discount, freeShipping, benChiu, err := s.promotions.ValidateCoupon(
+	res, err := s.promotions.ValidateCoupon(
 		ctx, code, customerID, sellerID, c.Subtotal())
 	if err != nil {
 		return nil, err
+	}
+	discount, freeShipping := res.Giam, res.MienPhiShip
+
+	// Bảng phân bổ phải cộng ĐÚNG số tiền giảm.
+	//
+	// Chặn tại đây chứ không để đi tiếp: lệch một đồng là một khoản KHÔNG
+	// AI CHỊU, nó xuất hiện ở mọi đơn dùng mã và chỉ lộ ra ở kỳ đối soát —
+	// lúc đó không còn truy được đơn nào sinh ra nó.
+	if len(res.PhanBo) > 0 {
+		tong, err := domain.TongPhanBo(res.PhanBo, discount.Currency())
+		if err != nil {
+			return nil, err
+		}
+		if !tong.Equal(discount) {
+			return nil, fmt.Errorf(
+				"checkout: bảng phân bổ chi phí cộng ra %s, khác số tiền giảm %s",
+				tong, discount)
+		}
 	}
 
 	// Áp giảm giá VÀ tính lại phí/thuế trong CÙNG một lần ghi.
@@ -994,7 +1026,8 @@ func (s *Service) ApplyCouponCode(
 	// ngưỡng. Cùng kết quả, hai lý do; hóa đơn cần phân biệt được.
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
 		if err := c.ApplyDiscount(
-			code, discount, domain.BenChiuGiamGia(benChiu), now); err != nil {
+			code, discount, domain.BenChiuGiamGia(res.BenChiu),
+			res.PhanBo, now); err != nil {
 			return err
 		}
 		return s.apDungTien(ctx, c, freeShipping, now)
@@ -1395,12 +1428,10 @@ func (s *Service) completedEvent(
 		ShippingFee:    c.ShippingFee(),
 		DiscountAmount: c.DiscountAmount(),
 
-		// Gian hàng chịu khoản giảm: chỉ có nghĩa khi bên chịu là NHÀ BÁN,
-		// và khi đó phiên chỉ có đúng một nguồn hàng (xem ApplyCouponCode).
-		DiscountSellerID: benChiuLaNhaBan(c),
-		ShippingAddress:  c.ShippingAddress(),
-		Currency:         c.Currency(),
-		Reservations:     reservations,
+		PhanBoGiam:      c.PhanBoGiam(),
+		ShippingAddress: c.ShippingAddress(),
+		Currency:        c.Currency(),
+		Reservations:    reservations,
 	}
 }
 
@@ -1495,20 +1526,4 @@ func lyDoThatBai(err error) string {
 	default:
 		return "internal"
 	}
-}
-
-// benChiuLaNhaBan trả gian hàng chịu khoản giảm, rỗng nếu nền tảng chịu.
-//
-// Phiên có nhiều nguồn hàng thì trả rỗng dù bên chịu là nhà bán: không xác
-// định được trừ tiền gian hàng nào, và đoán bừa là lấy tiền của một bên
-// không liên quan. `ApplyCouponCode` đã chặn trường hợp đó từ đầu — mã cần
-// biết gian hàng không áp được lên giỏ trộn — nên đây là hàng rào thứ hai.
-func benChiuLaNhaBan(c *domain.Checkout) ids.ID {
-	if c.BenChiuGiamGia() != domain.BenChiuNhaBan {
-		return ""
-	}
-	if ds := c.SellerIDs(); len(ds) == 1 {
-		return ds[0]
-	}
-	return ""
 }

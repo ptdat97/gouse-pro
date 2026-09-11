@@ -185,7 +185,8 @@ func (m *Module) GhiPhiVanChuyenInEventTx(
 // Xem domain.NewDiscountEntry: không ghi thì khoản phải thu còn dư đúng
 // bằng số đã giảm, và khách "nợ" vĩnh viễn một khoản không ai đòi.
 func (m *Module) GhiGiamGiaInEventTx(
-	ctx context.Context, orderID string, giam int64, donVi, benChiuSellerID string,
+	ctx context.Context, orderID string, giam int64, donVi string,
+	phanBo []PhanBoChiPhiInput,
 ) error {
 	if giam <= 0 {
 		// Đơn không dùng mã giảm là đường đi phổ biến nhất.
@@ -208,10 +209,7 @@ func (m *Module) GhiGiamGiaInEventTx(
 	_, err = m.svc.GhiGiamGiaWith(ctx, paymentpg.LedgerForTx(tx),
 		application.GhiGiamGiaInput{
 			OrderID: id, Discount: amount,
-			// Gian hàng chịu: rỗng thì nền tảng chịu. KHÔNG trả lỗi khi
-			// mã gian hàng sai định dạng — rơi về nền tảng chịu là phía
-			// an toàn, vì nó không trừ tiền của ai ngoài công ty.
-			SellerID:       benChiuSeller(benChiuSellerID),
+			PhanBo:         phanBoDomain(phanBo, amount.Currency()),
 			IdempotencyKey: "giam-gia:" + id.String(),
 		})
 	if errors.Is(err, domain.ErrDuplicateEntry) {
@@ -622,15 +620,31 @@ func (m *Module) DaoButToan(
 	return &v, nil
 }
 
-// benChiuSeller đổi mã gian hàng chịu khoản giảm thành ids.ID.
+// PhanBoChiPhiInput là một dòng phân bổ chi phí khoản giảm.
+type PhanBoChiPhiInput struct {
+	Bearer   string
+	SellerID string
+	Amount   int64
+}
+
+// phanBoDomain đổi dữ liệu event sang từ vựng domain.
 //
-// Rỗng hoặc sai định dạng đều trả rỗng = nền tảng chịu. Đó là phía AN
-// TOÀN: đoán nhầm sang nhà bán là trừ tiền của người ngoài công ty, còn
-// đoán nhầm về nền tảng thì chỉ nền tảng chịu thiệt.
-func benChiuSeller(s string) ids.ID {
-	id, err := ids.Parse(s, ids.PrefixSeller)
-	if err != nil {
-		return ""
+// Mã gian hàng SAI ĐỊNH DẠNG rơi về nền tảng chịu — phía AN TOÀN: đoán
+// nhầm sang nhà bán là trừ tiền của người ngoài công ty, còn đoán nhầm về
+// nền tảng thì chỉ nền tảng chịu thiệt. Số tiền vẫn giữ nguyên nên tổng
+// không đổi, và bất biến "tổng bằng đúng khoản giảm" không vỡ.
+func phanBoDomain(ds []PhanBoChiPhiInput, donVi money.Currency) []domain.PhanBoChiPhi {
+	out := make([]domain.PhanBoChiPhi, 0, len(ds))
+	for _, d := range ds {
+		sid, err := ids.Parse(d.SellerID, ids.PrefixSeller)
+		if err != nil {
+			sid = ""
+		}
+		out = append(out, domain.PhanBoChiPhi{
+			Bearer:   d.Bearer,
+			SellerID: sid,
+			SoTien:   money.MustNew(d.Amount, donVi),
+		})
 	}
-	return id
+	return out
 }

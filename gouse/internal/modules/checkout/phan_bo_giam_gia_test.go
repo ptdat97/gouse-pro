@@ -20,8 +20,8 @@ type promoThat struct{ goi int }
 
 func (p *promoThat) ValidateCoupon(
 	_ context.Context, _, _ string, _ ids.ID, _ money.Money,
-) (money.Money, bool, string, error) {
-	return money.Money{}, false, "", nil
+) (application.KetQuaMaGiam, error) {
+	return application.KetQuaMaGiam{}, nil
 }
 
 func (p *promoThat) PhanBoGiamGia(

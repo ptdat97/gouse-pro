@@ -890,8 +890,8 @@ type GhiGiamGiaInput struct {
 	OrderID  ids.ID
 	Discount money.Money
 
-	// SellerID là gian hàng chịu khoản giảm; rỗng = nền tảng chịu.
-	SellerID ids.ID
+	// PhanBo là bảng chia chi phí; rỗng = nền tảng gánh trọn.
+	PhanBo []domain.PhanBoChiPhi
 
 	IdempotencyKey string
 }
@@ -910,7 +910,7 @@ func (s *Service) GhiGiamGiaWith(
 	e, err := domain.NewDiscountEntry(domain.DiscountParams{
 		OrderID:        in.OrderID,
 		Discount:       in.Discount,
-		SellerID:       in.SellerID,
+		PhanBo:         in.PhanBo,
 		IdempotencyKey: in.IdempotencyKey,
 		CreatedBy:      "payment.revenue_on_checkout_completed",
 		Now:            s.clock.Now(),

@@ -579,12 +579,12 @@ type DiscountParams struct {
 	OrderID  ids.ID
 	Discount money.Money
 
-	// SellerID là gian hàng CHỊU khoản giảm.
+	// PhanBo là bảng chia chi phí: mỗi phần một bên gánh.
 	//
-	// Rỗng nghĩa là nền tảng chịu. Có giá trị thì khoản giảm trừ thẳng vào
-	// tiền phải trả gian hàng đó — đúng thứ chương trình do nhà bán tự
-	// chạy đã thỏa thuận.
-	SellerID ids.ID
+	// Rỗng nghĩa là nền tảng gánh trọn. Chương trình CHIA ĐÔI có hai phần,
+	// và tổng các phần PHẢI bằng `Discount` — kiểm ngay trong hàm dựng,
+	// vì lệch một đồng ở đây là một khoản không ai chịu.
+	PhanBo []PhanBoChiPhi
 
 	IdempotencyKey string
 	CreatedBy      string
@@ -624,27 +624,41 @@ func NewDiscountEntry(p DiscountParams) (*LedgerEntry, error) {
 			"payment: khoản giảm giá phải lớn hơn 0, nhận %s", p.Discount)
 	}
 
+	lines, err := dongNoKhoanGiam(p.PhanBo, p.Discount)
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, Line{
+		Account:     Account{Type: AccountAccountsReceivable},
+		Direction:   Credit,
+		Amount:      p.Discount,
+		Description: "Khách bớt nợ phần được giảm",
+	})
+
 	return NewLedgerEntry(NewEntryParams{
-		Type:          EntryOrderRevenue,
-		ReferenceType: "order",
-		ReferenceID:   p.OrderID,
-		Description:   "Giảm giá cho khách",
-		Lines: []Line{
-			benChiuKhoanGiam(p.SellerID, p.Discount),
-			{
-				Account:     Account{Type: AccountAccountsReceivable},
-				Direction:   Credit,
-				Amount:      p.Discount,
-				Description: "Khách bớt nợ phần được giảm",
-			},
-		},
+		Type:           EntryOrderRevenue,
+		ReferenceType:  "order",
+		ReferenceID:    p.OrderID,
+		Description:    "Giảm giá cho khách",
+		Lines:          lines,
 		IdempotencyKey: p.IdempotencyKey,
 		CreatedBy:      p.CreatedBy,
 		Now:            p.Now,
 	})
 }
 
-// benChiuKhoanGiam dựng vế GHI NỢ của bút toán giảm giá.
+// PhanBoChiPhi là MỘT phần của khoản giảm và bên phải gánh nó.
+type PhanBoChiPhi struct {
+	// Bearer: PLATFORM hoặc SELLER.
+	Bearer string
+
+	// SellerID chỉ có nghĩa khi Bearer là SELLER.
+	SellerID ids.ID
+
+	SoTien money.Money
+}
+
+// dongNoKhoanGiam dựng các vế GHI NỢ của bút toán giảm giá.
 //
 //	nhà bán chịu  → DEBIT SELLER_PAYABLE(gian hàng)  ta nợ họ ít đi
 //	nền tảng chịu → DEBIT PLATFORM_REVENUE           doanh thu ta giảm
@@ -652,19 +666,56 @@ func NewDiscountEntry(p DiscountParams) (*LedgerEntry, error) {
 // Chọn sai vế này là lấy tiền của người ngoài công ty, hoặc gánh hộ một
 // khoản họ đã đồng ý chịu. Sai theo hướng thứ hai thì không ai khiếu nại,
 // nên nó sống rất lâu — đó là trạng thái trước ADR-0018.
-func benChiuKhoanGiam(sellerID ids.ID, giam money.Money) Line {
-	if sellerID.IsZero() {
-		return Line{
+//
+// Bảng phân bổ RỖNG nghĩa là nền tảng gánh trọn: đúng với mọi đơn không
+// dùng mã, và với dữ liệu cũ trước khi bảng này tồn tại.
+//
+// Tổng các phần phải bằng ĐÚNG số tiền giảm. Kiểm ở đây chứ không tin bên
+// gọi: `NewLedgerEntry` chỉ kiểm Σ NỢ = Σ CÓ, nên một bảng phân bổ cộng
+// thiếu vẫn cân bằng — nó chỉ làm khoản chênh lặng lẽ rơi vào vế còn lại.
+func dongNoKhoanGiam(ds []PhanBoChiPhi, giam money.Money) ([]Line, error) {
+	if len(ds) == 0 {
+		return []Line{{
 			Account:     Account{Type: AccountPlatformRevenue},
 			Direction:   Debit,
 			Amount:      giam,
 			Description: "Nền tảng chịu khoản giảm giá",
+		}}, nil
+	}
+
+	tong := money.Zero(giam.Currency())
+	lines := make([]Line, 0, len(ds))
+	for _, d := range ds {
+		var err error
+		if tong, err = tong.Add(d.SoTien); err != nil {
+			return nil, err
 		}
+		if !d.SoTien.IsPositive() {
+			// Phần bằng 0 không tạo dòng: một dòng 0đ trong sổ cái là rác
+			// đọc được nhưng không nói gì.
+			continue
+		}
+		if d.Bearer == "SELLER" && !d.SellerID.IsZero() {
+			lines = append(lines, Line{
+				Account:     Account{Type: AccountSellerPayable, OwnerID: d.SellerID},
+				Direction:   Debit,
+				Amount:      d.SoTien,
+				Description: "Nhà bán chịu phần khoản giảm giá",
+			})
+			continue
+		}
+		lines = append(lines, Line{
+			Account:     Account{Type: AccountPlatformRevenue},
+			Direction:   Debit,
+			Amount:      d.SoTien,
+			Description: "Nền tảng chịu phần khoản giảm giá",
+		})
 	}
-	return Line{
-		Account:     Account{Type: AccountSellerPayable, OwnerID: sellerID},
-		Direction:   Debit,
-		Amount:      giam,
-		Description: "Nhà bán chịu khoản giảm giá",
+
+	if !tong.Equal(giam) {
+		return nil, fmt.Errorf(
+			"payment: bảng phân bổ cộng ra %s, khác khoản giảm %s — "+
+				"chênh lệch này là khoản không ai chịu", tong, giam)
 	}
+	return lines, nil
 }

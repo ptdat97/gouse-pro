@@ -3386,10 +3386,27 @@ Sửa tận gốc thay vì thêm một dòng: `Checkout.KemDongHang` **sao chép
 struct** (`ban := *c`) nên không còn trường nào để quên. Chỉ làm được từ
 trong package, vì các trường không xuất khẩu.
 
-**Còn lại:** chương trình CHIA ĐÔI (`SHARED`) vẫn ghi trọn về một bên —
-`benChiuTu` rút danh sách phân bổ thành một giá trị vì cột `cost_bearer`
-chỉ nhận ba trạng thái. Chia tiền thật theo tỷ lệ cần sổ cái đọc cả
-`CostAllocations`, và đó là bước sau.
+**Chương trình CHIA ĐÔI cũng đã xong (08/09).**
+
+Bài `TestKhuyenMaiChiaDoiPhaiTruDungTyLe` dựng mã 50-50 và đo: nhà bán bị
+trừ **0 đ**, nền tảng gánh trọn 49.000 đ. Sai theo hướng nhà bán không mất
+tiền, nên không ai báo.
+
+Một cột tên-bên-chịu không đủ: nó nói được "có chia" nhưng không nói mỗi
+bên gánh bao nhiêu ĐỒNG. Phiên thanh toán nay đóng băng cả BẢNG PHÂN BỔ
+(`discount_allocations` JSONB, migration 000047), event lên **phiên bản 6**
+với `discount_allocations` thay cho `discount_seller_id` của v5, và sổ cái
+ghi MỘT dòng NỢ cho mỗi phần.
+
+Bất biến "tổng các phần bằng ĐÚNG số tiền giảm" được kiểm ở HAI chỗ —
+checkout lúc áp mã, và `dongNoKhoanGiam` lúc dựng bút toán. Không thừa:
+`NewLedgerEntry` chỉ kiểm Σ NỢ = Σ CÓ, nên một bảng phân bổ cộng thiếu vẫn
+cân bằng, nó chỉ lặng lẽ đẩy phần chênh sang vế còn lại.
+
+**Còn lại:** phân bổ theo TỪNG DÒNG hàng cho chương trình chia đôi. Hôm nay
+`order_line_adjustment.cost_bearer` ghi "SHARED" cho cả dòng, trong khi sổ
+cái đã chia đúng ở mức đơn. Hai nơi nói cùng một chuyện ở hai mức chi tiết
+— đủ dùng cho đối soát mức đơn, chưa đủ nếu cần tách theo dòng.
 
 ---
 

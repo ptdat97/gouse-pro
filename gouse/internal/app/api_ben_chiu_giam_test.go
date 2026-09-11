@@ -149,3 +149,87 @@ func (a *apiTest) datDonCoMa(t *testing.T, ma, nhan string) string {
 	maDon, _ := don["id"].(string)
 	return maDon
 }
+
+// TestKhuyenMaiCHIADOIPhaiTruDungTyLe.
+//
+// # Bất biến
+//
+// Chương trình CHIA ĐÔI: mỗi bên gánh đúng phần đã thỏa thuận, và tổng hai
+// phần bằng ĐÚNG số tiền giảm.
+//
+// # Vì sao sai ở đây không ai khiếu nại
+//
+// Hôm nay `benChiuTu` rút danh sách phân bổ thành MỘT giá trị, và bút toán
+// giảm giá ghi trọn về một bên. Với chương trình chia đôi, phần của nhà
+// bán không bao giờ bị trừ — nền tảng gánh hộ. Sai theo hướng đó thì nhà
+// bán không mất tiền nên không ai báo, và nó sống rất lâu.
+func TestKhuyenMaiChiaDoiPhaiTruDungTyLe(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	const ma = "CHIADOI50"
+	pr, err := a.mods.promotion.CreatePromotion(ctx, promotion.CreatePromotionRequest{
+		Name: "Chia đôi 50-50", Kind: "COUPON",
+		DiscountType: "PERCENTAGE", DiscountBPS: 1000,
+		CostBearer:       "SHARED",
+		PlatformShareBPS: 5000,
+		SellerShareBPS:   5000,
+		StartsAt:         time.Now().UTC().Add(-time.Hour),
+		EndsAt:           time.Now().UTC().Add(24 * time.Hour),
+		Currency:         "VND",
+	})
+	if err != nil {
+		t.Fatalf("tạo chương trình: %v", err)
+	}
+	if err := a.mods.promotion.ActivatePromotion(ctx, pr.ID); err != nil {
+		t.Fatalf("kích hoạt: %v", err)
+	}
+	if _, err := a.mods.promotion.CreateCoupon(ctx, promotion.CreateCouponRequest{
+		PromotionID: pr.ID, Code: ma,
+	}); err != nil {
+		t.Fatalf("tạo mã: %v", err)
+	}
+
+	maDon := a.datDonCoMa(t, ma, "chiadoi")
+	a.phatEvent(t)
+
+	var giam int64
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT COALESCE(SUM(-adj.amount), 0)
+		  FROM order_line_adjustment adj
+		  JOIN order_line l ON l.id = adj.order_line_id
+		 WHERE l.order_id = $1 AND adj.adjustment_type = 'PROMOTION'`,
+		maDon).Scan(&giam); err != nil {
+		t.Fatalf("đọc khoản giảm: %v", err)
+	}
+	if giam <= 0 {
+		t.Fatalf("khoản giảm = %d, phải dương", giam)
+	}
+
+	var choNhaBan, choNenTang int64
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT COALESCE(SUM(l.amount) FILTER (
+		           WHERE l.account_type = 'SELLER_PAYABLE'
+		             AND l.direction = 'DEBIT'), 0),
+		       COALESCE(SUM(l.amount) FILTER (
+		           WHERE l.account_type = 'PLATFORM_REVENUE'
+		             AND l.direction = 'DEBIT'), 0)
+		  FROM ledger_line  l
+		  JOIN ledger_entry e ON e.id = l.entry_id
+		 WHERE e.reference_id = $1
+		   AND e.description = 'Giảm giá cho khách'`,
+		maDon).Scan(&choNhaBan, &choNenTang); err != nil {
+		t.Fatalf("đọc bút toán giảm giá: %v", err)
+	}
+
+	// Bất biến quan trọng nhất: tổng hai phần bằng ĐÚNG số tiền giảm.
+	if choNhaBan+choNenTang != giam {
+		t.Errorf("tổng đã trừ = %d (nhà bán %d + nền tảng %d), cần %d — "+
+			"lệch một đồng ở đây là khoản KHÔNG AI CHỊU",
+			choNhaBan+choNenTang, choNhaBan, choNenTang, giam)
+	}
+	if choNhaBan == 0 {
+		t.Errorf("nhà bán bị trừ 0 đ trong chương trình CHIA ĐÔI — nền tảng "+
+			"đang gánh trọn %d đ", choNenTang)
+	}
+}

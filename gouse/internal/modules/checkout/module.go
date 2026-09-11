@@ -455,7 +455,7 @@ var _ application.PromotionPort = (*promotionAdapter)(nil)
 func (a *promotionAdapter) ValidateCoupon(
 	ctx context.Context, code, customerID string, sellerID ids.ID,
 	orderTotal money.Money,
-) (money.Money, bool, string, error) {
+) (application.KetQuaMaGiam, error) {
 	res, err := a.api.ValidateCoupon(ctx, promotion.ValidateRequest{
 		Code:       code,
 		CustomerID: customerID,
@@ -468,14 +468,48 @@ func (a *promotionAdapter) ValidateCoupon(
 		Currency:   string(orderTotal.Currency()),
 	})
 	if err != nil {
-		return money.Money{}, false, "", err
+		return application.KetQuaMaGiam{}, err
 	}
 
 	discount, err := money.New(res.Discount, money.Currency(res.Currency))
 	if err != nil {
-		return money.Money{}, false, "", err
+		return application.KetQuaMaGiam{}, err
 	}
-	return discount, res.FreeShipping, benChiuTu(res.CostAllocations), nil
+
+	phanBo, err := phanBoTu(res.CostAllocations, money.Currency(res.Currency))
+	if err != nil {
+		return application.KetQuaMaGiam{}, err
+	}
+
+	return application.KetQuaMaGiam{
+		Giam:        discount,
+		MienPhiShip: res.FreeShipping,
+		BenChiu:     benChiuTu(res.CostAllocations),
+		PhanBo:      phanBo,
+	}, nil
+}
+
+// phanBoTu đổi bảng phân bổ của promotion sang từ vựng của checkout.
+//
+// Giữ NGUYÊN từng dòng, không gộp: chương trình chia đôi có hai dòng và
+// mỗi dòng là một khoản tiền thật phải trừ vào một bên cụ thể. Gộp lại là
+// đúng chỗ khiến phần của nhà bán biến mất trước khi tới sổ cái.
+func phanBoTu(
+	ds []promotion.CostAllocationView, donVi money.Currency,
+) ([]checkoutdomain.PhanBoChiPhiGiam, error) {
+	out := make([]checkoutdomain.PhanBoChiPhiGiam, 0, len(ds))
+	for _, d := range ds {
+		soTien, err := money.New(d.Amount, donVi)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, checkoutdomain.PhanBoChiPhiGiam{
+			BenChiu:  checkoutdomain.BenChiuGiamGia(d.Bearer).HoacMacDinh(),
+			SellerID: ids.ID(d.SellerID),
+			SoTien:   soTien,
+		})
+	}
+	return out, nil
 }
 
 // benChiuTu rút gọn danh sách phân bổ thành MỘT bên chịu.

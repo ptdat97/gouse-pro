@@ -7,6 +7,7 @@ import (
 	checkoutpg "github.com/fashion-commerce/platform/internal/modules/checkout/infrastructure/postgres"
 
 	"github.com/fashion-commerce/platform/internal/modules/checkout/application"
+	checkoutdomain "github.com/fashion-commerce/platform/internal/modules/checkout/domain"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
@@ -132,9 +133,10 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			// Trường này làm payload lên PHIÊN BẢN 4.
 			DiscountAmount int64 `json:"discount_amount"`
 
-			// DiscountSellerID: gian hàng chịu khoản giảm, rỗng = nền
-			// tảng chịu. Trường này làm payload lên PHIÊN BẢN 5.
-			DiscountSellerID string `json:"discount_seller_id"`
+			// DiscountAllocations: mỗi bên gánh bao nhiêu đồng. Thay cho
+			// `discount_seller_id` của v5, vì mã gian hàng không diễn tả
+			// được chương trình CHIA ĐÔI. Làm payload lên PHIÊN BẢN 6.
+			DiscountAllocations []phanBoPayload `json:"discount_allocations"`
 
 			// ShippingAddress để SELLER in được phiếu giao hàng.
 			//
@@ -154,10 +156,10 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			GuestEmail:  in.GuestEmail,
 			GuestPhone:  in.GuestPhone,
 
-			PaymentMethod:    in.PaymentMethod,
-			ShippingFee:      in.ShippingFee.Amount(),
-			DiscountAmount:   in.DiscountAmount.Amount(),
-			DiscountSellerID: in.DiscountSellerID.String(),
+			PaymentMethod:       in.PaymentMethod,
+			ShippingFee:         in.ShippingFee.Amount(),
+			DiscountAmount:      in.DiscountAmount.Amount(),
+			DiscountAllocations: phanBoPayloadTu(in.PhanBoGiam),
 			ShippingAddress: addressPayload{
 				RecipientName: in.ShippingAddress.RecipientName,
 				Phone:         in.ShippingAddress.Phone,
@@ -174,7 +176,7 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 		return err
 	}
 
-	// PHIÊN BẢN 5.
+	// PHIÊN BẢN 6.
 	//
 	//	v2  thêm `payment_method` — fulfillment cần để biết đơn thực hiện
 	//	    được giao ngay hay phải chờ tiền về
@@ -182,15 +184,36 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 	//	    vào sổ cái; trước đó nó không nằm ở đâu cả
 	//	v4  thêm `discount_amount` — cùng lý do, lệch theo hướng ngược lại
 	//	v5  thêm `discount_seller_id` — trừ khoản giảm vào ĐÚNG bên chịu
+	//	v6  đổi thành `discount_allocations` — v5 không diễn tả được
+	//	    chương trình CHIA ĐÔI, nơi mỗi bên gánh một phần
 	//
 	// Bên nhận nào chưa khai hiểu phiên bản 2 sẽ bị dispatcher HOÃN event
 	// thay vì nhận thiếu trường rồi mở khóa nhầm cho đơn chưa trả tiền
 	// (ADR-0016).
-	e = e.WithVersion(5)
+	e = e.WithVersion(6)
 
 	// CorrelationID là mã đơn: mọi việc xảy ra sau khi đặt hàng đều truy
 	// ngược được về một đơn cụ thể.
 	e = e.WithTrace(in.OrderID.String(), "")
 
 	return p.outbox.PublishTx(ctx, tx, e)
+}
+
+// phanBoPayload là một dòng phân bổ chi phí trong payload event.
+type phanBoPayload struct {
+	Bearer   string `json:"bearer"`
+	SellerID string `json:"seller_id"`
+	Amount   int64  `json:"amount"`
+}
+
+func phanBoPayloadTu(ds []checkoutdomain.PhanBoChiPhiGiam) []phanBoPayload {
+	out := make([]phanBoPayload, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, phanBoPayload{
+			Bearer:   string(d.BenChiu),
+			SellerID: d.SellerID.String(),
+			Amount:   d.SoTien.Amount(),
+		})
+	}
+	return out
 }

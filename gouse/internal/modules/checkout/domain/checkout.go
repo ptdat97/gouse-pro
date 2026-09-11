@@ -146,6 +146,12 @@ type Checkout struct {
 	// Xem migration 000046 về lý do đóng băng thay vì tra lại lúc đặt đơn.
 	benChiuGiamGia BenChiuGiamGia
 
+	// phanBoGiam là bảng chia chi phí khoản giảm, ĐÓNG BĂNG lúc áp mã.
+	//
+	// Rỗng nghĩa là nền tảng gánh trọn — đúng với mọi phiên không dùng mã,
+	// và với dữ liệu cũ trước migration 000047.
+	phanBoGiam []PhanBoChiPhiGiam
+
 	status Status
 
 	// expiresAt là thời điểm hàng được nhả.
@@ -263,6 +269,7 @@ type RestoreCheckoutParams struct {
 	TaxAmount       money.Money
 	CouponCode      string
 	BenChiuGiamGia  BenChiuGiamGia
+	PhanBoGiam      []PhanBoChiPhiGiam
 	Status          Status
 	ExpiresAt       time.Time
 	ExtendedTimes   int
@@ -309,6 +316,7 @@ func RestoreCheckout(p RestoreCheckoutParams) *Checkout {
 		taxAmount:       p.TaxAmount,
 		couponCode:      p.CouponCode,
 		benChiuGiamGia:  p.BenChiuGiamGia,
+		phanBoGiam:      p.PhanBoGiam,
 		status:          p.Status,
 		expiresAt:       p.ExpiresAt,
 		extendedAt:      p.ExtendedTimes,
@@ -335,6 +343,11 @@ func (c *Checkout) CouponCode() string          { return c.couponCode }
 // BenChiuGiamGia là bên phải gánh khoản giảm, đóng băng lúc áp mã.
 func (c *Checkout) BenChiuGiamGia() BenChiuGiamGia {
 	return c.benChiuGiamGia.HoacMacDinh()
+}
+
+// PhanBoGiam trả BẢN SAO bảng chia chi phí khoản giảm.
+func (c *Checkout) PhanBoGiam() []PhanBoChiPhiGiam {
+	return append([]PhanBoChiPhiGiam(nil), c.phanBoGiam...)
 }
 func (c *Checkout) Status() Status        { return c.status }
 func (c *Checkout) ExpiresAt() time.Time  { return c.expiresAt }
@@ -469,7 +482,8 @@ func (c *Checkout) SetShipping(method string, fee money.Money, now time.Time) er
 
 // ApplyDiscount áp một khoản giảm giá ở mức phiên.
 func (c *Checkout) ApplyDiscount(
-	code string, amount money.Money, benChiu BenChiuGiamGia, now time.Time,
+	code string, amount money.Money, benChiu BenChiuGiamGia,
+	phanBo []PhanBoChiPhiGiam, now time.Time,
 ) error {
 	if err := c.mutable(now); err != nil {
 		return err
@@ -480,6 +494,7 @@ func (c *Checkout) ApplyDiscount(
 	c.couponCode = strings.TrimSpace(code)
 	c.discountAmount = amount
 	c.benChiuGiamGia = benChiu.HoacMacDinh()
+	c.phanBoGiam = append([]PhanBoChiPhiGiam(nil), phanBo...)
 	c.touch(now)
 	return nil
 }
@@ -492,6 +507,7 @@ func (c *Checkout) RemoveDiscount(now time.Time) error {
 	c.couponCode = ""
 	c.discountAmount = money.Zero(c.currency)
 	c.benChiuGiamGia = BenChiuNenTang
+	c.phanBoGiam = nil
 	c.touch(now)
 	return nil
 }

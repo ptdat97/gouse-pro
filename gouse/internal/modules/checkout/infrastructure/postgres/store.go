@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -63,13 +64,14 @@ func (s *CheckoutStore) SaveWithEvents(
 			ship_district, ship_province, ship_country_code, shipping_method,
 			shipping_fee, discount_amount, tax_amount, coupon_code,
 			status, expires_at, extended_times, order_id, completion_key,
-			created_at, updated_at, discount_cost_bearer
+			created_at, updated_at, discount_cost_bearer,
+			discount_allocations
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,
 			$7,$8,$9,$10,$11,$12,$13,$14,
 			$15,$16,$17,$18,
 			$19,$20,$21,$22,$23,
-			$24,$25,$26
+			$24,$25,$26,$27
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			ship_recipient_name = EXCLUDED.ship_recipient_name,
@@ -84,6 +86,7 @@ func (s *CheckoutStore) SaveWithEvents(
 			discount_amount     = EXCLUDED.discount_amount,
 			tax_amount          = EXCLUDED.tax_amount,
 			discount_cost_bearer = EXCLUDED.discount_cost_bearer,
+			discount_allocations = EXCLUDED.discount_allocations,
 			coupon_code         = EXCLUDED.coupon_code,
 			status              = EXCLUDED.status,
 			expires_at          = EXCLUDED.expires_at,
@@ -99,7 +102,8 @@ func (s *CheckoutStore) SaveWithEvents(
 		c.TaxAmount().Amount(), c.CouponCode(),
 		string(c.Status()), c.ExpiresAt(), c.ExtendedTimes(),
 		c.OrderID().String(), c.CompletionKey(),
-		c.CreatedAt(), c.UpdatedAt(), string(c.BenChiuGiamGia()))
+		c.CreatedAt(), c.UpdatedAt(), string(c.BenChiuGiamGia()),
+		phanBoJSON(c.PhanBoGiam()))
 	if err != nil {
 		// Giỏ này đã có phiên đang chạy. Mở phiên thứ hai sẽ giữ hàng lần
 		// thứ hai cho cùng một giỏ.
@@ -169,7 +173,7 @@ const checkoutCols = `
 	ship_district, ship_province, ship_country_code, shipping_method,
 	shipping_fee, discount_amount, tax_amount, coupon_code,
 	status, expires_at, extended_times, order_id, completion_key,
-	created_at, updated_at, discount_cost_bearer`
+	created_at, updated_at, discount_cost_bearer, discount_allocations`
 
 func (s *CheckoutStore) FindByID(ctx context.Context, id ids.ID) (*domain.Checkout, error) {
 	return s.findOne(ctx, `WHERE id = $1`, id.String())
@@ -397,6 +401,7 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 		coupon, orderID, completedKey string
 		extendedTimes                 int
 		benChiu                       string
+		phanBoRaw                     []byte
 	)
 	if err := row.Scan(
 		&id, &cartID, &customerID, &email, &phone, &currency,
@@ -404,7 +409,7 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 		&addr.District, &addr.Province, &addr.CountryCode, &method,
 		&shippingFee, &discount, &tax, &coupon,
 		&status, &p.ExpiresAt, &extendedTimes, &orderID, &completedKey,
-		&p.CreatedAt, &p.UpdatedAt, &benChiu,
+		&p.CreatedAt, &p.UpdatedAt, &benChiu, &phanBoRaw,
 	); err != nil {
 		return nil, err
 	}
@@ -423,6 +428,11 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 	p.TaxAmount = mustMoney(tax, cur)
 	p.CouponCode = coupon
 	p.BenChiuGiamGia = domain.BenChiuGiamGia(benChiu)
+	phanBo, errPhanBo := phanBoTuJSON(phanBoRaw, cur)
+	if errPhanBo != nil {
+		return nil, errPhanBo
+	}
+	p.PhanBoGiam = phanBo
 	p.Status = domain.Status(status)
 	p.ExtendedTimes = extendedTimes
 	p.OrderID = ids.ID(orderID)
@@ -527,4 +537,60 @@ func (s *CheckoutStore) GiuDeDonHan(
 		return false, fmt.Errorf("checkout: giữ phiên để dọn: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// phanBoDong là dạng lưu trữ của một dòng phân bổ chi phí.
+//
+// Kiểu riêng cho tầng kho: domain không mang thẻ JSON, vì cách LƯU không
+// phải chuyện của domain và đổi cách lưu không được kéo theo đổi domain.
+type phanBoDong struct {
+	Bearer   string `json:"bearer"`
+	SellerID string `json:"seller_id"`
+	Amount   int64  `json:"amount"`
+}
+
+func phanBoJSON(ds []domain.PhanBoChiPhiGiam) []byte {
+	if len(ds) == 0 {
+		return []byte("[]")
+	}
+	out := make([]phanBoDong, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, phanBoDong{
+			Bearer:   string(d.BenChiu),
+			SellerID: d.SellerID.String(),
+			Amount:   d.SoTien.Amount(),
+		})
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		// Không thể xảy ra với ba trường vô hại ở trên; trả mảng rỗng còn
+		// hơn làm hỏng cả lần ghi phiên.
+		return []byte("[]")
+	}
+	return raw
+}
+
+func phanBoTuJSON(
+	raw []byte, donVi money.Currency,
+) ([]domain.PhanBoChiPhiGiam, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var ds []phanBoDong
+	if err := json.Unmarshal(raw, &ds); err != nil {
+		return nil, fmt.Errorf("checkout: đọc bảng phân bổ chi phí: %w", err)
+	}
+	out := make([]domain.PhanBoChiPhiGiam, 0, len(ds))
+	for _, d := range ds {
+		soTien, err := money.New(d.Amount, donVi)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, domain.PhanBoChiPhiGiam{
+			BenChiu:  domain.BenChiuGiamGia(d.Bearer),
+			SellerID: ids.ID(d.SellerID),
+			SoTien:   soTien,
+		})
+	}
+	return out, nil
 }
