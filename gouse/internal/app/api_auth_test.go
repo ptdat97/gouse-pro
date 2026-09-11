@@ -32,6 +32,16 @@ func duongCanQuyen() []struct {
 	}
 	return []d{
 		{http.MethodGet, "/api/v1/admin/audit-log"},
+
+		// Mặt GHI của product — P3-25.
+		{http.MethodGet, "/api/v1/admin/products/pending"},
+		{http.MethodPost, "/api/v1/admin/products/prd_01J9XABC123DEF456GHJKMNPQR/approve"},
+		{http.MethodPost, "/api/v1/admin/products/prd_01J9XABC123DEF456GHJKMNPQR/reject"},
+		{http.MethodGet, "/api/v1/seller/products"},
+		{http.MethodPost, "/api/v1/seller/products"},
+		{http.MethodPost, "/api/v1/seller/products/prd_01J9XABC123DEF456GHJKMNPQR/variants"},
+		{http.MethodPost, "/api/v1/seller/products/prd_01J9XABC123DEF456GHJKMNPQR/submit"},
+
 		{http.MethodGet, "/api/v1/admin/config"},
 		{http.MethodPut, "/api/v1/admin/config/fulfillment.shipping_sla_hours"},
 		{http.MethodPost, "/api/v1/admin/inventory/adjustments"},

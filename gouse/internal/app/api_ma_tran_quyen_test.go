@@ -41,6 +41,13 @@ var maTranQuyen = []nhomQuyen{
 	{"hồ sơ nhà bán — vận hành hàng hóa", "/api/v1/admin/sellers",
 		[]string{identity.RoleAdmin, identity.RoleOpsMerchandising}},
 
+	// Duyệt hàng hóa — CÙNG nhóm với duyệt hồ sơ nhà bán, có lý do: cả
+	// hai đều là quyết định "cho thứ này lên sàn hay không", và tách ra
+	// hai vai trò khác nhau sẽ làm một người duyệt được gian hàng nhưng
+	// không duyệt được hàng của chính gian hàng đó.
+	{"duyệt sản phẩm — vận hành hàng hóa", "/api/v1/admin/products",
+		[]string{identity.RoleAdmin, identity.RoleOpsMerchandising}},
+
 	{"đơn hàng — hỗ trợ khách", "/api/v1/admin/orders",
 		[]string{identity.RoleAdmin, identity.RoleOpsSupport}},
 

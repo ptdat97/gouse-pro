@@ -957,6 +957,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seller/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Danh sách sản phẩm của tôi
+         * @description Khác endpoint công khai: ở đây nhà bán XEM ĐƯỢC hàng nháp và hàng
+         *     đang chờ duyệt của chính mình. Câu truy vấn luôn kẹp `seller_id` nên
+         *     không lộ hàng của gian khác.
+         */
+        get: operations["listMyProducts"];
+        put?: never;
+        /**
+         * Tạo sản phẩm mới
+         * @description Sản phẩm sinh ra ở trạng thái `DRAFT` — chưa ai thấy. Nó chỉ ra cửa
+         *     hàng sau khi nhà bán gửi duyệt và nhân viên vận hành duyệt.
+         *
+         *     **Hàng rào chống hàng giả:** gian hàng phải được ủy quyền bán thương
+         *     hiệu đó (`CanSellerSellBrand`). Không được phép thì trả 403 kèm lý do
+         *     để giao diện chỉ ra hành động cụ thể.
+         */
+        post: operations["createMyProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller/products/{product_id}/variants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Thêm biến thể và SKU
+         * @description Biến thể là tổ hợp thuộc tính (màu + size). Mã SKU phải DUY NHẤT
+         *     toàn hệ thống — đây là định danh hàng hóa chung, không thuộc gian
+         *     hàng nào.
+         */
+        post: operations["addMyProductVariant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller/products/{product_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gửi sản phẩm đi duyệt
+         * @description Chuyển `DRAFT` → `PENDING_REVIEW`.
+         *
+         *     Kiểm điều kiện đầy đủ trước khi chuyển, và lỗi trả về NÓI RÕ thiếu
+         *     gì: mô tả, ảnh, biến thể, bảng size (với hàng thời trang), thành
+         *     phần chất liệu. Thông báo chung chung ở đây làm nhà bán bỏ dở việc
+         *     đăng bán vì không biết sửa chỗ nào.
+         */
+        post: operations["submitMyProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/products/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hàng đang chờ duyệt
+         * @description Sản phẩm `PENDING_REVIEW` của MỌI gian hàng. Khác endpoint phía nhà
+         *     bán ở đúng chỗ đó — người duyệt cần thấy toàn sàn.
+         */
+        get: operations["listPendingProducts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/products/{product_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duyệt sản phẩm
+         * @description Chuyển `PENDING_REVIEW` → `ACTIVE`. Từ đây khách thấy hàng trên cửa
+         *     hàng.
+         */
+        post: operations["approveProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/products/{product_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Từ chối sản phẩm
+         * @description Chuyển `PENDING_REVIEW` → `DRAFT` kèm lý do.
+         *
+         *     **Lý do BẮT BUỘC.** Nhà bán phải biết sửa gì; một lần từ chối không
+         *     nói lý do là một gian hàng đứng im không hiểu vì sao, và họ sẽ gửi
+         *     lại đúng sản phẩm đó — tốn công cả hai bên.
+         */
+        post: operations["rejectProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/seller/offers": {
         parameters: {
             query?: never;
@@ -2677,6 +2821,25 @@ export interface components {
                 sms?: boolean;
                 push?: boolean;
             };
+        };
+        /**
+         * @description Sản phẩm nhìn từ phía gian hàng.
+         *
+         *     Khác `ProductDetail` của cửa hàng: có `status` và `rejection_reason` —
+         *     hai thứ khách KHÔNG được thấy, và là hai thứ nhà bán cần nhất.
+         */
+        SellerProduct: {
+            id: components["schemas"]["Id"];
+            name: string;
+            slug?: string;
+            /** @enum {string} */
+            status: "DRAFT" | "PENDING_REVIEW" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
+            /** @description Vì sao bị từ chối. Rỗng khi chưa từng bị từ chối. */
+            rejection_reason?: string;
+            brand_id?: components["schemas"]["Id"];
+            product_type?: string;
+            /** Format: date-time */
+            created_at?: string;
         };
         /**
          * @description Offer nhìn từ phía **người bán** — khác `Offer` của trang công khai.
@@ -5432,6 +5595,335 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+        };
+    };
+    listMyProducts: {
+        parameters: {
+            query?: {
+                status?: "DRAFT" | "PENDING_REVIEW" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách sản phẩm */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["SellerProduct"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createMyProduct: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    brand_id: components["schemas"]["Id"];
+                    collection_id?: components["schemas"]["Id"];
+                    category_id?: components["schemas"]["Id"];
+                    size_chart_id?: components["schemas"]["Id"];
+                    name: string;
+                    slug: string;
+                    description?: string;
+                    /** @description Bắt buộc TRƯỚC KHI gửi duyệt, không bắt buộc lúc tạo nháp. */
+                    material_composition?: string;
+                    care_instructions?: string;
+                    origin_country?: string;
+                    /** @enum {string} */
+                    product_type: "TOP" | "BOTTOM" | "DRESS" | "OUTERWEAR" | "SHOES" | "BAG" | "ACCESSORY";
+                    /** @enum {string} */
+                    gender_target?: "MEN" | "WOMEN" | "UNISEX" | "KIDS";
+                    images?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Đã tạo, trạng thái DRAFT */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerProduct"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            /** @description Gian hàng chưa được phép bán thương hiệu này */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    addMyProductVariant: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                product_id: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @example {
+                     *       "color": "Đen",
+                     *       "size": "M"
+                     *     }
+                     */
+                    attributes: {
+                        [key: string]: string;
+                    };
+                    images?: string[];
+                    skus: {
+                        sku_code: string;
+                        barcode?: string;
+                        weight_gram?: number;
+                        length_mm?: number;
+                        width_mm?: number;
+                        height_mm?: number;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Đã thêm biến thể */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerProduct"];
+                };
+            };
+            /** @description Không tìm thấy sản phẩm, HOẶC sản phẩm của gian hàng khác */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Mã SKU đã tồn tại */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    submitMyProduct: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                product_id: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã chuyển sang PENDING_REVIEW */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerProduct"];
+                };
+            };
+            /** @description Chưa đủ điều kiện gửi duyệt — thông báo nêu rõ thiếu gì */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Không tìm thấy sản phẩm, HOẶC sản phẩm của gian hàng khác */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Sản phẩm không ở trạng thái cho phép gửi duyệt */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listPendingProducts: {
+        parameters: {
+            query?: {
+                /** @description Số bản ghi tối đa mỗi trang. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách hàng chờ duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: components["schemas"]["SellerProduct"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    approveProduct: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                product_id: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Đã duyệt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerProduct"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description Sản phẩm không ở trạng thái chờ duyệt */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rejectProduct: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                product_id: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Nhà bán đọc chính xác chuỗi này. */
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Đã từ chối */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerProduct"];
+                };
+            };
+            /** @description Thiếu lý do */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listMyOffers: {

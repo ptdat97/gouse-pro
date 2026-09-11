@@ -101,6 +101,24 @@ func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
 	producthttp.NewHandler(m.svc, log).Register(mux)
 }
 
+// RegisterSellerRoutes gắn các endpoint GHI của nhà bán.
+//
+// Mux truyền vào PHẢI đã bọc Auth và RequireRole("SELLER_OWNER",
+// "SELLER_STAFF"). Vai trò chỉ chặn người KHÔNG phải nhà bán; nó không
+// chặn nhà bán A đọc dữ liệu của B — việc đó do `seller_id` lấy từ token
+// và phép kiểm chủ sở hữu ở tầng application lo.
+func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
+	producthttp.NewSellerHandler(m.svc, log).Register(mux)
+}
+
+// RegisterAdminRoutes gắn luồng DUYỆT cho nhân viên vận hành.
+//
+// Mux truyền vào PHẢI đã bọc Auth và RequireRole("ADMIN",
+// "OPS_MERCHANDISING").
+func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
+	producthttp.NewAdminHandler(m.svc, log).Register(mux)
+}
+
 // ---------------------------------------------------------------- Adapter
 
 // catalogAdapter nối catalog.API với application.CatalogPort.

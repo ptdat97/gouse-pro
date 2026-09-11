@@ -228,7 +228,14 @@ func (s *Service) CreateProduct(ctx context.Context, in CreateProductInput) (*do
 
 // AddVariantInput là dữ liệu thêm biến thể kèm các SKU của nó.
 type AddVariantInput struct {
-	ProductID  ids.ID
+	ProductID ids.ID
+
+	// SellerID là gian hàng ĐANG thao tác, lấy từ token của người gọi.
+	//
+	// Rỗng nghĩa là nền tảng tự sửa danh mục chuẩn — không kiểm chủ sở
+	// hữu. Có giá trị thì PHẢI khớp chủ sở hữu sản phẩm.
+	SellerID ids.ID
+
 	Attributes map[string]string
 	Images     []string
 	SKUs       []NewSKUInput
@@ -250,6 +257,9 @@ type NewSKUInput struct {
 func (s *Service) AddVariant(ctx context.Context, in AddVariantInput) (*domain.Product, error) {
 	p, err := s.products.FindByID(ctx, in.ProductID)
 	if err != nil {
+		return nil, err
+	}
+	if err := kiemChuSoHuu(p, in.SellerID); err != nil {
 		return nil, err
 	}
 
@@ -301,6 +311,43 @@ func (s *Service) AddVariant(ctx context.Context, in AddVariantInput) (*domain.P
 // ---------------------------------------------------------------- Xuất bản
 
 // SubmitForReview gửi sản phẩm đi duyệt.
+// SubmitForReviewOwned gửi duyệt, kèm KIỂM CHỦ SỞ HỮU.
+//
+// Ranh giới bảo mật của nhà bán nằm ở đây chứ không ở tầng HTTP: tầng HTTP
+// lấy sellerID từ token, nhưng nếu việc so khớp chỉ nằm ở đó thì một
+// đường mới thêm sau này quên so là đủ để nhà bán A gửi duyệt sản phẩm
+// của B.
+func (s *Service) SubmitForReviewOwned(
+	ctx context.Context, sellerID, productID ids.ID,
+) (*domain.Product, error) {
+	p, err := s.products.FindByID(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	if err := kiemChuSoHuu(p, sellerID); err != nil {
+		return nil, err
+	}
+	return s.SubmitForReview(ctx, productID)
+}
+
+// kiemChuSoHuu khẳng định sản phẩm thuộc về gian hàng này.
+//
+// Trả ErrNotFound chứ KHÔNG phải lỗi "không có quyền" khi khác chủ: một
+// mã lỗi riêng xác nhận sản phẩm tồn tại, và đó là đủ để dò mã sản phẩm
+// chưa phát hành của đối thủ — cùng lý do trang chi tiết trả 404 cho sản
+// phẩm chưa duyệt.
+//
+// sellerID rỗng = nền tảng tự thao tác, bỏ qua kiểm tra.
+func kiemChuSoHuu(p *domain.Product, sellerID ids.ID) error {
+	if sellerID.IsZero() {
+		return nil
+	}
+	if p.CreatedBySellerID() != sellerID {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Service) SubmitForReview(ctx context.Context, id ids.ID) (*domain.Product, error) {
 	p, err := s.products.FindByID(ctx, id)
 	if err != nil {

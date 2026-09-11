@@ -2590,7 +2590,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 | P3-23 | Offer không bao giờ tự chuyển `OUT_OF_STOCK` | ✅ xong — bỏ hẳn trạng thái đó; xem ghi chú dưới bảng |
 | P3-20 | `ProductDetail.buy_box_offer` trong đặc tả không bao giờ được trả | ✅ xong — xem ghi chú dưới bảng |
 | P3-24 | **"Khách mua được không" có BA câu trả lời khác nhau** | ✅ xong (06/09) — xem ghi chú dưới bảng |
-| P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ⛔ mở — hàng hóa chỉ vào hệ thống được qua seed. Xem ghi chú |
+| P3-25 | **Toàn bộ phía GHI của product không có endpoint nào** | ✅ xong (11/09) — nhà bán tạo, vận hành duyệt. Lần thứ MƯỜI MỘT của dạng lỗi mục 8 |
 | P3-26 | **Webhook vận chuyển MẤT thì không ai biết** (yêu cầu 5) | ✅ nửa nội bộ xong (07/09) — đo được 20 gói kẹt thật. Xem ghi chú |
 | P3-27 | **Chỉ số đối soát tiền KHÔNG AI CANH; và một cảnh báo critical kêu oan vĩnh viễn** | ✅ xong (07/09) — promtool nay chạy trong CI. Xem ghi chú |
 | P3-28 | **Giao hàng và ghi sổ đều chạy TRƯỚC khi tiền về** | ✅ xong (07/09) — A2 + B1 + đảo 3110 bút toán + ma trận E2E. [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md) |
@@ -3706,6 +3706,55 @@ mới bàn giao dưới ngưỡng), im lặng lâu nhất 454 giờ, kèm mã v�
 
 Còn thiếu: nửa ĐI HỎI hãng vận chuyển. Nó là nửa duy nhất phân biệt được
 "webhook mất" với "hàng thật sự chưa đi tới đâu".
+
+---
+
+**P3-25 — đã nối (11/09). Chủ dự án chọn: nhà bán tạo, nền tảng DUYỆT.**
+
+Đo trước khi viết: gần như MỌI thứ đã có sẵn, chỉ thiếu cửa ra.
+
+```text
+domain        DRAFT → PENDING_REVIEW → ACTIVE, kèm SubmitForReview,
+              Approve, Reject, và CheckReadyForReview kiểm năm điều kiện
+application   CreateProduct, AddVariant, SubmitForReview, Approve,
+              Reject, ListSellerProducts
+module API    KHÔNG expose gì về ghi
+HTTP          3 route, tất cả đều ĐỌC
+```
+
+`SubmitForReview`/`Approve`/`Reject` của product: **0 nơi gọi** (những chỗ
+trùng tên là của seller và catalog). Lần thứ MƯỜI MỘT của dạng lỗi mục 8.
+
+Đã thêm 7 endpoint đúng theo `docs/07-workflows/product-publishing.md`
+mục 4, và một bài đi trọn vòng qua HTTP thật: nhà bán tạo → thêm biến thể
+→ gửi duyệt → vận hành duyệt → khách thấy. Khẳng định KHẢ KIẾN ở từng
+chặng: khách nhận 404 với hàng DRAFT và hàng PENDING_REVIEW, chỉ thấy khi
+đã ACTIVE.
+
+**Ranh giới bảo mật đặt ở tầng APPLICATION, không ở HTTP.** Tầng HTTP lấy
+`seller_id` từ token, nhưng nếu phép so khớp chỉ nằm ở đó thì một đường
+thêm sau này quên so là đủ để nhà bán A sửa hàng của B. Trả 404 chứ không
+403: 403 xác nhận sản phẩm tồn tại, đủ để dò mã hàng chưa phát hành của
+đối thủ.
+
+**Hai cơ chế phòng vệ sẵn có của dự án đã bắt lỗi tôi**, và cả hai đều
+đúng:
+
+```text
+TestMoiDuongCanQuyenDeuDuocKiem   7 đường mới chưa khai vào ma trận quyền
+TestMoiChoDocLimitDeuCoTran       `limit` của trang duyệt thiếu cận TRÊN
+```
+
+Bài thứ hai đáng nói: nó đòi cận trên NHÌN THẤY ĐƯỢC ngay tại chỗ đọc.
+Tôi đặt trần trong một helper ở file khác và nó vẫn báo thiếu — đúng, vì
+người đọc `admin.go` không biết có trần. Sửa thành truyền `maxLimit` vào
+ngay dòng gọi.
+
+**Còn lại của đường B:** đối sánh TRÙNG LẶP lúc tạo (mục 4 của đặc tả),
+tự động duyệt cho gian hàng uy tín với thương hiệu OPEN, và event
+`product.published`. Ba thứ đó đều là cộng thêm, không phải đổi đường đi.
+
+Và nửa còn lại của P3-22 (`hex_code`) nay HẾT BỊ CHẶN: đã có chỗ nhập liệu.
 
 ---
 

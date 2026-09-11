@@ -1445,3 +1445,102 @@ OpsConfigItem:
       type: string
     reason:
       type: string
+
+# ---------------------------------------------- Duyệt sản phẩm (P3-25)
+#
+# Cùng vai trò với duyệt hồ sơ nhà bán (ADMIN, OPS_MERCHANDISING): cả hai
+# đều là quyết định "cho thứ này lên sàn hay không", và tách ra hai vai
+# trò khác nhau sẽ làm một người duyệt được gian hàng nhưng không duyệt
+# được hàng của chính gian hàng đó.
+
+admin_products_pending:
+  get:
+    tags: [Admin]
+    summary: Hàng đang chờ duyệt
+    description: |
+      Sản phẩm `PENDING_REVIEW` của MỌI gian hàng. Khác endpoint phía nhà
+      bán ở đúng chỗ đó — người duyệt cần thấy toàn sàn.
+    operationId: listPendingProducts
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+    responses:
+      '200':
+        description: Danh sách hàng chờ duyệt
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: './seller.yaml#/SellerProduct'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+admin_product_approve:
+  post:
+    tags: [Admin]
+    summary: Duyệt sản phẩm
+    description: |
+      Chuyển `PENDING_REVIEW` → `ACTIVE`. Từ đây khách thấy hàng trên cửa
+      hàng.
+    operationId: approveProduct
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+    responses:
+      '200':
+        description: Đã duyệt
+        content:
+          application/json:
+            schema:
+              $ref: './seller.yaml#/SellerProduct'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        description: Sản phẩm không ở trạng thái chờ duyệt
+
+admin_product_reject:
+  post:
+    tags: [Admin]
+    summary: Từ chối sản phẩm
+    description: |
+      Chuyển `PENDING_REVIEW` → `DRAFT` kèm lý do.
+
+      **Lý do BẮT BUỘC.** Nhà bán phải biết sửa gì; một lần từ chối không
+      nói lý do là một gian hàng đứng im không hiểu vì sao, và họ sẽ gửi
+      lại đúng sản phẩm đó — tốn công cả hai bên.
+    operationId: rejectProduct
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason]
+            properties:
+              reason:
+                type: string
+                minLength: 1
+                description: Nhà bán đọc chính xác chuỗi này.
+    responses:
+      '200':
+        description: Đã từ chối
+        content:
+          application/json:
+            schema:
+              $ref: './seller.yaml#/SellerProduct'
+      '400':
+        description: Thiếu lý do
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'

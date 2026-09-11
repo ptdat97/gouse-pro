@@ -805,6 +805,39 @@ func RegisterRoutes(
 		// mọi câu SQL lọc theo seller_id lấy từ token. Vai trò ở đây chỉ
 		// chặn người không phải nhà bán; nó KHÔNG chặn nhà bán A đọc dữ
 		// liệu nhà bán B, và không được nhầm hai việc đó với nhau.
+		// Mặt GHI của product: nhà bán tạo hàng, vận hành duyệt (P3-25).
+		//
+		// Hai mux riêng vì ranh giới bảo mật ngược nhau: nhà bán chỉ thấy
+		// hàng CỦA MÌNH, người duyệt phải thấy của MỌI gian hàng.
+		if m.product != nil {
+			sellerProductMux := http.NewServeMux()
+			m.product.RegisterSellerRoutes(sellerProductMux, log)
+
+			sellerProduct := httpserver.Chain(
+				sellerProductMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
+				httpserver.RequireIdempotencyKey(),
+			)
+			mux.Handle("GET /api/v1/seller/products", sellerProduct)
+			mux.Handle("POST /api/v1/seller/products", sellerProduct)
+			mux.Handle("POST /api/v1/seller/products/{product_id}/variants", sellerProduct)
+			mux.Handle("POST /api/v1/seller/products/{product_id}/submit", sellerProduct)
+
+			adminProductMux := http.NewServeMux()
+			m.product.RegisterAdminRoutes(adminProductMux, log)
+
+			adminProduct := httpserver.Chain(
+				adminProductMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN", "OPS_MERCHANDISING"),
+				httpserver.RequireIdempotencyKey(),
+			)
+			mux.Handle("GET /api/v1/admin/products/pending", adminProduct)
+			mux.Handle("POST /api/v1/admin/products/{product_id}/approve", adminProduct)
+			mux.Handle("POST /api/v1/admin/products/{product_id}/reject", adminProduct)
+		}
+
 		if m.fulfillment != nil {
 			sellerFOMux := http.NewServeMux()
 			m.fulfillment.RegisterSellerRoutes(sellerFOMux, log)

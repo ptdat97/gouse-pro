@@ -166,6 +166,18 @@ paths:
   # ------------------------------------------------------------ Seller Center
   /api/v1/sellers:
     $ref: './paths/seller.yaml#/sellers'
+  /api/v1/seller/products:
+    $ref: './paths/seller.yaml#/seller_products'
+  /api/v1/seller/products/{product_id}/variants:
+    $ref: './paths/seller.yaml#/seller_product_variants'
+  /api/v1/seller/products/{product_id}/submit:
+    $ref: './paths/seller.yaml#/seller_product_submit'
+  /api/v1/admin/products/pending:
+    $ref: './paths/admin.yaml#/admin_products_pending'
+  /api/v1/admin/products/{product_id}/approve:
+    $ref: './paths/admin.yaml#/admin_product_approve'
+  /api/v1/admin/products/{product_id}/reject:
+    $ref: './paths/admin.yaml#/admin_product_reject'
   /api/v1/seller/offers:
     $ref: './paths/seller.yaml#/offers'
   /api/v1/seller/offers/{offer_id}:

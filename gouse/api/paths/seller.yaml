@@ -1013,3 +1013,242 @@ SellerFulfillmentOrder:
           $ref: '../components/common.yaml#/schemas/Money'
         net:
           $ref: '../components/common.yaml#/schemas/Money'
+
+# ---------------------------------------------------------- Sản phẩm (P3-25)
+#
+# Đường B của docs/07-workflows/product-publishing.md: nhà bán tạo sản
+# phẩm MỚI thay vì chào bán trên sản phẩm có sẵn.
+#
+# Mọi endpoint ở đây kẹp theo `seller_id` LẤY TỪ TOKEN, không nhận từ thân
+# request — nhận từ thân nghĩa là nhà bán A tạo được sản phẩm đứng tên nhà
+# bán B chỉ bằng cách sửa một dòng JSON.
+
+seller_products:
+  get:
+    tags: [Seller]
+    summary: Danh sách sản phẩm của tôi
+    description: |
+      Khác endpoint công khai: ở đây nhà bán XEM ĐƯỢC hàng nháp và hàng
+      đang chờ duyệt của chính mình. Câu truy vấn luôn kẹp `seller_id` nên
+      không lộ hàng của gian khác.
+    operationId: listMyProducts
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [DRAFT, PENDING_REVIEW, ACTIVE, INACTIVE, ARCHIVED]
+    responses:
+      '200':
+        description: Danh sách sản phẩm
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '#/SellerProduct'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
+  post:
+    tags: [Seller]
+    summary: Tạo sản phẩm mới
+    description: |
+      Sản phẩm sinh ra ở trạng thái `DRAFT` — chưa ai thấy. Nó chỉ ra cửa
+      hàng sau khi nhà bán gửi duyệt và nhân viên vận hành duyệt.
+
+      **Hàng rào chống hàng giả:** gian hàng phải được ủy quyền bán thương
+      hiệu đó (`CanSellerSellBrand`). Không được phép thì trả 403 kèm lý do
+      để giao diện chỉ ra hành động cụ thể.
+    operationId: createMyProduct
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [brand_id, name, slug, product_type]
+            properties:
+              brand_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              collection_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              category_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              size_chart_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              name:
+                type: string
+              slug:
+                type: string
+              description:
+                type: string
+              material_composition:
+                type: string
+                description: Bắt buộc TRƯỚC KHI gửi duyệt, không bắt buộc lúc tạo nháp.
+              care_instructions:
+                type: string
+              origin_country:
+                type: string
+              product_type:
+                type: string
+                enum: [TOP, BOTTOM, DRESS, OUTERWEAR, SHOES, BAG, ACCESSORY]
+              gender_target:
+                type: string
+                enum: [MEN, WOMEN, UNISEX, KIDS]
+              images:
+                type: array
+                items:
+                  type: string
+    responses:
+      '201':
+        description: Đã tạo, trạng thái DRAFT
+        content:
+          application/json:
+            schema:
+              $ref: '#/SellerProduct'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '403':
+        description: Gian hàng chưa được phép bán thương hiệu này
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+
+seller_product_variants:
+  post:
+    tags: [Seller]
+    summary: Thêm biến thể và SKU
+    description: |
+      Biến thể là tổ hợp thuộc tính (màu + size). Mã SKU phải DUY NHẤT
+      toàn hệ thống — đây là định danh hàng hóa chung, không thuộc gian
+      hàng nào.
+    operationId: addMyProductVariant
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [attributes, skus]
+            properties:
+              attributes:
+                type: object
+                additionalProperties:
+                  type: string
+                examples:
+                  - {color: 'Đen', size: 'M'}
+              images:
+                type: array
+                items:
+                  type: string
+              skus:
+                type: array
+                items:
+                  type: object
+                  required: [sku_code]
+                  properties:
+                    sku_code:
+                      type: string
+                    barcode:
+                      type: string
+                    weight_gram:
+                      type: integer
+                    length_mm:
+                      type: integer
+                    width_mm:
+                      type: integer
+                    height_mm:
+                      type: integer
+    responses:
+      '200':
+        description: Đã thêm biến thể
+        content:
+          application/json:
+            schema:
+              $ref: '#/SellerProduct'
+      '404':
+        description: Không tìm thấy sản phẩm, HOẶC sản phẩm của gian hàng khác
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+      '409':
+        description: Mã SKU đã tồn tại
+
+seller_product_submit:
+  post:
+    tags: [Seller]
+    summary: Gửi sản phẩm đi duyệt
+    description: |
+      Chuyển `DRAFT` → `PENDING_REVIEW`.
+
+      Kiểm điều kiện đầy đủ trước khi chuyển, và lỗi trả về NÓI RÕ thiếu
+      gì: mô tả, ảnh, biến thể, bảng size (với hàng thời trang), thành
+      phần chất liệu. Thông báo chung chung ở đây làm nhà bán bỏ dở việc
+      đăng bán vì không biết sửa chỗ nào.
+    operationId: submitMyProduct
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+    responses:
+      '200':
+        description: Đã chuyển sang PENDING_REVIEW
+        content:
+          application/json:
+            schema:
+              $ref: '#/SellerProduct'
+      '400':
+        description: Chưa đủ điều kiện gửi duyệt — thông báo nêu rõ thiếu gì
+      '404':
+        description: Không tìm thấy sản phẩm, HOẶC sản phẩm của gian hàng khác
+      '409':
+        description: Sản phẩm không ở trạng thái cho phép gửi duyệt
+
+SellerProduct:
+  type: object
+  description: |
+    Sản phẩm nhìn từ phía gian hàng.
+
+    Khác `ProductDetail` của cửa hàng: có `status` và `rejection_reason` —
+    hai thứ khách KHÔNG được thấy, và là hai thứ nhà bán cần nhất.
+  required: [id, name, status]
+  properties:
+    id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    name:
+      type: string
+    slug:
+      type: string
+    status:
+      type: string
+      enum: [DRAFT, PENDING_REVIEW, ACTIVE, INACTIVE, ARCHIVED]
+    rejection_reason:
+      type: string
+      description: Vì sao bị từ chối. Rỗng khi chưa từng bị từ chối.
+    brand_id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    product_type:
+      type: string
+    created_at:
+      type: string
+      format: date-time
