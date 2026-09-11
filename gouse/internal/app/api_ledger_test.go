@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"testing"
 
@@ -27,11 +28,9 @@ import (
 // Modules của internal/app. Chúng không ảnh hưởng tới các bất biến mà lớp
 // test này đo (sổ cái, vòng đời đơn), nhưng đây là một khác biệt CÓ THẬT
 // so với worker, không phải sự tương đương.
-func (a *apiTest) phatEvent(t *testing.T) int {
-	t.Helper()
-
-	log := logger.New("error", "text")
-	bus := eventbus.NewDispatcher(a.db.Pool(), log)
+// dangKyBenNhan đăng ký bộ bên nhận chuẩn — dùng chung cho mọi bài test
+// cần phát event, để không có bài nào chạy với bộ bên nhận khác production.
+func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	bus.Subscribe(inventory.NewCommitHandler(a.mods.inventory, log))
 	bus.Subscribe(fulfillment.NewSplitHandler(a.mods.fulfillment, log))
 	bus.Subscribe(order.NewProgressHandler(a.mods.order, log))
@@ -43,6 +42,14 @@ func (a *apiTest) phatEvent(t *testing.T) int {
 	// trước bị khóa vĩnh viễn và tiền mặt không bao giờ được ghi nhận.
 	bus.Subscribe(payment.NewThuTienHandler(a.mods.payment, log))
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(a.mods.fulfillment, log))
+}
+
+func (a *apiTest) phatEvent(t *testing.T) int {
+	t.Helper()
+
+	log := logger.New("error", "text")
+	bus := eventbus.NewDispatcher(a.db.Pool(), log)
+	a.dangKyBenNhan(bus, log)
 
 	n, err := bus.DispatchBatch(context.Background(), 100)
 	if err != nil {

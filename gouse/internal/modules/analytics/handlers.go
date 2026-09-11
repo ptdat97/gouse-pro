@@ -64,6 +64,11 @@ func (h *RecordEventsFromBus) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
 		return 6
 	}
+	if eventType == eventbus.TypeFulfillmentProgress {
+		// v2 thêm `shipping_method`; bên nhận này không dùng, nhưng
+		// ADR-0016 bắt mọi bên nhận của event khai rõ hiểu tới đâu.
+		return 2
+	}
 	return eventbus.DefaultMaxEventVersion
 }
 

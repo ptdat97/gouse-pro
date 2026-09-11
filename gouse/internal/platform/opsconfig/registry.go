@@ -54,6 +54,13 @@ const (
 
 	KeyNguongBatTinGiaoHang = "fulfillment.delivery_silence_hours"
 
+	// Giá NỀN TẢNG TRẢ hãng vận chuyển, mỗi kiện.
+	//
+	// KHÁC phí khách trả: chênh lệch giữa hai con số CHÍNH LÀ lãi/lỗ mảng
+	// vận chuyển. Gán chúng bằng nhau là nói lãi bằng 0 mà không ai kiểm.
+	KeyGiaHangTieuChuan = "fulfillment.carrier_cost_standard"
+	KeyGiaHangNhanh     = "fulfillment.carrier_cost_express"
+
 	KeyTranSoLuongSKU = "inventory.max_quantity_per_sku"
 
 	KeyThueSuat          = "checkout.tax_rate_bp"
@@ -111,6 +118,23 @@ var soDangKy = map[string]ThamSo{
 		MacDinh: 0.03, Min: 0, Max: 1,
 		MoTa:  "Tỷ lệ hủy đơn TỐI ĐA còn được coi là đạt.",
 		HeQua: "Ngưỡng chặt hơn làm nhiều gian hàng chuyển sang CẢNH BÁO.",
+	},
+	KeyGiaHangTieuChuan: {
+		Khoa: KeyGiaHangTieuChuan, Kieu: KieuSoNguyen,
+		MacDinh: 0, Min: 0, Max: 100_000_000,
+		MoTa: "Số tiền nền tảng TRẢ hãng vận chuyển cho MỘT kiện giao tiêu " +
+			"chuẩn. 0 = CHƯA KHAI, và khi chưa khai thì không ghi bút toán " +
+			"chi phí nào.",
+		HeQua: "Đây là con số quyết định lãi/lỗ mảng vận chuyển. Đặt thấp " +
+			"hơn thực tế làm doanh thu nền tảng trông đẹp hơn sự thật; để 0 " +
+			"thì sổ cái tiếp tục thiếu vế chi phí và `cmd/doisoatso` sẽ báo.",
+	},
+	KeyGiaHangNhanh: {
+		Khoa: KeyGiaHangNhanh, Kieu: KieuSoNguyen,
+		MacDinh: 0, Min: 0, Max: 100_000_000,
+		MoTa: "Số tiền nền tảng TRẢ hãng vận chuyển cho MỘT kiện giao nhanh. " +
+			"0 = CHƯA KHAI.",
+		HeQua: "Xem fulfillment.carrier_cost_standard.",
 	},
 	KeyNguongBatTinGiaoHang: {
 		Khoa: KeyNguongBatTinGiaoHang, Kieu: KieuThoiLuong,

@@ -49,6 +49,8 @@ func (p *eventPublisher) PublishProgress(
 		})
 	}
 
+	// PHIÊN BẢN 2 — thêm `shipping_method`, thứ payment bắt buộc phải có
+	// để ghi nghĩa vụ trả hãng vận chuyển lúc bàn giao.
 	e, err := eventbus.NewEvent(
 		eventbus.TypeFulfillmentProgress,
 		eventbus.AggregateFulfillment,
@@ -60,6 +62,14 @@ func (p *eventPublisher) PublishProgress(
 			NewStatus      string `json:"new_status"`
 			TrackingNumber string `json:"tracking_number"`
 
+			// ShippingMethod có từ PHIÊN BẢN 2 của event này.
+			//
+			// Payment cần nó để tra giá nền tảng trả hãng vận chuyển khi
+			// kiện hàng được BÀN GIAO. Không có nó thì nghĩa vụ với hãng
+			// không ghi được, và doanh thu phí ship bị thổi lên đúng bằng
+			// khoản chi phí thiếu.
+			ShippingMethod string `json:"shipping_method"`
+
 			// Địa chỉ liên hệ, để notification gửi được mà không gọi ngược.
 			CustomerID string `json:"customer_id"`
 			Email      string `json:"email"`
@@ -70,6 +80,7 @@ func (p *eventPublisher) PublishProgress(
 			OrderID:        in.OrderID.String(),
 			FulfillmentID:  in.FulfillmentID.String(),
 			FONumber:       in.FONumber,
+			ShippingMethod: in.ShippingMethod,
 			NewStatus:      in.NewStatus,
 			TrackingNumber: in.TrackingNumber,
 			CustomerID:     in.CustomerID.String(),
@@ -83,6 +94,7 @@ func (p *eventPublisher) PublishProgress(
 
 	// CorrelationID là mã đơn: mọi việc xảy ra sau khi đặt hàng đều truy
 	// ngược được về một đơn cụ thể.
+	e = e.WithVersion(2)
 	e = e.WithTrace(in.OrderID.String(), "")
 
 	// Phát bằng giao dịch riêng: bước chuyển trạng thái đã ghi xong trước

@@ -218,6 +218,40 @@ func (m *Module) GhiGiamGiaInEventTx(
 	return translateErr(err)
 }
 
+// GhiChiPhiVanChuyenInEventTx ghi nghĩa vụ trả hãng vận chuyển.
+//
+// Xem domain.NewShippingCostEntry. Khóa idempotency theo ĐƠN THỰC HIỆN:
+// một kiện hàng chỉ phát sinh nghĩa vụ một lần, dù event tiến độ được
+// phát lại bao nhiêu lần.
+func (m *Module) GhiChiPhiVanChuyenInEventTx(
+	ctx context.Context, fulfillmentID string, chiPhi int64, donVi string,
+) error {
+	id, err := ids.Parse(fulfillmentID, ids.PrefixFulfillmentOrder)
+	if err != nil {
+		return ErrInvalidID
+	}
+	amount, err := money.New(chiPhi, money.Currency(donVi))
+	if err != nil {
+		return err
+	}
+
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = m.svc.GhiChiPhiVanChuyenWith(ctx, paymentpg.LedgerForTx(tx),
+		application.GhiChiPhiVanChuyenInput{
+			FulfillmentID:  id,
+			ChiPhi:         amount,
+			IdempotencyKey: "chi-phi-ship:" + id.String(),
+		})
+	if errors.Is(err, domain.ErrDuplicateEntry) {
+		return nil
+	}
+	return translateErr(err)
+}
+
 // GhiThuTienInEventTx ghi bút toán THU ĐƯỢC TIỀN, bằng giao dịch dispatcher.
 //
 // ADR-0018 phần B1: bút toán doanh thu ghi NỢ `ACCOUNTS_RECEIVABLE` lúc

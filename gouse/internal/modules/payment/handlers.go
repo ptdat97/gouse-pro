@@ -325,3 +325,91 @@ func phanBoTuEvent(p revenuePayload) []PhanBoChiPhiInput {
 	}
 	return out
 }
+
+// ---------------------------------------------------- Chi phí vận chuyển
+
+// GhiChiPhiHangVanChuyen ghi nghĩa vụ trả hãng khi kiện hàng được bàn giao.
+//
+// # Vì sao bên nhận này tồn tại
+//
+// Từ ADR-0018, phí vận chuyển khách trả được ghi là doanh thu nền tảng.
+// Nhưng khoản nền tảng TRẢ hãng chưa có bút toán nào, nên doanh thu bị
+// thổi lên đúng bằng chi phí chưa ghi, và lãi/lỗ mảng vận chuyển — con số
+// duy nhất trả lời "thu phí ship như vậy là lãi hay lỗ" — không tồn tại.
+//
+// # Giá lấy từ CẤU HÌNH VẬN HÀNH, và có thể CHƯA KHAI
+//
+// Hệ thống không biết giá thỏa thuận với hãng: `bieuPhi` của fulfillment
+// là phí KHÁCH TRẢ, không phải giá nền tảng trả hãng. Con số đó là dữ liệu
+// kinh doanh và phải do người vận hành nhập
+// (`fulfillment.carrier_cost_standard`).
+//
+// Chưa khai thì KHÔNG ghi bút toán nào — và `cmd/doisoatso` báo số kiện
+// đang thiếu. Đặt một con số mặc định sẽ làm lãi vận chuyển trông như một
+// sự thật đã đo, trong khi không ai đo cả.
+type GhiChiPhiHangVanChuyen struct {
+	module *Module
+	gia    GiaHangVanChuyen
+	log    *slog.Logger
+}
+
+// GiaHangVanChuyen tra giá nền tảng trả hãng cho MỘT kiện.
+//
+// Trả 0 nghĩa là CHƯA KHAI — bên gọi không ghi bút toán.
+type GiaHangVanChuyen interface {
+	GiaMotKien(phuongThuc string) int64
+}
+
+func NewChiPhiVanChuyenHandler(
+	m *Module, gia GiaHangVanChuyen, log *slog.Logger,
+) *GhiChiPhiHangVanChuyen {
+	return &GhiChiPhiHangVanChuyen{module: m, gia: gia, log: log}
+}
+
+var _ eventbus.Handler = (*GhiChiPhiHangVanChuyen)(nil)
+
+func (h *GhiChiPhiHangVanChuyen) Name() string {
+	return "payment.ghi_chi_phi_hang_van_chuyen"
+}
+
+func (h *GhiChiPhiHangVanChuyen) EventTypes() []string {
+	return []string{eventbus.TypeFulfillmentProgress}
+}
+
+// MaxEventVersion: cần phiên bản 2 để có `shipping_method`.
+func (h *GhiChiPhiHangVanChuyen) MaxEventVersion(eventType string) int {
+	if eventType == eventbus.TypeFulfillmentProgress {
+		return 2
+	}
+	return eventbus.DefaultMaxEventVersion
+}
+
+type chiPhiVanChuyenPayload struct {
+	FulfillmentID  string `json:"fulfillment_id"`
+	NewStatus      string `json:"new_status"`
+	ShippingMethod string `json:"shipping_method"`
+}
+
+// Handle ghi bút toán chi phí khi trạng thái chuyển sang ĐÃ BÀN GIAO.
+//
+// CHỈ ở bước bàn giao: nghĩa vụ với hãng phát sinh khi hàng rời kho, và
+// các bước sau (đang giao, đã giao) không tạo thêm nghĩa vụ nào. Ghi ở mọi
+// bước sẽ tính chi phí nhiều lần cho một kiện hàng.
+func (h *GhiChiPhiHangVanChuyen) Handle(ctx context.Context, e eventbus.Event) error {
+	var p chiPhiVanChuyenPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event: %w", err)
+	}
+	if p.NewStatus != "HANDED_OVER" {
+		return nil
+	}
+
+	gia := h.gia.GiaMotKien(p.ShippingMethod)
+	if gia <= 0 {
+		// CHƯA KHAI giá hãng. Không ghi, và không coi là lỗi — nhưng cũng
+		// KHÔNG im lặng: `cmd/doisoatso` đếm số kiện thiếu bút toán này.
+		return nil
+	}
+
+	return h.module.GhiChiPhiVanChuyenInEventTx(ctx, p.FulfillmentID, gia, "VND")
+}

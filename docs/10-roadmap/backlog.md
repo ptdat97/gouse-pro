@@ -2567,6 +2567,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 |---|---|---|
 | P3-1 | **Test HTTP cho auth và audit-log** | ✅ xong — dòng ghi chú cũ đã lạc hậu; xem ghi chú dưới bảng |
 | P3-2 | **Sửa test suite chập chờn** | ✅ xong — xem ghi chú dưới bảng |
+| P3-29 | **Chi phí trả hãng vận chuyển chưa có bút toán nào** | ✅ xong (08/09) — doanh thu phí ship đang bị thổi lên. Giá hãng phải KHAI, xem ghi chú |
 | P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | ✅ xong (07/09) — `api_chuoi_day_du_test.go`; và nó tìm ra một khoản tiền không nằm ở đâu trong sổ. Xem ghi chú |
 | P3-4 | Rate limit (`429` + `X-RateLimit-*`) | ✅ xong — xem ghi chú dưới bảng |
 | P3-5 | 2FA cho `ADMIN` và `OPS_FINANCE` | Tăng cường SAU phát hành — chủ dự án đã gỡ khỏi điều kiện chặn (15/08) |
@@ -3288,6 +3289,45 @@ lần thứ hai.
 Cái chặn thật là **không có đường NHẬP nào cả** — xem P3-25. Thêm
 `color_hex` vào hợp đồng API lúc này sẽ là **lần thứ bảy** của đúng dạng
 lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. Nên không thêm.
+
+**P3-29 — vế CHI PHÍ của mảng vận chuyển (08/09).**
+
+Từ ADR-0018, phí vận chuyển khách trả được ghi là doanh thu nền tảng. Vế
+còn lại — khoản nền tảng TRẢ hãng — chưa có bút toán nào, nên:
+
+```text
+doanh thu nền tảng   bị THỔI LÊN đúng bằng chi phí chưa ghi
+lãi/lỗ vận chuyển    không đọc được — con số duy nhất trả lời
+                     "thu phí ship như vậy là lãi hay lỗ" không tồn tại
+```
+
+```text
+SHIPPING_EXPENSE   chi phí đã phát sinh   (CHI PHÍ)
+CARRIER_PAYABLE    nợ hãng chưa trả       (NỢ PHẢI TRẢ)
+ghi lúc BÀN GIAO   nghĩa vụ phát sinh khi hàng rời kho
+```
+
+Tách khỏi `FEE_EXPENSE` (phí cổng thanh toán): gộp lại thì báo cáo không
+tách được lãi/lỗ vận chuyển khỏi chi phí thanh toán, mà hai thứ đó do hai
+quyết định kinh doanh khác nhau chi phối.
+
+**Hệ thống KHÔNG biết giá thỏa thuận với hãng.** `bieuPhi` của fulfillment
+là phí KHÁCH TRẢ, không phải giá nền tảng trả hãng — hai con số khác nhau,
+và chênh lệch giữa chúng chính là thứ cần đo. Nên giá là **cấu hình vận
+hành phải khai** (`fulfillment.carrier_cost_standard` / `_express`), mặc
+định 0 = CHƯA KHAI, và chưa khai thì **không ghi bút toán nào**.
+
+Đặt một con số mặc định sẽ làm lãi vận chuyển trông như một sự thật đã đo,
+trong khi không ai đo cả. Có bài test riêng khóa điều này.
+
+`fulfillment.progress_changed` lên **phiên bản 2** với `shipping_method`;
+ba bên nhận sẵn có khai lại.
+
+**Còn lại:** bút toán TRẢ TIỀN hãng (`DEBIT CARRIER_PAYABLE / CREDIT
+PLATFORM_CASH`) chưa có, vì chưa có luồng chi trả cho hãng. Hệ quả phải
+biết: `CARRIER_PAYABLE` sẽ chỉ TĂNG cho tới khi luồng đó tồn tại.
+
+---
 
 **P3-3 — chuỗi đầy đủ, và khoản tiền không nằm ở đâu (07/09).**
 

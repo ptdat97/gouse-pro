@@ -93,11 +93,25 @@ const (
 	// SUPPLIER_PAYABLE — phải trả nhà cung cấp. NỢ PHẢI TRẢ.
 	AccountSupplierPayable AccountType = "SUPPLIER_PAYABLE"
 
+	// CARRIER_PAYABLE — nợ hãng vận chuyển chưa trả. NỢ PHẢI TRẢ.
+	//
+	// Chưa bắt buộc chủ sở hữu: hệ thống chưa có hồ sơ hãng vận chuyển,
+	// `shipping_provider` mới là một CHUỖI. Khi có hồ sơ thật thì thêm
+	// ràng buộc chủ sở hữu là thay đổi cộng thêm.
+	AccountCarrierPayable AccountType = "CARRIER_PAYABLE"
+
 	// COGS — giá vốn hàng bán. CHI PHÍ.
 	AccountCOGS AccountType = "COGS"
 
 	// FEE_EXPENSE — chi phí (phí cổng thanh toán, vận chuyển). CHI PHÍ.
 	AccountFeeExpense AccountType = "FEE_EXPENSE"
+
+	// SHIPPING_EXPENSE — tiền trả hãng vận chuyển. CHI PHÍ.
+	//
+	// Tách khỏi FEE_EXPENSE (phí cổng thanh toán): gộp lại thì báo cáo
+	// không tách được lãi/lỗ vận chuyển khỏi chi phí thanh toán, mà hai
+	// thứ đó do hai quyết định kinh doanh khác nhau chi phối.
+	AccountShippingExpense AccountType = "SHIPPING_EXPENSE"
 
 	// INVENTORY_ASSET — giá trị hàng tồn kho (own brand). TÀI SẢN.
 	AccountInventoryAsset AccountType = "INVENTORY_ASSET"
@@ -108,7 +122,8 @@ func (a AccountType) valid() bool {
 	case AccountPlatformCash, AccountPlatformRevenue, AccountAccountsReceivable,
 		AccountSellerPayable, AccountSellerAvailable,
 		AccountCreatorPayable, AccountCustomerRefundPayable, AccountSupplierPayable,
-		AccountCOGS, AccountFeeExpense, AccountInventoryAsset:
+		AccountCOGS, AccountFeeExpense, AccountInventoryAsset,
+		AccountCarrierPayable, AccountShippingExpense:
 		return true
 	}
 	return false
@@ -125,7 +140,9 @@ func (a AccountType) IsDebitNormal() bool {
 	// NỢ, đúng như tiền mặt. Xếp nhầm sang nhóm ghi có sẽ làm số dư phải
 	// thu ra ÂM, và mọi báo cáo tài sản lệch đúng bằng con số đó.
 	case AccountPlatformCash, AccountAccountsReceivable,
-		AccountCOGS, AccountFeeExpense, AccountInventoryAsset:
+		AccountCOGS, AccountFeeExpense, AccountInventoryAsset,
+		// SHIPPING_EXPENSE là CHI PHÍ — tăng khi ghi nợ, như mọi chi phí.
+		AccountShippingExpense:
 		return true
 	}
 	return false
@@ -165,7 +182,10 @@ const (
 	// toán ngược chiều. Bút toán đảo trỏ về bút toán gốc qua
 	// `reverses_entry_id`, và mỗi bút toán chỉ được đảo MỘT lần.
 	EntryReversal EntryType = "REVERSAL"
-	EntryFee      EntryType = "FEE"
+
+	// EntryShippingCost — nghĩa vụ trả hãng vận chuyển, ghi lúc BÀN GIAO.
+	EntryShippingCost EntryType = "SHIPPING_COST"
+	EntryFee          EntryType = "FEE"
 )
 
 // Account định danh một tài khoản cụ thể.

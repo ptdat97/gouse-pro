@@ -39,6 +39,19 @@ func (h *RecalculateOnFulfillmentProgress) Name() string {
 	return "order.recalculate_on_fulfillment_progress"
 }
 
+// MaxEventVersion khai bên nhận này hiểu tới phiên bản 2 của
+// `fulfillment.progress_changed`.
+//
+// v2 thêm `shipping_method` cho payment ghi chi phí hãng vận chuyển; bên
+// nhận này không dùng trường đó, nhưng ADR-0016 bắt MỌI bên nhận của một
+// event nói rõ mình hiểu tới đâu.
+func (h *RecalculateOnFulfillmentProgress) MaxEventVersion(eventType string) int {
+	if eventType == eventbus.TypeFulfillmentProgress {
+		return 2
+	}
+	return eventbus.DefaultMaxEventVersion
+}
+
 func (h *RecalculateOnFulfillmentProgress) EventTypes() []string {
 	return []string{eventbus.TypeFulfillmentProgress}
 }

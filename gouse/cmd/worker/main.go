@@ -429,6 +429,13 @@ func run() error {
 
 	// Thu được tiền: khoản phải thu chuyển thành tiền mặt (ADR-0018 B1).
 	bus.Subscribe(payment.NewThuTienHandler(paymentModule, log))
+
+	// Chi phí trả hãng vận chuyển, ghi lúc BÀN GIAO.
+	//
+	// Giá đọc từ cấu hình vận hành MỖI lần, không chụp lúc khởi động: đổi
+	// giá thỏa thuận với hãng phải có tác dụng ở kiện hàng kế tiếp.
+	bus.Subscribe(payment.NewChiPhiVanChuyenHandler(
+		paymentModule, giaHangTu(opsConfigStore), log))
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
 	bus.Subscribe(notification.NewOrderNotifier(notificationModule, log))
 	bus.Subscribe(analytics.NewEventRecorder(analyticsModule))
@@ -1069,5 +1076,32 @@ func doiSoatGiaoHang(
 			"anh_huong", "mỗi gói là một khoản phải trả nhà bán chưa chuyển "+
 				"sang khả dụng")
 		return nil
+	}
+}
+
+// giaHangVanChuyen đọc giá nền tảng trả hãng từ cấu hình vận hành.
+//
+// Trả 0 khi CHƯA KHAI, và bên gọi không ghi bút toán nào — xem
+// `payment.GhiChiPhiHangVanChuyen`. Đặt một con số mặc định sẽ làm lãi
+// vận chuyển trông như một sự thật đã đo, trong khi không ai đo cả.
+type giaHangVanChuyen struct{ cfg *opsconfig.Store }
+
+func giaHangTu(cfg *opsconfig.Store) payment.GiaHangVanChuyen {
+	return &giaHangVanChuyen{cfg: cfg}
+}
+
+func (g *giaHangVanChuyen) GiaMotKien(phuongThuc string) int64 {
+	if g.cfg == nil {
+		return 0
+	}
+	switch phuongThuc {
+	case "EXPRESS":
+		return int64(g.cfg.DocSoNguyen(opsconfig.KeyGiaHangNhanh))
+	case "STANDARD":
+		return int64(g.cfg.DocSoNguyen(opsconfig.KeyGiaHangTieuChuan))
+	default:
+		// Phương thức lạ: không đoán. Ghi một con số sai còn tệ hơn thiếu,
+		// vì thiếu thì `cmd/doisoatso` báo, còn sai thì không ai biết.
+		return 0
 	}
 }

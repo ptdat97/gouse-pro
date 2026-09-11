@@ -719,3 +719,65 @@ func dongNoKhoanGiam(ds []PhanBoChiPhi, giam money.Money) ([]Line, error) {
 	}
 	return lines, nil
 }
+
+// ShippingCostParams là dữ liệu bút toán CHI PHÍ trả hãng vận chuyển.
+type ShippingCostParams struct {
+	FulfillmentID ids.ID
+
+	// Cost là số tiền nền tảng phải trả hãng cho kiện hàng này.
+	//
+	// KHÁC phí khách trả. Chênh lệch giữa hai con số chính là lãi/lỗ mảng
+	// vận chuyển — thứ duy nhất trả lời được "thu phí ship như vậy là lãi
+	// hay lỗ", và nó không đọc được nếu chỉ ghi một vế.
+	Cost money.Money
+
+	IdempotencyKey string
+	CreatedBy      string
+	Now            time.Time
+}
+
+// NewShippingCostEntry dựng bút toán nghĩa vụ trả hãng vận chuyển.
+//
+//	DEBIT   SHIPPING_EXPENSE    25.000   chi phí đã phát sinh
+//	CREDIT  CARRIER_PAYABLE     25.000   nợ hãng, chưa trả
+//
+// # Vì sao ghi lúc BÀN GIAO chứ không chờ hóa đơn hãng
+//
+// Nghĩa vụ phát sinh khi hàng rời kho. Hóa đơn hãng thường về cuối tháng,
+// nên chờ nó nghĩa là MỌI báo cáo trong tháng đều thiếu vế chi phí — đúng
+// tình trạng bút toán này sinh ra để sửa.
+//
+// Trả tiền hãng là bút toán KHÁC (`DEBIT CARRIER_PAYABLE / CREDIT
+// PLATFORM_CASH`), và nó chưa tồn tại: hệ thống chưa có luồng chi trả cho
+// hãng vận chuyển. Hệ quả phải biết: `CARRIER_PAYABLE` sẽ chỉ TĂNG cho
+// tới khi luồng đó có.
+func NewShippingCostEntry(p ShippingCostParams) (*LedgerEntry, error) {
+	if !p.Cost.IsPositive() {
+		return nil, fmt.Errorf(
+			"payment: chi phí vận chuyển phải lớn hơn 0, nhận %s", p.Cost)
+	}
+
+	return NewLedgerEntry(NewEntryParams{
+		Type:          EntryShippingCost,
+		ReferenceType: "fulfillment_order",
+		ReferenceID:   p.FulfillmentID,
+		Description:   "Chi phí trả hãng vận chuyển",
+		Lines: []Line{
+			{
+				Account:     Account{Type: AccountShippingExpense},
+				Direction:   Debit,
+				Amount:      p.Cost,
+				Description: "Chi phí vận chuyển kiện hàng",
+			},
+			{
+				Account:     Account{Type: AccountCarrierPayable},
+				Direction:   Credit,
+				Amount:      p.Cost,
+				Description: "Nợ hãng vận chuyển",
+			},
+		},
+		IdempotencyKey: p.IdempotencyKey,
+		CreatedBy:      p.CreatedBy,
+		Now:            p.Now,
+	})
+}

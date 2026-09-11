@@ -923,3 +923,39 @@ func (s *Service) GhiGiamGiaWith(
 	}
 	return e, nil
 }
+
+// GhiChiPhiVanChuyenInput là dữ liệu bút toán chi phí trả hãng.
+type GhiChiPhiVanChuyenInput struct {
+	FulfillmentID  ids.ID
+	ChiPhi         money.Money
+	IdempotencyKey string
+}
+
+// GhiChiPhiVanChuyenWith ghi nghĩa vụ trả hãng vận chuyển.
+//
+// Xem domain.NewShippingCostEntry. Tra idempotency TRƯỚC khi ghi: event
+// tiến độ được phát lại là đường đi bình thường, và ghi hai lần nghĩa là
+// tính chi phí gấp đôi cho một kiện hàng.
+func (s *Service) GhiChiPhiVanChuyenWith(
+	ctx context.Context, ledger domain.LedgerRepository,
+	in GhiChiPhiVanChuyenInput,
+) (*domain.LedgerEntry, error) {
+	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
+		return cu, nil
+	}
+
+	e, err := domain.NewShippingCostEntry(domain.ShippingCostParams{
+		FulfillmentID:  in.FulfillmentID,
+		Cost:           in.ChiPhi,
+		IdempotencyKey: in.IdempotencyKey,
+		CreatedBy:      "payment.ghi_chi_phi_hang_van_chuyen",
+		Now:            s.clock.Now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := ledger.Append(ctx, e); err != nil {
+		return nil, err
+	}
+	return e, nil
+}

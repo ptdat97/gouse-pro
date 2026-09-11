@@ -123,6 +123,8 @@ type ProgressChanged struct {
 
 	// Progress là tiến độ của TẤT CẢ nguồn hàng trong đơn.
 	Progress []LineProgress
+	// ShippingMethod để payment tra giá trả hãng vận chuyển (ADR-0018).
+	ShippingMethod string
 }
 
 // LineProgress là tiến độ của một nguồn hàng.
@@ -451,6 +453,7 @@ func (s *Service) publishProgress(ctx context.Context, changed *domain.Fulfillme
 		OrderID:        changed.OrderID(),
 		FulfillmentID:  changed.ID(),
 		FONumber:       changed.FONumber(),
+		ShippingMethod: changed.ShippingMethod(),
 		NewStatus:      string(changed.Status()),
 		TrackingNumber: changed.TrackingNumber(),
 		CustomerID:     changed.CustomerID(),
