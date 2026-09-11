@@ -427,6 +427,13 @@ func run() error {
 	// `SplitOnCheckoutCompleted` khóa chúng và không gì mở ra.
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulfillmentModule, log))
 
+	// Hủy đơn → hủy đơn thực hiện → NHẢ KHO.
+	//
+	// Mắt xích cuối của đường ra kho. Thiếu nó thì hủy cả đơn để lại hàng
+	// ở trạng thái cam kết vĩnh viễn — đường nhả chỉ mở khi đơn THỰC HIỆN
+	// bị hủy, và trước đây không gì hủy chúng theo đơn hàng.
+	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(fulfillmentModule, log))
+
 	// Thu được tiền: khoản phải thu chuyển thành tiền mặt (ADR-0018 B1).
 	bus.Subscribe(payment.NewThuTienHandler(paymentModule, log))
 

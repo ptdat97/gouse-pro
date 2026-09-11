@@ -127,6 +127,7 @@ func newWorld(t *testing.T) *world {
 	// Mở khóa giao hàng khi tiền về — cùng bộ bên nhận mà worker đăng ký.
 	// Thiếu nó thì đơn trả trước bị khóa vĩnh viễn (ADR-0018 phần A2).
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulModule, log))
+	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(fulModule, log))
 	bus.Subscribe(payment.NewThuTienHandler(payModule, log))
 
 	// Ghi doanh thu: KHOẢN PHẢI THU lúc đặt đơn, tiền mặt khi thu được.

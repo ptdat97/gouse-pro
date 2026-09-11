@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
@@ -454,6 +455,71 @@ func (h *MoKhoaKhiDaTraTien) Handle(ctx context.Context, e eventbus.Event) error
 	}
 	if n > 0 {
 		h.log.InfoContext(ctx, "đã mở khóa giao hàng sau khi thu được tiền",
+			"order_id", p.OrderID, "so_don_thuc_hien", n)
+	}
+	return nil
+}
+
+// ---------------------------------------------------- Hủy theo đơn hàng
+
+// HuyKhiDonBiHuy hủy các đơn thực hiện khi cả đơn hàng bị hủy.
+//
+// # Vì sao bên nhận này tồn tại
+//
+// Đường nhả kho chỉ mở khi đơn THỰC HIỆN bị hủy. Hủy cả ĐƠN trước đây
+// không đụng tới đơn thực hiện nào, nên hàng nằm mãi ở trạng thái cam
+// kết: có thật trên kệ nhưng hệ thống mãi coi là đã hứa cho một đơn không
+// còn tồn tại.
+//
+// Bên nhận này KHÔNG tự nhả kho. Nó hủy đơn thực hiện, và việc đó phát
+// `fulfillment.cancelled` — đường nhả đã có và đã kiểm chứng. Nối thẳng
+// order → inventory sẽ là đường nhả THỨ HAI cho cùng một việc, và hai
+// đường nhả nghĩa là sớm muộn nhả hai lần.
+type HuyKhiDonBiHuy struct {
+	module *Module
+	log    *slog.Logger
+}
+
+func NewHuyTheoDonHandler(m *Module, log *slog.Logger) *HuyKhiDonBiHuy {
+	return &HuyKhiDonBiHuy{module: m, log: log}
+}
+
+var _ eventbus.Handler = (*HuyKhiDonBiHuy)(nil)
+
+func (h *HuyKhiDonBiHuy) Name() string {
+	return "fulfillment.huy_khi_don_bi_huy"
+}
+
+func (h *HuyKhiDonBiHuy) EventTypes() []string {
+	return []string{eventbus.TypeOrderCancelled}
+}
+
+type huyDonPayload struct {
+	OrderID string `json:"order_id"`
+	Reason  string `json:"reason"`
+}
+
+// Handle hủy mọi đơn thực hiện CÒN hủy được của đơn hàng.
+//
+// IDEMPOTENT: gọi lại trên đơn đã hủy hết thì không có gì để hủy và trả
+// nil. Event phát lại là đường đi bình thường.
+func (h *HuyKhiDonBiHuy) Handle(ctx context.Context, e eventbus.Event) error {
+	var p huyDonPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event: %w", err)
+	}
+
+	lyDo := strings.TrimSpace(p.Reason)
+	if lyDo == "" {
+		lyDo = "Đơn hàng đã bị hủy"
+	}
+
+	n, err := h.module.HuyTheoDon(ctx, p.OrderID, lyDo)
+	if err != nil {
+		return fmt.Errorf("hủy đơn thực hiện theo đơn hàng: %w", err)
+	}
+	if n > 0 {
+		h.log.InfoContext(ctx, "đã hủy đơn thực hiện theo đơn hàng bị hủy",
 			"order_id", p.OrderID, "so_don_thuc_hien", n)
 	}
 	return nil

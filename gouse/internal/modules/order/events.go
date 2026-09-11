@@ -80,3 +80,53 @@ func (p *eventPublisher) PublishOrderPaid(
 
 	return p.outbox.PublishTx(ctx, tx, e)
 }
+
+// PublishOrderCancelled ghi `order.cancelled` vào outbox.
+//
+// # Vì sao event này là mốc MỞ ĐƯỜNG RA của kho
+//
+// Đường VÀO đã có từ lâu: Reserved → Committed khi đặt hàng. Đường RA chỉ
+// có cho đơn THỰC HIỆN bị hủy (`inventory.ReleaseOnFulfillmentCancelled`),
+// nên hủy cả ĐƠN để lại hàng ở trạng thái cam kết VĨNH VIỄN — có thật
+// trên kệ nhưng hệ thống mãi coi là đã hứa cho một đơn không còn tồn tại.
+//
+// Chú thích của chính bên nhận kia đã mô tả đúng lỗi này, kèm lần kiểm
+// chứng bằng đơn thật: "đặt 5 món rồi hủy, tồn kho đứng nguyên 15 khả
+// dụng / 5 cam kết. Không lỗi, không log."
+//
+// Bên nhận là FULFILLMENT chứ không phải inventory: nó hủy các đơn thực
+// hiện, và việc đó phát `fulfillment.cancelled` — đường nhả hàng đã có và
+// đã kiểm chứng. Nối thẳng order → inventory sẽ là đường nhả THỨ HAI cho
+// cùng một việc, và hai đường nhả nghĩa là sớm muộn nhả hai lần.
+func (p *eventPublisher) PublishOrderCancelled(
+	ctx context.Context, in application.OrderCancelled,
+) error {
+	tx, ok := orderpg.TxFrom(ctx)
+	if !ok {
+		return errors.New(
+			"order: phát order.cancelled ngoài giao dịch của kho lưu trữ — " +
+				"event và trạng thái đơn phải cùng thành công hoặc cùng thất bại")
+	}
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeOrderCancelled,
+		eventbus.AggregateOrder,
+		in.OrderID,
+		struct {
+			OrderID     string `json:"order_id"`
+			OrderNumber string `json:"order_number"`
+			Reason      string `json:"reason"`
+			CancelledAt string `json:"cancelled_at"`
+		}{
+			OrderID:     in.OrderID.String(),
+			OrderNumber: in.OrderNumber,
+			Reason:      in.Reason,
+			CancelledAt: in.CancelledAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		})
+	if err != nil {
+		return err
+	}
+
+	e = e.WithTrace(in.OrderID.String(), "")
+	return p.outbox.PublishTx(ctx, tx, e)
+}

@@ -2567,6 +2567,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 |---|---|---|
 | P3-1 | **Test HTTP cho auth và audit-log** | ✅ xong — dòng ghi chú cũ đã lạc hậu; xem ghi chú dưới bảng |
 | P3-2 | **Sửa test suite chập chờn** | ✅ xong — xem ghi chú dưới bảng |
+| P3-30 | **Hủy cả ĐƠN không nhả kho** | ✅ xong (11/09) — đường ra kho chỉ mở cho đơn THỰC HIỆN. Xem ghi chú |
 | P3-29 | **Chi phí trả hãng vận chuyển chưa có bút toán nào** | ✅ xong (08/09) — doanh thu phí ship đang bị thổi lên. Giá hãng phải KHAI, xem ghi chú |
 | P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | ✅ xong (07/09) — `api_chuoi_day_du_test.go`; và nó tìm ra một khoản tiền không nằm ở đâu trong sổ. Xem ghi chú |
 | P3-4 | Rate limit (`429` + `X-RateLimit-*`) | ✅ xong — xem ghi chú dưới bảng |
@@ -3313,6 +3314,51 @@ Ba quyết định đáng ghi:
 
 Bài chuỗi P3-25 nay đi luôn cả mã màu: nhà bán nhập `#1b2a49` chữ thường,
 khách nhận `#1B2A49`.
+
+**P3-30 — hủy cả ĐƠN không nhả kho (11/09).**
+
+Tìm ra bằng một lượt rà có hệ thống: quét mọi hằng số event xem cái nào
+khai mà không ai dùng. Bảy cái, nhưng phải phân biệt HỞ với THỪA — khai
+một event không ai cần là rác, và quy tắc dự án cấm dựng theo lý do "sau
+này có thể cần".
+
+```text
+order.placed         55 lần trong docs — nhưng đặc tả dùng nó cho đúng ba
+                     việc mà checkout.completed đang làm. HAI TÊN cho một
+                     mốc, không phải chỗ hở. Thêm vào sẽ là event thứ hai
+                     cho cùng một thời điểm.
+order.cancelled      17 lần — CHỖ HỞ THẬT
+```
+
+`CancelOrderAsAdmin` ghi audit, đổi trạng thái, rồi im lặng. Đường VÀO kho
+có từ lâu (Reserved → Committed khi đặt hàng); đường RA chỉ mở khi đơn
+THỰC HIỆN bị hủy — và không gì hủy chúng theo đơn hàng. Nên hàng nằm mãi
+ở trạng thái cam kết: có thật trên kệ nhưng hệ thống coi là đã hứa cho một
+đơn không còn tồn tại.
+
+Chú thích của `inventory.ReleaseOnFulfillmentCancelled` đã mô tả CHÍNH XÁC
+lỗi này cho đơn thực hiện, kèm lần kiểm chứng bằng đơn thật ngày 20/08:
+"đặt 5 món rồi hủy, tồn kho đứng nguyên 15 khả dụng / 5 cam kết. Không
+lỗi, không log."
+
+Nối một mắt xích, tái dùng hai mắt đã kiểm chứng:
+
+```text
+order.cancelled  →  fulfillment hủy các FO  →  fulfillment.cancelled
+                                            →  inventory nhả kho (đã có)
+```
+
+**KHÔNG nối thẳng order → inventory**, dù ngắn hơn: đó sẽ là đường nhả THỨ
+HAI cho cùng một việc, và hai đường nhả nghĩa là sớm muộn nhả hai lần.
+
+`HuyTheoDon` bỏ qua đơn thực hiện không hủy được (đã bàn giao) thay vì trả
+lỗi: máy trạng thái đã chặn đúng chỗ, và trả lỗi sẽ làm event kẹt trong
+hàng đợi khiến những gói CÒN hủy được cũng không hủy.
+
+Đo trên dữ liệu thật: 0 đơn CANCELLED, nên chưa mất hàng thật — lỗ hổng có
+thật nhưng chưa ai chạm tới.
+
+---
 
 **P3-29 — vế CHI PHÍ của mảng vận chuyển (08/09).**
 

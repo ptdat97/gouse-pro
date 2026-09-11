@@ -86,6 +86,24 @@ type OrderCancelRecord struct {
 type EventPublisher interface {
 	// PublishOrderPaid phát `order.paid` BẰNG giao dịch của kho lưu trữ.
 	PublishOrderPaid(ctx context.Context, in OrderPaid) error
+
+	// PublishOrderCancelled phát `order.cancelled`.
+	//
+	// Mốc này mở đường RA của kho. Đường VÀO đã có từ lâu (Reserved →
+	// Committed khi đặt hàng) và đường ra chỉ có cho đơn THỰC HIỆN bị hủy
+	// — nên hủy cả ĐƠN để lại hàng ở trạng thái cam kết vĩnh viễn: có
+	// thật trên kệ nhưng hệ thống mãi coi là đã hứa cho một đơn không còn
+	// tồn tại. Đúng lỗi mà `inventory.ReleaseOnFulfillmentCancelled` mô
+	// tả, chỉ khác điểm vào.
+	PublishOrderCancelled(ctx context.Context, in OrderCancelled) error
+}
+
+// OrderCancelled là dữ liệu của event `order.cancelled`.
+type OrderCancelled struct {
+	OrderID     ids.ID
+	OrderNumber string
+	Reason      string
+	CancelledAt time.Time
 }
 
 // OrderPaid là dữ liệu của event `order.paid`.
@@ -517,13 +535,16 @@ func (s *Service) CancelOrderAsAdmin(
 	}
 
 	err = s.orders.UpdateWithAudit(ctx, o, func(txCtx context.Context) error {
-		return s.audit.RecordOrderCancellation(txCtx, OrderCancelRecord{
+		if err := s.audit.RecordOrderCancellation(txCtx, OrderCancelRecord{
 			OrderID:     in.OrderID,
 			OrderNumber: o.OrderNumber(),
 			ActorID:     in.ActorID,
 			Reason:      in.Reason,
 			RequestID:   in.RequestID,
-		})
+		}); err != nil {
+			return err
+		}
+		return s.phatHuyDon(txCtx, o, in.Reason)
 	})
 	if err != nil {
 		return nil, err
@@ -559,10 +580,43 @@ func (s *Service) CancelOwnOrder(
 	if err := o.CancelWithReason(reason, s.clock.Now()); err != nil {
 		return nil, err
 	}
-	if err := s.orders.Update(ctx, o); err != nil {
+
+	// Trạng thái và event vào CÙNG một giao dịch.
+	//
+	// Ghi rời sẽ để lại đơn CANCELLED mà hàng không bao giờ được nhả —
+	// đúng lỗ hổng mà event này sinh ra để bịt, chỉ khác là nó lặng lẽ
+	// hơn vì đơn nhìn từ ngoài trông đã hủy xong.
+	if s.events == nil {
+		if err := s.orders.Update(ctx, o); err != nil {
+			return nil, err
+		}
+		return o, nil
+	}
+	if err := s.orders.UpdateWithAudit(ctx, o, func(txCtx context.Context) error {
+		return s.phatHuyDon(txCtx, o, reason)
+	}); err != nil {
 		return nil, err
 	}
 	return o, nil
+}
+
+// phatHuyDon phát `order.cancelled` bằng giao dịch của kho lưu trữ.
+//
+// Bên gọi PHẢI đang ở trong giao dịch đó. Không có bộ phát (test không
+// quan tâm tới event) thì bỏ qua — nhưng ở production thiếu nó nghĩa là
+// hàng không bao giờ được nhả.
+func (s *Service) phatHuyDon(
+	ctx context.Context, o *domain.Order, reason string,
+) error {
+	if s.events == nil {
+		return nil
+	}
+	return s.events.PublishOrderCancelled(ctx, OrderCancelled{
+		OrderID:     o.ID(),
+		OrderNumber: o.OrderNumber(),
+		Reason:      reason,
+		CancelledAt: s.clock.Now(),
+	})
 }
 
 // ApplyFulfillmentProgress tính lại trạng thái tổng hợp từ tiến độ các

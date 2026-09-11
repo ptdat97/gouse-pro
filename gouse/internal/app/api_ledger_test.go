@@ -42,6 +42,7 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	// trước bị khóa vĩnh viễn và tiền mặt không bao giờ được ghi nhận.
 	bus.Subscribe(payment.NewThuTienHandler(a.mods.payment, log))
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(a.mods.fulfillment, log))
+	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(a.mods.fulfillment, log))
 }
 
 func (a *apiTest) phatEvent(t *testing.T) int {

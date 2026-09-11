@@ -230,6 +230,19 @@ func (m *Module) MoKhoaTheoDon(ctx context.Context, orderID string) (int, error)
 	return n, translateErr(err)
 }
 
+// HuyTheoDon hủy mọi đơn thực hiện của một đơn hàng đã bị hủy.
+//
+// Gọi bởi bên nhận `order.cancelled` — xem `application.HuyTheoDon` về
+// việc vì sao nó không kiểm chủ sở hữu và vì sao không được nối ra HTTP.
+func (m *Module) HuyTheoDon(ctx context.Context, orderID, lyDo string) (int, error) {
+	id, err := ids.Parse(orderID, ids.PrefixOrder)
+	if err != nil {
+		return 0, ErrInvalidID
+	}
+	n, err := m.svc.HuyTheoDon(ctx, id, lyDo)
+	return n, translateErr(err)
+}
+
 // DoiSoatGiaoHang trả danh sách gói hàng MẤT TIN từ đơn vị vận chuyển.
 //
 // Yêu cầu 5 của `api/paths/webhooks.yaml` — xem

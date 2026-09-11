@@ -794,3 +794,58 @@ func (s *Service) MoKhoaTheoDon(ctx context.Context, orderID ids.ID) (int, error
 	}
 	return n, nil
 }
+
+// HuyTheoDon hủy MỌI đơn thực hiện của một đơn hàng đã bị hủy.
+//
+// # Vì sao nó là đầu kia của `order.cancelled`
+//
+// Hủy cả đơn mà không hủy các đơn thực hiện để lại hai hậu quả: nhà bán
+// vẫn thấy việc phải làm cho một đơn không còn tồn tại, và — nặng hơn —
+// hàng nằm mãi ở trạng thái CAM KẾT vì đường nhả kho chỉ mở khi đơn THỰC
+// HIỆN bị hủy (`inventory.ReleaseOnFulfillmentCancelled`).
+//
+// KHÔNG kiểm chủ sở hữu: đây là hệ thống tự hủy theo lệnh của chính đơn
+// hàng, không phải một gian hàng thao tác. Vì vậy hàm này KHÔNG được nối
+// ra HTTP.
+//
+// Bỏ qua đơn không hủy được (đã bàn giao, đã giao, đã hủy) thay vì trả
+// lỗi: máy trạng thái đã chặn đúng chỗ, và một gói đã rời kho thì việc
+// đúng là để nó đi tiếp rồi xử lý bằng luồng TRẢ HÀNG. Trả lỗi ở đây sẽ
+// làm event kẹt trong hàng đợi và những gói CÒN hủy được cũng không hủy.
+//
+// Trả về SỐ đơn thực hiện đã hủy.
+func (s *Service) HuyTheoDon(
+	ctx context.Context, orderID ids.ID, lyDo string,
+) (int, error) {
+	fos, err := s.repo.ListByOrder(ctx, orderID)
+	if err != nil {
+		return 0, err
+	}
+
+	now := s.clock.Now()
+	var daHuy int
+	for _, fo := range fos {
+		conHangTrongKho := fo.Status().StockStillInWarehouse()
+
+		if err := fo.Cancel(lyDo, now); err != nil {
+			// Không hủy được: đã bàn giao hoặc đã hủy từ trước.
+			continue
+		}
+		if err := s.repo.Update(ctx, fo); err != nil {
+			return daHuy, fmt.Errorf(
+				"fulfillment: hủy đơn thực hiện %s: %w", fo.FONumber(), err)
+		}
+
+		// Thứ tự GIỐNG `Cancel`: event hủy trước, tiến độ sau. Thà tồn
+		// kho đúng mà trạng thái hiển thị chậm, còn hơn đơn hiển thị "đã
+		// hủy" trong khi hàng vẫn bị khóa.
+		if err := s.publishCancelled(ctx, fo, conHangTrongKho); err != nil {
+			return daHuy, err
+		}
+		if err := s.publishProgress(ctx, fo); err != nil {
+			return daHuy, err
+		}
+		daHuy++
+	}
+	return daHuy, nil
+}
