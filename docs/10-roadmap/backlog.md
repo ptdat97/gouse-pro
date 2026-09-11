@@ -4384,6 +4384,45 @@ KHÔNG dựng lại `estimated_delivery_date` cho đơn cũ: ngày ấy tính t�
 bàn giao, và bịa một "ngày dự kiến" trong quá khứ là bịa một lời hứa chưa
 từng được đưa ra.
 
+### P3-37 — kiểm kê cấu hình nghiệp vụ
+
+**Đã xong (11/09).**
+
+ADR-0015 nói rõ CƠ CHẾ và QUY TẮC phân loại, nhưng không ai giữ **bản kiểm
+kê**: con số nghiệp vụ nào còn nằm cứng trong mã.
+[docs/09-operations/cau-hinh-nghiep-vu.md](../09-operations/cau-hinh-nghiep-vu.md)
+là danh sách đó, xếp theo mức ảnh hưởng tới **tiền của người khác**:
+
+```text
+1. trọng số buy box 40/30/30    quyết định NHÀ BÁN NÀO có doanh thu
+2. điểm hiệu suất mặc định 50   nhà bán MỚI có cửa thắng buy box không
+3. biểu phí vận chuyển          giá hiện trên màn hình thanh toán,
+   30.000/60.000 đ · 3/1 ngày   và lời hứa ngày giao cho khách
+4. thời gian chuẩn bị 24 giờ    vào điểm buy box và ngày giao dự kiến
+5. hoa hồng: mức đề xuất, SÀN   chưa có nhà
+6. nhịp tạo đợt đối soát 1 giờ  nhà bán thấy khoản của mình sớm hay muộn
+```
+
+**Mục 1 là con số nặng nhất, và đường nối đã có sẵn nhưng bỏ trống.**
+`application.Deps` có trường `Weights`; không ai truyền vào nên nó luôn rơi
+về `DefaultWeights`. Tệ hơn: trọng số chốt LÚC KHỞI ĐỘNG chứ không đọc mỗi
+lần tính, nên kể cả khi nối dây thì đổi vẫn cần khởi động lại. Chú thích
+ngay tại chỗ khai báo đã tự nói ra nhu cầu: *"con số cụ thể nên hiệu chỉnh
+lại khi có dữ liệu thật về hành vi khách hàng"* — mà hiệu chỉnh theo dữ
+liệu là vòng lặp đo → đổi → đo lại, và vòng đó không đi qua một lần build
+được.
+
+Tài liệu cũng ghi **bài kiểm ba câu** để phân loại, và câu thứ ba là câu
+hay bị bỏ sót: *"nó có phải đổi CÙNG một con số khác để đúng không?"*
+`checkout.DefaultTTL` trông đúng hệt tham số nghiệp vụ nhưng gắn chặt với
+TTL giữ hàng của inventory — nới một bên là khách đi tới bước trả tiền cho
+hàng vừa bán cho người khác.
+
+Một khẳng định đã phải sửa sau khi đo: "2/3 nhà bán ở 0% hoa hồng" đúng về
+số nhưng sai về nghĩa — một là own-brand (0% đúng, có ràng buộc DB cưỡng
+chế) và một chưa duyệt. Rủi ro hoa hồng 0% là DỰ PHÒNG, không phải sự cố
+đang xảy ra.
+
 ### Quét cấu hình: KHÔNG có khoảng hở
 
 Hướng "cấu hình khai mà không ai đọc" chạy xong và sạch — cả 11 khóa

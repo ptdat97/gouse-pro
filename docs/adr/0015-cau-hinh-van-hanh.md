@@ -153,6 +153,10 @@ Giao diện nói rõ điều này trước khi xác nhận.
 
 ## Liên quan
 
+- [Kiểm kê cấu hình nghiệp vụ](../09-operations/cau-hinh-nghiep-vu.md) —
+  danh sách SỐNG: tham số nào đã sửa được, tham số nào còn nằm cứng trong
+  mã và phải đưa lên, tham số nào cố ý giữ cứng. ADR này quyết định QUY
+  TẮC; danh sách thay đổi mỗi lần thêm một tham số nên nó không sống ở đây.
 - `internal/platform/opsconfig/` — sổ đăng ký và store
 - `migrations/000039_ops_config.up.sql`
 - `internal/app/opsconfig_http.go` — API quản trị
