@@ -61,13 +61,13 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 			currency, shipping_fee, discount_amount, tax_amount,
 			status, idempotency_key, source_checkout_id, payment_method,
 			placed_at, completed_at, delivered_at,
-			created_at, updated_at
+			created_at, updated_at, paid_at
 		) VALUES (
 			$1,$2,$3,$4,$5,
 			$6,$7,$8,$9,$10,$11,$12,
 			$13,$14,$15,$16,$17,$18,$19,
 			$20,$21,$22,$23,
-			$24,$25,$26,$27,$28,$29,$30,$31,$32
+			$24,$25,$26,$27,$28,$29,$30,$31,$32,$33
 		)`,
 		o.ID().String(), o.OrderNumber(), o.CustomerID().String(),
 		o.GuestEmail(), o.GuestPhone(),
@@ -87,7 +87,10 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 		// created_at, updated_at. Đơn mới tạo chưa giao nên delivered_at
 		// là NULL; nó được ghi ở `update` khi đơn chuyển sang DELIVERED.
 		nullTime(o.CompletedAt()), nullTime(o.DeliveredAt()),
-		o.CreatedAt(), o.UpdatedAt())
+		o.CreatedAt(), o.UpdatedAt(),
+		// paid_at ở CẢ đường tạo: đơn trả trước có thể được ghi nhận đã
+		// trả ngay lúc tạo, và bỏ sót ở đây thì mốc ấy mất khi đọc lại.
+		nullTime(o.PaidAt()))
 	if err != nil {
 		// Khóa idempotency trùng nghĩa là đơn này ĐÃ được tạo — quy tắc 5.
 		// Bên gọi phải đọc lại đơn cũ, không phải báo lỗi cho khách: khách
@@ -205,14 +208,18 @@ func (s *OrderStore) update(
 	tag, err := tx.Exec(ctx, `
 		UPDATE "order"
 		   SET status = $2, completed_at = $3, cancellation_reason = $4,
-		       updated_at = $5, delivered_at = $7, version = version + 1
+		       updated_at = $5, delivered_at = $7, paid_at = $8,
+		       version = version + 1
 		 WHERE id = $1 AND version = $6`,
 		o.ID().String(), string(o.Status()),
 		nullTime(o.CompletedAt()), o.CancellationReason(), o.UpdatedAt(),
 		o.Version(),
 		// MỐC GIAO ghi được ở đây vì `RecalculateStatus` đặt nó khi đơn
 		// chuyển sang DELIVERED, và bước đó đi qua chính câu lệnh này.
-		nullTime(o.DeliveredAt()))
+		nullTime(o.DeliveredAt()),
+		// MỐC THU TIỀN: với COD nó được đặt khi đơn giao xong, và bước đó
+		// đi qua chính câu lệnh này.
+		nullTime(o.PaidAt()))
 	if err != nil {
 		return fmt.Errorf("order: cập nhật đơn hàng: %w", err)
 	}
@@ -356,7 +363,8 @@ const orderCols = `
 	currency, shipping_fee, discount_amount, tax_amount,
 	status, idempotency_key, source_checkout_id, cancellation_reason,
 	payment_method,
-	placed_at, completed_at, delivered_at, created_at, updated_at, version`
+	placed_at, completed_at, delivered_at, created_at, updated_at, version,
+	paid_at`
 
 func (s *OrderStore) FindByID(ctx context.Context, id ids.ID) (*domain.Order, error) {
 	return s.findOne(ctx, `WHERE id = $1`, id.String())
@@ -601,6 +609,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		shippingFee, discount, tax int64
 		completedAt                *time.Time
 		deliveredAt                *time.Time
+		paidAt                     *time.Time
 	)
 	if err := row.Scan(
 		&id, &orderNumber, &customerID, &email, &phone,
@@ -613,6 +622,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		&paymentMethod,
 		&p.PlacedAt, &completedAt, &deliveredAt,
 		&p.CreatedAt, &p.UpdatedAt, &p.Version,
+		&paidAt,
 	); err != nil {
 		return nil, err
 	}
@@ -636,6 +646,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 	p.PaymentMethod = domain.PaymentMethod(derefStr(paymentMethod))
 	p.CompletedAt = deref(completedAt)
 	p.DeliveredAt = deref(deliveredAt)
+	p.PaidAt = deref(paidAt)
 
 	return domain.RestoreOrder(p), nil
 }
@@ -665,17 +676,24 @@ func withLines(o *domain.Order, lines []*domain.Line) *domain.Order {
 		// withLines dựng lại TỪ ĐẦU nên phải chép đủ mọi trường: bỏ sót
 		// một trường ở đây làm nó biến mất im lặng sau mỗi lần đọc.
 		//
-		// ĐÃ XẢY RA HAI LẦN. Quên `Version` làm mọi lần chuyển trạng thái
+		// ĐÃ XẢY RA BA LẦN. Quên `Version` làm mọi lần chuyển trạng thái
 		// TIẾP THEO thất bại vì khóa lạc quan so với số 0; quên
-		// `SourceCheckoutID` làm bất biến "một phiên một đơn" mất chỗ dựa.
-		// Thêm trường mới vào Order thì phải thêm cả ở đây — trình biên
-		// dịch KHÔNG nhắc, vì thiếu trường chỉ là giá trị rỗng hợp lệ.
+		// `SourceCheckoutID` làm bất biến "một phiên một đơn" mất chỗ dựa;
+		// và quên `DeliveredAt` làm HẠN ĐỔI TRẢ không bao giờ hết —
+		// `HetHanTra` trả false khi mốc giao rỗng, nên nền tảng hoàn tiền
+		// cho đơn giao từ năm ngoái mà không gì báo.
+		//
+		// Lần thứ ba xảy ra DÙ chú thích này đã cảnh báo đúng điều đó. Kỷ
+		// luật con người không đủ — hàng rào là `TestDonKhuHoiKhongMatTruong`
+		// ở gói này.
 		CancellationReason: o.CancellationReason(),
 		IdempotencyKey:     o.IdempotencyKey(),
 		SourceCheckoutID:   o.SourceCheckoutID(),
 		Version:            o.Version(),
 		PlacedAt:           o.PlacedAt(),
 		CompletedAt:        o.CompletedAt(),
+		DeliveredAt:        o.DeliveredAt(),
+		PaidAt:             o.PaidAt(),
 		CreatedAt:          o.CreatedAt(),
 		UpdatedAt:          o.UpdatedAt(),
 	})

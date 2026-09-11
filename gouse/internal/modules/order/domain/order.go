@@ -223,6 +223,16 @@ type Order struct {
 	placedAt    time.Time
 	completedAt time.Time
 
+	// paidAt là mốc THU ĐƯỢC TIỀN — trục khác với `status`.
+	//
+	// `status` mang tiến độ GIAO HÀNG. Với đơn trả trước, tiền về ở đầu
+	// chuỗi nên một cột diễn đạt được cả hai. Với COD thì tiền về lúc
+	// GIAO, tức là khi đơn đã ở DELIVERED — đặt `status = PAID` lúc đó sẽ
+	// đẩy đơn LÙI và xóa mất sự thật "đã giao xong".
+	//
+	// Zero nghĩa là chưa thu được tiền.
+	paidAt time.Time
+
 	// deliveredAt là lúc MỌI gói đã tới tay khách.
 	//
 	// Mốc tính HẠN ĐỔI TRẢ. Ghi một lần khi trạng thái tổng hợp chuyển
@@ -382,6 +392,7 @@ type RestoreOrderParams struct {
 
 	PlacedAt    time.Time
 	CompletedAt time.Time
+	PaidAt      time.Time
 	DeliveredAt time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -410,6 +421,7 @@ func RestoreOrder(p RestoreOrderParams) *Order {
 		cancellationReason: p.CancellationReason,
 		placedAt:           p.PlacedAt,
 		completedAt:        p.CompletedAt,
+		paidAt:             p.PaidAt,
 		deliveredAt:        p.DeliveredAt,
 		createdAt:          p.CreatedAt,
 		updatedAt:          p.UpdatedAt,
@@ -475,6 +487,13 @@ func (o *Order) ViewableBy(customerID, guestPhone string) bool {
 }
 func (o *Order) PlacedAt() time.Time    { return o.placedAt }
 func (o *Order) CompletedAt() time.Time { return o.completedAt }
+func (o *Order) PaidAt() time.Time      { return o.paidAt }
+
+// DaThuTien cho biết tiền của đơn đã về hay chưa.
+//
+// Đọc từ `paidAt` chứ KHÔNG từ `status`: đơn COD đã giao và đã thu tiền
+// mang status DELIVERED, không phải PAID.
+func (o *Order) DaThuTien() bool { return !o.paidAt.IsZero() }
 
 // DeliveredAt là mốc tính hạn đổi trả. Rỗng khi đơn chưa giao xong.
 func (o *Order) DeliveredAt() time.Time { return o.deliveredAt }
@@ -565,13 +584,61 @@ func (o *Order) SellerIDs() []ids.ID {
 // ---------------------------------------------------------------- Hành vi
 
 // MarkPaid chuyển sang PAID khi thanh toán thành công.
+//
+// Đường của đơn TRẢ TRƯỚC: tiền về TRƯỚC khi hàng đi, nên trạng thái và
+// mốc thu tiền cùng tiến một lúc. Đường COD dùng `GhiNhanTienCOD`.
 func (o *Order) MarkPaid(now time.Time) error {
 	if o.status != StatusPendingPayment {
 		return ErrInvalidStatus
 	}
 	o.status = StatusPaid
+	o.paidAt = now
 	o.touch(now)
 	return nil
+}
+
+// ErrChuaGiaoXong: chưa giao xong thì chưa thu được tiền COD.
+var ErrChuaGiaoXong = errors.New(
+	"order: đơn COD chưa giao xong nên chưa thu được tiền")
+
+// ErrKhongPhaiCOD: chỉ đơn COD mới thu tiền lúc giao.
+var ErrKhongPhaiCOD = errors.New(
+	"order: chỉ đơn COD mới ghi nhận thu tiền lúc giao")
+
+// GhiNhanTienCOD ghi mốc thu tiền cho đơn COD, KHÔNG đổi trạng thái.
+//
+// # Vì sao chỉ khi đã giao TRỌN đơn
+//
+// Một đơn tách cho hai nhà bán đi thành hai kiện, và khách trả tiền cho
+// từng người giao. Ghi nhận ở kiện đầu tiên là khẳng định đã thu đủ tiền
+// cả đơn trong khi kiện thứ hai còn trên đường — sổ cái sẽ ghi tiền mặt
+// chưa cầm, đúng thứ ADR-0018 vừa dọn.
+//
+// Chờ giao trọn là ghi TRỄ chứ không ghi SAI. Đó là hướng hỏng chấp nhận
+// được: khoản phải thu tồn lâu hơn thực tế thì có người đi đòi, còn tiền
+// mặt ghi khống thì không ai đi tìm.
+//
+// # IDEMPOTENT
+//
+// Đã ghi rồi thì trả về false, không lỗi: `fulfillment.progress_changed`
+// được phát lại là chuyện bình thường của mô hình at-least-once, và báo
+// lỗi sẽ khiến event kẹt trong hàng đợi mãi.
+func (o *Order) GhiNhanTienCOD(now time.Time) (bool, error) {
+	// Dùng `ThuTienKhiGiao` chứ không so thẳng với COD: quy tắc "phương
+	// thức nào thu tiền lúc giao" nằm ở MỘT chỗ, và thêm một phương thức
+	// trả sau sau này chỉ phải sửa chỗ đó.
+	if !o.paymentMethod.ThuTienKhiGiao() {
+		return false, ErrKhongPhaiCOD
+	}
+	if o.status != StatusDelivered && o.status != StatusCompleted {
+		return false, ErrChuaGiaoXong
+	}
+	if o.DaThuTien() {
+		return false, nil
+	}
+	o.paidAt = now
+	o.touch(now)
+	return true, nil
 }
 
 // MarkProcessing chuyển sang PROCESSING khi đã tạo FulfillmentOrder.

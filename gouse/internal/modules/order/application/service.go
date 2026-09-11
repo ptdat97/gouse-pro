@@ -662,8 +662,55 @@ func (s *Service) ApplyFulfillmentProgress(
 	if err != nil {
 		return err
 	}
-	if !o.RecalculateStatus(progress, s.clock.Now()) {
+	now := s.clock.Now()
+	doi := o.RecalculateStatus(progress, now)
+
+	// COD: TIỀN VỀ LÚC GIAO.
+	//
+	// ADR-0018 nói rõ điều này nhưng không chỉ định ai ghi nhận, và không
+	// đường nào ở production làm việc đó: `MarkOrderPaid` chỉ được gọi từ
+	// webhook của cổng thanh toán, thứ COD không có. Hệ quả đo được trên
+	// sổ cái: 0 bút toán THU TIỀN trong toàn bộ hệ thống, nên khoản phải
+	// thu của mọi đơn COD sẽ tồn vĩnh viễn và nhà bán không được quyết
+	// toán.
+	//
+	// Ghi Ở ĐÂY vì đây là chỗ DUY NHẤT biết đơn vừa giao xong: module này
+	// nghe `fulfillment.progress_changed` và tự tính trạng thái tổng hợp.
+	// Hỏi ngược fulfillment sẽ tạo phụ thuộc vòng (ADR-0007).
+	thuTien := false
+	if o.PaymentMethod().ThuTienKhiGiao() {
+		ok, err := o.GhiNhanTienCOD(now)
+		switch {
+		case errors.Is(err, domain.ErrChuaGiaoXong):
+			// Chưa giao trọn đơn — bình thường, không phải lỗi.
+		case err != nil:
+			return err
+		default:
+			thuTien = ok
+		}
+	}
+
+	if !doi && !thuTien {
 		return nil
 	}
-	return s.orders.Update(ctx, o)
+
+	// Không có gì để phát thì ghi thẳng.
+	if !thuTien || s.events == nil {
+		return s.orders.Update(ctx, o)
+	}
+
+	// Mốc thu tiền và `order.paid` vào CÙNG một giao dịch — cùng lý do
+	// như `MarkPaid`: ghi rời sẽ để lại đơn đã thu tiền mà sổ cái không
+	// biết, và không tiến trình nào đi tìm.
+	return s.orders.UpdateWithAudit(ctx, o, func(txCtx context.Context) error {
+		return s.events.PublishOrderPaid(txCtx, OrderPaid{
+			OrderID:       o.ID(),
+			OrderNumber:   o.OrderNumber(),
+			CustomerID:    o.CustomerID(),
+			PaymentMethod: string(o.PaymentMethod()),
+			Total:         o.Total(),
+			Currency:      string(o.Currency()),
+			PaidAt:        now,
+		})
+	})
 }

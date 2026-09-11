@@ -4533,6 +4533,53 @@ ADR-0018 khóa đơn trả trước cho tới khi thu được tiền, và hôm 
 khóa — vì gần như mọi đơn đều là COD hoặc dữ liệu cũ chưa có phương thức
 thanh toán, chứ không phải vì đường mở khóa đã được kiểm chứng.
 
+### P3-40 — COD thu được tiền, và hàng rào khứ hồi cho ĐƠN
+
+**Đã xong (11/09).**
+
+ADR-0018 khẳng định "COD tiền về lúc giao" nhưng không chỉ định ai ghi
+nhận. Đo trên sổ cái thật: **0 bút toán THU TIỀN trong toàn hệ thống** —
+`MarkOrderPaid` chỉ được gọi từ webhook cổng thanh toán, thứ COD không có.
+
+Đã thêm cột `paid_at` (migration 000050) và ghi nhận ở
+`ApplyFulfillmentProgress` khi đơn COD giao TRỌN. Chi tiết quyết định nằm ở
+phần bổ sung của [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md).
+
+`PaymentMethod.ThuTienKhiGiao()` — hàm từng nằm trong danh sách "không ai
+gọi" của mục 8 — nay có bên gọi thật.
+
+### Lỗi lần thứ BA của cùng một hàm
+
+`withLines` bỏ sót `DeliveredAt`. Hệ quả: `HetHanTra` trả `false` khi mốc
+giao rỗng, nên **hạn đổi trả không bao giờ hết** và nền tảng hoàn tiền cho
+đơn giao từ năm ngoái. Fails "mở" về phía khách, nên không ai phát hiện.
+
+Dữ liệu thật chưa có đơn nào giao xong nên lỗi chưa cắn — nhưng nó sẽ cắn
+ngay lần giao đầu tiên, và P3-31 (hạn đổi trả) coi như chưa từng tồn tại.
+
+Chú thích ngay trên hàm đó đã cảnh báo đúng điều này, kèm hai ví dụ cũ
+(`Version`, `SourceCheckoutID`). **Lần thứ ba vẫn xảy ra.** Đó là bằng
+chứng đủ: chỗ này cần hàng rào, không cần thêm lời nhắc.
+
+### Hàng rào, và một bài test xanh vì lý do sai
+
+[khu_hoi_test.go](../../gouse/internal/modules/order/infrastructure/postgres/khu_hoi_test.go)
+theo đúng khuôn đã dùng cho fulfillment: reflect bắt buộc mọi trường khác
+rỗng, và danh sách liệt kê trường được phép rỗng lúc TẠO chứ không liệt kê
+trường phải khứ hồi.
+
+**Nhưng bài TẠO một mình thì mù.** Phá thử bằng cách gỡ `DeliveredAt` khỏi
+`withLines` — bài vẫn XANH, vì `DeliveredAt` nằm trong danh sách bỏ qua
+(đơn vừa tạo chưa thể có nó). Tức là hàng rào mù đúng chỗ nó sinh ra để
+canh.
+
+Đã thêm bài cho đường CẬP NHẬT: ghi, cập nhật với mọi trường đã điền, đọc
+lại, so TẤT CẢ không bỏ qua gì. Phá lại thì đỏ đúng chỗ và gọi đúng tên
+trường.
+
+Ghi lại vì đây là bài học chung: **một danh sách bỏ qua là một lỗ hổng có
+chủ ý, và phải có bài khác bịt nó.**
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này

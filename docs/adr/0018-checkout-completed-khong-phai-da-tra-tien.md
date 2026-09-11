@@ -163,6 +163,49 @@ khi hệ thống chạy thật — vì lúc đó thì không dọn được nữ
 
 ---
 
+## Bổ sung 11/09/2026 — ai ghi nhận thu tiền COD
+
+ADR này khẳng định "với COD thì tiền về lúc giao" nhưng **không chỉ định ai
+ghi nhận**. Không đường nào ở production làm việc đó: `MarkOrderPaid` chỉ
+được gọi từ webhook cổng thanh toán, thứ COD không có.
+
+Đo trên sổ cái thật: **0 bút toán THU TIỀN trong toàn hệ thống**. Khoản
+phải thu của mọi đơn COD sẽ tồn vĩnh viễn, và nhà bán không được quyết
+toán vì quyết toán đọc từ sổ cái.
+
+### Trạng thái và việc trả tiền là HAI TRỤC, không phải một
+
+Cột `status` mang tiến độ GIAO HÀNG. Với đơn trả trước, tiền về ở đầu chuỗi
+nên một cột diễn đạt được cả hai. Với COD thì tiền về lúc GIAO — khi đơn đã
+mang `DELIVERED`. Ghi nhận bằng cách đặt `status = PAID` sẽ đẩy đơn **lùi**
+và xóa mất sự thật "đã giao xong".
+
+Đã thêm cột `paid_at` (migration 000050). `status` giữ nguyên nghĩa là trục
+HÀNG; `paid_at` là trục TIỀN. `MarkPaid` của đường trả trước cũng đặt nó,
+nên một câu hỏi "đã thu tiền chưa" có MỘT câu trả lời cho cả hai đường.
+
+Mốc thời gian chứ không phải cờ: đối soát cần biết tiền về LÚC NÀO. Chênh
+lệch giữa ngày giao và ngày hãng chuyển tiền COD về là một khoản phải thu
+có tuổi, và tuổi của nó là thứ người vận hành đi đòi.
+
+### Ghi nhận khi giao TRỌN đơn, không phải kiện đầu tiên
+
+Đơn tách cho hai nhà bán đi thành hai kiện, và khách trả tiền cho từng
+người giao. Ghi nhận ở kiện đầu là khẳng định đã thu đủ tiền cả đơn trong
+khi kiện thứ hai còn trên đường — đúng thứ ADR này vừa dọn 1,13 tỷ đồng.
+
+Chờ giao trọn là ghi **trễ** chứ không ghi **sai**, và đó là hướng hỏng
+chấp nhận được: khoản phải thu tồn lâu hơn thực tế thì có người đi đòi,
+còn tiền mặt ghi khống thì không ai đi tìm.
+
+### Chỗ ghi nhận
+
+`order.ApplyFulfillmentProgress` — chỗ DUY NHẤT biết đơn vừa giao xong.
+Module này đã nghe `fulfillment.progress_changed` và tự tính trạng thái
+tổng hợp; hỏi ngược fulfillment sẽ tạo phụ thuộc vòng (ADR-0007).
+
+---
+
 ## Liên quan
 
 - [ADR-0008](0008-financial-ledger.md) — sổ cái bất biến, danh mục tài khoản
