@@ -57,11 +57,24 @@ func (a *apiTest) phatEvent(t *testing.T) int {
 	bus := eventbus.NewDispatcher(a.db.Pool(), log)
 	a.dangKyBenNhan(bus, log)
 
-	n, err := bus.DispatchBatch(context.Background(), 100)
-	if err != nil {
-		t.Fatalf("phát event: %v", err)
+	// PHÁT TỚI CẠN, không phải một mẻ.
+	//
+	// Cả gói test dùng CHUNG một database, nên outbox tích event của mọi
+	// bài chạy trước. Một mẻ cố định nghĩa là bài nào chạy sau sẽ thấy
+	// event của mình nằm ngoài mẻ — bài xanh khi chạy riêng, đỏ khi chạy
+	// cả gói, và thông điệp lỗi chỉ vào nghiệp vụ chứ không vào hàng đợi.
+	// Đã xảy ra khi thêm `checkout.started` làm số event tăng gấp đôi.
+	var tong int
+	for {
+		n, err := bus.DispatchBatch(context.Background(), 200)
+		if err != nil {
+			t.Fatalf("phát event: %v", err)
+		}
+		tong += n
+		if n == 0 {
+			return tong
+		}
 	}
-	return n
 }
 
 // TestDatHangThiGhiSoDoanhThu — PH-33.

@@ -101,8 +101,17 @@ func TestDatHangXongThiHangChuyenSangCommitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DispatchBatch: %v", err)
 	}
-	if n != 1 {
-		t.Fatalf("số event đã phát = %d, mong 1", n)
+	if n == 0 {
+		t.Fatal("không event nào được phát — phần dưới không kiểm được gì")
+	}
+
+	// Đếm theo LOẠI, không đếm tổng.
+	//
+	// Đếm tổng là ràng buộc sai: nó đỏ mỗi lần hệ thống phát thêm một
+	// event chẳng liên quan (đã xảy ra khi thêm `checkout.started`), và
+	// nó XANH nếu event phát ra là loại khác nhưng đúng số lượng.
+	if k := demTheoLoai(t, h, "checkout.completed"); k != 1 {
+		t.Fatalf("có %d event checkout.completed, mong 1", k)
 	}
 
 	// Giờ hàng đã CAM KẾT: 7 khả dụng, 0 đang giữ, 3 cam kết.
@@ -215,13 +224,26 @@ func TestTaoDonThatBaiThiKhongPhatEvent(t *testing.T) {
 		t.Fatal("thiếu địa chỉ phải làm việc tạo đơn thất bại")
 	}
 
-	stats, err := bus.Outbox().Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats: %v", err)
+	// Chỉ `checkout.completed` mới bị cấm ở đây.
+	//
+	// `checkout.started` ĐÃ được phát và đúng như vậy: phiên thật sự đã
+	// mở, hàng thật sự đã giữ. Cấm mọi event là ràng buộc quá rộng — nó
+	// biến "phiên mở thành công" thành lỗi.
+	if k := demTheoLoai(t, h, "checkout.completed"); k != 0 {
+		t.Errorf("có %d event checkout.completed, mong 0 — đơn chưa tạo mà "+
+			"event đã phát nghĩa là tồn kho bị cam kết cho một đơn không "+
+			"tồn tại", k)
 	}
-	if stats.Pending != 0 {
-		t.Errorf("số event chờ = %d, mong 0 — đơn chưa tạo mà event đã phát "+
-			"nghĩa là tồn kho bị cam kết cho một đơn không tồn tại",
-			stats.Pending)
+}
+
+// demTheoLoai đếm event của MỘT loại trong outbox, kể cả đã phát.
+func demTheoLoai(t *testing.T, h *harness, loai string) int {
+	t.Helper()
+	var n int
+	if err := h.db.Pool().QueryRow(context.Background(),
+		`SELECT count(*) FROM event_outbox WHERE event_type = $1`, loai,
+	).Scan(&n); err != nil {
+		t.Fatalf("đếm event loại %s: %v", loai, err)
 	}
+	return n
 }

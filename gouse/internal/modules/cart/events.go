@@ -66,5 +66,13 @@ func (p *eventPublisher) PublishItemAdded(
 		return err
 	}
 
+	// CorrelationID là mã GIỎ: nó là gốc của chuỗi trước khi đơn ra đời.
+	//
+	//	cart.item_added → checkout.started → checkout.completed / expired
+	//
+	// Thiếu nó thì bước ĐẦU của phễu không nối được với phần còn lại, và
+	// câu "đơn này bắt nguồn từ lượt thêm giỏ nào" không tra được.
+	e = e.WithTrace(in.CartID.String(), "")
+
 	return p.outbox.PublishTx(ctx, tx, e)
 }

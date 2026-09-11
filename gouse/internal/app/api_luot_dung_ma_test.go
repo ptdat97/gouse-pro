@@ -368,3 +368,125 @@ func tongTien(t *testing.T, body map[string]any) int64 {
 	v, _ := tong["amount"].(float64)
 	return int64(v)
 }
+
+// TestPhieuChuyenDoiCoDuBaBuoc.
+//
+// # Vì sao bài này tồn tại
+//
+// `checkout.started` và `checkout.expired` được khai trong `eventbus` và
+// đặc tả trong docs/02-domain/domain-events.md từ lâu — KHÔNG ai phát,
+// KHÔNG ai nghe. Hệ quả đo trên dữ liệu thật:
+//
+//	add_to_cart    9.668
+//	checkout_start     0   ← khúc giữa TRỐNG
+//	order.placed   3.207
+//
+// Trong khi bảng `checkout` có 8.714 phiên, 5.522 trong đó bỏ dở (63,4%).
+// Không có khúc giữa thì "khách rơi ở đâu" không trả lời được: rơi giữa
+// GIỎ và phiên, hay rơi TRONG phiên, là hai vấn đề khác nhau với hai cách
+// chữa khác nhau.
+func TestPhieuChuyenDoiCoDuBaBuoc(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	maOffer := a.timOfferBanDuoc()
+	if maOffer == "" {
+		t.Skip("không có offer nào bán được")
+	}
+	res := a.call(http.MethodPost, "/api/v1/cart/items",
+		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+	gio, _ := res.body["cart"].(map[string]any)
+	maGio, _ := gio["id"].(string)
+
+	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
+		"cart_id": maGio, "guest_email": "pheu@example.com",
+		"guest_phone": "0900123123",
+	}, khoaIdem())
+	if res.code != http.StatusCreated && res.code != http.StatusOK {
+		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
+	}
+	maPhien, _ := res.body["id"].(string)
+
+	var n int
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM event_outbox
+		 WHERE event_type = 'checkout.started' AND aggregate_id = $1`,
+		maPhien).Scan(&n); err != nil {
+		t.Fatalf("đọc outbox: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("mở phiên phát %d event checkout.started, cần 1 — "+
+			"khúc giữa của phễu vẫn trống", n)
+	}
+
+	// Event phải mang GỐC CHUỖI là mã giỏ, nếu không bước thêm-giỏ và
+	// bước thanh toán nằm ở hai chuỗi rời nhau.
+	var corr string
+	var soDong int
+	var subtotal int64
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT coalesce(correlation_id, ''),
+		       (payload->>'line_count')::int,
+		       (payload->>'subtotal')::bigint
+		  FROM event_outbox
+		 WHERE event_type = 'checkout.started' AND aggregate_id = $1`,
+		maPhien).Scan(&corr, &soDong, &subtotal); err != nil {
+		t.Fatalf("đọc payload: %v", err)
+	}
+	if corr != maGio {
+		t.Errorf("correlation_id = %q, cần mã giỏ %q — phễu đứt làm đôi",
+			corr, maGio)
+	}
+	if soDong != 1 || subtotal <= 0 {
+		t.Errorf("payload có %d dòng và subtotal %d — phiên bỏ dở sẽ không "+
+			"đo được giá trị", soDong, subtotal)
+	}
+}
+
+// TestPhienHetHanPhatEventDeDoBoDo.
+//
+// 63,4% phiên bỏ dở mà analytics không thấy cái nào. Bài này kiểm mắt xích
+// còn lại: job dọn phải phát `checkout.expired`.
+func TestPhienHetHanPhatEventDeDoBoDo(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	maOffer := a.timOfferBanDuoc()
+	if maOffer == "" {
+		t.Skip("không có offer nào bán được")
+	}
+	res := a.call(http.MethodPost, "/api/v1/cart/items",
+		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+	gio, _ := res.body["cart"].(map[string]any)
+	maGio, _ := gio["id"].(string)
+
+	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
+		"cart_id": maGio, "guest_email": "hethan@example.com",
+		"guest_phone": "0900321321",
+	}, khoaIdem())
+	maPhien, _ := res.body["id"].(string)
+
+	// Đẩy phiên thành quá hạn. Sửa thẳng DB vì không có đường nào cho
+	// khách hay quản trị làm một phiên già đi.
+	if _, err := a.db.Pool().Exec(ctx,
+		`UPDATE checkout SET expires_at = now() - interval '1 hour' WHERE id = $1`,
+		maPhien); err != nil {
+		t.Fatalf("đẩy phiên quá hạn: %v", err)
+	}
+
+	if _, err := a.mods.checkout.ExpireStale(ctx, 50); err != nil {
+		t.Fatalf("dọn phiên quá hạn: %v", err)
+	}
+
+	var n int
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM event_outbox
+		 WHERE event_type = 'checkout.expired' AND aggregate_id = $1`,
+		maPhien).Scan(&n); err != nil {
+		t.Fatalf("đọc outbox: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("dọn phiên quá hạn phát %d event checkout.expired, cần 1 — "+
+			"phiên bỏ dở vẫn vô hình với analytics", n)
+	}
+}

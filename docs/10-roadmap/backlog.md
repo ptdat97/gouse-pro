@@ -4248,6 +4248,78 @@ Lý do: giá hợp đồng với hãng là con số nghiệp vụ thật. Đặt
 vào mã nghĩa là sổ cái ghi chi phí sai mà không ai biết nó sai, còn ngày
 khai giá thật thì mọi bút toán cũ đều lệch.
 
+### P3-35 — phễu chuyển đổi có đủ khúc giữa
+
+**Đã xong (11/09).**
+
+Phép quét "event khai mà không ai phát" ra **sáu** loại. Bốn trong số đó bị
+kiến trúc thay thế có chủ ý và tài liệu đã ghi rõ lý do (`order.placed`,
+`inventory.reserved/committed/reservation_released` — `checkout.completed`
+mang đủ dữ liệu nên bên nhận không phải gọi ngược). Hai loại còn lại là
+khoảng hở thật:
+
+```text
+checkout.started   đặc tả: analytics    thực tế: không ai phát
+checkout.expired   đặc tả: analytics    thực tế: không ai phát
+```
+
+Và `EventCheckoutStart = "checkout_start"` đã khai sẵn trong analytics ở
+CẢ `public.go` lẫn `domain/event.go`, không dòng mã nào ghi nó.
+
+**Đo trước khi sửa** — phễu chỉ có hai đầu:
+
+```text
+add_to_cart    9.668
+checkout_start     0   ← khúc giữa TRỐNG
+order.placed   3.207
+```
+
+trong khi bảng `checkout` có 8.714 phiên, 5.522 bỏ dở, **1,44 tỷ đồng giá
+trị phiên bỏ dở chưa từng được đo**.
+
+Chú thích ngay trên hằng số đó tự nói: *"đo tổng thể chỉ cho biết CÓ vấn
+đề, đo từng bước cho biết vấn đề Ở ĐÂU"*. Bước giữa trống nghĩa là vế thứ
+hai không trả lời được.
+
+**Sau khi nối và đối soát** (`cmd/doisoatpheu`, mặc định chỉ báo cáo):
+
+```text
+add_to_cart        9.668
+checkout_start     8.714   90,1% giỏ đi tiếp tới thanh toán
+checkout_expired   5.522   63,4% bỏ dở BÊN TRONG phiên
+order.placed       3.207
+```
+
+Câu trả lời đổi hẳn hướng điều tra: khách **không** rơi giữa giỏ và thanh
+toán — họ rơi **bên trong** phiên.
+
+**`correlation_id` là mã GIỎ, không phải mã đơn.** Chưa có đơn ở bước này,
+và với phiên bỏ dở thì sẽ KHÔNG BAO GIỜ có. Giỏ là gốc chuỗi của cả khúc
+trước khi đơn ra đời; `checkout.completed` chuyển gốc sang mã đơn và hai
+nửa nối được vì payload của nó mang cả `cart_id` lẫn `order_id`. Phát hiện
+kèm: `cart.item_added` cũng thiếu `correlation_id` — cùng bất biến, chưa
+bài test nào chạm tới. Đã sửa luôn.
+
+**Vì sao lệnh đối soát ghi THẲNG vào analytics chứ không phát event.** Phát
+`checkout.started` cho 8.714 phiên đã chết sẽ đánh thức MỌI bên nhận của
+loại đó — hôm nay chỉ analytics, nhưng bên nhận thêm vào tháng sau sẽ nhận
+một trận lũ event về những phiên không còn tồn tại. Event là mệnh lệnh cho
+tương lai; dựng lại quá khứ thì ghi thẳng vào nơi cần dữ liệu.
+
+**Bốn bài test cũ đỏ, và cả bốn đều đáng sửa chứ không đáng nới:**
+
+| Bài | Vì sao đỏ | Sửa thành |
+|---|---|---|
+| `TestLuotDungMaDuocGhi…` | `phatEvent` chỉ phát MỘT mẻ 100; số event tăng gấp đôi nên event của bài nằm ngoài mẻ | phát TỚI CẠN |
+| `TestBenNhanHongThiCuonNguoc…` | `drain()` tình cờ dừng sau vòng hỏng vì vòng đó không phát thành công event nào | phát ĐÚNG MỘT mẻ, nói rõ ý định |
+| `TestDatHangXongThiHangChuyenSangCommitted` | đếm TỔNG số event | đếm theo LOẠI |
+| `TestTaoDonThatBaiThiKhongPhatEvent` | cấm MỌI event khi tạo đơn hỏng | chỉ cấm `checkout.completed` |
+
+Ba trong bốn là ràng buộc **quá rộng**: chúng đỏ khi hệ thống phát thêm một
+event chẳng liên quan, và xanh nếu event phát ra là loại khác nhưng đúng số
+lượng. Bài đầu là lỗi cô lập kinh điển — xanh khi chạy riêng, đỏ khi chạy
+cả gói, và thông điệp chỉ vào nghiệp vụ chứ không vào hàng đợi.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này

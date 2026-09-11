@@ -53,12 +53,13 @@ const (
 // Đây là PHỄU CHUYỂN ĐỔI: đo tổng thể chỉ cho biết CÓ vấn đề, đo từng
 // bước cho biết vấn đề Ở ĐÂU.
 const (
-	EventPageView      = "page_view"
-	EventProductView   = "product_view"
-	EventSearch        = "search"
-	EventAddToCart     = "add_to_cart"
-	EventCheckoutStart = "checkout_start"
-	EventPurchase      = "purchase"
+	EventPageView        = "page_view"
+	EventProductView     = "product_view"
+	EventSearch          = "search"
+	EventAddToCart       = "add_to_cart"
+	EventCheckoutStart   = "checkout_start"
+	EventCheckoutExpired = "checkout_expired"
+	EventPurchase        = "purchase"
 )
 
 // Tên các sự kiện nghiệp vụ của MVP.

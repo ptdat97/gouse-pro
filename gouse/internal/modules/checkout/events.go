@@ -224,3 +224,106 @@ func phanBoPayloadTu(ds []checkoutdomain.PhanBoChiPhiGiam) []phanBoPayload {
 	}
 	return out
 }
+
+// phienPayload là dữ liệu chung của `checkout.started` và `checkout.expired`.
+//
+// Hai event mang CÙNG một bộ trường vì chúng là hai đầu của một khoảng:
+// analytics ghép chúng theo `checkout_id` để biết phiên sống bao lâu rồi
+// chết, và `subtotal` cho biết bỏ dở bao nhiêu tiền. Tách thành hai kiểu
+// khác nhau chỉ để "cho riêng biệt" sẽ khiến bên nhận phải viết hai đường
+// đọc giống hệt nhau.
+type phienPayload struct {
+	CheckoutID string `json:"checkout_id"`
+	CartID     string `json:"cart_id"`
+
+	// CustomerID rỗng với khách vãng lai — phần lớn lưu lượng.
+	CustomerID string `json:"customer_id"`
+
+	SoDong   int    `json:"line_count"`
+	Subtotal int64  `json:"subtotal"`
+	Currency string `json:"currency"`
+}
+
+// PublishCheckoutStarted ghi event mở phiên vào outbox.
+//
+// # Vì sao nó ghi trong giao dịch của kho lưu trữ
+//
+// Cùng lý do với `checkout.completed`, dù hệ quả nhẹ hơn: phiên được lưu
+// mà event không, thì analytics đếm thiếu một phiên và tỷ lệ chuyển đổi
+// báo CAO hơn sự thật — sai theo hướng dễ chịu, tức là hướng không ai đi
+// tìm.
+func (p *eventPublisher) PublishCheckoutStarted(
+	ctx context.Context, in application.CheckoutStarted,
+) error {
+	tx, ok := checkoutpg.TxFrom(ctx)
+	if !ok {
+		return errors.New(
+			"checkout: phát event mở phiên ngoài giao dịch của kho lưu trữ")
+	}
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeCheckoutStarted,
+		eventbus.AggregateCheckout,
+		in.CheckoutID,
+		phienPayload{
+			CheckoutID: in.CheckoutID.String(),
+			CartID:     in.CartID.String(),
+			CustomerID: in.CustomerID.String(),
+			SoDong:     in.SoDong,
+			Subtotal:   in.Subtotal.Amount(),
+			Currency:   string(in.Subtotal.Currency()),
+		})
+	if err != nil {
+		return err
+	}
+
+	// CorrelationID là mã GIỎ, không phải mã đơn.
+	//
+	// Chưa có đơn nào ở bước này, và với phiên bỏ dở thì sẽ KHÔNG BAO GIỜ
+	// có. Giỏ là gốc chuỗi của cả khúc trước khi đơn ra đời:
+	//
+	//	cart.item_added → checkout.started → checkout.completed / expired
+	//
+	// `checkout.completed` chuyển gốc sang mã đơn — đúng, vì từ đó trở đi
+	// mọi việc thuộc về một đơn cụ thể. Hai nửa nối được với nhau vì
+	// payload của nó mang CẢ `cart_id` lẫn `order_id`.
+	e = e.WithTrace(in.CartID.String(), "")
+
+	return p.outbox.PublishTx(ctx, tx, e)
+}
+
+// PublishCheckoutExpired ghi event phiên hết hạn vào outbox.
+//
+// Hàng đã được nhả TRƯỚC khi event này ra đời. Event chỉ để đo, không để
+// điều khiển — bên nhận nào dùng nó để nhả hàng là hiểu sai, và sẽ nhả lần
+// thứ hai thứ đã nhả rồi.
+func (p *eventPublisher) PublishCheckoutExpired(
+	ctx context.Context, in application.CheckoutExpired,
+) error {
+	tx, ok := checkoutpg.TxFrom(ctx)
+	if !ok {
+		return errors.New(
+			"checkout: phát event hết hạn ngoài giao dịch của kho lưu trữ")
+	}
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeCheckoutExpired,
+		eventbus.AggregateCheckout,
+		in.CheckoutID,
+		phienPayload{
+			CheckoutID: in.CheckoutID.String(),
+			CartID:     in.CartID.String(),
+			CustomerID: in.CustomerID.String(),
+			SoDong:     in.SoDong,
+			Subtotal:   in.Subtotal.Amount(),
+			Currency:   string(in.Subtotal.Currency()),
+		})
+	if err != nil {
+		return err
+	}
+
+	// Gốc chuỗi là mã GIỎ — xem chú thích ở PublishCheckoutStarted.
+	e = e.WithTrace(in.CartID.String(), "")
+
+	return p.outbox.PublishTx(ctx, tx, e)
+}

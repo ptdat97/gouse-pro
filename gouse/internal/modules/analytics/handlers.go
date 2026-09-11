@@ -78,6 +78,12 @@ func (h *RecordEventsFromBus) EventTypes() []string {
 		eventbus.TypeCheckoutCompleted,
 		eventbus.TypeCartItemAdded,
 		eventbus.TypeFulfillmentProgress,
+
+		// Hai KHÚC GIỮA của phễu. Thiếu chúng, module này biết 9.668 lượt
+		// thêm giỏ và 3.207 đơn nhưng không biết gì về 8.714 phiên thanh
+		// toán ở giữa — nên "khách rơi ở đâu" là câu không trả lời được.
+		eventbus.TypeCheckoutStarted,
+		eventbus.TypeCheckoutExpired,
 	}
 }
 
@@ -135,6 +141,10 @@ func (h *RecordEventsFromBus) Handle(ctx context.Context, e eventbus.Event) erro
 		return h.handleCartItemAdded(ctx, e)
 	case eventbus.TypeFulfillmentProgress:
 		return h.handleFulfillmentProgress(ctx, e)
+	case eventbus.TypeCheckoutStarted:
+		return h.handlePhien(ctx, e, EventCheckoutStart)
+	case eventbus.TypeCheckoutExpired:
+		return h.handlePhien(ctx, e, EventCheckoutExpired)
 	}
 	// Loại event không quan tâm: không phải lỗi.
 	return nil
@@ -259,6 +269,63 @@ func (h *RecordEventsFromBus) handleCartItemAdded(
 
 		Properties: map[string]any{
 			"quantity": p.Quantity,
+		},
+
+		OccurredAt: e.OccurredAt,
+	})
+}
+
+// phienPayload là dữ liệu của `checkout.started` và `checkout.expired`.
+type phienPayload struct {
+	CheckoutID string `json:"checkout_id"`
+	CartID     string `json:"cart_id"`
+	CustomerID string `json:"customer_id"`
+	SoDong     int    `json:"line_count"`
+	Subtotal   int64  `json:"subtotal"`
+	Currency   string `json:"currency"`
+}
+
+// handlePhien ghi một bước của phiên thanh toán vào phễu.
+//
+// # Vì sao MỘT hàm cho cả hai event
+//
+// Mở phiên và hết hạn mang cùng bộ trường và ghi cùng hình dạng sự kiện —
+// chỉ khác cái tên. Hai hàm giống hệt nhau sẽ lệch nhau ở lần sửa thứ
+// nhất, và lúc đó hai đầu của cùng một phễu không còn so sánh được.
+//
+// # SessionID dùng id GIỎ, không phải id phiên
+//
+// Để nối được với `add_to_cart`: một giỏ là MỘT lượt mua sắm, và tỷ lệ
+// chuyển đổi đếm theo đơn vị đó. Dùng id phiên thì bước thêm-giỏ và bước
+// thanh toán nằm ở hai session khác nhau và phễu đứt làm đôi.
+func (h *RecordEventsFromBus) handlePhien(
+	ctx context.Context, e eventbus.Event, ten string,
+) error {
+	var p phienPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event phiên thanh toán: %w", err)
+	}
+
+	// Tiền của phiên: CON TRỎ vì 0 và "không có" là hai chuyện khác nhau.
+	// Phiên bỏ dở có giá trị là thứ cần đo — bỏ 5 triệu khác bỏ 50 nghìn.
+	amount := p.Subtotal
+
+	return h.module.TrackEvent(ctx, EventInput{
+		Name:     ten,
+		Category: CategoryBusiness,
+		EventID:  e.ID.String(),
+
+		SessionID:  p.CartID,
+		CustomerID: p.CustomerID,
+
+		SubjectType: "checkout",
+		SubjectID:   p.CheckoutID,
+
+		Amount:   &amount,
+		Currency: p.Currency,
+
+		Properties: map[string]any{
+			"line_count": p.SoDong,
 		},
 
 		OccurredAt: e.OccurredAt,

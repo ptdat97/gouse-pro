@@ -491,3 +491,97 @@ func TestEventKhongQuanTamKhongLamHongGi(t *testing.T) {
 		t.Fatalf("%d event rơi vào dead letter", dead)
 	}
 }
+
+// phatPhien phát một event của phiên thanh toán.
+func phatPhien(
+	t *testing.T, bus *eventbus.Dispatcher, loai, cartID string, subtotal int64,
+) string {
+	t.Helper()
+
+	checkoutID := ids.MustNew(ids.PrefixCheckout)
+	e, err := eventbus.NewEvent(loai, eventbus.AggregateCheckout, checkoutID,
+		map[string]any{
+			"checkout_id": checkoutID.String(),
+			"cart_id":     cartID,
+			"customer_id": "",
+			"line_count":  2,
+			"subtotal":    subtotal,
+			"currency":    "VND",
+		})
+	if err != nil {
+		t.Fatalf("NewEvent: %v", err)
+	}
+	if err := bus.Outbox().Publish(context.Background(), e); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	return checkoutID.String()
+}
+
+// TestPhienThanhToanChayVaoPheuChuyenDoi.
+//
+// # Vì sao bài này tồn tại
+//
+// Module này có `EventCheckoutStart = "checkout_start"` khai từ lâu, ở CẢ
+// `public.go` lẫn `domain/event.go` — và không dòng mã nào ghi nó. Phễu
+// chỉ có hai đầu:
+//
+//	add_to_cart    9.668
+//	checkout_start     0   ← khúc giữa TRỐNG
+//	order.placed   3.207
+//
+// Chú thích ngay trên hằng số đó tự nói: "đo tổng thể chỉ cho biết CÓ vấn
+// đề, đo từng bước cho biết vấn đề Ở ĐÂU". Bước giữa trống nghĩa là câu
+// thứ hai không trả lời được.
+func TestPhienThanhToanChayVaoPheuChuyenDoi(t *testing.T) {
+	m, pool := newModule(t, newClock())
+	bus := newBus(t, m, pool)
+	ctx := context.Background()
+
+	cartID := ids.MustNew(ids.PrefixCart).String()
+	phatPhien(t, bus, eventbus.TypeCheckoutStarted, cartID, 500_000)
+	phatPhien(t, bus, eventbus.TypeCheckoutExpired, cartID, 500_000)
+	dispatch(t, bus)
+
+	for _, ten := range []string{analytics.EventCheckoutStart, analytics.EventCheckoutExpired} {
+		n, err := m.CountEvents(ctx, analytics.CountRequest{
+			Name: ten,
+			From: time.Now().UTC().Add(-time.Hour),
+			To:   time.Now().UTC().Add(time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("đếm %s: %v", ten, err)
+		}
+		if n != 1 {
+			t.Errorf("ghi được %d sự kiện %q, cần 1 — khúc giữa của phễu "+
+				"vẫn trống", n, ten)
+		}
+	}
+
+	// SessionID phải là mã GIỎ, cùng đơn vị với `add_to_cart`.
+	//
+	// Dùng mã phiên thì bước thêm-giỏ và bước thanh toán nằm ở hai session
+	// khác nhau, và tỷ lệ chuyển đổi giữa chúng không tính được.
+	var n int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM event_log
+		 WHERE event_name = $1 AND session_id = $2`,
+		analytics.EventCheckoutStart, cartID).Scan(&n); err != nil {
+		t.Fatalf("đọc event_log: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("sự kiện checkout_start gắn với mã giỏ: %d, cần 1 — "+
+			"phễu đứt giữa bước thêm giỏ và bước thanh toán", n)
+	}
+
+	// Giá trị phiên bỏ dở phải ghi được: bỏ 5 triệu khác bỏ 50 nghìn.
+	var tien int64
+	if err := pool.QueryRow(ctx, `
+		SELECT coalesce(sum(amount), 0) FROM event_log WHERE event_name = $1`,
+		analytics.EventCheckoutExpired).Scan(&tien); err != nil {
+		t.Fatalf("đọc tiền: %v", err)
+	}
+	if tien != 500_000 {
+		t.Errorf("tiền của phiên bỏ dở = %d, cần 500000 — không đo được "+
+			"giá trị bị mất", tien)
+	}
+}

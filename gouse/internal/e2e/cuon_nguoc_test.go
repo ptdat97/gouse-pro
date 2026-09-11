@@ -145,7 +145,16 @@ func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
 	}
 
 	// Vòng phát đầu tiên: bên nhận hỏng.
-	w.drain()
+	//
+	// ĐÚNG MỘT vòng, không `drain()`. Bài này kiểm trạng thái NGAY SAU
+	// lần hỏng, mà `drain()` lặp tới khi cạn nên nó sẽ thử lại và thành
+	// công trước khi ta kịp nhìn. Trước đây `drain()` tình cờ dừng sau
+	// vòng đầu — vì vòng đó không phát thành công event nào — và bài test
+	// dựa vào sự trùng hợp đó. Thêm `checkout.started` làm vòng đầu có
+	// một event thành công, và sự trùng hợp biến mất.
+	if _, err := w.bus.DispatchBatch(ctx, 100); err != nil {
+		t.Fatalf("phát event: %v", err)
+	}
 
 	// 1. Phần ghi của bên nhận hỏng phải BIẾN MẤT.
 	if n := demDauVet(t, w); n != 0 {

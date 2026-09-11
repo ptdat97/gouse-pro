@@ -183,6 +183,49 @@ type CommissionPort interface {
 // cho một đơn đã bán xong.
 type EventPublisher interface {
 	PublishCheckoutCompleted(ctx context.Context, e CheckoutCompleted) error
+
+	// PublishCheckoutStarted và PublishCheckoutExpired là hai KHÚC GIỮA
+	// của phễu chuyển đổi.
+	//
+	// Không có chúng, analytics chỉ biết hai đầu — thêm giỏ và đặt đơn —
+	// nên câu "khách rơi ở đâu" không trả lời được: rơi giữa GIỎ và phiên
+	// thanh toán, hay rơi TRONG phiên, là hai vấn đề khác nhau với hai
+	// cách chữa khác nhau. Đo trên dữ liệu thật lúc thêm: 9.668 lượt thêm
+	// giỏ, 3.207 đơn, và 8.714 phiên KHÔNG hề được ghi nhận — trong đó
+	// 5.522 phiên bỏ dở.
+	PublishCheckoutStarted(ctx context.Context, e CheckoutStarted) error
+	PublishCheckoutExpired(ctx context.Context, e CheckoutExpired) error
+}
+
+// CheckoutStarted là sự thật "phiên thanh toán đã mở VÀ hàng đã giữ xong".
+//
+// Đây là THÔNG BÁO việc đã xảy ra, không phải mệnh lệnh giữ hàng: việc giữ
+// đã chạy ĐỒNG BỘ trước đó, vì checkout phải biết NGAY có giữ được hay
+// không để quyết định có mở phiên hay không. Phát event rồi đi tiếp sẽ có
+// lúc khách thấy màn hình thanh toán cho hàng đã hết.
+type CheckoutStarted struct {
+	CheckoutID ids.ID
+	CartID     ids.ID
+	CustomerID ids.ID
+
+	// SoDong và Subtotal cho phép analytics đo giá trị phiên bỏ dở mà
+	// không phải gọi ngược lại checkout.
+	SoDong   int
+	Subtotal money.Money
+}
+
+// CheckoutExpired là sự thật "phiên hết hạn, hàng ĐÃ được nhả".
+//
+// Hàng nhả ĐỒNG BỘ trong cùng thao tác dọn, không qua event: nhả qua event
+// nghĩa là có khoảng thời gian phiên đã chết mà hàng vẫn khóa, và nếu event
+// thất bại thì hàng khóa vĩnh viễn.
+type CheckoutExpired struct {
+	CheckoutID ids.ID
+	CartID     ids.ID
+	CustomerID ids.ID
+
+	SoDong   int
+	Subtotal money.Money
 }
 
 // CheckoutCompleted là sự thật "phiên thanh toán đã tạo đơn thành công".
@@ -697,7 +740,22 @@ func (s *Service) StartCheckout(
 		s.releaseAll(ctx, reservations)
 		return nil, err
 	}
-	if err := s.checkouts.Save(ctx, c); err != nil {
+	// SaveWithEvents chứ không Save: event mở phiên phải ghi CÙNG giao
+	// dịch với phiên. Ghi rời thì phiên tồn tại mà event không, và phễu
+	// chuyển đổi báo tỷ lệ CAO hơn sự thật — sai theo hướng dễ chịu, tức
+	// là hướng không ai đi tìm.
+	if err := s.checkouts.SaveWithEvents(ctx, c, func(txCtx context.Context) error {
+		if s.events == nil {
+			return nil
+		}
+		return s.events.PublishCheckoutStarted(txCtx, CheckoutStarted{
+			CheckoutID: c.ID(),
+			CartID:     c.CartID(),
+			CustomerID: c.CustomerID(),
+			SoDong:     len(c.Lines()),
+			Subtotal:   c.Subtotal(),
+		})
+	}); err != nil {
 		s.releaseAll(ctx, reservations)
 		return nil, err
 	}
@@ -1489,7 +1547,18 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 		// EXPIRED mà hàng còn khóa thì không tiến trình nào tìm nó nữa.
 		s.releaseAll(ctx, c.ReservationIDs())
 
-		if err := s.checkouts.Save(ctx, c); err != nil {
+		if err := s.checkouts.SaveWithEvents(ctx, c, func(txCtx context.Context) error {
+			if s.events == nil {
+				return nil
+			}
+			return s.events.PublishCheckoutExpired(txCtx, CheckoutExpired{
+				CheckoutID: c.ID(),
+				CartID:     c.CartID(),
+				CustomerID: c.CustomerID(),
+				SoDong:     len(c.Lines()),
+				Subtotal:   c.Subtotal(),
+			})
+		}); err != nil {
 			return done, err
 		}
 		done++
