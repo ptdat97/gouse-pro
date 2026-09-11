@@ -202,6 +202,9 @@ func Build(
 			OpsConfig: opsConfigStore,
 			Storage:   "postgres",
 			DB:        db,
+
+			// Outbox để phát tín hiệu HẾT HÀNG cho supply-chain.
+			Events: eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
 			return Modules{}, err

@@ -243,6 +243,17 @@ func withTx(ctx context.Context, tx pgx.Tx) context.Context {
 	return context.WithValue(ctx, txKey{}, tx)
 }
 
+// WithTx gắn giao dịch của MỘT MODULE vào ngữ cảnh.
+//
+// Dùng khi module tự mở giao dịch và muốn ghi event vào outbox trong CÙNG
+// giao dịch đó — không phải khi xử lý event (lúc đó dispatcher đã gắn sẵn).
+//
+// Một quy ước cho cả hai chiều: bên ghi và bên nhận đều lấy giao dịch qua
+// `TxFrom`, nên không có hai cách làm cùng một việc.
+func WithTx(ctx context.Context, tx pgx.Tx) context.Context {
+	return withTx(ctx, tx)
+}
+
 // TxFrom lấy giao dịch mà dispatcher đang mở.
 //
 // BÊN NHẬN PHẢI DÙNG HÀM NÀY. Ghi bằng một kết nối khác nghĩa là việc xử

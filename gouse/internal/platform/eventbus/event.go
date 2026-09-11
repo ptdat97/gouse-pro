@@ -275,6 +275,14 @@ const (
 	TypeInventoryReserved  = "inventory.reserved"
 	TypeInventoryCommitted = "inventory.committed"
 	TypeInventoryReleased  = "inventory.reservation_released"
+
+	// TypeInventoryDepleted là SKU vừa hết sạch hàng khả dụng.
+	//
+	// docs/02-domain/domain-events.md gọi đây là "event quan trọng chiến
+	// lược": mỗi lần hết hàng là một lần nhu cầu CÓ THẬT bị bỏ lỡ, và nó
+	// biến mất khỏi mọi báo cáo doanh số. Module supply-chain tồn tại từ
+	// MVP chính vì loại dữ liệu này không tạo ngược được.
+	TypeInventoryDepleted = "inventory.depleted"
 )
 
 // Các loại aggregate.

@@ -55,10 +55,33 @@ const maxRetries = 8
 
 // Service là tầng application của module inventory.
 type Service struct {
-	uow   domain.UnitOfWork
-	repos domain.Repos
-	clock Clock
-	tran  TranPort
+	uow    domain.UnitOfWork
+	repos  domain.Repos
+	clock  Clock
+	tran   TranPort
+	events EventPublisher
+}
+
+// EventPublisher là cổng ra của module tới hàng đợi event.
+//
+// Nằm ở tầng này chứ không phải infrastructure: tầng application chỉ biết
+// interface do chính nó định nghĩa, nên nó kiểm chứng được bằng bản giả.
+type EventPublisher interface {
+	// PublishDepleted báo một SKU vừa hết sạch hàng khả dụng.
+	PublishDepleted(ctx context.Context, e Depleted) error
+}
+
+// Depleted là sự thật "SKU này vừa chuyển từ CÒN sang HẾT".
+//
+// Nó KHÁC "đang hết hàng": trạng thái đọc được bất cứ lúc nào từ số lượng,
+// còn đây là THỜI ĐIỂM chuyển. Mỗi thời điểm như vậy là một lần nhu cầu có
+// thật bị bỏ lỡ, và nó không xuất hiện trong bất kỳ báo cáo doanh số nào.
+type Depleted struct {
+	InventoryItemID ids.ID
+	SKUID           ids.ID
+	LocationID      ids.ID
+	OwnerID         ids.ID
+	OccurredAt      time.Time
 }
 
 // Deps gom các phụ thuộc.
@@ -68,6 +91,10 @@ type Deps struct {
 
 	// Repos dùng cho thao tác CHỈ ĐỌC, không cần giao dịch.
 	Repos domain.Repos
+
+	// Events có thể nil: khi đó module vẫn chạy nhưng KHÔNG phát tín hiệu
+	// hết hàng, và supply-chain mất một trong ba tín hiệu quý nhất.
+	Events EventPublisher
 
 	// Tran cấp trần số lượng nghiệp vụ. Nil thì dùng mặc định của domain.
 	Tran TranPort
@@ -81,10 +108,11 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{
-		uow:   d.UnitOfWork,
-		repos: d.Repos,
-		clock: clock,
-		tran:  d.Tran,
+		uow:    d.UnitOfWork,
+		repos:  d.Repos,
+		clock:  clock,
+		tran:   d.Tran,
+		events: d.Events,
 	}
 }
 
@@ -190,7 +218,7 @@ type ReceiveInput struct {
 func (s *Service) Receive(ctx context.Context, in ReceiveInput) (*domain.InventoryItem, error) {
 	var out *domain.InventoryItem
 
-	err := s.withRetry(ctx, func(r domain.Repos) error {
+	err := s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		item, err := r.Items.FindByKey(ctx, in.Key)
 		if errors.Is(err, domain.ErrNotFound) {
 			// Chưa có bản ghi: tạo mới với số lượng RỖNG rồi mới nhập, để
@@ -244,7 +272,7 @@ type ReserveInput struct {
 func (s *Service) Reserve(ctx context.Context, in ReserveInput) (*domain.Reservation, error) {
 	var res *domain.Reservation
 
-	err := s.withRetry(ctx, func(r domain.Repos) error {
+	err := s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		item, err := r.Items.FindByID(ctx, in.ItemID)
 		if err != nil {
 			return err
@@ -284,7 +312,7 @@ func (s *Service) Reserve(ctx context.Context, in ReserveInput) (*domain.Reserva
 
 // Commit chuyển hàng đang giữ thành cam kết cho đơn đã xác nhận.
 func (s *Service) Commit(ctx context.Context, reservationID ids.ID) error {
-	return s.withRetry(ctx, func(r domain.Repos) error {
+	return s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		return s.commitWith(ctx, r, reservationID)
 	})
 }
@@ -389,7 +417,7 @@ func (s *Service) CountExpiredPending(ctx context.Context) (int, error) {
 
 // ExtendReservation gia hạn thời gian giữ hàng.
 func (s *Service) ExtendReservation(ctx context.Context, reservationID ids.ID, d time.Duration) error {
-	return s.uow.Do(ctx, func(r domain.Repos) error {
+	return s.uow.Do(ctx, func(ctx context.Context, r domain.Repos) error {
 		reservation, err := r.Reservations.FindByID(ctx, reservationID)
 		if err != nil {
 			return err
@@ -406,7 +434,7 @@ func (s *Service) releaseWith(
 	ctx context.Context, reservationID ids.ID,
 	finish func(*domain.Reservation, time.Time) error,
 ) error {
-	return s.withRetry(ctx, func(r domain.Repos) error {
+	return s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		reservation, err := r.Reservations.FindByID(ctx, reservationID)
 		if err != nil {
 			return err
@@ -569,7 +597,7 @@ func (s *Service) SetAvailable(ctx context.Context, in SetAvailableInput) error 
 		return errors.New("inventory: điều chỉnh thủ công bắt buộc phải ghi người thực hiện")
 	}
 
-	return s.withRetry(ctx, func(r domain.Repos) error {
+	return s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		item, err := r.Items.FindByID(ctx, in.ItemID)
 		if err != nil {
 			return err
@@ -703,7 +731,7 @@ func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error
 	}
 
 	var ra CountResult
-	err := s.withRetry(ctx, func(r domain.Repos) error {
+	err := s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		item, err := r.Items.FindByID(ctx, in.ItemID)
 		if err != nil {
 			return err
@@ -771,7 +799,7 @@ func (s *Service) simpleChange(
 	mType domain.MovementType, refID ids.ID, reason string, by ids.ID,
 	apply func(*domain.InventoryItem, time.Time) error,
 ) error {
-	return s.withRetry(ctx, func(r domain.Repos) error {
+	return s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		item, err := r.Items.FindByID(ctx, itemID)
 		if err != nil {
 			return err
@@ -840,6 +868,28 @@ func (s *Service) mutate(
 		return err
 	}
 
+	// HẾT HÀNG: phát tín hiệu nhu cầu bị bỏ lỡ.
+	//
+	// Phát Ở ĐÂY, trong giao dịch của `withRetry`, nên tồn về 0 và tín
+	// hiệu cùng thành công hoặc cùng thất bại. Ghi rời thì tồn về 0 mà
+	// tín hiệu không tồn tại — và đó là dữ liệu KHÔNG tạo ngược được:
+	// module supply-chain tồn tại từ MVP chính vì lý do đó.
+	//
+	// Lỗi phát event KHÔNG làm hỏng thao tác tồn kho: giữ hàng cho khách
+	// quan trọng hơn ghi một tín hiệu thống kê. Nhưng nó phải ồn — im
+	// lặng ở đây là mất dữ liệu mà không ai biết.
+	if item.VuaHetHang() && s.events != nil {
+		if err := s.events.PublishDepleted(ctx, Depleted{
+			InventoryItemID: item.ID(),
+			SKUID:           item.SKUID(),
+			LocationID:      item.LocationID(),
+			OwnerID:         item.OwnerID(),
+			OccurredAt:      now,
+		}); err != nil {
+			return fmt.Errorf("inventory: phát tín hiệu hết hàng: %w", err)
+		}
+	}
+
 	if m.result != nil {
 		*m.result = item
 	}
@@ -856,7 +906,9 @@ func (s *Service) mutate(
 // Phân biệt này quan trọng: hàng không tự xuất hiện, nên thử lại khi hết
 // hàng chỉ lãng phí tài nguyên và làm khách chờ lâu hơn trước khi nhận
 // câu trả lời "hết hàng".
-func (s *Service) withRetry(ctx context.Context, fn func(domain.Repos) error) error {
+func (s *Service) withRetry(
+	ctx context.Context, fn func(context.Context, domain.Repos) error,
+) error {
 	var lastErr error
 
 	for lan := 0; lan < maxRetries; lan++ {

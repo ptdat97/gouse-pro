@@ -103,7 +103,7 @@ type MovementRepository interface {
 // sai lệch sau này không truy được nguyên nhân.
 type UnitOfWork interface {
 	// Do chạy fn trong một giao dịch. Trả lỗi thì giao dịch được hoàn tác.
-	Do(ctx context.Context, fn func(Repos) error) error
+	Do(ctx context.Context, fn func(context.Context, Repos) error) error
 }
 
 // Repos là bộ repository dùng bên trong một giao dịch.

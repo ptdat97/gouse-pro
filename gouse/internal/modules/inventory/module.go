@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -40,6 +41,12 @@ type Config struct {
 	// DB là kết nối database. BẮT BUỘC.
 	DB *database.DB
 
+	// Events là outbox để phát tín hiệu HẾT HÀNG.
+	//
+	// Có thể nil: module vẫn chạy, nhưng supply-chain mất một trong ba
+	// tín hiệu quý nhất — và đó là dữ liệu không tạo ngược được.
+	Events *eventbus.Outbox
+
 	// Clock cho phép test kiểm soát thời gian.
 	Clock application.Clock
 
@@ -69,6 +76,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.OpsConfig != nil {
 		deps.Tran = &tranAdapter{cfg: cfg.OpsConfig}
+	}
+	if cfg.Events != nil {
+		deps.Events = &eventPublisher{outbox: cfg.Events}
 	}
 	return &Module{svc: application.NewService(deps)}, nil
 }
@@ -510,4 +520,48 @@ var _ application.TranPort = (*tranAdapter)(nil)
 
 func (a *tranAdapter) TranSoLuong() int {
 	return a.cfg.DocSoNguyen(opsconfig.KeyTranSoLuongSKU)
+}
+
+// eventPublisher nối cổng ra của tầng application với outbox.
+type eventPublisher struct{ outbox *eventbus.Outbox }
+
+var _ application.EventPublisher = (*eventPublisher)(nil)
+
+// PublishDepleted ghi event hết hàng vào outbox BẰNG giao dịch đang mở.
+//
+// Ngữ cảnh phải mang giao dịch mà `UnitOfWork.Do` đã gắn. Thiếu nó thì trả
+// lỗi chứ KHÔNG âm thầm mở giao dịch riêng: ghi rời nghĩa là tồn có thể về
+// 0 mà tín hiệu không tồn tại — hoặc ngược lại, tín hiệu tồn tại cho một
+// thay đổi đã bị cuộn ngược.
+func (p *eventPublisher) PublishDepleted(
+	ctx context.Context, in application.Depleted,
+) error {
+	tx, err := eventbus.MustTxFrom(ctx)
+	if err != nil {
+		return fmt.Errorf(
+			"inventory: phát tín hiệu hết hàng ngoài giao dịch: %w", err)
+	}
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeInventoryDepleted,
+		eventbus.AggregateItem,
+		in.InventoryItemID,
+		struct {
+			InventoryItemID string `json:"inventory_item_id"`
+			SKUID           string `json:"sku_id"`
+			LocationID      string `json:"stock_location_id"`
+			OwnerID         string `json:"inventory_owner_id"`
+			OccurredAt      string `json:"occurred_at"`
+		}{
+			InventoryItemID: in.InventoryItemID.String(),
+			SKUID:           in.SKUID.String(),
+			LocationID:      in.LocationID.String(),
+			OwnerID:         in.OwnerID.String(),
+			OccurredAt:      in.OccurredAt.UTC().Format(time.RFC3339),
+		})
+	if err != nil {
+		return err
+	}
+
+	return p.outbox.PublishTx(ctx, tx, e)
 }

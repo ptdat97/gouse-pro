@@ -4434,6 +4434,65 @@ có mặc định 0 — đúng phần im lặng có chủ ý đã chốt.
 Ghi lại kết quả ÂM này vì nó cũng là thông tin: `opsconfig` không mang lớp
 lỗi đang săn, nên lần sau không cần quét lại hướng đó.
 
+### P3-38 — tín hiệu HẾT HÀNG nay được ghi
+
+**Đã xong (11/09).**
+
+**Một đính chính về phạm vi trước đã.** Tôi đề xuất "đường ĐỌC của chuỗi
+cung ứng" (gợi ý bổ sung hàng) như một khoảng hở. Đọc kỹ hơn thì module tự
+khai phạm vi MVP là **CHỈ GHI TÍN HIỆU** — dự báo và lập kế hoạch là Phase
+3. Đường đọc vắng mặt là **có chủ ý**, không phải hở.
+
+Nhưng bên trong phạm vi MVP thì có một khoảng hở thật, và nó nghiêm trọng
+hơn. Module khai BA loại tín hiệu là lý do nó tồn tại từ MVP:
+
+```text
+SEARCH_NO_RESULT   CÓ bên phát (product → supplychain)
+STOCKOUT           KHÔNG ai phát
+NOTIFY_REQUEST     KHÔNG ai phát
+```
+
+Hai loại sau được khai trong domain, có chú thích giải thích vì sao chúng
+quý, và không dòng mã nào tạo ra chúng. Chú thích của chính module nói rõ
+vì sao đó là việc gấp:
+
+> DỮ LIỆU LỊCH SỬ KHÔNG TẠO NGƯỢC ĐƯỢC. Tới Phase 3 mà thiếu dữ liệu hành
+> vi của 12 tháng trước thì không dự báo được gì.
+
+Mỗi ngày không ghi là một ngày mất vĩnh viễn.
+
+**Đã nối STOCKOUT:**
+
+```text
+inventory.depleted            loại event mới
+InventoryItem.apply           bắt thời điểm khả dụng chuyển >0 → 0
+inventory → outbox            phát TRONG giao dịch của thao tác tồn kho
+supplychain                   nghe, ghi tín hiệu STOCKOUT
+```
+
+**Bắt ở `apply`, không bắt ở từng thao tác.** Giữ, cam kết, xuất, kiểm kê —
+mọi đường đều đi qua một hàm, nên đặt phép so ở đó là không đường nào quên.
+Đặt ở từng thao tác thì thêm một thao tác mới là quên một lần, và thứ bị
+quên là dữ liệu không tạo ngược được.
+
+**Cờ `vuaHetHang` KHÔNG lưu xuống database.** "Đang hết hàng" là trạng thái
+đọc từ số lượng; đây là SỰ KIỆN chuyển từ còn sang hết. Lưu nó sẽ tạo một
+trường thứ hai nói về cùng một sự thật, và hai nguồn sẽ lệch nhau.
+
+**Việc phát sinh: `UnitOfWork.Do` không truyền `ctx` cho callback.** Nên
+giao dịch gắn vào ngữ cảnh không tới được bộ phát, và test đỏ với "không có
+giao dịch trong ngữ cảnh". Đã đổi chữ ký thành
+`fn func(context.Context, Repos) error` — tám closure. Đáng đổi: nó làm quy
+ước "lấy giao dịch qua `TxFrom`" đúng cho CẢ chiều ghi lẫn chiều nhận, thay
+vì mỗi chiều một cách.
+
+`eventbus.WithTx` nay xuất khẩu để module tự mở giao dịch cũng ghi được
+event vào outbox trong cùng giao dịch đó.
+
+**NOTIFY_REQUEST vẫn chưa có**, và đó là quyết định: nó cần một tính năng
+hướng khách ("đăng ký báo khi có hàng") chưa tồn tại — xây bên phát cho một
+tính năng chưa có là xây cái không ai gọi, đúng dạng lỗi mục 8 mô tả.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này

@@ -261,7 +261,12 @@ func run() error {
 		return fmt.Errorf("đăng ký chỉ số pool database: %w", err)
 	}
 
-	inventoryModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: db})
+	inventoryModule, err := inventory.New(inventory.Config{
+		Storage: "postgres", DB: db,
+		// Outbox để phát tín hiệu HẾT HÀNG cho supply-chain. Worker tự
+		// chuyển tồn kho khi dọn giữ hàng quá hạn, nên nó cũng phát.
+		Events: eventbus.NewOutbox(db.Pool()),
+	})
 	if err != nil {
 		return err
 	}

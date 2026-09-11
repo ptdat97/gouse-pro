@@ -9,6 +9,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
@@ -30,7 +31,12 @@ func newModule(t *testing.T) (*inventory.Module, *database.DB) {
 		}
 	}
 
-	m, err := inventory.New(inventory.Config{Storage: "postgres", DB: db})
+	// Outbox thật: tín hiệu hết hàng phải ghi TRONG giao dịch của thao
+	// tác tồn kho, và chỉ outbox thật mới kiểm chứng được điều đó.
+	m, err := inventory.New(inventory.Config{
+		Storage: "postgres", DB: db,
+		Events: eventbus.NewOutbox(db.Pool()),
+	})
 	if err != nil {
 		t.Fatalf("inventory.New: %v", err)
 	}
@@ -649,5 +655,59 @@ func TestKiemKeKhongDoiThiKhongGhiNhatKy(t *testing.T) {
 	if adjusts != 0 {
 		t.Errorf("có %d dòng điều chỉnh, mong 0 — kiểm kê khớp sổ không phải "+
 			"một biến động", adjusts)
+	}
+}
+
+// TestHetHangPhatTinHieu.
+//
+// # Vì sao bài này tồn tại
+//
+// Module supply-chain khai ba loại tín hiệu nó tồn tại để thu:
+// SEARCH_NO_RESULT, STOCKOUT, NOTIFY_REQUEST. Chỉ loại đầu có bên phát;
+// hai loại còn lại được khai trong domain và KHÔNG dòng mã nào tạo ra.
+//
+// STOCKOUT là loại quý thứ hai: mỗi lần hết hàng là một lần nhu cầu có
+// thật bị bỏ lỡ, và nó biến mất khỏi mọi báo cáo doanh số. Chú thích của
+// chính module supply-chain nói rõ dữ liệu này KHÔNG tạo ngược được.
+func TestHetHangPhatTinHieu(t *testing.T) {
+	m, db := newModule(t)
+	ctx := context.Background()
+
+	locID := newLocation(t, db)
+	skuID := ids.MustNew(ids.PrefixSKU).String()
+
+	item, err := m.Receive(ctx, inventory.ReceiveRequest{
+		SKUID: skuID, LocationID: locID, Quantity: 3,
+	})
+	if err != nil {
+		t.Fatalf("nhập hàng: %v", err)
+	}
+
+	demTinHieu := func() int {
+		t.Helper()
+		var n int
+		if err := db.Pool().QueryRow(ctx, `
+			SELECT count(*) FROM event_outbox
+			 WHERE event_type = 'inventory.depleted'
+			   AND payload->>'sku_id' = $1`, skuID).Scan(&n); err != nil {
+			t.Fatalf("đếm event: %v", err)
+		}
+		return n
+	}
+
+	if n := demTinHieu(); n != 0 {
+		t.Fatalf("chưa hết hàng mà đã có %d tín hiệu", n)
+	}
+
+	// Giữ hết sạch → khả dụng về 0.
+	if _, err := m.Reserve(ctx, inventory.ReserveRequest{
+		ItemID: item.ID, Quantity: 3,
+	}); err != nil {
+		t.Fatalf("giữ hàng: %v", err)
+	}
+
+	if n := demTinHieu(); n != 1 {
+		t.Fatalf("hết hàng mà phát %d tín hiệu, cần 1 — nhu cầu bị bỏ lỡ "+
+			"không được ghi lại, và dữ liệu này không tạo ngược được", n)
 	}
 }

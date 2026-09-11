@@ -360,3 +360,73 @@ func TestGiuThoiDiemNghiepVuKhongPhaiThoiDiemGhi(t *testing.T) {
 		t.Errorf("lọc theo kỳ ra %d tín hiệu, mong 1", counts[supplychain.SignalView])
 	}
 }
+
+// TestEventHetHangSinhTinHieuStockout.
+//
+// # Vì sao tín hiệu này quý hơn vẻ ngoài của nó
+//
+// Module này khai BA loại tín hiệu là lý do nó tồn tại từ MVP:
+// SEARCH_NO_RESULT, STOCKOUT và NOTIFY_REQUEST — chúng đo nhu cầu KHÔNG
+// được đáp ứng, thứ không bao giờ xuất hiện trong dữ liệu bán hàng.
+//
+// Trước bài này, chỉ loại ĐẦU có bên phát. Hai loại còn lại được khai
+// trong domain, có chú thích giải thích vì sao chúng quan trọng, và không
+// dòng mã nào tạo ra chúng.
+//
+//	Chỉ nhìn doanh số:  "bán 200 chiếc" → nhu cầu là 200
+//	Thực tế:            bán 200, HẾT HÀNG từ tuần 3
+//
+// Kế hoạch sản xuất thiếu tín hiệu này sẽ liên tục làm thiếu đúng những
+// mặt hàng bán chạy nhất.
+func TestEventHetHangSinhTinHieuStockout(t *testing.T) {
+	m, pool := newModule(t)
+	ctx := context.Background()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus := eventbus.NewDispatcher(pool, log)
+	bus.Subscribe(supplychain.NewSignalHandler(m))
+
+	skuID := ids.MustNew(ids.PrefixSKU)
+	itemID := ids.MustNew(ids.PrefixInventoryItem)
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeInventoryDepleted, eventbus.AggregateItem, itemID,
+		map[string]any{
+			"inventory_item_id":  itemID.String(),
+			"sku_id":             skuID.String(),
+			"stock_location_id":  ids.MustNew(ids.PrefixStockLocation).String(),
+			"inventory_owner_id": "own_platform",
+		})
+	if err != nil {
+		t.Fatalf("NewEvent: %v", err)
+	}
+	if err := bus.Outbox().Publish(ctx, e); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if _, err := bus.DispatchBatch(ctx, 100); err != nil {
+		t.Fatalf("DispatchBatch: %v", err)
+	}
+
+	counts, err := m.CountSignals(ctx, "", "")
+	if err != nil {
+		t.Fatalf("CountSignals: %v", err)
+	}
+	if counts[supplychain.SignalStockout] != 1 {
+		t.Fatalf("số tín hiệu STOCKOUT = %d, mong 1 — nhu cầu bị bỏ lỡ "+
+			"không được ghi, và dữ liệu này không tạo ngược được",
+			counts[supplychain.SignalStockout])
+	}
+
+	// Tín hiệu phải trỏ đúng SKU: một tín hiệu không biết nói về mặt hàng
+	// nào thì không dùng để lập kế hoạch được.
+	var n int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM demand_signal
+		 WHERE signal_type = 'STOCKOUT' AND sku_id = $1`,
+		skuID.String()).Scan(&n); err != nil {
+		t.Fatalf("đọc tín hiệu: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("tín hiệu STOCKOUT gắn với SKU: %d, cần 1", n)
+	}
+}

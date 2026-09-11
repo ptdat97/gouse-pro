@@ -61,6 +61,9 @@ type InventoryItem struct {
 	// Xem mục 5.2 của đặc tả và infrastructure/postgres/item.go.
 	version int64
 
+	// vuaHetHang là cờ NHẤT THỜI, không lưu xuống database. Xem VuaHetHang.
+	vuaHetHang bool
+
 	createdAt time.Time
 	updatedAt time.Time
 }
@@ -168,14 +171,32 @@ func (i *InventoryItem) Available() int { return i.quantities.Available() }
 // DATABASE tăng lúc ghi, vì chỉ database mới biết thao tác có thắng cuộc
 // tranh chấp hay không.
 func (i *InventoryItem) apply(fn func(Quantities) (Quantities, error), now time.Time) error {
+	truoc := i.quantities.Available()
 	next, err := fn(i.quantities)
 	if err != nil {
 		return err
 	}
 	i.quantities = next
+	// BẮT THỜI ĐIỂM HẾT HÀNG ở đây, không ở từng thao tác.
+	//
+	// Giữ, cam kết, xuất, kiểm kê — mọi đường đều đi qua hàm này, nên đặt
+	// phép so ở đây là không đường nào quên. Đặt ở từng thao tác thì thêm
+	// một thao tác mới là quên một lần, và thứ bị quên là một tín hiệu
+	// KHÔNG tạo ngược được.
+	if truoc > 0 && next.Available() == 0 {
+		i.vuaHetHang = true
+	}
 	i.touch(now)
 	return nil
 }
+
+// VuaHetHang cho biết thao tác vừa rồi có làm SKU hết sạch hàng khả dụng.
+//
+// Cờ NHẤT THỜI, chỉ đúng trong phạm vi một thao tác và KHÔNG được lưu:
+// "đang hết hàng" là trạng thái đọc từ số lượng, còn đây là SỰ KIỆN chuyển
+// từ còn sang hết. Lưu nó xuống database sẽ tạo ra một trường thứ hai nói
+// về cùng một sự thật, và hai nguồn sự thật sẽ lệch nhau.
+func (i *InventoryItem) VuaHetHang() bool { return i.vuaHetHang }
 
 func (i *InventoryItem) Reserve(qty int, now time.Time) error {
 	return i.apply(func(q Quantities) (Quantities, error) { return q.Reserve(qty) }, now)

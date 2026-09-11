@@ -69,6 +69,13 @@ func (h *RecordSignalsFromEvents) EventTypes() []string {
 		eventbus.TypeCartItemAdded,
 		eventbus.TypeCheckoutCompleted,
 		eventbus.TypeSearchNoResult,
+
+		// HẾT HÀNG — tín hiệu quý thứ hai, và trước đây KHÔNG ai phát.
+		//
+		// Ba tín hiệu module này tồn tại để thu là SEARCH_NO_RESULT,
+		// STOCKOUT và NOTIFY_REQUEST. Chỉ cái đầu có bên phát; hai cái
+		// còn lại được khai trong domain và không dòng mã nào tạo ra.
+		eventbus.TypeInventoryDepleted,
 	}
 }
 
@@ -106,6 +113,8 @@ func (h *RecordSignalsFromEvents) Handle(ctx context.Context, e eventbus.Event) 
 		return h.handleOrderPlaced(ctx, e)
 	case eventbus.TypeSearchNoResult:
 		return h.handleSearchNoResult(ctx, e)
+	case eventbus.TypeInventoryDepleted:
+		return h.handleHetHang(ctx, e)
 	}
 	// Loại event không quan tâm: không phải lỗi.
 	return nil
@@ -223,4 +232,52 @@ func (h *RecordSignalsFromEvents) handleOrderPlaced(
 	}
 
 	return h.module.RecordSignals(ctx, reqs)
+}
+
+// hetHangPayload là dữ liệu từ event SKU hết sạch hàng.
+type hetHangPayload struct {
+	SKUID      string `json:"sku_id"`
+	LocationID string `json:"stock_location_id"`
+	OwnerID    string `json:"inventory_owner_id"`
+}
+
+// handleHetHang ghi tín hiệu STOCKOUT.
+//
+// # Vì sao tín hiệu này quý
+//
+// Mỗi lần hết hàng là một lần nhu cầu CÓ THẬT bị bỏ lỡ, và nó biến mất
+// khỏi mọi báo cáo doanh số: báo cáo chỉ đếm được thứ đã bán.
+//
+//	Chỉ nhìn doanh số:  "Áo khoác bán 200 chiếc" → nhu cầu là 200
+//	Thực tế:            bán 200, HẾT HÀNG từ tuần 3
+//
+// Không có tín hiệu này thì kế hoạch sản xuất sẽ liên tục làm thiếu đúng
+// những mặt hàng bán chạy nhất — sai lầm kinh điển của ngành, và là lý do
+// module này tồn tại từ MVP.
+//
+// # Số lượng là 0, có chủ ý
+//
+// Hết hàng không đo được BAO NHIÊU người muốn mua tiếp — nó chỉ đánh dấu
+// THỜI ĐIỂM nguồn cung dừng. Điền một con số đoán vào đây sẽ làm mọi phép
+// tổng hợp sau này cộng phải số bịa.
+func (h *RecordSignalsFromEvents) handleHetHang(
+	ctx context.Context, e eventbus.Event,
+) error {
+	var p hetHangPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event hết hàng: %w", err)
+	}
+
+	return h.module.RecordSignal(ctx, SignalRequest{
+		Type:       SignalStockout,
+		SKUID:      p.SKUID,
+		Quantity:   0,
+		OccurredAt: e.OccurredAt.Format(time.RFC3339),
+		SourceType: "inventory_item",
+		SourceID:   e.AggregateID.String(),
+		Metadata: map[string]string{
+			"stock_location_id":  p.LocationID,
+			"inventory_owner_id": p.OwnerID,
+		},
+	})
 }

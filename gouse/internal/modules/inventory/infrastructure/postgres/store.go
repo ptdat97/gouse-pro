@@ -11,6 +11,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/inventory/domain"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // ---------------------------------------------------------------- Giữ hàng
@@ -278,7 +279,7 @@ func NewUnitOfWork(pool *pgxpool.Pool) *UnitOfWork {
 	return &UnitOfWork{pool: pool}
 }
 
-func (u *UnitOfWork) Do(ctx context.Context, fn func(domain.Repos) error) error {
+func (u *UnitOfWork) Do(ctx context.Context, fn func(context.Context, domain.Repos) error) error {
 	tx, err := u.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("inventory: mở giao dịch: %w", err)
@@ -292,7 +293,13 @@ func (u *UnitOfWork) Do(ctx context.Context, fn func(domain.Repos) error) error 
 		Movements:    NewMovementStore(tx),
 		Locations:    NewLocationStore(tx),
 	}
-	if err := fn(repos); err != nil {
+
+	// Gắn giao dịch vào ngữ cảnh để bên trong ghi được event vào outbox
+	// TRONG CÙNG giao dịch. Ghi rời nghĩa là tồn kho về 0 mà tín hiệu hết
+	// hàng không tồn tại — và tín hiệu đó không tạo ngược được.
+	ctx = eventbus.WithTx(ctx, tx)
+
+	if err := fn(ctx, repos); err != nil {
 		return err
 	}
 
