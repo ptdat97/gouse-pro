@@ -579,6 +579,13 @@ type DiscountParams struct {
 	OrderID  ids.ID
 	Discount money.Money
 
+	// SellerID là gian hàng CHỊU khoản giảm.
+	//
+	// Rỗng nghĩa là nền tảng chịu. Có giá trị thì khoản giảm trừ thẳng vào
+	// tiền phải trả gian hàng đó — đúng thứ chương trình do nhà bán tự
+	// chạy đã thỏa thuận.
+	SellerID ids.ID
+
 	IdempotencyKey string
 	CreatedBy      string
 	Now            time.Time
@@ -623,12 +630,7 @@ func NewDiscountEntry(p DiscountParams) (*LedgerEntry, error) {
 		ReferenceID:   p.OrderID,
 		Description:   "Giảm giá cho khách",
 		Lines: []Line{
-			{
-				Account:     Account{Type: AccountPlatformRevenue},
-				Direction:   Debit,
-				Amount:      p.Discount,
-				Description: "Nền tảng chịu khoản giảm giá",
-			},
+			benChiuKhoanGiam(p.SellerID, p.Discount),
 			{
 				Account:     Account{Type: AccountAccountsReceivable},
 				Direction:   Credit,
@@ -640,4 +642,29 @@ func NewDiscountEntry(p DiscountParams) (*LedgerEntry, error) {
 		CreatedBy:      p.CreatedBy,
 		Now:            p.Now,
 	})
+}
+
+// benChiuKhoanGiam dựng vế GHI NỢ của bút toán giảm giá.
+//
+//	nhà bán chịu  → DEBIT SELLER_PAYABLE(gian hàng)  ta nợ họ ít đi
+//	nền tảng chịu → DEBIT PLATFORM_REVENUE           doanh thu ta giảm
+//
+// Chọn sai vế này là lấy tiền của người ngoài công ty, hoặc gánh hộ một
+// khoản họ đã đồng ý chịu. Sai theo hướng thứ hai thì không ai khiếu nại,
+// nên nó sống rất lâu — đó là trạng thái trước ADR-0018.
+func benChiuKhoanGiam(sellerID ids.ID, giam money.Money) Line {
+	if sellerID.IsZero() {
+		return Line{
+			Account:     Account{Type: AccountPlatformRevenue},
+			Direction:   Debit,
+			Amount:      giam,
+			Description: "Nền tảng chịu khoản giảm giá",
+		}
+	}
+	return Line{
+		Account:     Account{Type: AccountSellerPayable, OwnerID: sellerID},
+		Direction:   Debit,
+		Amount:      giam,
+		Description: "Nhà bán chịu khoản giảm giá",
+	}
 }

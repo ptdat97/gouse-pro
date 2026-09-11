@@ -57,7 +57,7 @@ func (h *CommitOnCheckoutCompleted) Name() string {
 // chọn cơ chế hoãn thay vì thả cho bên nhận đọc thiếu trường.
 func (h *CommitOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 4
+		return 5
 	}
 	return eventbus.DefaultMaxEventVersion
 }

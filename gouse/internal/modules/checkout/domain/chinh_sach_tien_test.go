@@ -86,7 +86,7 @@ func TestMienPhiShipKhiDatNguong(t *testing.T) {
 // một đơn nhỏ hơn ngưỡng.
 func TestNguongXetTrenTienHangSauGiamGia(t *testing.T) {
 	c := phienCoHang(t, 600_000)
-	if err := c.ApplyDiscount("GIAM200", money.MustNew(200_000, money.VND), testNow); err != nil {
+	if err := c.ApplyDiscount("GIAM200", money.MustNew(200_000, money.VND), domain.BenChiuNenTang, testNow); err != nil {
 		t.Fatalf("ApplyDiscount: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestNguongXetTrenTienHangSauGiamGia(t *testing.T) {
 // trả.
 func TestThueTinhTrenTienHangSauGiamGia(t *testing.T) {
 	c := phienCoHang(t, 200_000)
-	if err := c.ApplyDiscount("GIAM50", money.MustNew(50_000, money.VND), testNow); err != nil {
+	if err := c.ApplyDiscount("GIAM50", money.MustNew(50_000, money.VND), domain.BenChiuNenTang, testNow); err != nil {
 		t.Fatalf("ApplyDiscount: %v", err)
 	}
 	if err := c.ApDungPhiVaThue(

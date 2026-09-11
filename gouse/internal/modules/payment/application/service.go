@@ -887,8 +887,12 @@ func (s *Service) GhiPhiVanChuyenWith(
 
 // GhiGiamGiaInput là dữ liệu bút toán khoản giảm giá.
 type GhiGiamGiaInput struct {
-	OrderID        ids.ID
-	Discount       money.Money
+	OrderID  ids.ID
+	Discount money.Money
+
+	// SellerID là gian hàng chịu khoản giảm; rỗng = nền tảng chịu.
+	SellerID ids.ID
+
 	IdempotencyKey string
 }
 
@@ -906,6 +910,7 @@ func (s *Service) GhiGiamGiaWith(
 	e, err := domain.NewDiscountEntry(domain.DiscountParams{
 		OrderID:        in.OrderID,
 		Discount:       in.Discount,
+		SellerID:       in.SellerID,
 		IdempotencyKey: in.IdempotencyKey,
 		CreatedBy:      "payment.revenue_on_checkout_completed",
 		Now:            s.clock.Now(),

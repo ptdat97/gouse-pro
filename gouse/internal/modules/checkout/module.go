@@ -13,6 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/checkout/application"
 	"github.com/fashion-commerce/platform/internal/modules/checkout/domain"
+	checkoutdomain "github.com/fashion-commerce/platform/internal/modules/checkout/domain"
 	checkoutpg "github.com/fashion-commerce/platform/internal/modules/checkout/infrastructure/postgres"
 	checkouthttp "github.com/fashion-commerce/platform/internal/modules/checkout/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
@@ -452,21 +453,48 @@ type promotionAdapter struct{ api promotion.API }
 var _ application.PromotionPort = (*promotionAdapter)(nil)
 
 func (a *promotionAdapter) ValidateCoupon(
-	ctx context.Context, code, customerID string, orderTotal money.Money,
-) (money.Money, bool, error) {
+	ctx context.Context, code, customerID string, sellerID ids.ID,
+	orderTotal money.Money,
+) (money.Money, bool, string, error) {
 	res, err := a.api.ValidateCoupon(ctx, promotion.ValidateRequest{
 		Code:       code,
 		CustomerID: customerID,
+		// SellerID: trường này có từ đầu trong ValidateRequest và KHÔNG
+		// ai điền. Thiếu nó thì mã riêng của gian hàng không kiểm được,
+		// và mã do gian hàng tự chịu chi phí trả lỗi "dữ liệu không hợp
+		// lệ" — khách nhận 500 cho một mã hoàn toàn hợp lệ.
+		SellerID:   sellerID.String(),
 		OrderTotal: orderTotal.Amount(),
 		Currency:   string(orderTotal.Currency()),
 	})
 	if err != nil {
-		return money.Money{}, false, err
+		return money.Money{}, false, "", err
 	}
 
 	discount, err := money.New(res.Discount, money.Currency(res.Currency))
 	if err != nil {
-		return money.Money{}, false, err
+		return money.Money{}, false, "", err
 	}
-	return discount, res.FreeShipping, nil
+	return discount, res.FreeShipping, benChiuTu(res.CostAllocations), nil
+}
+
+// benChiuTu rút gọn danh sách phân bổ thành MỘT bên chịu.
+//
+// `CostAllocations` là danh sách vì chương trình chia đôi có hai dòng.
+// Checkout chỉ cần biết con số nào đi vào `cost_bearer` của khoản điều
+// chỉnh, và cột đó nhận đúng ba giá trị.
+//
+// KHÔNG làm mất thông tin nào đang được dùng: trước hàm này, cả danh sách
+// bị vứt đi và giá trị ghi vào luôn là "PLATFORM". Khi sổ cái cần chia
+// tiền theo từng bên thì nó phải đọc `CostAllocations` đầy đủ, không đọc
+// con số rút gọn này.
+func benChiuTu(ds []promotion.CostAllocationView) string {
+	switch len(ds) {
+	case 0:
+		return string(checkoutdomain.BenChiuNenTang)
+	case 1:
+		return ds[0].Bearer
+	default:
+		return string(checkoutdomain.BenChiuChiaDoi)
+	}
 }

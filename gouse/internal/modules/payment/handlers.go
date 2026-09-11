@@ -62,7 +62,7 @@ func (h *RevenueOnCheckoutCompleted) Name() string {
 // chọn cơ chế hoãn thay vì thả cho bên nhận đọc thiếu trường.
 func (h *RevenueOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 4
+		return 5
 	}
 	return eventbus.DefaultMaxEventVersion
 }
@@ -90,6 +90,8 @@ type revenuePayload struct {
 	ShippingFee int64 `json:"shipping_fee"`
 	// DiscountAmount có từ PHIÊN BẢN 4 của `checkout.completed`.
 	DiscountAmount int64 `json:"discount_amount"`
+	// DiscountSellerID có từ PHIÊN BẢN 5: gian hàng chịu khoản giảm.
+	DiscountSellerID string `json:"discount_seller_id"`
 }
 
 // phanCuaNhaBan là phần tiền của một nhà bán trong một đơn.
@@ -172,7 +174,8 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 	// Doanh thu ghi theo giá GỐC, khách trả phần đã trừ. Không ghi thì
 	// khoản phải thu còn dư đúng bằng số đã giảm.
 	if err := h.module.GhiGiamGiaInEventTx(
-		ctx, p.OrderID, p.DiscountAmount, p.Currency); err != nil {
+		ctx, p.OrderID, p.DiscountAmount, p.Currency,
+		p.DiscountSellerID); err != nil {
 		return fmt.Errorf("ghi khoản giảm giá: %w", err)
 	}
 

@@ -63,13 +63,13 @@ func (s *CheckoutStore) SaveWithEvents(
 			ship_district, ship_province, ship_country_code, shipping_method,
 			shipping_fee, discount_amount, tax_amount, coupon_code,
 			status, expires_at, extended_times, order_id, completion_key,
-			created_at, updated_at
+			created_at, updated_at, discount_cost_bearer
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,
 			$7,$8,$9,$10,$11,$12,$13,$14,
 			$15,$16,$17,$18,
 			$19,$20,$21,$22,$23,
-			$24,$25
+			$24,$25,$26
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			ship_recipient_name = EXCLUDED.ship_recipient_name,
@@ -83,6 +83,7 @@ func (s *CheckoutStore) SaveWithEvents(
 			shipping_fee        = EXCLUDED.shipping_fee,
 			discount_amount     = EXCLUDED.discount_amount,
 			tax_amount          = EXCLUDED.tax_amount,
+			discount_cost_bearer = EXCLUDED.discount_cost_bearer,
 			coupon_code         = EXCLUDED.coupon_code,
 			status              = EXCLUDED.status,
 			expires_at          = EXCLUDED.expires_at,
@@ -98,7 +99,7 @@ func (s *CheckoutStore) SaveWithEvents(
 		c.TaxAmount().Amount(), c.CouponCode(),
 		string(c.Status()), c.ExpiresAt(), c.ExtendedTimes(),
 		c.OrderID().String(), c.CompletionKey(),
-		c.CreatedAt(), c.UpdatedAt())
+		c.CreatedAt(), c.UpdatedAt(), string(c.BenChiuGiamGia()))
 	if err != nil {
 		// Giỏ này đã có phiên đang chạy. Mở phiên thứ hai sẽ giữ hàng lần
 		// thứ hai cho cùng một giỏ.
@@ -168,7 +169,7 @@ const checkoutCols = `
 	ship_district, ship_province, ship_country_code, shipping_method,
 	shipping_fee, discount_amount, tax_amount, coupon_code,
 	status, expires_at, extended_times, order_id, completion_key,
-	created_at, updated_at`
+	created_at, updated_at, discount_cost_bearer`
 
 func (s *CheckoutStore) FindByID(ctx context.Context, id ids.ID) (*domain.Checkout, error) {
 	return s.findOne(ctx, `WHERE id = $1`, id.String())
@@ -395,6 +396,7 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 		shippingFee, discount, tax    int64
 		coupon, orderID, completedKey string
 		extendedTimes                 int
+		benChiu                       string
 	)
 	if err := row.Scan(
 		&id, &cartID, &customerID, &email, &phone, &currency,
@@ -402,7 +404,7 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 		&addr.District, &addr.Province, &addr.CountryCode, &method,
 		&shippingFee, &discount, &tax, &coupon,
 		&status, &p.ExpiresAt, &extendedTimes, &orderID, &completedKey,
-		&p.CreatedAt, &p.UpdatedAt,
+		&p.CreatedAt, &p.UpdatedAt, &benChiu,
 	); err != nil {
 		return nil, err
 	}
@@ -420,6 +422,7 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 	p.DiscountAmount = mustMoney(discount, cur)
 	p.TaxAmount = mustMoney(tax, cur)
 	p.CouponCode = coupon
+	p.BenChiuGiamGia = domain.BenChiuGiamGia(benChiu)
 	p.Status = domain.Status(status)
 	p.ExtendedTimes = extendedTimes
 	p.OrderID = ids.ID(orderID)
@@ -428,30 +431,13 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 	return domain.RestoreCheckout(p), nil
 }
 
-// withLines dựng lại phiên kèm dòng hàng.
+// withLines gắn dòng hàng vào phiên.
+//
+// Ủy quyền cho domain: dựng lại thực thể bằng cách liệt kê từng trường là
+// chỗ đã quên `BenChiuGiamGia` một lần, và không có gì báo lỗi khi quên.
+// Xem `domain.Checkout.KemDongHang`.
 func withLines(c *domain.Checkout, lines []*domain.Line) *domain.Checkout {
-	return domain.RestoreCheckout(domain.RestoreCheckoutParams{
-		ID:              c.ID(),
-		CartID:          c.CartID(),
-		CustomerID:      c.CustomerID(),
-		GuestEmail:      c.GuestEmail(),
-		GuestPhone:      c.GuestPhone(),
-		Currency:        c.Currency(),
-		ShippingAddress: c.ShippingAddress(),
-		ShippingMethod:  c.ShippingMethod(),
-		Lines:           lines,
-		ShippingFee:     c.ShippingFee(),
-		DiscountAmount:  c.DiscountAmount(),
-		TaxAmount:       c.TaxAmount(),
-		CouponCode:      c.CouponCode(),
-		Status:          c.Status(),
-		ExpiresAt:       c.ExpiresAt(),
-		ExtendedTimes:   c.ExtendedTimes(),
-		OrderID:         c.OrderID(),
-		CompletionKey:   c.CompletionKey(),
-		CreatedAt:       c.CreatedAt(),
-		UpdatedAt:       c.UpdatedAt(),
-	})
+	return c.KemDongHang(lines)
 }
 
 func mustMoney(amount int64, c money.Currency) money.Money {

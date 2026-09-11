@@ -3350,6 +3350,49 @@ chia đôi) và bất biến "tổng luôn bằng đúng số tiền giảm". K�
 tính rồi **không ai đọc**: `CostAllocations` không có bên tiêu thụ nào
 ngoài chính module promotion, vì cổng giữa checkout và promotion vứt nó đi.
 
+**Đã nối `CostAllocations` (08/09) — và nó tệ hơn "ghi nhầm bên".**
+
+`TestKhuyenMaiDoNhaBanChiuPhaiGhiDungBenChiu` tạo chương trình
+`CostBearer: SELLER` rồi áp mã. Kết quả: **HTTP 500**. `AllocateCost` với
+bên chịu là nhà bán bắt buộc phải biết `sellerID`, mà cổng
+checkout → promotion không truyền — nên mọi mã do nhà bán tự chịu chi phí
+đều hỏng, không chỉ ghi sai sổ.
+
+`ValidateRequest.SellerID` có sẵn từ đầu và **không ai điền** — lần thứ
+MƯỜI của dạng lỗi mục 8.
+
+Đã nối trọn đường:
+
+```text
+cổng ValidateCoupon   nhận sellerID, trả thêm BÊN CHỊU
+checkout              đóng băng bên chịu (migration 000046)
+khoanGiam             dùng giá trị thật thay cho "PLATFORM" gán cứng
+checkout.completed    lên PHIÊN BẢN 5 với `discount_seller_id`
+NewDiscountEntry      nhà bán chịu → DEBIT SELLER_PAYABLE(gian hàng)
+                      nền tảng chịu → DEBIT PLATFORM_REVENUE
+```
+
+Giỏ trộn NHIỀU nhà bán không truyền `sellerID`: một mã do A tự chịu mà áp
+lên hàng của B nghĩa là A trả tiền giảm giá cho người khác. Module
+promotion tự từ chối những mã cần biết gian hàng.
+
+**Và lần thứ HAI dính đúng một lỗi.** `withLines` bên checkout dựng lại
+thực thể bằng cách liệt kê từng trường; tôi quên `BenChiuGiamGia`, nên giá
+trị ghi đúng xuống DB rồi bị XÓA TRẮNG ở lần đọc kế tiếp và ghi đè ngược.
+Y hệt `withLineIDs` bên fulfillment quên `ChoThanhToan` hôm 07/09 — nhưng
+bên đó có chú thích cảnh báo, bên này không.
+
+Sửa tận gốc thay vì thêm một dòng: `Checkout.KemDongHang` **sao chép cả
+struct** (`ban := *c`) nên không còn trường nào để quên. Chỉ làm được từ
+trong package, vì các trường không xuất khẩu.
+
+**Còn lại:** chương trình CHIA ĐÔI (`SHARED`) vẫn ghi trọn về một bên —
+`benChiuTu` rút danh sách phân bổ thành một giá trị vì cột `cost_bearer`
+chỉ nhận ba trạng thái. Chia tiền thật theo tỷ lệ cần sổ cái đọc cả
+`CostAllocations`, và đó là bước sau.
+
+---
+
 Ghi vào `PLATFORM_REVENUE` khớp với thứ đang xảy ra với TIỀN hôm nay: bút
 toán doanh thu trả nhà bán theo `SellerPayable` tính từ giá GỐC, nên phần
 giảm thực tế do nền tảng gánh dù mã là của ai. Nó KHÔNG kết luận ai chịu —

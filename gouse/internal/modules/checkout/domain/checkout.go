@@ -141,6 +141,11 @@ type Checkout struct {
 	taxAmount      money.Money
 	couponCode     string
 
+	// benChiuGiamGia là bên phải gánh khoản giảm, ĐÓNG BĂNG lúc áp mã.
+	//
+	// Xem migration 000046 về lý do đóng băng thay vì tra lại lúc đặt đơn.
+	benChiuGiamGia BenChiuGiamGia
+
 	status Status
 
 	// expiresAt là thời điểm hàng được nhả.
@@ -257,6 +262,7 @@ type RestoreCheckoutParams struct {
 	DiscountAmount  money.Money
 	TaxAmount       money.Money
 	CouponCode      string
+	BenChiuGiamGia  BenChiuGiamGia
 	Status          Status
 	ExpiresAt       time.Time
 	ExtendedTimes   int
@@ -267,6 +273,26 @@ type RestoreCheckoutParams struct {
 }
 
 // RestoreCheckout dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
+// KemDongHang trả về BẢN SAO của phiên, gắn danh sách dòng hàng.
+//
+// # Vì sao là phương thức trong domain chứ không dựng lại ở tầng kho
+//
+// Tầng kho trước đây liệt kê TỪNG TRƯỜNG để dựng lại thực thể, nên mỗi lần
+// thêm một trường mới là một lần có thể quên — và trường bị quên không báo
+// lỗi, nó bị XÓA TRẮNG khi đọc lên rồi ghi đè giá trị đúng ở lần lưu kế
+// tiếp. Lỗi chỉ lộ ra ở bài test ghi-rồi-đọc-lại, không lộ ra lúc ghi.
+//
+// Đúng lỗi đó đã xảy ra hai lần: `withLineIDs` bên fulfillment quên
+// `ChoThanhToan`, và `withLines` ở đây quên `BenChiuGiamGia`.
+//
+// Sao chép cả struct thì không có trường nào để quên. Chỉ làm được từ
+// TRONG package, vì các trường đều không xuất khẩu.
+func (c *Checkout) KemDongHang(lines []*Line) *Checkout {
+	ban := *c
+	ban.lines = lines
+	return &ban
+}
+
 func RestoreCheckout(p RestoreCheckoutParams) *Checkout {
 	return &Checkout{
 		id:              p.ID,
@@ -282,6 +308,7 @@ func RestoreCheckout(p RestoreCheckoutParams) *Checkout {
 		discountAmount:  p.DiscountAmount,
 		taxAmount:       p.TaxAmount,
 		couponCode:      p.CouponCode,
+		benChiuGiamGia:  p.BenChiuGiamGia,
 		status:          p.Status,
 		expiresAt:       p.ExpiresAt,
 		extendedAt:      p.ExtendedTimes,
@@ -304,13 +331,18 @@ func (c *Checkout) ShippingFee() money.Money    { return c.shippingFee }
 func (c *Checkout) DiscountAmount() money.Money { return c.discountAmount }
 func (c *Checkout) TaxAmount() money.Money      { return c.taxAmount }
 func (c *Checkout) CouponCode() string          { return c.couponCode }
-func (c *Checkout) Status() Status              { return c.status }
-func (c *Checkout) ExpiresAt() time.Time        { return c.expiresAt }
-func (c *Checkout) ExtendedTimes() int          { return c.extendedAt }
-func (c *Checkout) OrderID() ids.ID             { return c.orderID }
-func (c *Checkout) CompletionKey() string       { return c.completionKey }
-func (c *Checkout) CreatedAt() time.Time        { return c.createdAt }
-func (c *Checkout) UpdatedAt() time.Time        { return c.updatedAt }
+
+// BenChiuGiamGia là bên phải gánh khoản giảm, đóng băng lúc áp mã.
+func (c *Checkout) BenChiuGiamGia() BenChiuGiamGia {
+	return c.benChiuGiamGia.HoacMacDinh()
+}
+func (c *Checkout) Status() Status        { return c.status }
+func (c *Checkout) ExpiresAt() time.Time  { return c.expiresAt }
+func (c *Checkout) ExtendedTimes() int    { return c.extendedAt }
+func (c *Checkout) OrderID() ids.ID       { return c.orderID }
+func (c *Checkout) CompletionKey() string { return c.completionKey }
+func (c *Checkout) CreatedAt() time.Time  { return c.createdAt }
+func (c *Checkout) UpdatedAt() time.Time  { return c.updatedAt }
 
 // IsGuest cho biết đây có phải phiên của khách vãng lai không.
 func (c *Checkout) IsGuest() bool { return c.customerID.IsZero() }
@@ -436,7 +468,9 @@ func (c *Checkout) SetShipping(method string, fee money.Money, now time.Time) er
 }
 
 // ApplyDiscount áp một khoản giảm giá ở mức phiên.
-func (c *Checkout) ApplyDiscount(code string, amount money.Money, now time.Time) error {
+func (c *Checkout) ApplyDiscount(
+	code string, amount money.Money, benChiu BenChiuGiamGia, now time.Time,
+) error {
 	if err := c.mutable(now); err != nil {
 		return err
 	}
@@ -445,6 +479,7 @@ func (c *Checkout) ApplyDiscount(code string, amount money.Money, now time.Time)
 	}
 	c.couponCode = strings.TrimSpace(code)
 	c.discountAmount = amount
+	c.benChiuGiamGia = benChiu.HoacMacDinh()
 	c.touch(now)
 	return nil
 }
@@ -456,6 +491,7 @@ func (c *Checkout) RemoveDiscount(now time.Time) error {
 	}
 	c.couponCode = ""
 	c.discountAmount = money.Zero(c.currency)
+	c.benChiuGiamGia = BenChiuNenTang
 	c.touch(now)
 	return nil
 }

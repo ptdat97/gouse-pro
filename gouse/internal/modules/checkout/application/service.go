@@ -236,6 +236,13 @@ type CheckoutCompleted struct {
 	// khoản không ai đòi.
 	DiscountAmount money.Money
 
+	// DiscountSellerID là gian hàng CHỊU khoản giảm — THÊM Ở PHIÊN BẢN 5.
+	//
+	// Rỗng nghĩa là nền tảng chịu. Payment cần nó để trừ đúng bên: khoản
+	// giảm của chương trình do nhà bán tự chạy phải trừ vào tiền phải trả
+	// gian hàng đó, không phải vào doanh thu nền tảng.
+	DiscountSellerID ids.ID
+
 	// ShippingAddress là nơi hàng phải đến.
 	//
 	// SELLER cần nó để in phiếu giao hàng. Không có nó thì họ biết nhặt gì
@@ -418,6 +425,13 @@ type PlaceOrderLine struct {
 	Quantity           int
 	CommissionRate     types.BasisPoints
 
+	// BenChiuGiamGia là bên gánh phần giảm của dòng này.
+	//
+	// Đóng băng từ phiên thanh toán (xem migration 000046). Trước đây tầng
+	// adapter gán cứng "PLATFORM", nên chương trình do nhà bán tự chạy vẫn
+	// bị ghi là nền tảng gánh — và đối soát cuối kỳ trừ nhầm bên.
+	BenChiuGiamGia string
+
 	// GiamGia là phần giảm ĐÃ PHÂN BỔ cho dòng này, số DƯƠNG.
 	//
 	// Đóng băng vào đơn hàng để việc trả hàng tính đúng giá thực trả.
@@ -484,9 +498,21 @@ type PromotionPort interface {
 		ctx context.Context, giam money.Money, dong []DongPhanBo,
 	) (map[ids.ID]money.Money, error)
 
+	// ValidateCoupon kiểm tra mã, trả số tiền giảm VÀ bên phải chịu.
+	//
+	// `sellerID` là gian hàng của phiên khi phiên CHỈ có một nguồn hàng;
+	// rỗng khi có nhiều. Mã riêng của một gian hàng, và mã do gian hàng
+	// tự chịu chi phí, đều cần biết con số này — thiếu nó thì module
+	// promotion không chia được chi phí và trả lỗi.
+	//
+	// `benChiu` là kết quả của `AllocateCost` bên promotion, KHÔNG phải
+	// một giá trị checkout tự đoán. Trước đây nó bị vứt đi và tầng adapter
+	// gán cứng "PLATFORM" — nên chương trình do nhà bán chạy vẫn bị ghi là
+	// nền tảng gánh.
 	ValidateCoupon(
-		ctx context.Context, code, customerID string, orderTotal money.Money,
-	) (discount money.Money, freeShipping bool, err error)
+		ctx context.Context, code, customerID string, sellerID ids.ID,
+		orderTotal money.Money,
+	) (discount money.Money, freeShipping bool, benChiu string, err error)
 }
 
 type Deps struct {
@@ -911,7 +937,10 @@ func (s *Service) ApplyDiscount(
 	ctx context.Context, id ids.ID, code string, amount money.Money,
 ) (*domain.Checkout, error) {
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
-		return c.ApplyDiscount(code, amount, now)
+		// Giảm giá đặt tay (không qua mã) thì nền tảng chịu: không có
+		// chương trình nào để tra bên chịu, và đoán sang nhà bán là lấy
+		// tiền của người ngoài công ty.
+		return c.ApplyDiscount(code, amount, domain.BenChiuNenTang, now)
 	})
 }
 
@@ -937,8 +966,19 @@ func (s *Service) ApplyCouponCode(
 
 	// Tính trên tổng tiền HÀNG HÓA, không gồm phí ship: mã giảm giá hàng
 	// và mã miễn phí ship là hai thứ khác nhau (xem DiscountResult).
-	discount, freeShipping, err := s.promotions.ValidateCoupon(
-		ctx, code, customerID, c.Subtotal())
+	// Gian hàng của phiên — CHỈ khi phiên có đúng một nguồn hàng.
+	//
+	// Giỏ trộn nhiều gian hàng thì không có "gian hàng của đơn": một mã do
+	// nhà bán A tự chịu mà áp lên cả hàng của B nghĩa là A trả tiền giảm
+	// giá cho hàng của người khác. Để rỗng và module promotion tự từ chối
+	// những mã cần biết gian hàng.
+	var sellerID ids.ID
+	if ds := c.SellerIDs(); len(ds) == 1 {
+		sellerID = ds[0]
+	}
+
+	discount, freeShipping, benChiu, err := s.promotions.ValidateCoupon(
+		ctx, code, customerID, sellerID, c.Subtotal())
 	if err != nil {
 		return nil, err
 	}
@@ -953,7 +993,8 @@ func (s *Service) ApplyCouponCode(
 	// `freeShipping` là miễn phí do MÃ cấp, khác với miễn phí do đạt
 	// ngưỡng. Cùng kết quả, hai lý do; hóa đơn cần phân biệt được.
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
-		if err := c.ApplyDiscount(code, discount, now); err != nil {
+		if err := c.ApplyDiscount(
+			code, discount, domain.BenChiuGiamGia(benChiu), now); err != nil {
 			return err
 		}
 		return s.apDungTien(ctx, c, freeShipping, now)
@@ -1187,6 +1228,7 @@ func (s *Service) CompleteCheckout(
 			Quantity:           l.Quantity(),
 			CommissionRate:     l.CommissionRate(),
 			GiamGia:            giamTheoDong[l.ID()],
+			BenChiuGiamGia:     string(c.BenChiuGiamGia()),
 		})
 	}
 
@@ -1342,19 +1384,23 @@ func (s *Service) completedEvent(
 	}
 
 	return CheckoutCompleted{
-		CheckoutID:      c.ID(),
-		OrderID:         orderID,
-		OrderNumber:     orderNumber,
-		CartID:          c.CartID(),
-		CustomerID:      c.CustomerID(),
-		GuestEmail:      c.GuestEmail(),
-		GuestPhone:      c.GuestPhone(),
-		PaymentMethod:   paymentMethod,
-		ShippingFee:     c.ShippingFee(),
-		DiscountAmount:  c.DiscountAmount(),
-		ShippingAddress: c.ShippingAddress(),
-		Currency:        c.Currency(),
-		Reservations:    reservations,
+		CheckoutID:     c.ID(),
+		OrderID:        orderID,
+		OrderNumber:    orderNumber,
+		CartID:         c.CartID(),
+		CustomerID:     c.CustomerID(),
+		GuestEmail:     c.GuestEmail(),
+		GuestPhone:     c.GuestPhone(),
+		PaymentMethod:  paymentMethod,
+		ShippingFee:    c.ShippingFee(),
+		DiscountAmount: c.DiscountAmount(),
+
+		// Gian hàng chịu khoản giảm: chỉ có nghĩa khi bên chịu là NHÀ BÁN,
+		// và khi đó phiên chỉ có đúng một nguồn hàng (xem ApplyCouponCode).
+		DiscountSellerID: benChiuLaNhaBan(c),
+		ShippingAddress:  c.ShippingAddress(),
+		Currency:         c.Currency(),
+		Reservations:     reservations,
 	}
 }
 
@@ -1449,4 +1495,20 @@ func lyDoThatBai(err error) string {
 	default:
 		return "internal"
 	}
+}
+
+// benChiuLaNhaBan trả gian hàng chịu khoản giảm, rỗng nếu nền tảng chịu.
+//
+// Phiên có nhiều nguồn hàng thì trả rỗng dù bên chịu là nhà bán: không xác
+// định được trừ tiền gian hàng nào, và đoán bừa là lấy tiền của một bên
+// không liên quan. `ApplyCouponCode` đã chặn trường hợp đó từ đầu — mã cần
+// biết gian hàng không áp được lên giỏ trộn — nên đây là hàng rào thứ hai.
+func benChiuLaNhaBan(c *domain.Checkout) ids.ID {
+	if c.BenChiuGiamGia() != domain.BenChiuNhaBan {
+		return ""
+	}
+	if ds := c.SellerIDs(); len(ds) == 1 {
+		return ds[0]
+	}
+	return ""
 }

@@ -196,7 +196,7 @@ func TestQuaHanTheoDongHoChanNgayKhongDoiTienTrinhNen(t *testing.T) {
 	}{
 		{"đặt địa chỉ", c.SetShippingAddress(testAddress(), late)},
 		{"đặt phí ship", c.SetShipping("giao nhanh", vnd(30000), late)},
-		{"áp mã giảm giá", c.ApplyDiscount("THUDONG20", vnd(50000), late)},
+		{"áp mã giảm giá", c.ApplyDiscount("THUDONG20", vnd(50000), domain.BenChiuNenTang, late)},
 		{"chuyển chờ thanh toán", c.MarkPendingPayment(late)},
 	} {
 		if !errors.Is(tc.err, domain.ErrExpired) {
@@ -293,7 +293,7 @@ func TestTongTienLaConSoKhachNhinThay(t *testing.T) {
 	if err := c.SetShipping("giao nhanh", vnd(30000), testNow); err != nil {
 		t.Fatalf("SetShipping: %v", err)
 	}
-	if err := c.ApplyDiscount("THUDONG20", vnd(100000), testNow); err != nil {
+	if err := c.ApplyDiscount("THUDONG20", vnd(100000), domain.BenChiuNenTang, testNow); err != nil {
 		t.Fatalf("ApplyDiscount: %v", err)
 	}
 	if err := c.SetTax(vnd(0), testNow); err != nil {

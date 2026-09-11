@@ -361,9 +361,14 @@ func toOrderAmount(m money.Money) order.Amount {
 // Số ÂM: khoản điều chỉnh dùng dấu để phân biệt giảm với tăng, và đảo dấu
 // ở đây một lần thay vì bắt mọi nơi đọc phải nhớ quy ước riêng.
 //
-// CostBearer là PLATFORM: mã giảm giá của nền tảng thì nền tảng chịu. Khi
-// có chương trình do nhà bán tự chạy, chỗ này phải phân biệt — nếu không
-// thì đối soát cuối kỳ tính nhầm bên chịu chi phí.
+// CostBearer lấy từ phiên thanh toán, nơi nó được ĐÓNG BĂNG lúc áp mã.
+//
+// Trước đây chỗ này gán cứng "PLATFORM" kèm một chú thích nói rõ thiếu
+// sót: "khi có chương trình do nhà bán tự chạy, chỗ này phải phân biệt".
+// Chương trình như vậy đã tạo được từ lâu (`CreatePromotion` nhận
+// `CostBearer: SELLER`), nên nó không còn là chuyện tương lai — và tệ hơn
+// dự đoán: mã của nhà bán không chỉ bị ghi nhầm bên chịu, nó trả 500 cho
+// khách vì `AllocateCost` không có `sellerID` để chia.
 func khoanGiam(l application.PlaceOrderLine) []order.AdjustmentInput {
 	if !l.GiamGia.IsPositive() {
 		return nil
@@ -376,7 +381,7 @@ func khoanGiam(l application.PlaceOrderLine) []order.AdjustmentInput {
 			Currency: string(l.GiamGia.Currency()),
 		},
 		SourceType: "COUPON",
-		CostBearer: "PLATFORM",
+		CostBearer: l.BenChiuGiamGia,
 	}}
 }
 
