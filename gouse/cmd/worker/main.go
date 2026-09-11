@@ -266,9 +266,25 @@ func run() error {
 		return err
 	}
 
+	// Tham số vận hành cho worker.
+	//
+	// DỰNG TRƯỚC MỌI MODULE DÙNG NÓ: module nhận store lúc khởi tạo, nên
+	// thứ tự ở đây quyết định module nào thấy tham số và module nào chạy
+	// bằng mặc định. Đặt ngay trước nhóm module đầu tiên cần nó.
+	//
+	// API đã có store riêng (internal/app); đây là tiến trình KHÁC nên nó
+	// cần store của mình. Hai bộ đệm đọc cùng một bảng, nên đổi tham số
+	// qua API có tác dụng ở worker sau lần làm mới bộ đệm kế tiếp.
+	//
+	// Không có nó thì job đối chiếu giao hàng báo lỗi "chưa nối cấu hình
+	// vận hành" mỗi lượt — và nó BÁO thay vì lặng lẽ trả rỗng, đúng như
+	// `fulfillment.ErrChuaNoiCauHinh` mô tả.
+	opsConfigStore := opsconfig.NewStore(ctx, db.Pool())
+
 	// checkout cần bốn module để khởi tạo. Worker dựng chúng chỉ để có
 	// checkoutModule — nó không tự chạy job nào.
-	sellerModule, err := seller.New(seller.Config{Storage: "postgres", DB: db})
+	sellerModule, err := seller.New(seller.Config{
+		Storage: "postgres", DB: db, OpsConfig: opsConfigStore})
 	if err != nil {
 		return err
 	}
@@ -291,6 +307,7 @@ func run() error {
 		Product:   productModule,
 		Seller:    sellerModule,
 		Inventory: inventoryModule,
+		OpsConfig: opsConfigStore,
 	})
 	if err != nil {
 		return err
@@ -316,17 +333,6 @@ func run() error {
 
 	// fulfillment là GÓC NHÌN VẬN HÀNH của đơn hàng: nó tách đơn theo nguồn
 	// hàng và theo dõi tiến trình giao.
-	// Tham số vận hành cho worker.
-	//
-	// API đã có store riêng (internal/app); đây là tiến trình KHÁC nên nó
-	// cần store của mình. Hai bộ đệm đọc cùng một bảng, nên đổi tham số
-	// qua API có tác dụng ở worker sau lần làm mới bộ đệm kế tiếp.
-	//
-	// Không có nó thì job đối chiếu giao hàng báo lỗi "chưa nối cấu hình
-	// vận hành" mỗi lượt — và nó BÁO thay vì lặng lẽ trả rỗng, đúng như
-	// `fulfillment.ErrChuaNoiCauHinh` mô tả.
-	opsConfigStore := opsconfig.NewStore(ctx, db.Pool())
-
 	fulfillmentModule, err := fulfillment.New(fulfillment.Config{
 		Storage:   "postgres",
 		DB:        db,
@@ -483,6 +489,14 @@ func run() error {
 			name:     "tạo đợt đối soát cho nhà bán",
 			interval: taoDoiSoatInterval,
 			run:      taoDoiSoat(paymentModule, log),
+
+			// Nhịp này là CHÍNH SÁCH: nó quyết định nhà bán thấy khoản
+			// của mình sớm hay muộn — câu họ hỏi nhiều nhất. Việc CHI TRẢ
+			// vẫn do người duyệt, nên nới nhịp không nới một kiểm soát
+			// tiền nào.
+			nhipTu: func() time.Duration {
+				return opsConfigStore.DocThoiLuong(opsconfig.KeyNhipTaoDoiSoat)
+			},
 		},
 		{
 			name:     "tính chỉ số phân tích",
@@ -742,6 +756,27 @@ type job struct {
 	name     string
 	interval time.Duration
 	run      func(context.Context) error
+
+	// nhipTu đọc nhịp LÚC CHẠY, ghi đè `interval` nếu khác nil.
+	//
+	// Chỉ những job có nhịp là CHÍNH SÁCH KINH DOANH mới cần nó. Nhịp của
+	// job dọn dẹp là quyết định kỹ thuật và ở lại trong mã.
+	nhipTu func() time.Duration
+}
+
+// nhip trả nhịp đang hiệu lực của job.
+//
+// Giá trị ngoài biên bị BỎ QUA thay vì làm job chết: một tham số hỏng
+// không được phép dừng một vòng lặp nền, và `interval` biên dịch sẵn luôn
+// là con số an toàn.
+func (j job) nhip() time.Duration {
+	if j.nhipTu == nil {
+		return j.interval
+	}
+	if d := j.nhipTu(); d > 0 {
+		return d
+	}
+	return j.interval
 }
 
 // runJobs chạy mọi job theo nhịp riêng cho tới khi nhận tín hiệu dừng.
@@ -758,17 +793,18 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 		go func(j job) {
 			defer func() { done <- struct{}{} }()
 
-			ticker := time.NewTicker(j.interval)
+			nhip := j.nhip()
+			ticker := time.NewTicker(nhip)
 			defer ticker.Stop()
 
 			jobLog := log.With("job", j.name)
-			jobLog.Info("job đã khởi động", "nhịp", j.interval.String())
+			jobLog.Info("job đã khởi động", "nhịp", nhip.String())
 
 			// Công bố nhịp để luật cảnh báo tự điều chỉnh ngưỡng theo
 			// từng job. Xem metrics.WorkerJobInterval: một ngưỡng cố định
 			// cho mọi job làm job chạy thưa bị báo là treo.
 			metrics.WorkerJobInterval.WithLabelValues(j.name).
-				Set(j.interval.Seconds())
+				Set(nhip.Seconds())
 
 			// Chạy NGAY một lượt lúc khởi động, không chờ hết nhịp đầu:
 			// nếu worker vừa khởi động lại sau sự cố, có thể đang có tồn
@@ -782,6 +818,20 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 					return
 				case <-ticker.C:
 					runOnce(ctx, jobLog, j)
+
+					// Đọc lại nhịp SAU mỗi lượt.
+					//
+					// Cùng lúc công bố lại chỉ số: luật cảnh báo "job
+					// treo" so thời gian im lặng với CHÍNH chỉ số này,
+					// nên nới nhịp mà không công bố lại sẽ tạo một cảnh
+					// báo luôn kêu — đúng thứ đã phải đi sửa một lần rồi.
+					if moi := j.nhip(); moi != nhip {
+						nhip = moi
+						ticker.Reset(nhip)
+						metrics.WorkerJobInterval.WithLabelValues(j.name).
+							Set(nhip.Seconds())
+						jobLog.Info("nhịp job đã đổi", "nhịp", nhip.String())
+					}
 				}
 			}
 		}(j)

@@ -15,6 +15,7 @@ import (
 	sellerhttp "github.com/fashion-commerce/platform/internal/modules/seller/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
 
@@ -34,6 +35,12 @@ type Config struct {
 	DB *database.DB
 
 	Clock application.Clock
+
+	// OpsConfig cấp SÀN và MỨC ĐỀ XUẤT hoa hồng, sửa được lúc chạy.
+	//
+	// Có thể nil: khi đó không có sàn — đúng bằng hành vi trước khi có
+	// tham số này.
+	OpsConfig *opsconfig.Store
 
 	// MaHoa mã hóa số tài khoản ngân hàng khi lưu.
 	//
@@ -63,6 +70,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Audit != nil {
 		deps.Audit = NewAuditRecorder(cfg.Audit)
+	}
+	if cfg.OpsConfig != nil {
+		deps.ChinhSach = &chinhSachAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -300,6 +310,32 @@ func translateErr(err error) error {
 	case errors.Is(err, domain.ErrInvalidStatus),
 		errors.Is(err, domain.ErrNoBankAccount):
 		return ErrNotAllowed
+	case errors.Is(err, application.ErrDuoiSanHoaHong):
+		return ErrDuoiSanHoaHong
 	}
 	return err
 }
+
+// chinhSachAdapter đọc chính sách hoa hồng từ cấu hình vận hành.
+//
+// ĐỌC MỖI LẦN DUYỆT: đổi sàn phải có tác dụng ở hồ sơ duyệt kế tiếp, không
+// phải ở lần triển khai kế tiếp.
+type chinhSachAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
+
+func (a *chinhSachAdapter) SanHoaHong() int32 {
+	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongSan))
+}
+
+func (a *chinhSachAdapter) HoaHongDeXuat() int32 {
+	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongDeXuat))
+}
+
+// HoaHongDeXuat trả mức hoa hồng ĐIỀN SẴN cho màn hình duyệt nhà bán.
+//
+// Nó KHÔNG tự áp cho ai — giao diện điền sẵn, người duyệt vẫn phải xác
+// nhận. Nhưng phần lớn người duyệt giữ nguyên giá trị điền sẵn, nên trên
+// thực tế nó là tỷ lệ của đa số nhà bán mới. Đó là lý do nó được ghi vết
+// như mọi tham số khác.
+func (m *Module) HoaHongDeXuat() int32 { return m.svc.HoaHongDeXuat() }

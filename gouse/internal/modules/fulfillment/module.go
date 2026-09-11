@@ -30,6 +30,12 @@ type Module struct {
 	// vận hành. Trộn hai thứ lại sẽ có một trường mà phép chấm điểm không
 	// bao giờ dùng tới.
 	nguongBatTin func() time.Duration
+
+	// bieuPhiPort cấp phí vận chuyển cho đường BÁO GIÁ của tầng module.
+	//
+	// Tầng application có bản của riêng nó cho đường bàn giao; đây là cùng
+	// một cổng, giữ ở hai nơi vì `EstimateShipping` không đi qua service.
+	bieuPhiPort application.BieuPhiPort
 }
 
 var _ API = (*Module)(nil)
@@ -79,6 +85,7 @@ func New(cfg Config) (*Module, error) {
 		deps.Events = &eventPublisher{outbox: cfg.Events}
 	}
 	if cfg.OpsConfig != nil {
+		deps.BieuPhi = &bieuPhiAdapter{cfg: cfg.OpsConfig}
 		deps.Nguong = &nguongAdapter{cfg: cfg.OpsConfig}
 		// Hạn đổi trả: CÙNG tham số mà `returns` dùng để từ chối yêu cầu
 		// quá hạn. Một nguồn cho hai module.
@@ -88,6 +95,7 @@ func New(cfg Config) (*Module, error) {
 	return &Module{
 		svc:          application.NewService(deps),
 		nguongBatTin: nguongBatTinTu(cfg.OpsConfig),
+		bieuPhiPort:  deps.BieuPhi,
 	}, nil
 }
 
@@ -467,4 +475,33 @@ var _ application.HanDoiTraPort = (*hanDoiTraAdapter)(nil)
 
 func (a *hanDoiTraAdapter) HanDoiTra() time.Duration {
 	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
+}
+
+// bieuPhiAdapter đọc biểu phí vận chuyển từ cấu hình vận hành.
+//
+// ĐỌC MỖI LẦN: phí là giá hiện trên màn hình thanh toán, và số ngày là lời
+// hứa giao hàng. Chụp lúc khởi động nghĩa là đổi giá phải chờ triển khai.
+type bieuPhiAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.BieuPhiPort = (*bieuPhiAdapter)(nil)
+
+func (a *bieuPhiAdapter) BieuPhi() domain.BieuPhiGiao {
+	return domain.BieuPhiGiao{
+		domain.GiaoTieuChuan: {
+			PhiMotNguon:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoTieuChuan)),
+			SoNgayDuKien: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoTieuChuan),
+		},
+		domain.GiaoNhanh: {
+			PhiMotNguon:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoNhanh)),
+			SoNgayDuKien: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoNhanh),
+		},
+	}
+}
+
+// bieuPhi trả biểu phí đang hiệu lực cho tầng module.
+func (m *Module) bieuPhi() domain.BieuPhiGiao {
+	if m.bieuPhiPort == nil {
+		return domain.BieuPhiMacDinh
+	}
+	return m.bieuPhiPort.BieuPhi()
 }

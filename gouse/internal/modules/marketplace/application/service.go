@@ -115,8 +115,36 @@ type Service struct {
 	product   ProductPort
 	seller    SellerPort
 	inventory InventoryPort
-	weights   domain.BuyBoxWeights
+	chinhSach ChinhSachPort
 	clock     Clock
+}
+
+// ChinhSachPort cấp những con số CHÍNH SÁCH KINH DOANH, đọc lúc chạy.
+//
+// # Vì sao là cổng chứ không phải giá trị
+//
+// Trước đây `Deps.Weights` là một GIÁ TRỊ, chốt lúc khởi động. Hai hệ quả,
+// và cả hai đều im lặng:
+//
+//	không ai truyền vào  → luôn rơi về mặc định của domain
+//	chốt lúc khởi động   → đổi tham số vẫn cần khởi động lại
+//
+// Mà đây là những con số quyết định NHÀ BÁN NÀO CÓ DOANH THU, và chú thích
+// ở chỗ khai báo trọng số tự nói rằng chúng "nên hiệu chỉnh lại khi có dữ
+// liệu thật" — tức là một vòng lặp đo → đổi → đo lại, thứ không đi qua một
+// lần triển khai được.
+//
+// Cổng ĐỌC MỖI LẦN DÙNG. Bên cài đặt nằm ở tầng ngoài, nên tầng này không
+// biết tới `opsconfig` (quy tắc R1 của archcheck).
+type ChinhSachPort interface {
+	// TrongSoBuyBox trả trọng số công thức chọn buy box.
+	TrongSoBuyBox() domain.BuyBoxWeights
+
+	// DiemHieuSuatMacDinh là điểm của nhà bán CHƯA có lịch sử.
+	DiemHieuSuatMacDinh() int
+
+	// GioChuanBiMacDinh áp cho offer không tự khai thời gian chuẩn bị.
+	GioChuanBiMacDinh() int
 }
 
 type Deps struct {
@@ -126,18 +154,18 @@ type Deps struct {
 	Product   ProductPort
 	Seller    SellerPort
 	Inventory InventoryPort
-	Weights   domain.BuyBoxWeights
-	Clock     Clock
+
+	// ChinhSach có thể nil: khi đó dùng mặc định của domain, đúng bằng
+	// hành vi trước khi có tham số vận hành.
+	ChinhSach ChinhSachPort
+
+	Clock Clock
 }
 
 func NewService(d Deps) *Service {
 	clock := d.Clock
 	if clock == nil {
 		clock = SystemClock
-	}
-	w := d.Weights
-	if w.Price == 0 && w.Handling == 0 && w.Performance == 0 {
-		w = domain.DefaultWeights
 	}
 	return &Service{
 		offers:    d.Offers,
@@ -146,7 +174,7 @@ func NewService(d Deps) *Service {
 		product:   d.Product,
 		seller:    d.Seller,
 		inventory: d.Inventory,
-		weights:   w,
+		chinhSach: d.ChinhSach,
 		clock:     clock,
 	}
 }
@@ -192,6 +220,14 @@ func (s *Service) CreateOffer(ctx context.Context, in CreateOfferInput) (*domain
 		return nil, err
 	}
 
+	// Thời gian chuẩn bị mặc định giải Ở ĐÂY, không ở domain: domain là
+	// hàm thuần, nó không đọc cấu hình vận hành. Nhà bán KHÔNG khai thì
+	// áp con số chính sách; khai rồi thì giữ nguyên lựa chọn của họ.
+	gioChuanBi := in.HandlingTimeHours
+	if gioChuanBi <= 0 {
+		gioChuanBi = s.gioChuanBiMacDinh()
+	}
+
 	now := s.clock.Now()
 	o, err := domain.NewOffer(domain.NewOfferParams{
 		SKUID:             in.SKUID,
@@ -199,7 +235,7 @@ func (s *Service) CreateOffer(ctx context.Context, in CreateOfferInput) (*domain
 		Price:             in.Price,
 		CompareAt:         in.CompareAt,
 		Condition:         in.Condition,
-		HandlingTimeHours: in.HandlingTimeHours,
+		HandlingTimeHours: gioChuanBi,
 		MinOrderQuantity:  in.MinOrderQuantity,
 		MaxOrderQuantity:  in.MaxOrderQuantity,
 		Now:               now,
@@ -467,11 +503,11 @@ func (s *Service) buyBoxes(
 				SellerActive: active,
 				InStock:      coHang,
 				// Chưa có module chấm điểm hiệu suất (Phase 2).
-				PerformanceScore: domain.DefaultPerformanceScore,
+				PerformanceScore: s.diemHieuSuatMacDinh(),
 			})
 		}
 
-		if res := domain.SelectBuyBox(candidates, s.weights); res.Winner != nil {
+		if res := domain.SelectBuyBox(candidates, s.trongSo()); res.Winner != nil {
 			out[skuID] = res
 		}
 	}
@@ -896,4 +932,43 @@ func (s *Service) GetPriceRanges(
 		out[productID] = pr
 	}
 	return out, nil
+}
+
+// ---------------------------------------------------- Chính sách lúc chạy
+
+// trongSo đọc trọng số buy box, MỖI LẦN tính.
+//
+// Rơi về mặc định của domain khi chưa nối cấu hình — và cũng khi tổng ba
+// trọng số bằng 0. Tổng 0 không phải cấu hình hợp lệ dù từng khóa đều nằm
+// trong biên: khi đó mọi offer cùng 0 điểm và buy box thành ngẫu nhiên,
+// nên rơi về mặc định là hỏng theo hướng an toàn.
+func (s *Service) trongSo() domain.BuyBoxWeights {
+	if s.chinhSach == nil {
+		return domain.DefaultWeights
+	}
+	w := s.chinhSach.TrongSoBuyBox()
+	if w.Price+w.Handling+w.Performance <= 0 {
+		return domain.DefaultWeights
+	}
+	return w
+}
+
+// diemHieuSuatMacDinh đọc điểm của nhà bán chưa có lịch sử.
+func (s *Service) diemHieuSuatMacDinh() int {
+	if s.chinhSach == nil {
+		return domain.DefaultPerformanceScore
+	}
+	return s.chinhSach.DiemHieuSuatMacDinh()
+}
+
+// gioChuanBiMacDinh đọc thời gian chuẩn bị áp cho offer không tự khai.
+//
+// Trả 0 nghĩa là "không có ý kiến", và domain dùng hằng số của chính nó.
+// Giữ hằng số ấy làm lưới cuối: domain phải đúng với MỌI đầu vào, kể cả
+// khi nối dây sai hoặc có bên gọi thứ hai không đi qua cấu hình.
+func (s *Service) gioChuanBiMacDinh() int {
+	if s.chinhSach == nil {
+		return 0
+	}
+	return s.chinhSach.GioChuanBiMacDinh()
 }

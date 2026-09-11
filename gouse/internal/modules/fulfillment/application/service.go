@@ -166,6 +166,16 @@ type Service struct {
 	events EventPublisher
 	nguong NguongPort
 	han    HanDoiTraPort
+	bieu   BieuPhiPort
+}
+
+// BieuPhiPort cấp bảng phí và thời gian vận chuyển, đọc LÚC CHẠY.
+//
+// Hai con số tiền là giá hiện trên màn hình thanh toán; hai con số ngày là
+// lời hứa giao hàng. Chúng là chính sách kinh doanh, không phải hằng số kỹ
+// thuật — xem docs/09-operations/cau-hinh-nghiep-vu.md.
+type BieuPhiPort interface {
+	BieuPhi() domain.BieuPhiGiao
 }
 
 type Deps struct {
@@ -174,6 +184,9 @@ type Deps struct {
 
 	// Nguong có thể nil: khi đó dùng ngưỡng mặc định đã biên dịch.
 	Nguong NguongPort
+
+	// BieuPhi có thể nil: khi đó dùng `domain.BieuPhiMacDinh`.
+	BieuPhi BieuPhiPort
 
 	// Events có thể nil: khi đó module vẫn hoạt động nhưng KHÔNG phát
 	// event, và trạng thái tổng hợp của đơn hàng sẽ không được cập nhật.
@@ -189,7 +202,7 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{repo: d.Repo, clock: clock, events: d.Events,
-		nguong: d.Nguong, han: d.Han}
+		nguong: d.Nguong, han: d.Han, bieu: d.BieuPhi}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -290,7 +303,7 @@ func (s *Service) HandOver(
 	ctx context.Context, sellerID, foID ids.ID, provider, trackingNumber string,
 ) error {
 	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
-		return fo.HandOver(provider, trackingNumber, now)
+		return fo.HandOver(provider, trackingNumber, s.bieuPhi(), now)
 	})
 }
 
@@ -335,7 +348,7 @@ func (s *Service) RecordHandOver(
 		}
 		// Mọi trạng thái khác đi thẳng vào HandOver, và máy trạng thái tự
 		// từ chối nếu không hợp lệ (đã giao, đã hủy).
-		return fo.HandOver(provider, trackingNumber, now)
+		return fo.HandOver(provider, trackingNumber, s.bieuPhi(), now)
 	})
 }
 
@@ -878,4 +891,15 @@ func (s *Service) HuyTheoDon(
 		daHuy++
 	}
 	return daHuy, nil
+}
+
+// bieuPhi đọc bảng phí vận chuyển, MỖI LẦN dùng.
+//
+// Rơi về mặc định của domain khi chưa nối cấu hình — đúng bằng hành vi
+// trước khi có tham số vận hành.
+func (s *Service) bieuPhi() domain.BieuPhiGiao {
+	if s.bieu == nil {
+		return domain.BieuPhiMacDinh
+	}
+	return s.bieu.BieuPhi()
 }

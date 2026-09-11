@@ -30,8 +30,10 @@ func (m *Module) EstimateShipping(
 		nguon = append(nguon, domain.NguonHang{SellerID: s.SellerID})
 	}
 
+	// Biểu phí đọc MỖI LẦN báo giá: đổi phí vận chuyển phải có tác dụng
+	// ở lượt thanh toán kế tiếp, không phải ở lần triển khai kế tiếp.
 	res, err := domain.UocTinhPhiGiao(
-		domain.PhuongThucGiao(req.Method), nguon, donVi)
+		domain.PhuongThucGiao(req.Method), nguon, donVi, m.bieuPhi())
 	if err != nil {
 		return nil, err
 	}

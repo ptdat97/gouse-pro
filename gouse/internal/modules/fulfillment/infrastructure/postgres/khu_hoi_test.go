@@ -369,7 +369,7 @@ func TestNgayGiaoDuKienKhongLechMotNgay(t *testing.T) {
 			if err := store.SaveBatch(ctx, []*domain.FulfillmentOrder{fo}); err != nil {
 				t.Fatalf("lưu: %v", err)
 			}
-			if err := fo.HandOver("GHN", "GHN-"+string(fo.ID())[4:14], tc.banGiao); err != nil {
+			if err := fo.HandOver("GHN", "GHN-"+string(fo.ID())[4:14], domain.BieuPhiMacDinh, tc.banGiao); err != nil {
 				t.Fatalf("bàn giao: %v", err)
 			}
 			if err := store.Update(ctx, fo); err != nil {

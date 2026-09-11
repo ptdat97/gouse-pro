@@ -51,7 +51,21 @@ type MucPhi struct {
 //
 // Cả hai đều cần thêm dữ liệu chứ không chỉ thêm phép tính, nên chúng nằm
 // ngoài P3-8. Xem ghi chú P3-8 trong backlog.
-var bieuPhi = map[PhuongThucGiao]MucPhi{
+// BieuPhiGiao là bảng phí và thời gian theo phương thức vận chuyển.
+type BieuPhiGiao map[PhuongThucGiao]MucPhi
+
+// BieuPhiMacDinh dùng khi chưa nối cấu hình vận hành.
+//
+// # Vì sao nó là THAM SỐ chứ không còn là hằng số của gói
+//
+// Hai con số tiền là GIÁ HIỆN TRÊN MÀN HÌNH THANH TOÁN; hai con số ngày là
+// LỜI HỨA GIAO HÀNG. Đổi chúng là việc chạy khuyến mãi, đàm phán lại với
+// hãng, hoặc phản ứng với đối thủ — không việc nào nên chờ một lần triển
+// khai.
+//
+// Bảng này ở lại làm LƯỚI CUỐI: domain phải đúng với mọi đầu vào, kể cả
+// khi nối dây sai hoặc có bên gọi thứ hai không đi qua cấu hình.
+var BieuPhiMacDinh = BieuPhiGiao{
 	GiaoTieuChuan: {PhiMotNguon: 30_000, SoNgayDuKien: 3},
 	GiaoNhanh:     {PhiMotNguon: 60_000, SoNgayDuKien: 1},
 }
@@ -89,8 +103,12 @@ type UocTinhPhi struct {
 // Đơn KHÔNG có nguồn nào trả phí 0 — không có gì để giao.
 func UocTinhPhiGiao(
 	phuongThuc PhuongThucGiao, nguon []NguonHang, donVi money.Currency,
+	bieu BieuPhiGiao,
 ) (UocTinhPhi, error) {
-	muc, ok := bieuPhi[phuongThuc]
+	if bieu == nil {
+		bieu = BieuPhiMacDinh
+	}
+	muc, ok := bieu[phuongThuc]
 	if !ok {
 		return UocTinhPhi{}, ErrPhuongThucKhongHopLe
 	}

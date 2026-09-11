@@ -377,6 +377,12 @@ func translate(err error) error {
 		return apierror.New(apierror.CodeConflict,
 			"Nhà bán phải có tài khoản ngân hàng đã xác minh")
 
+	// Dưới SÀN hoa hồng là thao tác sai của người dùng, không phải lỗi hệ
+	// thống — và thông báo phải nói rõ sàn đang là bao nhiêu, nếu không
+	// người duyệt chỉ biết mình bị từ chối mà không biết phải điền gì.
+	case errors.Is(err, application.ErrDuoiSanHoaHong):
+		return apierror.New(apierror.CodeValidationFailed, err.Error())
+
 	default:
 		return apierror.From(err)
 	}

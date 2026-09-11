@@ -39,7 +39,7 @@ func TestPhiTinhTheoTungNguon(t *testing.T) {
 	} {
 		t.Run(tt.ten, func(t *testing.T) {
 			got, err := domain.UocTinhPhiGiao(
-				domain.GiaoTieuChuan, tt.nguon, money.VND)
+				domain.GiaoTieuChuan, tt.nguon, money.VND, domain.BieuPhiMacDinh)
 			if err != nil {
 				t.Fatalf("UocTinhPhiGiao: %v", err)
 			}
@@ -63,7 +63,7 @@ func TestPhiTinhTheoTungNguon(t *testing.T) {
 // không lấy lại được ở tầng trên.
 func TestChiTietTheoNguonMangThoiGianGiao(t *testing.T) {
 	got, err := domain.UocTinhPhiGiao(
-		domain.GiaoNhanh, nguon("sel_a", "sel_b"), money.VND)
+		domain.GiaoNhanh, nguon("sel_a", "sel_b"), money.VND, domain.BieuPhiMacDinh)
 	if err != nil {
 		t.Fatalf("UocTinhPhiGiao: %v", err)
 	}
@@ -82,11 +82,11 @@ func TestChiTietTheoNguonMangThoiGianGiao(t *testing.T) {
 // TestGiaoNhanhDatHonVaNhanhHon — nếu hai phương thức cho cùng phí và cùng
 // thời gian thì việc cho khách chọn là vô nghĩa.
 func TestGiaoNhanhDatHonVaNhanhHon(t *testing.T) {
-	tc, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nguon("sel_a"), money.VND)
+	tc, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nguon("sel_a"), money.VND, domain.BieuPhiMacDinh)
 	if err != nil {
 		t.Fatalf("tiêu chuẩn: %v", err)
 	}
-	nhanh, err := domain.UocTinhPhiGiao(domain.GiaoNhanh, nguon("sel_a"), money.VND)
+	nhanh, err := domain.UocTinhPhiGiao(domain.GiaoNhanh, nguon("sel_a"), money.VND, domain.BieuPhiMacDinh)
 	if err != nil {
 		t.Fatalf("nhanh: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestGiaoNhanhDatHonVaNhanhHon(t *testing.T) {
 
 // TestKhongCoNguonThiPhiBangKhong — không có gì để giao thì không thu.
 func TestKhongCoNguonThiPhiBangKhong(t *testing.T) {
-	got, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nil, money.VND)
+	got, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nil, money.VND, domain.BieuPhiMacDinh)
 	if err != nil {
 		t.Fatalf("UocTinhPhiGiao: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestKhongCoNguonThiPhiBangKhong(t *testing.T) {
 // Rơi về một mức mặc định là đoán tiền khách phải trả.
 func TestPhuongThucLaThiTuChoi(t *testing.T) {
 	_, err := domain.UocTinhPhiGiao(
-		domain.PhuongThucGiao("TAU_VU_TRU"), nguon("sel_a"), money.VND)
+		domain.PhuongThucGiao("TAU_VU_TRU"), nguon("sel_a"), money.VND, domain.BieuPhiMacDinh)
 	if !errors.Is(err, domain.ErrPhuongThucKhongHopLe) {
 		t.Fatalf("lỗi = %v, mong ErrPhuongThucKhongHopLe", err)
 	}
@@ -129,7 +129,7 @@ func TestPhuongThucLaThiTuChoi(t *testing.T) {
 // Trả phí bằng VND cho một đơn tính bằng USD thì phép cộng vào tổng đơn
 // hoặc lỗi, hoặc tệ hơn: cộng hai con số khác đơn vị thành một số vô nghĩa.
 func TestPhiGiuNguyenDonViTienTe(t *testing.T) {
-	got, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nguon("sel_a"), money.USD)
+	got, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nguon("sel_a"), money.USD, domain.BieuPhiMacDinh)
 	if err != nil {
 		t.Fatalf("UocTinhPhiGiao: %v", err)
 	}

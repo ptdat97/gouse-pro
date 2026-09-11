@@ -187,7 +187,7 @@ func TestVongDoiDayDu(t *testing.T) {
 		{"lấy hàng", func() error { return fo.Pick(testNow) }, domain.FOPicking},
 		{"đóng gói", func() error { return fo.Pack(testNow) }, domain.FOPacked},
 		{"bàn giao", func() error {
-			return fo.HandOver("GHN", "GHN123456", testNow)
+			return fo.HandOver("GHN", "GHN123456", domain.BieuPhiMacDinh, testNow)
 		}, domain.FOHandedOver},
 		{"đang giao", func() error { return fo.MarkInTransit(testNow) }, domain.FOInTransit},
 		{"đã giao", func() error { return fo.Deliver(testNow) }, domain.FODelivered},
@@ -220,7 +220,7 @@ func TestBanGiaoBatBuocCoMaVanDon(t *testing.T) {
 	_ = fo.Confirm(testNow)
 	_ = fo.Pack(testNow)
 
-	if err := fo.HandOver("GHN", "", testNow); err == nil {
+	if err := fo.HandOver("GHN", "", domain.BieuPhiMacDinh, testNow); err == nil {
 		t.Error("bàn giao không có mã vận đơn phải bị chặn")
 	}
 	if fo.Status() != domain.FOPacked {
@@ -236,7 +236,7 @@ func TestGiaoThatBaiThiGiaoLaiDuoc(t *testing.T) {
 
 	_ = fo.Confirm(testNow)
 	_ = fo.Pack(testNow)
-	_ = fo.HandOver("GHN", "GHN1", testNow)
+	_ = fo.HandOver("GHN", "GHN1", domain.BieuPhiMacDinh, testNow)
 	_ = fo.MarkInTransit(testNow)
 
 	// Lý do BẮT BUỘC: khách cần biết vì sao chưa nhận được hàng.
@@ -270,7 +270,7 @@ func TestPhanBietDeliveredVaCompleted(t *testing.T) {
 
 	_ = fo.Confirm(testNow)
 	_ = fo.Pack(testNow)
-	_ = fo.HandOver("GHN", "GHN1", testNow)
+	_ = fo.HandOver("GHN", "GHN1", domain.BieuPhiMacDinh, testNow)
 	_ = fo.Deliver(testNow)
 
 	if fo.Status().IsFinal() {

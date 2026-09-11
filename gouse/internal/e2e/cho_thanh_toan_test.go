@@ -152,7 +152,7 @@ func TestKhoaChanMoiBuocTien(t *testing.T) {
 		{"nhặt hàng", func() error { return fo.Pick(testNowE2E()) }},
 		{"đóng gói", func() error { return fo.Pack(testNowE2E()) }},
 		{"bàn giao", func() error {
-			return fo.HandOver("GHN", "TRACK-1", testNowE2E())
+			return fo.HandOver("GHN", "TRACK-1", domain.BieuPhiMacDinh, testNowE2E())
 		}},
 	} {
 		if err := b.lam(); !errors.Is(err, domain.ErrChoThanhToan) {

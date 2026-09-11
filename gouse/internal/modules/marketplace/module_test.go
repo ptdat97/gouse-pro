@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 	"github.com/fashion-commerce/platform/internal/kernel/types"
@@ -94,6 +96,9 @@ type harness struct {
 	product *fakeProduct
 	seller  *fakeSeller
 	inv     *fakeInventory
+
+	// pool để bài kiểm dựng lại service với bộ chính sách khác.
+	pool *pgxpool.Pool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -120,6 +125,7 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	pool := db.Pool()
+	h.pool = pool
 	h.svc = application.NewService(application.Deps{
 		Offers:    marketpg.NewOfferStore(pool),
 		History:   marketpg.NewPriceHistoryStore(pool),
@@ -610,5 +616,145 @@ func TestNhaBanBiDinhChiThiOfferKhongConBanDuoc(t *testing.T) {
 	// Và hai cờ phải NHẤT QUÁN — đây là chỗ lỗi tự lộ ra.
 	if list[0].IsBuyBox {
 		t.Error("nhà bán bị đình chỉ mà vẫn thắng buy box")
+	}
+}
+
+// chinhSachThu là bộ chính sách giả, đổi được giữa chừng.
+type chinhSachThu struct {
+	trongSo    domain.BuyBoxWeights
+	diem       int
+	gioChuanBi int
+}
+
+func (c *chinhSachThu) TrongSoBuyBox() domain.BuyBoxWeights { return c.trongSo }
+func (c *chinhSachThu) DiemHieuSuatMacDinh() int            { return c.diem }
+func (c *chinhSachThu) GioChuanBiMacDinh() int              { return c.gioChuanBi }
+
+// TestTrongSoBuyBoxDoiNguoiThang.
+//
+// # Vì sao bài này quan trọng nhất trong nhóm cấu hình
+//
+// Trọng số buy box quyết định OFFER CỦA AI được hiển thị mặc định, tức là
+// ai bán được hàng. Trước đây `Deps.Weights` là một GIÁ TRỊ chốt lúc khởi
+// động, và KHÔNG ai truyền vào — nên nó luôn rơi về mặc định, và kể cả khi
+// nối dây thì đổi vẫn cần khởi động lại.
+//
+// Bài này dựng hai offer NGƯỢC NHAU: một rẻ mà chuẩn bị chậm, một đắt mà
+// chuẩn bị nhanh. Với trọng số nghiêng hẳn về giá thì người rẻ thắng; đảo
+// trọng số sang thời gian chuẩn bị thì người nhanh thắng. Cùng một dữ
+// liệu, chỉ đổi tham số.
+//
+// Quan trọng: cổng được đổi GIỮA HAI LẦN GỌI trên CÙNG một service. Nếu
+// trọng số bị chụp lúc khởi tạo, lần gọi thứ hai vẫn ra kết quả cũ và bài
+// này đỏ.
+func TestTrongSoBuyBoxDoiNguoiThang(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	skuID := ids.MustNew(ids.PrefixSKU)
+
+	chinhSach := &chinhSachThu{
+		trongSo: domain.BuyBoxWeights{Price: 100, Handling: 0, Performance: 0},
+		diem:    50,
+	}
+	h.svc = application.NewService(application.Deps{
+		Offers:    marketpg.NewOfferStore(h.pool),
+		History:   marketpg.NewPriceHistoryStore(h.pool),
+		Catalog:   h.catalog,
+		Product:   h.product,
+		Seller:    h.seller,
+		Inventory: h.inv,
+		ChinhSach: chinhSach,
+	})
+
+	h.inv.available[skuID] = 10
+	re, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
+		SKUID: skuID, SellerID: ids.MustNew(ids.PrefixSeller),
+		Price: vnd(90_000), HandlingTimeHours: 72, Activate: true,
+	})
+	if err != nil {
+		t.Fatalf("tạo offer rẻ: %v", err)
+	}
+	nhanh, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
+		SKUID: skuID, SellerID: ids.MustNew(ids.PrefixSeller),
+		Price: vnd(120_000), HandlingTimeHours: 2, Activate: true,
+	})
+	if err != nil {
+		t.Fatalf("tạo offer nhanh: %v", err)
+	}
+
+	thang := func() ids.ID {
+		t.Helper()
+		got, err := h.svc.GetBuyBox(ctx, skuID)
+		if err != nil {
+			t.Fatalf("GetBuyBox: %v", err)
+		}
+		if got.Winner == nil {
+			t.Fatal("không có offer nào thắng buy box")
+		}
+		return got.Winner.ID()
+	}
+
+	if got := thang(); got != re.ID() {
+		t.Fatalf("trọng số nghiêng hẳn về GIÁ mà người thắng là %s, cần %s",
+			got, re.ID())
+	}
+
+	// ĐỔI GIỮA CHỪNG, không dựng lại service.
+	chinhSach.trongSo = domain.BuyBoxWeights{Price: 0, Handling: 100, Performance: 0}
+
+	if got := thang(); got != nhanh.ID() {
+		t.Errorf("đảo trọng số sang THỜI GIAN CHUẨN BỊ mà người thắng vẫn "+
+			"là %s, cần %s — trọng số bị chốt lúc khởi tạo, nên đổi tham "+
+			"số phải khởi động lại mới có tác dụng", got, nhanh.ID())
+	}
+}
+
+// TestGioChuanBiMacDinhTheoChinhSach.
+//
+// Con số này vào CẢ điểm buy box lẫn ngày giao dự kiến báo cho khách. Nhà
+// bán KHÔNG khai thì nền tảng khai thay — và khai bao nhiêu là chính sách.
+func TestGioChuanBiMacDinhTheoChinhSach(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	h.svc = application.NewService(application.Deps{
+		Offers:    marketpg.NewOfferStore(h.pool),
+		History:   marketpg.NewPriceHistoryStore(h.pool),
+		Catalog:   h.catalog,
+		Product:   h.product,
+		Seller:    h.seller,
+		Inventory: h.inv,
+		ChinhSach: &chinhSachThu{gioChuanBi: 48, diem: 50},
+	})
+
+	skuID := ids.MustNew(ids.PrefixSKU)
+	h.inv.available[skuID] = 10
+
+	// KHÔNG khai thời gian chuẩn bị → áp con số chính sách.
+	o, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
+		SKUID: skuID, SellerID: ids.MustNew(ids.PrefixSeller),
+		Price: vnd(100_000), Activate: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if got := o.HandlingTimeHours(); got != 48 {
+		t.Errorf("offer không khai thời gian chuẩn bị nhận %d giờ, cần 48 "+
+			"— con số chính sách không tới nơi", got)
+	}
+
+	// CÓ khai thì giữ nguyên lựa chọn của nhà bán.
+	sku2 := ids.MustNew(ids.PrefixSKU)
+	h.inv.available[sku2] = 10
+	o2, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
+		SKUID: sku2, SellerID: ids.MustNew(ids.PrefixSeller),
+		Price: vnd(100_000), HandlingTimeHours: 6, Activate: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if got := o2.HandlingTimeHours(); got != 6 {
+		t.Errorf("offer CÓ khai %d giờ bị ghi đè thành %d — chính sách "+
+			"không được lấn lên lựa chọn của nhà bán", 6, got)
 	}
 }

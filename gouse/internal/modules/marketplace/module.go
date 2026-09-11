@@ -17,6 +17,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // Module là cài đặt của API công khai.
@@ -49,6 +50,13 @@ type Config struct {
 	// Có thể nil: khi đó buy box KHÔNG lọc theo tồn kho. Chỉ chấp nhận
 	// được ở môi trường phát triển.
 	Inventory inventory.API
+
+	// OpsConfig cấp những con số CHÍNH SÁCH sửa được lúc chạy: trọng số
+	// buy box, điểm hiệu suất mặc định, thời gian chuẩn bị mặc định.
+	//
+	// Có thể nil: khi đó dùng mặc định của domain, đúng bằng hành vi
+	// trước khi có tham số vận hành.
+	OpsConfig *opsconfig.Store
 
 	Clock application.Clock
 }
@@ -84,6 +92,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Inventory != nil {
 		deps.Inventory = &inventoryAdapter{api: cfg.Inventory}
+	}
+	if cfg.OpsConfig != nil {
+		deps.ChinhSach = &chinhSachAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -399,4 +410,29 @@ func translateErr(err error) error {
 		return ErrNotAuthorized
 	}
 	return err
+}
+
+// chinhSachAdapter dịch tham số vận hành sang từ vựng của marketplace.
+//
+// ĐỌC MỖI LẦN GỌI, không chụp lúc khởi động: đổi trọng số buy box phải có
+// tác dụng ở lượt xem trang kế tiếp, không phải ở lần triển khai kế tiếp.
+// Đó là cả lý do những con số này được đưa lên giao diện.
+type chinhSachAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
+
+func (a *chinhSachAdapter) TrongSoBuyBox() domain.BuyBoxWeights {
+	return domain.BuyBoxWeights{
+		Price:       a.cfg.DocSoNguyen(opsconfig.KeyTrongSoGia),
+		Handling:    a.cfg.DocSoNguyen(opsconfig.KeyTrongSoChuanBi),
+		Performance: a.cfg.DocSoNguyen(opsconfig.KeyTrongSoHieuSuat),
+	}
+}
+
+func (a *chinhSachAdapter) DiemHieuSuatMacDinh() int {
+	return a.cfg.DocSoNguyen(opsconfig.KeyDiemHieuSuatMacDinh)
+}
+
+func (a *chinhSachAdapter) GioChuanBiMacDinh() int {
+	return a.cfg.DocSoNguyen(opsconfig.KeyGioChuanBiMacDinh)
 }

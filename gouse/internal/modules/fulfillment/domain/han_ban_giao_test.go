@@ -141,7 +141,7 @@ func foDaBanGiao(t *testing.T, sau time.Duration) *domain.FulfillmentOrder {
 			t.Fatalf("%s: %v", buoc.ten, err)
 		}
 	}
-	if err := fo.HandOver("GHN", "TRACK-001", moc.Add(sau)); err != nil {
+	if err := fo.HandOver("GHN", "TRACK-001", domain.BieuPhiMacDinh, moc.Add(sau)); err != nil {
 		t.Fatalf("bàn giao: %v", err)
 	}
 	return fo

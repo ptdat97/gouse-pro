@@ -234,10 +234,11 @@ func Build(
 		}
 
 		sellerModule, err = seller.New(seller.Config{
-			Storage: "postgres",
-			DB:      db,
-			Audit:   auditRecorder,
-			MaHoa:   boMaHoa,
+			Storage:   "postgres",
+			DB:        db,
+			Audit:     auditRecorder,
+			MaHoa:     boMaHoa,
+			OpsConfig: opsConfigStore,
 		})
 		if err != nil {
 			return Modules{}, err
@@ -258,6 +259,7 @@ func Build(
 			Product:   productModule,
 			Seller:    sellerModule,
 			Inventory: inventoryModule,
+			OpsConfig: opsConfigStore,
 		})
 		if err != nil {
 			return Modules{}, err

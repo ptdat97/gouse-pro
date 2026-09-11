@@ -4,6 +4,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -78,14 +79,19 @@ type SuspensionRecord struct {
 
 // Service là tầng application của module seller.
 type Service struct {
-	sellers domain.Repository
-	audit   AuditRecorder
-	clock   Clock
+	sellers   domain.Repository
+	audit     AuditRecorder
+	clock     Clock
+	chinhSach ChinhSachPort
 }
 
 type Deps struct {
 	Sellers domain.Repository
 	Clock   Clock
+
+	// ChinhSach có thể nil: khi đó không có sàn hoa hồng và không có mức
+	// đề xuất — đúng bằng hành vi trước khi có tham số vận hành.
+	ChinhSach ChinhSachPort
 
 	// Audit có thể nil: các use case không nhạy cảm vẫn chạy được. Chỉ
 	// SuspendWithAudit bắt buộc có nó, và nó báo lỗi rõ nếu thiếu.
@@ -97,8 +103,16 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{sellers: d.Sellers, audit: d.Audit, clock: clock}
+	return &Service{sellers: d.Sellers, audit: d.Audit, clock: clock,
+		chinhSach: d.ChinhSach}
 }
+
+// ErrDuoiSanHoaHong: tỷ lệ hoa hồng thấp hơn sàn chính sách.
+//
+// Lỗi RIÊNG chứ không gộp vào ErrInvalidCommissionRate: "150% là vô nghĩa"
+// và "3% là dưới sàn công ty đặt" là hai chuyện khác nhau, và người duyệt
+// cần biết mình đang gặp cái nào.
+var ErrDuoiSanHoaHong = errors.New("seller: hoa hồng dưới sàn chính sách")
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
 
@@ -247,6 +261,20 @@ func (s *Service) ApproveWithAudit(
 	// đường lỗi đều return trước khi lưu, nên `sel` bị bỏ đi nguyên vẹn.
 	// Kiểm chứng bằng cách đảo thứ tự — test vẫn xanh.
 	if !sel.IsInternal() {
+		// SÀN hoa hồng: duyệt dưới mức này bị TỪ CHỐI.
+		//
+		// Không có sàn thì duyệt nhầm một nhà bán ở 0% là nền tảng không
+		// thu được đồng nào trên MỌI đơn của họ, và không gì báo. Biên
+		// [0%, 100%] ở biên module chỉ chặn con số vô nghĩa (150%), không
+		// chặn con số tai hại.
+		//
+		// Sàn mặc định 0 = không chặn gì, đúng bằng hành vi trước khi có
+		// tham số này. Nhà bán OWN BRAND miễn sàn — nhánh này không chạy
+		// cho họ, và database còn một ràng buộc CHECK nữa.
+		if san := s.sanHoaHong(); in.CommissionRateBP.Value() < san {
+			return nil, fmt.Errorf("%w: %d điểm cơ bản, sàn hiện tại là %d",
+				ErrDuoiSanHoaHong, in.CommissionRateBP.Value(), san)
+		}
 		if err := sel.SetCommissionRate(in.CommissionRateBP, now); err != nil {
 			return nil, err
 		}
@@ -469,4 +497,33 @@ func (s *Service) change(
 		return nil, err
 	}
 	return sel, nil
+}
+
+// ChinhSachPort cấp con số chính sách hoa hồng, đọc LÚC CHẠY.
+//
+// Tỷ lệ của TỪNG nhà bán là dữ liệu (khác nhau theo hợp đồng); hai con số
+// ở đây là chính sách quanh nó.
+type ChinhSachPort interface {
+	// SanHoaHong là mức tối thiểu, theo điểm cơ bản. 0 = không có sàn.
+	SanHoaHong() int32
+
+	// HoaHongDeXuat là con số ĐIỀN SẴN trên màn hình duyệt. 0 = không đề
+	// xuất gì. Nó KHÔNG tự áp cho ai.
+	HoaHongDeXuat() int32
+}
+
+// sanHoaHong đọc sàn hoa hồng, MỖI LẦN duyệt.
+func (s *Service) sanHoaHong() int32 {
+	if s.chinhSach == nil {
+		return 0
+	}
+	return s.chinhSach.SanHoaHong()
+}
+
+// HoaHongDeXuat trả mức đề xuất để giao diện điền sẵn.
+func (s *Service) HoaHongDeXuat() int32 {
+	if s.chinhSach == nil {
+		return 0
+	}
+	return s.chinhSach.HoaHongDeXuat()
 }

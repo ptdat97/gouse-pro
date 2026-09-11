@@ -74,6 +74,46 @@ const (
 
 	KeyThueSuat          = "checkout.tax_rate_bp"
 	KeyNguongMienPhiShip = "checkout.free_shipping_threshold"
+
+	// Trọng số công thức buy box.
+	//
+	// Đây là những con số quyết định NHÀ BÁN NÀO CÓ DOANH THU: buy box là
+	// offer hiển thị mặc định, và phần lớn khách mua chính nó.
+	//
+	// Chúng là TRỌNG SỐ TƯƠNG ĐỐI, không phải phần trăm — công thức chia
+	// cho tổng. Nên 40/30/30 và 4/3/3 cho cùng kết quả, và đổi MỘT khóa
+	// không làm hệ thống rơi vào trạng thái không hợp lệ. Đó là lý do
+	// không có ràng buộc "cộng đúng 100": một ràng buộc như thế sẽ khiến
+	// mọi bước trung gian đều bị từ chối, và không ai đi từ 40/30/30 tới
+	// 50/25/25 được nữa.
+	KeyTrongSoGia      = "marketplace.buybox_weight_price"
+	KeyTrongSoChuanBi  = "marketplace.buybox_weight_handling"
+	KeyTrongSoHieuSuat = "marketplace.buybox_weight_performance"
+
+	// KeyDiemHieuSuatMacDinh là điểm dùng cho nhà bán CHƯA có lịch sử.
+	KeyDiemHieuSuatMacDinh = "marketplace.default_performance_score"
+
+	// KeyGioChuanBiMacDinh là thời gian chuẩn bị hàng khi offer không khai.
+	KeyGioChuanBiMacDinh = "marketplace.default_handling_hours"
+
+	// Hoa hồng: mức ĐỀ XUẤT khi duyệt, và SÀN.
+	//
+	// Tỷ lệ của từng nhà bán là DỮ LIỆU (khác nhau theo hợp đồng), không
+	// phải cấu hình. Hai con số ở đây là CHÍNH SÁCH quanh nó.
+	KeyHoaHongDeXuat = "marketplace.commission_rate_default_bp"
+	KeyHoaHongSan    = "marketplace.commission_rate_floor_bp"
+
+	// Phí khách TRẢ cho vận chuyển, và số ngày hứa với khách.
+	//
+	// KHÁC `fulfillment.carrier_cost_*`: đó là tiền nền tảng TRẢ hãng.
+	// Hiệu của hai con số là lãi/lỗ mảng vận chuyển.
+	KeyPhiGiaoTieuChuan  = "fulfillment.shipping_fee_standard"
+	KeyPhiGiaoNhanh      = "fulfillment.shipping_fee_express"
+	KeyNgayGiaoTieuChuan = "fulfillment.shipping_days_standard"
+	KeyNgayGiaoNhanh     = "fulfillment.shipping_days_express"
+
+	// KeyNhipTaoDoiSoat là nhịp GOM bút toán thành đợt cho nhà bán.
+	KeyNhipTaoDoiSoat = "payment.settlement_batch_interval_hours"
 )
 
 // TranLuuTruSoLuong là trần CỨNG của cột `quantity_*` trong database.
@@ -203,6 +243,109 @@ var soDangKy = map[string]ThamSo{
 			"gửi từ ba nhà bán, tức nền tảng chịu ba lần phí. Đó là một " +
 			"lựa chọn hợp lệ trong đợt khuyến mãi, nhưng gõ nhầm một số 0 " +
 			"thì không có gì chặn lại.",
+	},
+	KeyTrongSoGia: {
+		Khoa: KeyTrongSoGia, Kieu: KieuSoNguyen,
+		MacDinh: 40, Min: 0, Max: 100,
+		MoTa: "Trọng số của GIÁ trong công thức buy box. Tương đối, không " +
+			"phải phần trăm — công thức chia cho tổng ba trọng số.",
+		HeQua: "Nâng giá lên quá nửa tổng là mở ra cuộc đua giảm giá: một " +
+			"offer rẻ hơn 10% thắng được offer tốt hơn ở CẢ HAI tiêu chí " +
+			"còn lại, nên nhà bán hạ giá tới mức không bền rồi cắt chất " +
+			"lượng phục vụ để bù. Hạ xuống 0 là bỏ hẳn giá khỏi công thức: " +
+			"khách không còn được lợi khi nhà bán cạnh tranh giá.",
+	},
+	KeyTrongSoChuanBi: {
+		Khoa: KeyTrongSoChuanBi, Kieu: KieuSoNguyen,
+		MacDinh: 30, Min: 0, Max: 100,
+		MoTa: "Trọng số của THỜI GIAN CHUẨN BỊ HÀNG trong công thức buy box.",
+		HeQua: "Nâng lên thì nhà bán ở xa hoặc làm hàng thủ công khó thắng " +
+			"buy box dù giá tốt. Hạ xuống 0 thì khách không còn được ưu " +
+			"tiên nhận hàng sớm.",
+	},
+	KeyTrongSoHieuSuat: {
+		Khoa: KeyTrongSoHieuSuat, Kieu: KieuSoNguyen,
+		MacDinh: 30, Min: 0, Max: 100,
+		MoTa: "Trọng số của ĐIỂM HIỆU SUẤT nhà bán trong công thức buy box.",
+		HeQua: "Hạ xuống 0 là nói nhà bán giao trễ và nhà bán giao đúng hạn " +
+			"ngang nhau — và khi đó không còn động lực nào để giữ chất lượng.",
+	},
+	KeyDiemHieuSuatMacDinh: {
+		Khoa: KeyDiemHieuSuatMacDinh, Kieu: KieuSoNguyen,
+		MacDinh: 50, Min: 0, Max: 100,
+		MoTa: "Điểm hiệu suất dùng cho nhà bán CHƯA có lịch sử giao hàng.",
+		HeQua: "Đây là lựa chọn TĂNG TRƯỞNG, không phải con số kỹ thuật. " +
+			"Đặt thấp thì nhà bán mới gần như không bán được đơn đầu tiên " +
+			"— mà không có đơn đầu tiên thì không bao giờ có lịch sử để " +
+			"thoát ra. Đặt cao thì người mới ngang người đã chứng minh " +
+			"được mình, và khách chịu rủi ro thay.",
+	},
+	KeyGioChuanBiMacDinh: {
+		Khoa: KeyGioChuanBiMacDinh, Kieu: KieuSoNguyen,
+		MacDinh: 24, Min: 1, Max: 720,
+		MoTa: "Thời gian chuẩn bị hàng (giờ) áp cho offer KHÔNG tự khai.",
+		HeQua: "Con số này vào CẢ điểm buy box lẫn ngày giao dự kiến báo " +
+			"cho khách. Đặt thấp là hứa thay cho nhà bán một điều họ chưa " +
+			"cam kết.",
+	},
+	KeyHoaHongDeXuat: {
+		Khoa: KeyHoaHongDeXuat, Kieu: KieuSoNguyen,
+		MacDinh: 0, Min: 0, Max: 10000,
+		MoTa: "Tỷ lệ hoa hồng ĐỀ XUẤT khi duyệt nhà bán mới, theo điểm cơ " +
+			"bản (1200 = 12%). 0 = không đề xuất gì, người duyệt tự điền.",
+		HeQua: "Chỉ là con số ĐIỀN SẴN trên màn hình duyệt — nó không tự áp " +
+			"cho ai. Nhưng phần lớn người duyệt sẽ giữ nguyên giá trị điền " +
+			"sẵn, nên thực tế nó là tỷ lệ của đa số nhà bán mới.",
+	},
+	KeyHoaHongSan: {
+		Khoa: KeyHoaHongSan, Kieu: KieuSoNguyen,
+		MacDinh: 0, Min: 0, Max: 10000,
+		MoTa: "SÀN hoa hồng: duyệt nhà bán dưới mức này bị TỪ CHỐI. " +
+			"0 = không có sàn (hành vi trước khi có tham số này).",
+		HeQua: "Sàn 0 nghĩa là duyệt nhầm một nhà bán ở 0% thì nền tảng " +
+			"không thu được đồng nào trên mọi đơn của họ, và không gì báo. " +
+			"Nhà bán OWN BRAND luôn được miễn sàn: nền tảng không thu hoa " +
+			"hồng của chính mình, và một ràng buộc ở database cưỡng chế " +
+			"điều đó.",
+	},
+	KeyPhiGiaoTieuChuan: {
+		Khoa: KeyPhiGiaoTieuChuan, Kieu: KieuSoNguyen,
+		MacDinh: 30_000, Min: 0, Max: 100_000_000,
+		MoTa: "Phí vận chuyển KHÁCH TRẢ cho một nguồn hàng, giao tiêu chuẩn.",
+		HeQua: "Đây là con số hiện trên màn hình thanh toán. Đặt THẤP HƠN " +
+			"`fulfillment.carrier_cost_standard` là lỗ trên mỗi kiện, và " +
+			"không có gì trong hệ thống chặn điều đó — hãy xem hai con số " +
+			"cạnh nhau.",
+	},
+	KeyPhiGiaoNhanh: {
+		Khoa: KeyPhiGiaoNhanh, Kieu: KieuSoNguyen,
+		MacDinh: 60_000, Min: 0, Max: 100_000_000,
+		MoTa:  "Phí vận chuyển KHÁCH TRẢ cho một nguồn hàng, giao nhanh.",
+		HeQua: "Xem fulfillment.shipping_fee_standard.",
+	},
+	KeyNgayGiaoTieuChuan: {
+		Khoa: KeyNgayGiaoTieuChuan, Kieu: KieuSoNguyen,
+		MacDinh: 3, Min: 1, Max: 60,
+		MoTa: "Số ngày vận chuyển dự kiến, giao tiêu chuẩn. KHÔNG gồm thời " +
+			"gian nhà bán chuẩn bị hàng.",
+		HeQua: "Đây là LỜI HỨA với khách: nó hiện lúc thanh toán và thành " +
+			"ngày giao dự kiến trên trang theo dõi đơn. Rút ngắn mà hãng " +
+			"vận chuyển không nhanh hơn thì mọi đơn đều trông như trễ.",
+	},
+	KeyNgayGiaoNhanh: {
+		Khoa: KeyNgayGiaoNhanh, Kieu: KieuSoNguyen,
+		MacDinh: 1, Min: 1, Max: 60,
+		MoTa:  "Số ngày vận chuyển dự kiến, giao nhanh.",
+		HeQua: "Xem fulfillment.shipping_days_standard.",
+	},
+	KeyNhipTaoDoiSoat: {
+		Khoa: KeyNhipTaoDoiSoat, Kieu: KieuThoiLuong,
+		MacDinh: 1, Min: 1, Max: 168,
+		MoTa: "Nhịp GOM bút toán thành đợt đối soát cho nhà bán. Việc CHI " +
+			"TRẢ vẫn do người duyệt, nên đây không phải một kiểm soát tiền.",
+		HeQua: "Nhịp thưa hơn thì nhà bán thấy khoản của mình muộn hơn — " +
+			"đó là câu họ hỏi nhiều nhất. Nhịp này cũng được công bố cho " +
+			"luật cảnh báo, nên đổi nó sẽ tự nới ngưỡng báo job treo.",
 	},
 	KeyMauToiThieu: {
 		Khoa: KeyMauToiThieu, Kieu: KieuSoNguyen,

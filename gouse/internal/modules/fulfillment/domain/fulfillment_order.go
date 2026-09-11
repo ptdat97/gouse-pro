@@ -602,7 +602,9 @@ func (f *FulfillmentOrder) Pick(now time.Time) error {
 //
 // Từ đây hàng ra khỏi tầm kiểm soát của seller, nên mã vận đơn là BẮT
 // BUỘC: không có nó thì không ai trả lời được "hàng của tôi đang ở đâu".
-func (f *FulfillmentOrder) HandOver(provider, trackingNumber string, now time.Time) error {
+func (f *FulfillmentOrder) HandOver(
+	provider, trackingNumber string, bieu BieuPhiGiao, now time.Time,
+) error {
 	if strings.TrimSpace(trackingNumber) == "" {
 		return errors.New("fulfillment: bàn giao vận chuyển bắt buộc phải có mã vận đơn")
 	}
@@ -628,7 +630,10 @@ func (f *FulfillmentOrder) HandOver(provider, trackingNumber string, now time.Ti
 	//
 	// CẮT VỀ NGÀY: cột lưu có kiểu DATE, nên giữ giờ phút trong bộ nhớ
 	// nghĩa là giá trị ghi xuống khác giá trị đọc lên — im lặng.
-	if muc, ok := bieuPhi[PhuongThucGiao(f.shippingMethod)]; ok {
+	if bieu == nil {
+		bieu = BieuPhiMacDinh
+	}
+	if muc, ok := bieu[PhuongThucGiao(f.shippingMethod)]; ok {
 		f.estimatedDelivery = types.DauNgay(now.AddDate(0, 0, muc.SoNgayDuKien))
 	}
 	return nil
