@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -172,4 +173,165 @@ func TestDanhSachPhoiBayKhongThua(t *testing.T) {
 		t.Errorf("shopper.go ủy quyền %q nhưng KHÔNG module nào đăng ký "+
 			"nó — request sẽ đi vào mux con rồi nhận 404 ở đó", mau)
 	}
+}
+
+// TestDacTaVaMaKhongTroiXaNhau.
+//
+// # Khoảng cách phải CÓ CHỦ Ý, không phải trôi dần
+//
+// Đặc tả API là bản thiết kế cho cả lộ trình, nên nó khai cả những đường
+// dẫn thuộc giai đoạn sau. Điều đó hợp lý — nhưng chỉ khi người đọc phân
+// biệt được cái nào chạy được.
+//
+// Đo lúc thêm bài này: 13 trong 79 đường dẫn không có tuyến nào. Mười cái
+// thuộc creator/content (Phase 2), hai cái thuộc chuỗi cung ứng (Phase 3),
+// và `POST /api/v1/admin/payouts` — thao tác chuyển tiền thật ra ngoài,
+// thuộc Phase 2 vì 2FA và tích hợp ngân hàng đều chưa có.
+//
+// Không có bài kiểm này thì con số 13 chỉ lớn dần, và người tích hợp không
+// có cách nào biết endpoint nào gọi được.
+//
+// # Canh HAI chiều
+//
+//	thiếu tuyến, KHÔNG có nhãn  → đỏ. Hoặc xây, hoặc nói rõ là giai đoạn sau.
+//	CÓ nhãn nhưng đã có tuyến   → đỏ. Nhãn cũ nói dối về thứ đã chạy được.
+//
+// Chiều thứ hai quan trọng ngang chiều đầu: một nhãn "Phase 2" còn sót lại
+// sau khi tính năng đã xong sẽ khiến người đọc bỏ qua một endpoint dùng
+// được.
+func TestDacTaVaMaKhongTroiXaNhau(t *testing.T) {
+	goc := gocRepo(t)
+
+	duongDan := docDuongDanDacTa(t, goc)
+	if len(duongDan) == 0 {
+		t.Fatal("không đọc được đường dẫn nào từ đặc tả — cách khai đã đổi " +
+			"và bài kiểm này không còn kiểm gì")
+	}
+
+	tuyen := map[string]bool{}
+	for _, thuMuc := range thuMucInterfaceHTTP(t, goc) {
+		for mau := range docMauTuyen(t, thuMuc) {
+			// Bỏ phương thức, chỉ giữ đường dẫn.
+			if i := strings.IndexByte(mau, ' '); i > 0 {
+				tuyen[chuanHoaDuongDan(mau[i+1:])] = true
+			}
+		}
+	}
+	// internal/app tự phục vụ một số đường (cấu hình vận hành, sức khỏe).
+	for mau := range docMauTuyen(t, "internal/app") {
+		if i := strings.IndexByte(mau, ' '); i > 0 {
+			tuyen[chuanHoaDuongDan(mau[i+1:])] = true
+		}
+	}
+
+	for _, d := range duongDan {
+		coTuyen := tuyen[chuanHoaDuongDan(d.duongDan)]
+		switch {
+		case !coTuyen && d.giaiDoan == 0:
+			t.Errorf("đặc tả khai %q nhưng KHÔNG có tuyến nào, và cũng "+
+				"không có nhãn `x-phase`.\n"+
+				"    Hoặc xây nó, hoặc thêm `x-phase: 2` vào khối %q ở "+
+				"api/paths/ để nói rõ đây là giai đoạn sau.",
+				d.duongDan, d.khoi)
+		case coTuyen && d.giaiDoan > 0:
+			t.Errorf("khối %q vẫn mang nhãn `x-phase: %d` nhưng %q ĐÃ có "+
+				"tuyến — gỡ nhãn đi, nếu không người đọc đặc tả sẽ bỏ qua "+
+				"một endpoint dùng được", d.khoi, d.giaiDoan, d.duongDan)
+		}
+	}
+}
+
+// mucDacTa là một đường dẫn trong đặc tả, kèm giai đoạn nếu có nhãn.
+type mucDacTa struct {
+	duongDan string
+	khoi     string // ví dụ "admin.yaml#/payouts"
+	giaiDoan int    // 0 = không có nhãn, nghĩa là "phải chạy được hôm nay"
+}
+
+// chuanHoaDuongDan bỏ TÊN tham số đường dẫn.
+//
+// Đặc tả viết `{product_id}`, mã viết `{product_id}` — hôm nay giống nhau,
+// nhưng đổi tên tham số ở một bên là chuyện thường và không đáng làm bài
+// kiểm đỏ.
+func chuanHoaDuongDan(p string) string {
+	return regexp.MustCompile(`\{[^}]*\}`).ReplaceAllString(p, "{}")
+}
+
+// docDuongDanDacTa đọc đường dẫn từ openapi.yaml và tra nhãn x-phase.
+func docDuongDanDacTa(t *testing.T, goc string) []mucDacTa {
+	t.Helper()
+
+	b, err := os.ReadFile(filepath.Join(goc, "api/openapi.yaml"))
+	if err != nil {
+		t.Fatalf("đọc openapi.yaml: %v", err)
+	}
+
+	re := regexp.MustCompile(`(?m)^  (/[^\s:]+):\s*\n\s*\$ref:\s*'\./paths/([^#]+)#/(\w+)'`)
+	var out []mucDacTa
+	for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+		out = append(out, mucDacTa{
+			duongDan: m[1],
+			khoi:     m[2] + "#/" + m[3],
+			giaiDoan: docNhanGiaiDoan(t, goc, m[2], m[3]),
+		})
+	}
+	return out
+}
+
+// docNhanGiaiDoan tìm `x-phase` trong MỘT khối của tệp đường dẫn.
+//
+// Đọc theo khối chứ không theo cả tệp: một tệp có hàng chục khối, và nhãn
+// của khối này không nói gì về khối kia.
+func docNhanGiaiDoan(t *testing.T, goc, tep, khoi string) int {
+	t.Helper()
+
+	b, err := os.ReadFile(filepath.Join(goc, "api/paths", tep))
+	if err != nil {
+		t.Fatalf("đọc %s: %v", tep, err)
+	}
+
+	than := string(b)
+	dau := strings.Index(than, "\n"+khoi+":\n")
+	if dau < 0 {
+		return 0
+	}
+	than = than[dau+1:]
+	// Khối kết thúc ở khóa cấp cao nhất tiếp theo.
+	if cuoi := regexp.MustCompile(`\n[A-Za-z_]\w*:`).FindStringIndex(than[len(khoi)+2:]); cuoi != nil {
+		than = than[:len(khoi)+2+cuoi[0]]
+	}
+
+	m := regexp.MustCompile(`x-phase:\s*(\d+)`).FindStringSubmatch(than)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("nhãn x-phase của khối %s không phải số: %q", khoi, m[1])
+	}
+	return n
+}
+
+// thuMucInterfaceHTTP liệt kê mọi thư mục interfaces/http của module.
+func thuMucInterfaceHTTP(t *testing.T, goc string) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(filepath.Join(goc, "internal/modules"))
+	if err != nil {
+		t.Fatalf("đọc internal/modules: %v", err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		d := filepath.Join("internal/modules", e.Name(), "interfaces/http")
+		if _, err := os.Stat(filepath.Join(goc, d)); err == nil {
+			out = append(out, d)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("không tìm thấy thư mục interfaces/http nào — cấu trúc đã đổi")
+	}
+	return out
 }

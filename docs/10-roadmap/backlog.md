@@ -4493,6 +4493,46 @@ event vào outbox trong cùng giao dịch đó.
 hướng khách ("đăng ký báo khi có hàng") chưa tồn tại — xây bên phát cho một
 tính năng chưa có là xây cái không ai gọi, đúng dạng lỗi mục 8 mô tả.
 
+### P3-39 — khoảng cách đặc tả ↔ mã trở thành CÓ CHỦ Ý
+
+**Đã xong (11/09).**
+
+Đo được: **13 trong 79 đường dẫn** của đặc tả không có tuyến nào ở mã.
+
+```text
+Phase 2   10   creator/content commerce
+Phase 2    1   POST /api/v1/admin/payouts — 2FA và tích hợp ngân hàng
+               đều chưa có, nên hoãn là đúng
+Phase 3    2   production-orders · replenishment-suggestions
+```
+
+Cả 13 đều hợp lý khi hoãn. Vấn đề không phải chúng tồn tại, mà là **không
+có cách nào phân biệt** "hoãn có chủ ý" với "quên xây" — và con số đó chỉ
+lớn dần.
+
+Nay mỗi khối như thế mang nhãn `x-phase`, và một bài kiểm canh HAI chiều:
+thiếu tuyến mà không có nhãn thì đỏ; có nhãn mà đã có tuyến cũng đỏ. Chiều
+thứ hai quan trọng ngang chiều đầu — một nhãn sót lại sau khi tính năng
+xong sẽ khiến người đọc bỏ qua một endpoint dùng được.
+
+Phát hiện kèm: bảng "Trạng thái cài đặt từng operation" ở `api/README.md`
+cập nhật lần cuối 15/08, duy trì bằng tay, và cột `DESIGNED` của nó đã sai.
+Đã ghi rõ điều đó ngay trong bảng thay vì để người sau tin nhầm.
+
+### Quyết định: KHÔNG xây adapter cổng thanh toán
+
+**Đã chốt (11/09).**
+
+`order.paid` tiếp tục chỉ tới từ webhook chung hoặc thao tác tay. Chưa chốt
+dùng VNPay, MoMo hay ZaloPay, và dựng adapter cho một cổng chưa ký hợp đồng
+là dựng thứ có thể phải bỏ đi.
+
+**Hệ quả phải biết:** luồng TRẢ TRƯỚC chưa chạy được đầu-cuối. Cổng A2 của
+ADR-0018 khóa đơn trả trước cho tới khi thu được tiền, và hôm nay không có
+đường tự động nào mở khóa. Đo trên dữ liệu thật: 0 đơn thực hiện đang bị
+khóa — vì gần như mọi đơn đều là COD hoặc dữ liệu cũ chưa có phương thức
+thanh toán, chứ không phải vì đường mở khóa đã được kiểm chứng.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này

@@ -139,12 +139,54 @@ Sinh kiểu TypeScript: thành công
 
 ---
 
+## `x-phase` — khoảng cách giữa đặc tả và mã
+
+Đặc tả là bản thiết kế cho **cả lộ trình**, nên nó khai cả đường dẫn thuộc
+giai đoạn sau. Điều đó hợp lý — nhưng chỉ khi người đọc phân biệt được cái
+nào gọi được hôm nay.
+
+```yaml
+payouts:
+  x-phase: 2        # chưa có tuyến, và đó là CÓ CHỦ Ý
+  post:
+    ...
+```
+
+**Nhãn này không phải chú thích.** `TestDacTaVaMaKhongTroiXaNhau` ở
+[internal/app/routes_phoi_bay_test.go](../internal/app/routes_phoi_bay_test.go)
+đọc nó và canh **hai chiều**:
+
+| Tình huống | Kết quả |
+|---|---|
+| thiếu tuyến, KHÔNG có nhãn | ĐỎ — hoặc xây, hoặc nói rõ là giai đoạn sau |
+| CÓ nhãn nhưng đã có tuyến | ĐỎ — nhãn cũ nói dối về thứ đã chạy được |
+
+Chiều thứ hai quan trọng ngang chiều đầu: một nhãn còn sót lại sau khi tính
+năng đã xong sẽ khiến người đọc bỏ qua một endpoint dùng được.
+
+Đo lúc thêm hàng rào (11/09/2026): **13 trong 79 đường dẫn** chưa có tuyến.
+
+```text
+Phase 2   10   creator/content commerce
+Phase 2    1   POST /api/v1/admin/payouts — chuyển tiền thật ra ngoài;
+               2FA và tích hợp ngân hàng đều chưa có
+Phase 3    2   production-orders · replenishment-suggestions
+```
+
+Không có hàng rào này thì con số 13 chỉ lớn dần, và người tích hợp không có
+cách nào biết endpoint nào gọi được.
+
+---
+
 ## Trạng thái cài đặt từng operation
 
 **Đặc tả không phải tài liệu — nó là hợp đồng phải có code phía sau.** Bảng
 này theo dõi khoảng cách giữa hai thứ đó.
 
-Cập nhật: 15/08/2026.
+Cập nhật: 15/08/2026 — **bảng này đã cũ và duy trì bằng tay**. Trục "có
+tuyến hay chưa" nay được canh tự động bằng `x-phase` (mục trên); bảng dưới
+đây chỉ còn giá trị ở trục "đã có test HTTP chưa" và "frontend đã gọi
+chưa". Đừng tin cột `DESIGNED` của nó.
 
 ### Bốn mức
 

@@ -9,6 +9,15 @@
 # cho creator vi phạm quy định bảo vệ dữ liệu ở nhiều thị trường.
 
 creator_registration:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   post:
     tags: [Creator]
     summary: Đăng ký làm creator
@@ -90,6 +99,15 @@ creator_registration:
         $ref: '../components/common.yaml#/responses/BadRequest'
 
 content:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Creator]
     summary: Nội dung của tôi
@@ -223,6 +241,15 @@ content:
         $ref: '../components/common.yaml#/responses/UnprocessableEntity'
 
 content_publish:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   post:
     tags: [Creator]
     summary: Xuất bản nội dung
@@ -266,6 +293,15 @@ content_publish:
               request_id: req_01J9XABC123DEF456GHJKMNPQR
 
 affiliate_links:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Creator]
     summary: Danh sách affiliate link
@@ -341,6 +377,15 @@ affiliate_links:
         $ref: '../components/common.yaml#/responses/UnprocessableEntity'
 
 earnings:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Creator]
     summary: Thu nhập của tôi
@@ -440,6 +485,15 @@ earnings:
         $ref: '../components/common.yaml#/responses/Forbidden'
 
 analytics:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Creator]
     summary: Hiệu suất nội dung

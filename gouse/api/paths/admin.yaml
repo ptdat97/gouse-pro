@@ -432,6 +432,15 @@ ledger_adjustment:
         $ref: '../components/common.yaml#/responses/Forbidden'
 
 payouts:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   post:
     tags: [Admin]
     summary: Thực hiện chi trả
@@ -620,6 +629,15 @@ inventory_adjustment:
         $ref: '../components/common.yaml#/responses/UnprocessableEntity'
 
 production_orders:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 3
   post:
     tags: [Admin]
     summary: Tạo đơn sản xuất
@@ -732,6 +750,15 @@ production_orders:
         $ref: '../components/common.yaml#/responses/Forbidden'
 
 replenishment_suggestions:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 3
   get:
     tags: [Admin]
     summary: Đề xuất bổ sung hàng

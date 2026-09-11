@@ -212,6 +212,15 @@ product_offers:
         $ref: '../components/common.yaml#/responses/NotFound'
 
 product_reviews:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Catalog]
     summary: Đánh giá sản phẩm
@@ -443,6 +452,15 @@ search:
         $ref: '../components/common.yaml#/responses/TooManyRequests'
 
 feed:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Content]
     summary: Dòng nội dung khám phá
@@ -487,6 +505,15 @@ feed:
         $ref: '../components/common.yaml#/responses/TooManyRequests'
 
 content_detail:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Content]
     summary: Chi tiết nội dung
@@ -524,6 +551,15 @@ content_detail:
         $ref: '../components/common.yaml#/responses/NotFound'
 
 outfit_detail:
+  # x-phase: đường dẫn này thuộc GIAI ĐOẠN SAU, chưa có tuyến ở mã nguồn.
+  #
+  # Nhãn này KHÔNG phải chú thích: một bài kiểm tự động đọc nó (xem
+  # internal/app/routes_phoi_bay_test.go). Đường dẫn KHÔNG có nhãn mà thiếu
+  # tuyến sẽ làm bộ test đỏ, và nhãn còn đây sau khi tuyến đã có cũng vậy.
+  #
+  # Nhờ vậy khoảng cách giữa đặc tả và mã là CÓ CHỦ Ý và đo được, thay vì
+  # trôi dần cho tới lúc không ai biết cái nào chạy được.
+  x-phase: 2
   get:
     tags: [Content]
     summary: Chi tiết outfit
