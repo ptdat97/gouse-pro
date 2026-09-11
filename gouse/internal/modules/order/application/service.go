@@ -121,12 +121,37 @@ type OrderPaid struct {
 	PaidAt        time.Time
 }
 
+// HanDoiTraPort cấp thời hạn đổi trả từ cấu hình vận hành.
+//
+// Module thứ BA đọc cùng tham số `returns.window_hours`: `fulfillment`
+// dùng nó để biết khi nào chuyển tiền cho nhà bán, `returns` để từ chối
+// yêu cầu quá hạn, và ở đây để NÓI CHO KHÁCH biết còn bao lâu.
+//
+// Ba nơi, một nguồn. Mỗi nơi tự giữ một hằng số nghĩa là màn hình nói một
+// đằng và hệ thống xử một nẻo.
+type HanDoiTraPort interface {
+	HanDoiTra() time.Duration
+}
+
 type Service struct {
 	orders  domain.Repository
 	numbers domain.NumberGenerator
 	audit   AuditRecorder
 	events  EventPublisher
+	han     HanDoiTraPort
 	clock   Clock
+}
+
+// HanDoiTra trả hạn đang áp dụng; 0 khi chưa nối cấu hình.
+//
+// Trả 0 chứ không đoán một con số: tầng trình bày dùng nó để quyết định
+// CÓ hiện hạn đổi trả hay không, và hiện một con số bịa còn tệ hơn không
+// hiện gì.
+func (s *Service) HanDoiTra() time.Duration {
+	if s.han == nil {
+		return 0
+	}
+	return s.han.HanDoiTra()
 }
 
 type Deps struct {
@@ -142,6 +167,10 @@ type Deps struct {
 	// KHÔNG được nil: thiếu nó thì `order.paid` không bao giờ phát, và
 	// hàng của đơn trả trước không bao giờ được mở khóa.
 	Events EventPublisher
+
+	// Han cấp hạn đổi trả để hiển thị cho khách. Nil thì hai trường
+	// `can_return`/`return_deadline` vắng mặt.
+	Han HanDoiTraPort
 }
 
 func NewService(d Deps) *Service {
@@ -154,6 +183,7 @@ func NewService(d Deps) *Service {
 		numbers: d.Numbers,
 		audit:   d.Audit,
 		events:  d.Events,
+		han:     d.Han,
 		clock:   clock,
 	}
 }

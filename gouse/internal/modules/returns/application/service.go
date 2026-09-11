@@ -49,6 +49,13 @@ type DonHang struct {
 	// DaGiao: chỉ đơn ĐÃ GIAO mới trả được.
 	DaGiao bool
 
+	// GiaoLuc là mốc bắt đầu đếm HẠN ĐỔI TRẢ.
+	//
+	// Rỗng với đơn cũ chưa có mốc này. Khi đó hạn KHÔNG được cưỡng chế —
+	// phía an toàn, vì chặn một yêu cầu hợp lệ chỉ vì thiếu dữ liệu lịch
+	// sử là từ chối quyền của khách do lỗi của hệ thống.
+	GiaoLuc time.Time
+
 	// GiamGiaCapDon là số tiền giảm ghi ở CẤP ĐƠN.
 	//
 	// Nếu nó khác 0 mà không dòng nào mang khoản điều chỉnh tương ứng thì
@@ -64,6 +71,16 @@ type DonHang struct {
 // góc nhìn đơn hàng của module order.
 type OrderPort interface {
 	LayDonDeTraHang(ctx context.Context, orderID ids.ID) (DonHang, error)
+}
+
+// HanDoiTraPort cho biết khách được trả hàng trong bao lâu.
+//
+// Là CỔNG chứ không hằng số trong module này, vì cùng con số ấy quyết định
+// khi nào `fulfillment` chuyển tiền cho nhà bán. Hai hằng số riêng nghĩa
+// là sớm muộn chúng lệch nhau — và lệch ở đây là hoàn tiền cho khách sau
+// khi nhà bán đã rút tiền.
+type HanDoiTraPort interface {
+	HanDoiTra() time.Duration
 }
 
 // InventoryPort nhận hàng hoàn về kho.
@@ -130,6 +147,7 @@ type Service struct {
 	orders    OrderPort
 	inventory InventoryPort
 	payment   PaymentPort
+	han       HanDoiTraPort
 	clock     Clock
 }
 
@@ -139,6 +157,12 @@ type Deps struct {
 	Inventory InventoryPort
 	Payment   PaymentPort
 	Clock     Clock
+
+	// Han có thể nil ở test không quan tâm tới hạn đổi trả. Ở production
+	// thì KHÔNG được nil: thiếu nó nghĩa là hạn không được cưỡng chế, và
+	// khách trả hàng sau bao lâu cũng được — kể cả sau khi nhà bán đã rút
+	// tiền.
+	Han HanDoiTraPort
 }
 
 func NewService(d Deps) *Service {
@@ -147,7 +171,30 @@ func NewService(d Deps) *Service {
 		c = SystemClock
 	}
 	return &Service{repo: d.Repo, orders: d.Orders,
-		inventory: d.Inventory, payment: d.Payment, clock: c}
+		inventory: d.Inventory, payment: d.Payment, han: d.Han, clock: c}
+}
+
+// HetHanTra cho biết đơn đã quá hạn đổi trả chưa.
+//
+// # Vì sao thiếu dữ liệu thì KHÔNG chặn
+//
+// `GiaoLuc` rỗng với đơn tạo trước migration 000049, và cổng `han` rỗng ở
+// những bản dựng chưa nối cấu hình. Cả hai trường hợp đều trả false —
+// phía an toàn: chặn một yêu cầu hợp lệ vì thiếu dữ liệu lịch sử là từ
+// chối quyền của khách do lỗi của hệ thống.
+//
+// Ngược lại thì sao? Cho qua một yêu cầu quá hạn làm nền tảng hoàn tiền
+// sau khi nhà bán đã rút. Đó là mất tiền, nhưng nó CHỈ xảy ra với dữ liệu
+// cũ và mất một lần; còn chặn oan thì xảy ra với mọi khách có đơn cũ.
+func (s *Service) HetHanTra(don DonHang, now time.Time) bool {
+	if s.han == nil || don.GiaoLuc.IsZero() {
+		return false
+	}
+	han := s.han.HanDoiTra()
+	if han <= 0 {
+		return false
+	}
+	return now.After(don.GiaoLuc.Add(han))
 }
 
 // TinhTienHoan tính số tiền hoàn cho một dòng, theo GIÁ THỰC TRẢ.
@@ -240,6 +287,16 @@ func (s *Service) XinTra(
 	}
 	if !don.DaGiao {
 		return nil, fmt.Errorf("%w: đơn chưa giao xong", domain.ErrInvalidStatus)
+	}
+
+	// HẠN ĐỔI TRẢ — trước hôm nay KHÔNG có kiểm tra nào ở đây.
+	//
+	// `DaGiao` là true cho cả đơn COMPLETED, tức là đơn đã hết hạn đổi trả
+	// và số dư nhà bán đã chuyển sang KHẢ DỤNG. Cho trả sau mốc đó nghĩa
+	// là nền tảng hoàn tiền cho khách trong khi nhà bán đã rút được —
+	// đúng thứ mà chú thích của `Order.Complete` gọi là "rất khó thu hồi".
+	if s.HetHanTra(don, s.clock.Now()) {
+		return nil, domain.ErrHetHanTra
 	}
 
 	daXin, err := s.repo.DongDaXinTra(ctx, in.OrderID)

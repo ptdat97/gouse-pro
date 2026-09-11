@@ -3,6 +3,7 @@ package returns
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
@@ -40,6 +41,21 @@ func (a *orderAdapter) LayDonDeTraHang(
 		// Trả hàng chỉ mở sau khi hàng ĐÃ tới tay khách. Cho phép sớm hơn
 		// nghĩa là hoàn tiền cho món vẫn đang trên đường.
 		DaGiao: v.Status == order.StatusDelivered || v.Status == order.StatusCompleted,
+	}
+
+	// MỐC GIAO — điểm bắt đầu đếm hạn đổi trả.
+	//
+	// Rỗng với đơn cũ tạo trước khi cột này tồn tại (migration 000049).
+	// Khi đó hạn KHÔNG được cưỡng chế — phía an toàn, vì chặn một yêu cầu
+	// hợp lệ chỉ vì thiếu dữ liệu lịch sử là từ chối quyền của khách do
+	// lỗi của hệ thống.
+	if v.DeliveredAt != "" {
+		t, err := time.Parse(time.RFC3339, v.DeliveredAt)
+		if err != nil {
+			return application.DonHang{}, fmt.Errorf(
+				"returns: đọc mốc giao hàng của đơn %s: %w", v.ID, err)
+		}
+		don.GiaoLuc = t
 	}
 
 	giam, err := toMoney(v.DiscountAmount)

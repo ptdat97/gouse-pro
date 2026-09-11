@@ -18,6 +18,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // Module là cài đặt của API công khai.
@@ -47,6 +48,10 @@ type Config struct {
 	// trước, và ghi nhận tiền mặt trong sổ cái (ADR-0018). Đơn trông đã
 	// xong trong khi hàng không đi.
 	Events *eventbus.Outbox
+
+	// OpsConfig cấp HẠN ĐỔI TRẢ để hiển thị cho khách. Cùng tham số mà
+	// `fulfillment` và `returns` đọc.
+	OpsConfig *opsconfig.Store
 
 	// Audit là nơi ghi nhật ký thao tác quản trị (xem chi tiết đơn, hủy đơn).
 	//
@@ -78,6 +83,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.Events != nil {
 		deps.Events = NewEventPublisher(cfg.Events)
+	}
+	if cfg.OpsConfig != nil {
+		deps.Han = &hanDoiTraAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -501,6 +509,7 @@ func toOrderView(o *domain.Order) OrderView {
 		PaymentMethod:   string(o.PaymentMethod()),
 		PlacedAt:        formatTime(o.PlacedAt()),
 		CompletedAt:     formatTime(o.CompletedAt()),
+		DeliveredAt:     formatTime(o.DeliveredAt()),
 	}
 }
 
@@ -565,4 +574,13 @@ func translateErr(err error) error {
 		return ErrInvalidInput
 	}
 	return err
+}
+
+// hanDoiTraAdapter đọc hạn đổi trả từ cấu hình vận hành.
+type hanDoiTraAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.HanDoiTraPort = (*hanDoiTraAdapter)(nil)
+
+func (a *hanDoiTraAdapter) HanDoiTra() time.Duration {
+	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
 }

@@ -2567,6 +2567,7 @@ chặn tất cả, và ở production không có giá trị mặc định.
 |---|---|---|
 | P3-1 | **Test HTTP cho auth và audit-log** | ✅ xong — dòng ghi chú cũ đã lạc hậu; xem ghi chú dưới bảng |
 | P3-2 | **Sửa test suite chập chờn** | ✅ xong — xem ghi chú dưới bảng |
+| P3-31 | **Không hạn đổi trả nào được cưỡng chế** | ✅ xong (11/09) — khách trả hàng sau bao lâu cũng được, kể cả khi nhà bán đã rút tiền |
 | P3-30 | **Hủy cả ĐƠN không nhả kho** | ✅ xong (11/09) — đường ra kho chỉ mở cho đơn THỰC HIỆN. Xem ghi chú |
 | P3-29 | **Chi phí trả hãng vận chuyển chưa có bút toán nào** | ✅ xong (08/09) — doanh thu phí ship đang bị thổi lên. Giá hãng phải KHAI, xem ghi chú |
 | P3-3 | E2E: Product → Offer → Cart → Checkout → Order → Payment → Fulfillment | ✅ xong (07/09) — `api_chuoi_day_du_test.go`; và nó tìm ra một khoản tiền không nằm ở đâu trong sổ. Xem ghi chú |
@@ -3314,6 +3315,54 @@ Ba quyết định đáng ghi:
 
 Bài chuỗi P3-25 nay đi luôn cả mã màu: nhà bán nhập `#1b2a49` chữ thường,
 khách nhận `#1B2A49`.
+
+**P3-31 — không hạn đổi trả nào được cưỡng chế (11/09).**
+
+Tìm ra bằng lượt rà thứ hai: quét mọi THUỘC TÍNH khai trong đặc tả rồi đối
+chiếu với thẻ `json` trong Go. 175 trường không ai điền — nhưng phần lớn
+thuộc module chưa tồn tại (creator, content, supply-chain), tức Phase 2
+chứ không phải chỗ hở. Lọc lấy cái thuộc luồng ĐANG chạy thì còn
+`can_return` và `return_deadline`, và `return_deadline` kèm đúng lý do cần:
+"Quan trọng với thời trang — khách cần biết còn bao lâu".
+
+Đào tiếp thì lỗ hổng lớn hơn nhiều trường thiếu:
+
+```text
+returns.XinTra   chỉ kiểm `don.DaGiao` — KHÔNG kiểm hạn nào cả
+DonHang          chỉ có `DaGiao bool`, không mang mốc giao
+DaGiao           true cho CẢ đơn COMPLETED
+```
+
+`COMPLETED` nghĩa là đã hết hạn đổi trả và số dư nhà bán ĐÃ chuyển sang
+khả dụng. Cho trả sau mốc đó là hoàn tiền cho khách trong khi nhà bán đã
+rút được — đúng thứ mà chú thích của `Order.Complete` gọi là "rất khó thu
+hồi". Nói cách khác: hạn đổi trả tồn tại để quyết định khi nào TRẢ TIỀN
+nhà bán, nhưng không ai dùng nó để quyết định khi nào TỪ CHỐI khách.
+
+**Một nguồn, BA nơi đọc.** `ReturnWindow` là hằng số trong
+`fulfillment/application`, mà `returns` không import sâu được (R1). Đưa
+vào cấu hình vận hành `returns.window_hours`:
+
+```text
+fulfillment   khi nào chuyển tiền cho nhà bán
+returns       khi nào TỪ CHỐI yêu cầu quá hạn
+order         nói cho KHÁCH còn bao lâu (can_return, return_deadline)
+```
+
+Ba hằng số riêng nghĩa là màn hình nói một đằng và hệ thống xử một nẻo.
+
+Mốc giao nằm ở `fulfillment_order`, mà `order` không hỏi ngược
+(ADR-0007). Nhưng order ĐÃ nghe `fulfillment.progress_changed` để tính
+trạng thái tổng hợp, nên nó là nơi duy nhất biết "mọi gói đã giao lúc nào"
+mà không phá ranh giới — thêm cột `order.delivered_at` (migration 000049),
+ghi MỘT lần khi chuyển sang DELIVERED.
+
+**Thiếu dữ liệu thì KHÔNG chặn.** Đơn cũ không có mốc giao, bản dựng chưa
+nối cấu hình không có hạn — cả hai đều cho qua. Chặn oan một yêu cầu hợp
+lệ vì thiếu dữ liệu lịch sử là từ chối quyền của khách do lỗi hệ thống;
+còn cho lọt thì chỉ xảy ra với dữ liệu cũ.
+
+---
 
 **P3-30 — hủy cả ĐƠN không nhả kho (11/09).**
 

@@ -2764,6 +2764,15 @@ export interface components {
             can_cancel?: boolean;
             /** @description Chỉ có ở đơn **khách tự hủy**. Đơn do quản trị viên hủy có lý do ở nhật ký thao tác. */
             cancellation_reason?: string;
+            /**
+             * @description Khách còn trả hàng được không. Tính từ mốc giao + hạn đổi trả
+             *     (`returns.window_hours`), KHÔNG lưu sẵn — đổi tham số phải áp
+             *     ngay, và lưu sẵn nghĩa là màn hình nói một đằng còn hệ thống xử
+             *     một nẻo.
+             *
+             *     Luôn `false` với đơn chưa giao xong: khi đó câu hỏi đúng là "bao
+             *     giờ tới", không phải "còn trả được không".
+             */
             can_return?: boolean;
             payment_method?: components["schemas"]["PaymentMethod"];
         };

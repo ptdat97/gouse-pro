@@ -61,6 +61,15 @@ const (
 	KeyGiaHangTieuChuan = "fulfillment.carrier_cost_standard"
 	KeyGiaHangNhanh     = "fulfillment.carrier_cost_express"
 
+	// KeyHanDoiTra là thời hạn đổi trả, tính từ lúc GIAO XONG.
+	//
+	// MỘT nguồn cho HAI nơi: `fulfillment.CompleteDelivered` dùng nó để
+	// biết khi nào chuyển tiền cho nhà bán, và `returns.XinTra` dùng nó
+	// để từ chối yêu cầu quá hạn. Hai hằng số riêng nghĩa là sớm muộn
+	// chúng lệch nhau — và lệch ở đây là hoàn tiền cho khách sau khi nhà
+	// bán đã rút tiền.
+	KeyHanDoiTra = "returns.window_hours"
+
 	KeyTranSoLuongSKU = "inventory.max_quantity_per_sku"
 
 	KeyThueSuat          = "checkout.tax_rate_bp"
@@ -118,6 +127,17 @@ var soDangKy = map[string]ThamSo{
 		MacDinh: 0.03, Min: 0, Max: 1,
 		MoTa:  "Tỷ lệ hủy đơn TỐI ĐA còn được coi là đạt.",
 		HeQua: "Ngưỡng chặt hơn làm nhiều gian hàng chuyển sang CẢNH BÁO.",
+	},
+	KeyHanDoiTra: {
+		Khoa: KeyHanDoiTra, Kieu: KieuThoiLuong,
+		MacDinh: 168, Min: 24, Max: 2160,
+		MoTa: "Thời hạn khách được đổi trả, tính từ lúc đơn giao xong. Hết " +
+			"hạn thì số dư nhà bán chuyển sang khả dụng và yêu cầu trả hàng " +
+			"bị từ chối.",
+		HeQua: "Kéo dài thì tiền nhà bán nằm chờ lâu hơn; rút ngắn thì khách " +
+			"mất quyền trả sớm hơn. ĐỔI CON SỐ NÀY ÁP CHO CẢ ĐƠN ĐÃ GIAO — " +
+			"hạn tính ra từ mốc giao, không lưu sẵn, nên một lần rút ngắn có " +
+			"thể làm những đơn đang trong hạn hết hạn ngay lập tức.",
 	},
 	KeyGiaHangTieuChuan: {
 		Khoa: KeyGiaHangTieuChuan, Kieu: KieuSoNguyen,

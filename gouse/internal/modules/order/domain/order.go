@@ -222,6 +222,13 @@ type Order struct {
 
 	placedAt    time.Time
 	completedAt time.Time
+
+	// deliveredAt là lúc MỌI gói đã tới tay khách.
+	//
+	// Mốc tính HẠN ĐỔI TRẢ. Ghi một lần khi trạng thái tổng hợp chuyển
+	// sang DELIVERED và KHÔNG đổi nữa: một gói giao lại sau khiếu nại
+	// không được kéo dài hạn đổi trả của cả đơn.
+	deliveredAt time.Time
 	createdAt   time.Time
 	updatedAt   time.Time
 }
@@ -375,6 +382,7 @@ type RestoreOrderParams struct {
 
 	PlacedAt    time.Time
 	CompletedAt time.Time
+	DeliveredAt time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -402,6 +410,7 @@ func RestoreOrder(p RestoreOrderParams) *Order {
 		cancellationReason: p.CancellationReason,
 		placedAt:           p.PlacedAt,
 		completedAt:        p.CompletedAt,
+		deliveredAt:        p.DeliveredAt,
 		createdAt:          p.CreatedAt,
 		updatedAt:          p.UpdatedAt,
 	}
@@ -466,6 +475,9 @@ func (o *Order) ViewableBy(customerID, guestPhone string) bool {
 }
 func (o *Order) PlacedAt() time.Time    { return o.placedAt }
 func (o *Order) CompletedAt() time.Time { return o.completedAt }
+
+// DeliveredAt là mốc tính hạn đổi trả. Rỗng khi đơn chưa giao xong.
+func (o *Order) DeliveredAt() time.Time { return o.deliveredAt }
 func (o *Order) CreatedAt() time.Time   { return o.createdAt }
 func (o *Order) UpdatedAt() time.Time   { return o.updatedAt }
 
@@ -735,6 +747,15 @@ func (o *Order) RecalculateStatus(progress []FulfillmentProgress, now time.Time)
 		next = StatusPartiallyShipped
 	case cancelled > 0:
 		next = StatusPartiallyCancelled
+	}
+
+	// Ghi MỐC GIAO lần đầu tiên đơn chuyển sang DELIVERED.
+	//
+	// Chỉ ghi một lần: `deliveredAt.IsZero()` chặn việc một lần tính lại
+	// sau này dời mốc tới trước, và dời mốc nghĩa là kéo dài hạn đổi trả
+	// của một đơn đã giao xong từ lâu.
+	if next == StatusDelivered && o.deliveredAt.IsZero() {
+		o.deliveredAt = now
 	}
 
 	if next == o.status {

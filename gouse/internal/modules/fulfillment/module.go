@@ -80,6 +80,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.OpsConfig != nil {
 		deps.Nguong = &nguongAdapter{cfg: cfg.OpsConfig}
+		// Hạn đổi trả: CÙNG tham số mà `returns` dùng để từ chối yêu cầu
+		// quá hạn. Một nguồn cho hai module.
+		deps.Han = &hanDoiTraAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{
@@ -452,4 +455,16 @@ func (a *nguongAdapter) Nguong() domain.Nguong {
 		GiaoDungHan: a.cfg.Doc(opsconfig.KeyNguongGiaoDungHan),
 		MauToiThieu: a.cfg.DocSoNguyen(opsconfig.KeyMauToiThieu),
 	}
+}
+
+// hanDoiTraAdapter đọc hạn đổi trả từ cấu hình vận hành.
+//
+// Đọc MỖI lần chứ không chụp lúc khởi động: đổi tham số phải có tác dụng
+// ở lượt chạy kế tiếp của job hoàn tất đơn.
+type hanDoiTraAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.HanDoiTraPort = (*hanDoiTraAdapter)(nil)
+
+func (a *hanDoiTraAdapter) HanDoiTra() time.Duration {
+	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
 }

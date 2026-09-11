@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
@@ -19,6 +20,7 @@ import (
 	returnspg "github.com/fashion-commerce/platform/internal/modules/returns/infrastructure/postgres"
 	returnshttp "github.com/fashion-commerce/platform/internal/modules/returns/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
 // Module là cài đặt của API công khai.
@@ -40,7 +42,27 @@ type Config struct {
 	// là một, đúng với mọi nhà bán trừ own brand.
 	Owner OwnerResolver
 
+	// OpsConfig cấp HẠN ĐỔI TRẢ (`returns.window_hours`).
+	//
+	// Nil thì hạn KHÔNG được cưỡng chế và khách trả hàng sau bao lâu cũng
+	// được — kể cả sau khi `fulfillment` đã chuyển tiền cho nhà bán. Đó là
+	// trạng thái trước migration 000049, giữ lại cho test không quan tâm
+	// tới hạn; ở production thì bắt buộc phải nối.
+	OpsConfig *opsconfig.Store
+
 	Clock application.Clock
+}
+
+// hanDoiTraAdapter đọc hạn đổi trả từ cấu hình vận hành.
+//
+// Đọc MỖI lần chứ không chụp lúc khởi động: đổi tham số phải có tác dụng ở
+// yêu cầu kế tiếp, không phải sau lần khởi động lại kế tiếp.
+type hanDoiTraAdapter struct{ cfg *opsconfig.Store }
+
+var _ application.HanDoiTraPort = (*hanDoiTraAdapter)(nil)
+
+func (a *hanDoiTraAdapter) HanDoiTra() time.Duration {
+	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
 }
 
 func New(cfg Config) (*Module, error) {
@@ -56,13 +78,18 @@ func New(cfg Config) (*Module, error) {
 				"trả hàng là đảo ngược cả ba")
 	}
 
-	return &Module{svc: application.NewService(application.Deps{
+	deps := application.Deps{
 		Repo:      returnspg.NewStore(cfg.DB.Pool()),
 		Orders:    &orderAdapter{api: cfg.Order},
 		Inventory: &inventoryAdapter{api: cfg.Inventory, owner: cfg.Owner},
 		Payment:   &paymentAdapter{api: cfg.Payment},
 		Clock:     cfg.Clock,
-	})}, nil
+	}
+	if cfg.OpsConfig != nil {
+		deps.Han = &hanDoiTraAdapter{cfg: cfg.OpsConfig}
+	}
+
+	return &Module{svc: application.NewService(deps)}, nil
 }
 
 // Service trả tầng application. CHỈ dùng trong test tích hợp.

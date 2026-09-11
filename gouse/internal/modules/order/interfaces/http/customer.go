@@ -185,6 +185,20 @@ type customerDetailJSON struct {
 	PlacedAt    string `json:"placed_at"`
 	CompletedAt string `json:"completed_at,omitempty"`
 
+	// CanReturn và ReturnDeadline: khách còn trả hàng được không, và tới
+	// bao giờ.
+	//
+	// Đặc tả khai hai trường này từ đầu — `return_deadline` kèm đúng lý do
+	// cần: "Quan trọng với thời trang — khách cần biết còn bao lâu". Không
+	// nơi nào điền chúng cho tới 11/09, nên khách hoặc không dùng luồng
+	// trả hàng, hoặc gửi yêu cầu rồi bị từ chối mà không hiểu vì sao.
+	//
+	// TÍNH RA từ mốc giao + hạn cấu hình, KHÔNG lưu: hạn đọc từ
+	// `returns.window_hours` và đổi tham số phải áp ngay. Lưu sẵn nghĩa là
+	// màn hình nói một đằng còn `returns.XinTra` xử một nẻo.
+	CanReturn      bool   `json:"can_return"`
+	ReturnDeadline string `json:"return_deadline,omitempty"`
+
 	ShippingAddress *customerAddressJSON `json:"shipping_address,omitempty"`
 
 	// Lines là các dòng hàng của đơn.
@@ -224,7 +238,8 @@ func (h *CustomerHandler) getOrder(w http.ResponseWriter, r *http.Request) {
 		h.failCustomer(w, r, err)
 		return
 	}
-	h.okCustomer(w, r, http.StatusOK, toCustomerDetail(o))
+	h.okCustomer(w, r, http.StatusOK,
+		toCustomerDetail(o, h.svc.HanDoiTra(), h.svc.Now()))
 }
 
 // ---------------------------------------------------------------- Hủy đơn
@@ -477,7 +492,15 @@ func toSummary(o *domain.Order) summaryJSON {
 	}
 }
 
-func toCustomerDetail(o *domain.Order) customerDetailJSON {
+// toCustomerDetail dựng chi tiết đơn cho khách.
+//
+// `han` và `now` truyền vào chứ không đọc trong hàm: hạn đổi trả là cấu
+// hình vận hành, và một hàm chuyển đổi thuần thì kiểm được mà không cần
+// dựng cả service. `han` bằng 0 nghĩa là chưa nối cấu hình — khi đó hai
+// trường hạn đổi trả vắng mặt thay vì mang một con số bịa.
+func toCustomerDetail(
+	o *domain.Order, han time.Duration, now time.Time,
+) customerDetailJSON {
 	lines := make([]customerLineJSON, 0, len(o.Lines()))
 	for _, l := range o.Lines() {
 		lines = append(lines, customerLineJSON{
@@ -513,6 +536,17 @@ func toCustomerDetail(o *domain.Order) customerDetailJSON {
 
 	if !o.CompletedAt().IsZero() {
 		out.CompletedAt = o.CompletedAt().UTC().Format(time.RFC3339)
+	}
+
+	// HẠN ĐỔI TRẢ — tính từ mốc giao, không lưu sẵn.
+	//
+	// Đơn chưa giao xong thì `DeliveredAt` rỗng và cả hai trường vắng
+	// mặt: chưa giao thì câu hỏi đúng là "bao giờ tới", không phải "còn
+	// trả được không".
+	if !o.DeliveredAt().IsZero() && han > 0 {
+		hanChot := o.DeliveredAt().Add(han)
+		out.ReturnDeadline = hanChot.UTC().Format(time.RFC3339)
+		out.CanReturn = now.Before(hanChot)
 	}
 
 	if addr := o.ShippingAddress(); !addr.IsEmpty() {

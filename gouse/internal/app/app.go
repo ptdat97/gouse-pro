@@ -303,6 +303,9 @@ func Build(
 			DB:      db,
 			Audit:   auditRecorder,
 			Events:  eventbus.NewOutbox(db.Pool()),
+			// Hạn đổi trả để NÓI CHO KHÁCH còn bao lâu. Cùng tham số mà
+			// fulfillment dùng để chuyển tiền và returns dùng để từ chối.
+			OpsConfig: opsConfigStore,
 		})
 		if err != nil {
 			return Modules{}, err
@@ -403,6 +406,10 @@ func Build(
 			Payment:   paymentModule,
 			Inventory: inventoryModule,
 			Owner:     &sellerOwner{sellers: sellerModule},
+			// Hạn đổi trả: cùng tham số mà fulfillment dùng để biết khi
+			// nào chuyển tiền cho nhà bán. Thiếu nó thì hạn không được
+			// cưỡng chế và khách trả hàng sau bao lâu cũng được.
+			OpsConfig: opsConfigStore,
 		})
 		if err != nil {
 			return Modules{}, err

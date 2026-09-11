@@ -37,7 +37,32 @@ var ErrForbidden = errors.New("fulfillment: đơn thực hiện không thuộc v
 // Sau khi hết hạn, đơn thực hiện chuyển COMPLETED và số dư seller chuyển
 // từ Pending sang Available. Đây là ranh giới TÀI CHÍNH: trả tiền sớm hơn
 // nghĩa là trả trước khi biết khách có hoàn hàng không.
+// Từ 11/09 đây chỉ là MẶC ĐỊNH khi chưa nối cấu hình vận hành. Con số
+// thật đọc từ `returns.window_hours` — CÙNG tham số mà `returns.XinTra`
+// dùng để từ chối yêu cầu quá hạn. Hai hằng số riêng cho một quy tắc sớm
+// muộn lệch nhau, và lệch ở đây là hoàn tiền cho khách sau khi nhà bán đã
+// rút tiền.
 const ReturnWindow = 7 * 24 * time.Hour
+
+// HanDoiTraPort cấp thời hạn đổi trả từ cấu hình vận hành.
+type HanDoiTraPort interface {
+	HanDoiTra() time.Duration
+}
+
+// hanDoiTra trả hạn đang áp dụng, rơi về `ReturnWindow` khi chưa nối.
+//
+// Rơi về mặc định chứ không lỗi: thiếu cấu hình thì hành vi giống hệt
+// trước khi có tham số này, và job nền vẫn chạy. Nhưng khi ĐÃ nối thì hai
+// module đọc cùng một con số.
+func (s *Service) hanDoiTra() time.Duration {
+	if s.han == nil {
+		return ReturnWindow
+	}
+	if d := s.han.HanDoiTra(); d > 0 {
+		return d
+	}
+	return ReturnWindow
+}
 
 // EventPublisher phát domain event.
 //
@@ -140,6 +165,7 @@ type Service struct {
 	clock  Clock
 	events EventPublisher
 	nguong NguongPort
+	han    HanDoiTraPort
 }
 
 type Deps struct {
@@ -152,6 +178,9 @@ type Deps struct {
 	// Events có thể nil: khi đó module vẫn hoạt động nhưng KHÔNG phát
 	// event, và trạng thái tổng hợp của đơn hàng sẽ không được cập nhật.
 	Events EventPublisher
+
+	// Han cấp hạn đổi trả. Nil thì rơi về `ReturnWindow` mặc định.
+	Han HanDoiTraPort
 }
 
 func NewService(d Deps) *Service {
@@ -159,7 +188,8 @@ func NewService(d Deps) *Service {
 	if clock == nil {
 		clock = SystemClock
 	}
-	return &Service{repo: d.Repo, clock: clock, events: d.Events, nguong: d.Nguong}
+	return &Service{repo: d.Repo, clock: clock, events: d.Events,
+		nguong: d.Nguong, han: d.Han}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -496,7 +526,7 @@ func (s *Service) loadOwned(
 // Trả về số đơn đã chuyển.
 func (s *Service) CompleteDelivered(ctx context.Context, limit int) (int, error) {
 	now := s.clock.Now()
-	cutoff := now.Add(-ReturnWindow)
+	cutoff := now.Add(-s.hanDoiTra())
 
 	due, err := s.repo.ListDeliveredBefore(ctx, cutoff, limit)
 	if err != nil {

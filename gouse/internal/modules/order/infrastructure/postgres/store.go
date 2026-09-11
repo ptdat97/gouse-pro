@@ -60,14 +60,14 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 			bill_district, bill_province, bill_country_code,
 			currency, shipping_fee, discount_amount, tax_amount,
 			status, idempotency_key, source_checkout_id, payment_method,
-			placed_at, completed_at,
+			placed_at, completed_at, delivered_at,
 			created_at, updated_at
 		) VALUES (
 			$1,$2,$3,$4,$5,
 			$6,$7,$8,$9,$10,$11,$12,
 			$13,$14,$15,$16,$17,$18,$19,
 			$20,$21,$22,$23,
-			$24,$25,$26,$27,$28,$29,$30,$31
+			$24,$25,$26,$27,$28,$29,$30,$31,$32
 		)`,
 		o.ID().String(), o.OrderNumber(), o.CustomerID().String(),
 		o.GuestEmail(), o.GuestPhone(),
@@ -83,7 +83,11 @@ func (s *OrderStore) Save(ctx context.Context, o *domain.Order) error {
 		// mặt, đúng thứ NULL diễn đạt.
 		nullPaymentMethod(o.PaymentMethod()),
 		o.PlacedAt(),
-		nullTime(o.CompletedAt()), o.CreatedAt(), o.UpdatedAt())
+		// Thứ tự PHẢI khớp cột: placed_at, completed_at, delivered_at,
+		// created_at, updated_at. Đơn mới tạo chưa giao nên delivered_at
+		// là NULL; nó được ghi ở `update` khi đơn chuyển sang DELIVERED.
+		nullTime(o.CompletedAt()), nullTime(o.DeliveredAt()),
+		o.CreatedAt(), o.UpdatedAt())
 	if err != nil {
 		// Khóa idempotency trùng nghĩa là đơn này ĐÃ được tạo — quy tắc 5.
 		// Bên gọi phải đọc lại đơn cũ, không phải báo lỗi cho khách: khách
@@ -201,11 +205,14 @@ func (s *OrderStore) update(
 	tag, err := tx.Exec(ctx, `
 		UPDATE "order"
 		   SET status = $2, completed_at = $3, cancellation_reason = $4,
-		       updated_at = $5, version = version + 1
+		       updated_at = $5, delivered_at = $7, version = version + 1
 		 WHERE id = $1 AND version = $6`,
 		o.ID().String(), string(o.Status()),
 		nullTime(o.CompletedAt()), o.CancellationReason(), o.UpdatedAt(),
-		o.Version())
+		o.Version(),
+		// MỐC GIAO ghi được ở đây vì `RecalculateStatus` đặt nó khi đơn
+		// chuyển sang DELIVERED, và bước đó đi qua chính câu lệnh này.
+		nullTime(o.DeliveredAt()))
 	if err != nil {
 		return fmt.Errorf("order: cập nhật đơn hàng: %w", err)
 	}
@@ -349,7 +356,7 @@ const orderCols = `
 	currency, shipping_fee, discount_amount, tax_amount,
 	status, idempotency_key, source_checkout_id, cancellation_reason,
 	payment_method,
-	placed_at, completed_at, created_at, updated_at, version`
+	placed_at, completed_at, delivered_at, created_at, updated_at, version`
 
 func (s *OrderStore) FindByID(ctx context.Context, id ids.ID) (*domain.Order, error) {
 	return s.findOne(ctx, `WHERE id = $1`, id.String())
@@ -593,6 +600,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		paymentMethod              *string
 		shippingFee, discount, tax int64
 		completedAt                *time.Time
+		deliveredAt                *time.Time
 	)
 	if err := row.Scan(
 		&id, &orderNumber, &customerID, &email, &phone,
@@ -603,7 +611,8 @@ func scanOrder(row scanner) (*domain.Order, error) {
 		&currency, &shippingFee, &discount, &tax,
 		&status, &idemKey, &srcCheckout, &cancelReason,
 		&paymentMethod,
-		&p.PlacedAt, &completedAt, &p.CreatedAt, &p.UpdatedAt, &p.Version,
+		&p.PlacedAt, &completedAt, &deliveredAt,
+		&p.CreatedAt, &p.UpdatedAt, &p.Version,
 	); err != nil {
 		return nil, err
 	}
@@ -626,6 +635,7 @@ func scanOrder(row scanner) (*domain.Order, error) {
 	p.CancellationReason = cancelReason
 	p.PaymentMethod = domain.PaymentMethod(derefStr(paymentMethod))
 	p.CompletedAt = deref(completedAt)
+	p.DeliveredAt = deref(deliveredAt)
 
 	return domain.RestoreOrder(p), nil
 }

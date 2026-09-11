@@ -319,6 +319,13 @@ type OrderView struct {
 
 	PlacedAt    string
 	CompletedAt string
+
+	// DeliveredAt là mốc tính HẠN ĐỔI TRẢ.
+	//
+	// Rỗng khi đơn chưa giao xong. Module returns cần nó để từ chối yêu
+	// cầu quá hạn — trước khi có trường này, `XinTra` chỉ kiểm "đã giao
+	// chưa" nên khách trả hàng sau bao lâu cũng được.
+	DeliveredAt string
 }
 
 // OrderLineView là một dòng hàng với dữ liệu ĐÃ ĐÓNG BĂNG.

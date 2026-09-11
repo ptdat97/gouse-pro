@@ -16,8 +16,16 @@ import (
 )
 
 var (
-	ErrNotFound         = errors.New("returns: không tìm thấy yêu cầu trả hàng")
-	ErrInvalidStatus    = errors.New("returns: chuyển trạng thái không hợp lệ")
+	ErrNotFound      = errors.New("returns: không tìm thấy yêu cầu trả hàng")
+	ErrInvalidStatus = errors.New("returns: chuyển trạng thái không hợp lệ")
+
+	// ErrHetHanTra khi yêu cầu đến sau hạn đổi trả.
+	//
+	// Mốc tính từ lúc đơn GIAO XONG, độ dài lấy từ
+	// `returns.window_hours` — cùng con số mà `fulfillment` dùng để biết
+	// khi nào chuyển tiền cho nhà bán. Quá hạn mà vẫn cho trả nghĩa là
+	// nền tảng hoàn tiền sau khi nhà bán đã rút được.
+	ErrHetHanTra        = errors.New("returns: đã quá hạn đổi trả")
 	ErrNoLines          = errors.New("returns: yêu cầu trả hàng phải có ít nhất một dòng")
 	ErrInvalidReason    = errors.New("returns: lý do trả hàng không hợp lệ")
 	ErrMissingReason    = errors.New("returns: phải nêu lý do từ chối")
