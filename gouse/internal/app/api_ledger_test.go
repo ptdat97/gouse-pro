@@ -15,6 +15,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/order"
 
 	"github.com/fashion-commerce/platform/internal/modules/payment"
+	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
@@ -43,6 +44,10 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	bus.Subscribe(payment.NewThuTienHandler(a.mods.payment, log))
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(a.mods.fulfillment, log))
 	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(a.mods.fulfillment, log))
+
+	// Lượt dùng mã giảm giá: ghi khi phiên hoàn tất, trả lại khi đơn hủy.
+	bus.Subscribe(promotion.NewGhiLuotDungHandler(a.mods.promotion, log))
+	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(a.mods.promotion, log))
 }
 
 func (a *apiTest) phatEvent(t *testing.T) int {

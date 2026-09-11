@@ -150,13 +150,13 @@ func (h *SplitOnCheckoutCompleted) EventTypes() []string {
 	return []string{eventbus.TypeCheckoutCompleted}
 }
 
-// MaxEventVersion khai bên nhận này hiểu tới phiên bản 2.
+// MaxEventVersion khai bên nhận này theo kịp phiên bản mới nhất.
 //
 // Phiên bản 2 thêm `payment_method` — thứ quyết định đơn thực hiện có bị
 // khóa chờ tiền không. Một bản dựng cũ chưa khai con số này sẽ được
 // dispatcher HOÃN event thay vì đọc thiếu trường rồi tạo đơn KHÔNG khóa
 // cho một đơn trả trước. Đó chính là ca ADR-0016 sinh ra để chặn.
-func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 6 }
+func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 7 }
 
 // splitPayload là phần dữ liệu bên nhận này cần.
 type splitPayload struct {

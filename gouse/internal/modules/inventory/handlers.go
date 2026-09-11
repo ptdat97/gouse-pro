@@ -47,17 +47,18 @@ func (h *CommitOnCheckoutCompleted) Name() string {
 	return "inventory.commit_on_checkout_completed"
 }
 
-// MaxEventVersion khai bên nhận này hiểu tới phiên bản 2 của
-// `checkout.completed`.
+// MaxEventVersion khai bên nhận này THEO KỊP phiên bản mới nhất của
+// `checkout.completed` — con số nằm ngay dưới, không nhắc lại ở đây.
 //
-// Nó KHÔNG dùng trường `payment_method` mà phiên bản 2 thêm vào — trường
-// đó dành cho fulfillment (ADR-0018). Khai ở đây vì ADR-0016 bắt MỌI bên
-// nhận của một event nói rõ mình hiểu tới đâu: thiếu một khai báo là
-// dispatcher HOÃN event cho tất cả, và đó là cái giá đã chấp nhận khi
-// chọn cơ chế hoãn thay vì thả cho bên nhận đọc thiếu trường.
+// Bên nhận này không đọc trường nào mà các phiên bản sau thêm vào. Nó vẫn
+// phải khai vì ADR-0016 bắt MỌI bên nhận của một event nói rõ mình hiểu
+// tới đâu: thiếu một khai báo là dispatcher HOÃN event cho TẤT CẢ. Đó là
+// cái giá đã chấp nhận khi chọn cơ chế hoãn thay vì thả cho bên nhận đọc
+// thiếu trường — nên mỗi lần nâng phiên bản, con số dưới đây phải đổi,
+// còn đoạn văn này thì không.
 func (h *CommitOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 6
+		return 7
 	}
 	return eventbus.DefaultMaxEventVersion
 }

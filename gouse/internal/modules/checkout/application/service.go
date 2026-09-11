@@ -236,6 +236,15 @@ type CheckoutCompleted struct {
 	// khoản không ai đòi.
 	DiscountAmount money.Money
 
+	// CouponCode là mã giảm giá đã áp — THÊM Ở PHIÊN BẢN 7.
+	//
+	// `promotion` BẮT BUỘC phải có nó để ghi nhận lượt dùng. Không ghi thì
+	// MỌI giới hạn của mã đều vô hiệu: `CountByCustomer` luôn trả 0, bộ
+	// đếm tổng không tăng nên `max_uses` không bao giờ chạm, và ngân sách
+	// khuyến mãi không bao giờ cạn. Một mã phát ra dùng được vô hạn lần
+	// bởi vô hạn người.
+	CouponCode string
+
 	// PhanBoGiam là bảng chia chi phí khoản giảm — THÊM Ở PHIÊN BẢN 6.
 	//
 	// Thay cho `discount_seller_id` của phiên bản 5: một mã gian hàng chỉ
@@ -1427,6 +1436,7 @@ func (s *Service) completedEvent(
 		PaymentMethod:  paymentMethod,
 		ShippingFee:    c.ShippingFee(),
 		DiscountAmount: c.DiscountAmount(),
+		CouponCode:     c.CouponCode(),
 
 		PhanBoGiam:      c.PhanBoGiam(),
 		ShippingAddress: c.ShippingAddress(),

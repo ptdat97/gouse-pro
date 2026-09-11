@@ -4090,6 +4090,60 @@ khi làm, cả hai đều là khoảng trống có thật chứ không phải ch
 P3-1 là **nợ kỹ thuật đã biết**, không phải việc phát sinh — ghi ở đây để
 không bị quên.
 
+### P3-32 — lượt dùng mã giảm giá được ghi thật
+
+**Đã xong (11/09).**
+
+`promotion.RecordUsage` có đủ ba tầng và được viết cẩn thận — ghi hàng lượt
+rồi cộng dồn nguyên tử, idempotent theo đơn. **Không ai gọi nó từ ngoài
+module.** Đo trên dữ liệu thật trước khi sửa:
+
+```text
+lượt dùng mã đã ghi:  0
+đơn CÓ mã giảm:       1
+chương trình "Giảm 10% mừng ra mắt"  dùng=0  ngân sách đã tiêu=0 đ
+```
+
+Hệ quả: `CountByCustomer` luôn trả 0, `used_count` không tăng nên `max_uses`
+không bao giờ chạm, `used_budget` không tăng nên `max_budget` không bao giờ
+cạn. **Một mã phát ra dùng được vô hạn lần bởi vô hạn người.**
+
+Đã nối:
+
+```text
+checkout.completed  thêm `coupon_code`, lên PHIÊN BẢN 7 (7 bên nhận khai lại)
+promotion.ghi_luot_dung_khi_hoan_tat   ghi lượt khi phiên hoàn tất
+promotion.giai_phong_luot_khi_huy_don  trả lượt khi đơn bị hủy
+cmd/doisoatluot                        dọn quá khứ, mặc định CHỈ BÁO CÁO
+```
+
+Dữ liệu cũ đã đối soát: 1 đơn, 46.900 đ, nay `dùng=1 ngân sách=46.900 đ`.
+Chạy lần hai không đụng gì.
+
+**Vì sao cần bên nhận giải phóng lượt.** Không có nó, khách dùng mã rồi hủy
+đơn sẽ MẤT lượt — với mã giới hạn một lượt mỗi người thì họ mất luôn quyền
+dùng, còn ngân sách khuyến mãi bị trừ cho một đơn không còn tồn tại.
+
+**Bốn phép phá đã chạy**, mỗi phép đều làm test đỏ đúng chỗ:
+
+| Phá | Bài bắt được |
+|---|---|
+| bỏ `CouponCode` khỏi `completedEvent` | cả ba bài — "ghi được 0 lượt" |
+| hạ inventory về phiên bản 6 | bộ phát HOÃN event, không lượt nào được ghi |
+| bỏ lá chắn `ErrAlreadyUsed` | bên nhận báo lỗi → event kẹt hàng đợi |
+| bên nhận hủy đơn không làm gì | "sau khi hủy còn 1 lượt còn hiệu lực" |
+
+Phép phá thứ ba lộ thêm một lỗi của chính bài test: nó báo "không event nào
+được phát lại" trong khi sự thật là bên nhận CÓ chạy và ĐÃ báo lỗi. Bài test
+nay đọc `last_error` của outbox trước khi kết luận — một thông điệp chỉ sai
+chỗ tốn đúng bằng một bài test không chạy.
+
+**Chú thích phiên bản thôi nhắc số.** Sáu bên nhận vẫn ghi "hiểu tới phiên
+bản 2" trong khi code trả 6 rồi 7 — lệch từ những lần nâng trước. Đã viết
+lại thành "theo kịp phiên bản mới nhất": con số sống ở code, đoạn văn không
+còn đường lệch. Đây là cái giá của cơ chế hoãn (ADR-0016) mà dự án đã chọn
+giữ; ít nhất phần chú thích không phải trả.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này
@@ -4205,7 +4259,7 @@ Và:
 
 ## 8. Trường không ai điền — dạng lỗi hay gặp nhất của dự án này
 
-Sáu lần trong khoảng một tháng, cùng một hình dạng: **một trường có trong
+Bảy lần trong khoảng một tháng, cùng một hình dạng: **một trường có trong
 hợp đồng API, có cột trong DB, có phương thức domain — và không dòng mã nào
 gán giá trị cho nó.**
 
@@ -4217,17 +4271,25 @@ gán giá trị cho nó.**
 | `sla_deadline` | P3-17 | không biết đơn nào trễ hạn bàn giao |
 | `size_chart` | P3-22 | khách không thấy số đo — hoàn hàng vì sai size |
 | `buy_box_offer` | P3-20 | khai ở `ProductDetail`, không bao giờ được trả |
+| lượt dùng mã | — | `max_uses`, `max_uses_per_customer` và `max_budget` đều vô hiệu; một mã dùng được vô hạn lần bởi vô hạn người |
 
-**Hai cách kết thúc, và phải phân biệt.** Năm dòng đầu là trường ĐÚNG mà
+**Hai cách kết thúc, và phải phân biệt.** Sáu dòng là trường ĐÚNG mà
 chưa nối dây → nối dây. `buy_box_offer` thì khác: buy box quyết theo SKU
 (mỗi size là một cuộc cạnh tranh riêng), nên trường ở mức sản phẩm không
 có nghĩa đúng — nó bị BỎ khỏi đặc tả. Không phải trường nào trống cũng
 đáng điền; câu hỏi đầu tiên luôn là "giá trị đúng của nó là gì".
 
-Bốn trong sáu lần đi kèm một **phương thức domain không ai gọi**:
+Năm trong bảy lần đi kèm một **phương thức domain không ai gọi**:
 `Order.MarkPaid`, `Checkout.SetTax`, `User.VerifyEmail`,
-`catalog.GetSizeChart`. Chúng được viết đúng, được test đúng, và không
-nằm trên đường đi nào cả.
+`catalog.GetSizeChart`, `promotion.RecordUsage`. Chúng được viết đúng,
+được test đúng, và không nằm trên đường đi nào cả.
+
+`RecordUsage` là ca cực đoan nhất của dạng này: nó KHÔNG chỉ được viết
+đúng, nó được viết CẨN THẬN — ghi hàng lượt rồi cộng dồn nguyên tử,
+idempotent theo đơn, kèm chú thích giải thích vì sao thứ tự đó quan trọng
+với outbox giao ít nhất một lần. Toàn bộ sự cẩn thận ấy nằm sau một hàm
+không ai gọi. Đầu tư vào chất lượng của một đơn vị KHÔNG thay thế được
+câu hỏi ai gọi nó.
 
 ### Vì sao test không bắt được
 

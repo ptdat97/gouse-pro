@@ -29,7 +29,7 @@ type benNhanHayHong struct {
 
 func (h *benNhanHayHong) Name() string { return "e2e.ben_nhan_hay_hong" }
 
-// MaxEventVersion khai hiểu tới phiên bản 2 của `checkout.completed`.
+// MaxEventVersion khai theo kịp phiên bản mới nhất của `checkout.completed`.
 //
 // Thiếu dòng này, dispatcher HOÃN event cho MỌI bên nhận — kể cả inventory
 // — nên tồn kho không chuyển sang cam kết và bài test đỏ ở một chỗ chẳng
@@ -37,7 +37,7 @@ func (h *benNhanHayHong) Name() string { return "e2e.ben_nhan_hay_hong" }
 // (ADR-0016), và nó áp cả cho bản giả trong test.
 func (h *benNhanHayHong) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 6
+		return 7
 	}
 	return eventbus.DefaultMaxEventVersion
 }

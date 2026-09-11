@@ -450,6 +450,14 @@ func run() error {
 		paymentModule, payment.NewSellerKind(sellerModule), log))
 	bus.Subscribe(payment.NewSellerReleaseHandler(paymentModule, log))
 
+	// Ghi LƯỢT DÙNG mã giảm giá, và trả lại lượt khi đơn bị hủy.
+	//
+	// Thiếu hai bên nhận này thì mọi giới hạn của mã đều vô hiệu: bộ đếm
+	// không tăng nên `max_uses` không bao giờ chạm, ngân sách không bao
+	// giờ cạn, và "mỗi khách một lượt" thành vô hạn lượt.
+	bus.Subscribe(promotion.NewGhiLuotDungHandler(promotionModule, log))
+	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(promotionModule, log))
+
 	jobs := []job{
 		{
 			name:     "phát domain event",
