@@ -4144,6 +4144,53 @@ lại thành "theo kịp phiên bản mới nhất": con số sống ở code, �
 còn đường lệch. Đây là cái giá của cơ chế hoãn (ADR-0016) mà dự án đã chọn
 giữ; ít nhất phần chú thích không phải trả.
 
+### P3-33 — gỡ mã giảm giá, và hàng rào cho danh sách tuyến
+
+**Đã xong (11/09).**
+
+`RemoveDiscount` có đủ ba tầng, và tầng ứng dụng làm đúng phần khó: gỡ mã
+làm tiền hàng TĂNG lại nên phí ship và thuế phải tính lại. Thiếu đúng một
+thứ — cửa vào. Khách gõ nhầm mã là mắc kẹt với nó tới khi phiên hết hạn.
+
+Đã thêm `DELETE /api/v1/checkout/{id}/coupon`, khai vào đặc tả, sinh lại
+kiểu TypeScript, thêm `removeCheckoutCoupon` vào api-client.
+
+**Việc phát sinh, và nó đáng giá hơn tính năng.** Tuyến mới trả 404 dù đã
+đăng ký đúng ở module: tuyến phải khai ở **HAI** chỗ.
+
+```text
+module/interfaces/http  Register()   gắn vào mux RIÊNG của module
+internal/app/shopper.go              liệt kê LẠI để bọc middleware
+```
+
+Danh sách thứ hai có lý do chính đáng — mỗi nhóm tuyến cần chuỗi middleware
+khác nhau, bọc cả mux con thì không phân biệt được. Cái giá là hai danh
+sách phải khớp bằng tay, và **quên danh sách thứ hai không gây lỗi biên
+dịch, không gây lỗi khởi động, và không test nào của module bắt được** —
+test của module gọi thẳng mux của module, nơi tuyến CÓ mặt. Nó chỉ hiện ra
+dưới dạng 404 với khách thật.
+
+[routes_phoi_bay_test.go](../../gouse/internal/app/routes_phoi_bay_test.go)
+nay canh cả hai chiều bằng cách đọc mã nguồn (`http.ServeMux` không cho
+liệt kê lại mẫu đã đăng ký):
+
+| Chiều | Bắt được |
+|---|---|
+| module đăng ký → app phải phơi bày | quên khai danh sách thứ hai |
+| app ủy quyền → module phải đăng ký | đổi tên đường dẫn, để lại tuyến chết |
+
+Kèm hai hàng rào cho chính bài kiểm: thư mục không có file `.go` nào, hoặc
+biểu thức chính quy không khớp gì, đều làm bài DỪNG thay vì xanh — một bài
+kiểm không kiểm gì tệ hơn không có bài kiểm.
+
+Chiều ngược ban đầu báo nhầm 8 tuyến: app TỰ phục vụ `/metrics`, `/health`,
+cấu hình vận hành — chúng không ủy quyền cho module nào. Đã thu hẹp về đúng
+dạng `mux.Handle("…", h)`.
+
+Cũng dọn một chú thích đã sai: handler checkout vẫn ghi "payment_method
+CHƯA ĐƯỢC LƯU, handler kiểm tra rồi BỎ QUA" trong khi migration 000041 đã
+lưu nó và ADR-0018 dùng nó để quyết luồng thanh toán.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này

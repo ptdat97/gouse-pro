@@ -281,3 +281,90 @@ func TestHuyDonTraLaiLuotDungMa(t *testing.T) {
 			"bộ đếm chưa được trả lại dù hàng lượt đã đánh dấu giải phóng")
 	}
 }
+
+// TestGoMaGiamGiaTinhLaiPhiVaThue.
+//
+// # Vì sao tuyến này từng không tồn tại
+//
+// `RemoveDiscount` có đủ ba tầng, và tầng ứng dụng làm đúng phần khó: gỡ
+// mã làm tiền hàng TĂNG lại nên phí ship và thuế phải tính lại. Chỉ thiếu
+// cửa vào — khách gõ nhầm mã là mắc kẹt với nó tới khi phiên hết hạn.
+//
+// Bài này kiểm cả phần khó: sau khi gỡ, tổng tiền phải TRỞ VỀ đúng số
+// trước lúc áp mã, không phải chỉ trừ đi phần giảm.
+func TestGoMaGiamGiaTinhLaiPhiVaThue(t *testing.T) {
+	a := newAPITest(t)
+
+	const ma = "GOMARATEST"
+	a.dungMaCoGioiHan(t, ma, 1000, 0)
+
+	maOffer := a.timOfferBanDuoc()
+	if maOffer == "" {
+		t.Skip("không có offer nào bán được")
+	}
+	res := a.call(http.MethodPost, "/api/v1/cart/items",
+		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+	gio, _ := res.body["cart"].(map[string]any)
+	maGio, _ := gio["id"].(string)
+
+	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
+		"cart_id": maGio, "guest_email": "goma@example.com",
+		"guest_phone": "0900999888",
+	}, khoaIdem())
+	maPhien, _ := res.body["id"].(string)
+
+	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+		map[string]any{
+			"recipient_name": "Khách Gỡ", "phone": "0900999888",
+			"street_address": "3 Đường Thử", "ward": "P1",
+			"district": "Q1", "province": "TP.HCM", "country_code": "VN",
+		}, khoaIdem())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+
+	truoc := a.call(http.MethodGet, "/api/v1/checkout/"+maPhien, nil, nil)
+	tongTruoc := tongTien(t, truoc.body)
+
+	ap := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/coupon",
+		map[string]any{"code": ma}, khoaIdem())
+	if ap.code != http.StatusOK {
+		t.Fatalf("áp mã: HTTP %d — %s", ap.code, ap.raw)
+	}
+	tongCoMa := tongTien(t, ap.body)
+	if tongCoMa >= tongTruoc {
+		t.Fatalf("áp mã xong tổng là %d, không nhỏ hơn %d — "+
+			"bài kiểm không có gì để gỡ", tongCoMa, tongTruoc)
+	}
+
+	go1 := a.call(http.MethodDelete, "/api/v1/checkout/"+maPhien+"/coupon",
+		nil, khoaIdem())
+	if go1.code != http.StatusOK {
+		t.Fatalf("gỡ mã: HTTP %d — %s — khách gõ nhầm mã là mắc kẹt với nó",
+			go1.code, go1.raw)
+	}
+
+	tongSauGo := tongTien(t, go1.body)
+	if tongSauGo != tongTruoc {
+		t.Errorf("gỡ mã xong tổng là %d, cần trở về %d — "+
+			"phí ship hoặc thuế chưa được tính lại", tongSauGo, tongTruoc)
+	}
+
+	// Idempotent: gỡ lần hai không phải lỗi.
+	go2 := a.call(http.MethodDelete, "/api/v1/checkout/"+maPhien+"/coupon",
+		nil, khoaIdem())
+	if go2.code != http.StatusOK {
+		t.Errorf("gỡ mã lần hai: HTTP %d — client thử lại sau khi mất mạng "+
+			"không được nhận lỗi cho một việc đã xong", go2.code)
+	}
+}
+
+// tongTien đọc tổng tiền của phiên từ body trả về.
+func tongTien(t *testing.T, body map[string]any) int64 {
+	t.Helper()
+	tong, ok := body["total"].(map[string]any)
+	if !ok {
+		t.Fatalf("phiên không có trường total: %v", body)
+	}
+	v, _ := tong["amount"].(float64)
+	return int64(v)
+}

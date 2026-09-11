@@ -140,6 +140,7 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 		mux.Handle("PATCH /api/v1/checkout/{checkout_id}/shipping-address", h)
 		mux.Handle("PATCH /api/v1/checkout/{checkout_id}/shipping-method", h)
 		mux.Handle("POST /api/v1/checkout/{checkout_id}/coupon", h)
+		mux.Handle("DELETE /api/v1/checkout/{checkout_id}/coupon", h)
 		mux.Handle("POST /api/v1/checkout/{checkout_id}/complete", h)
 
 		// `POST /api/v1/orders` do module CHECKOUT phục vụ, không phải

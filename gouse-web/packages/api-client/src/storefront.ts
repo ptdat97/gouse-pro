@@ -257,6 +257,22 @@ export function applyCheckoutCoupon(
 }
 
 /**
+ * Gỡ mã giảm giá khỏi phiên.
+ *
+ * Gỡ mã làm tiền hàng TĂNG lại, nên phí ship và thuế được tính lại — đơn
+ * có thể vừa tụt xuống dưới ngưỡng miễn phí ship, và giao diện phải đọc
+ * lại tổng tiền từ phiên trả về thay vì tự trừ phần giảm.
+ *
+ * Idempotent: gỡ mã trên phiên không có mã trả về chính phiên đó.
+ */
+export function removeCheckoutCoupon(
+  api: ApiClient,
+  checkoutId: string,
+): Promise<Checkout> {
+  return api.del<Checkout>(`/api/v1/checkout/${checkoutId}/coupon`);
+}
+
+/**
  * Hoàn tất và tạo đơn.
  *
  * # `idempotencyKey` PHẢI gắn với PHIÊN, không phải với lần bấm

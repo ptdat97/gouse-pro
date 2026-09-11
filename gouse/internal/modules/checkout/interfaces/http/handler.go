@@ -45,6 +45,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 		http.HandlerFunc(h.setMethod))
 	mux.Handle("POST /api/v1/checkout/{checkout_id}/coupon",
 		http.HandlerFunc(h.applyCoupon))
+	mux.Handle("DELETE /api/v1/checkout/{checkout_id}/coupon",
+		http.HandlerFunc(h.removeCoupon))
 	mux.Handle("POST /api/v1/checkout/{checkout_id}/complete",
 		http.HandlerFunc(h.complete))
 
@@ -271,19 +273,40 @@ func (h *Handler) applyCoupon(w http.ResponseWriter, r *http.Request) {
 	h.write(w, r, http.StatusOK, toJSON(c))
 }
 
+// removeCoupon phục vụ DELETE .../coupon (operationId: removeCheckoutCoupon).
+//
+// # Vì sao phải có đường gỡ
+//
+// `RemoveDiscount` đã có đủ ba tầng — và tầng ứng dụng của nó làm đúng
+// phần khó: gỡ mã làm tiền hàng TĂNG lại, nên phí ship và thuế đều phải
+// tính lại. Chỉ thiếu cửa vào, nên khách gõ nhầm mã là mắc kẹt với nó cho
+// tới khi phiên hết hạn.
+//
+// IDEMPOTENT: gỡ mã trên phiên không có mã trả về chính phiên đó, không
+// phải lỗi. Client thử lại sau khi mất mạng không được nhận 4xx cho một
+// việc đã xong.
+func (h *Handler) removeCoupon(w http.ResponseWriter, r *http.Request) {
+	c, err := h.svc.RemoveDiscount(r.Context(),
+		ids.ID(r.PathValue("checkout_id")))
+	if err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+
+	h.write(w, r, http.StatusOK, toJSON(c))
+}
+
 // ---------------------------------------------------------------- Hoàn tất
 
 // paymentMethods là các phương thức đặc tả cho phép.
 //
-// # Giá trị này CHƯA ĐƯỢC LƯU
+// Giá trị được LƯU vào đơn (migration 000041) và quyết định luồng đi tiếp:
+// COD giao trước rồi thu tiền, còn lại phải thu được tiền mới mở khóa giao
+// hàng (ADR-0018 phần A2). Trước đó handler kiểm tra hợp lệ rồi vứt đi, nên
+// không ai biết đơn nào chờ thu tiền.
 //
-// Module order không có trường phương thức thanh toán, và thêm một trường
-// vào domain nằm ngoài phạm vi đợt này (Architecture Freeze). Handler kiểm
-// tra giá trị hợp lệ rồi BỎ QUA nó; đơn luôn ở PENDING_PAYMENT và việc thu
-// tiền diễn ra ngoài luồng này.
-//
-// Ghi rõ ở đây thay vì im lặng: một client gửi CARD sẽ không thấy lỗi nào
-// nhưng cũng không có gì bị trừ tiền. Backlog P3 theo dõi việc nối payment.
+// Việc trừ tiền thật vẫn nằm ngoài luồng này: chưa có adapter cổng thanh
+// toán, nên `order.paid` tới từ webhook hoặc từ thao tác tay.
 var paymentMethods = map[string]bool{
 	"CARD": true, "BANK_TRANSFER": true, "E_WALLET": true, "COD": true,
 }

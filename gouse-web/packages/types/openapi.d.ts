@@ -669,7 +669,15 @@ export interface paths {
          *     cần cho việc hoàn tiền đúng khi khách trả một phần đơn.
          */
         post: operations["applyCheckoutCoupon"];
-        delete?: never;
+        /**
+         * Gỡ mã giảm giá khỏi phiên
+         * @description Gỡ mã làm tiền hàng **tăng lại**, nên phí vận chuyển và thuế được
+         *     tính lại — đơn có thể vừa tụt xuống dưới ngưỡng miễn phí ship.
+         *
+         *     **Idempotent**: gỡ mã trên phiên không có mã trả về chính phiên đó,
+         *     không phải lỗi.
+         */
+        delete: operations["removeCheckoutCoupon"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4748,6 +4756,30 @@ export interface operations {
                     "application/json": components["schemas"]["Checkout"];
                 };
             };
+            422: components["responses"]["UnprocessableEntity"];
+        };
+    };
+    removeCheckoutCoupon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                checkout_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Phiên thanh toán sau khi đã gỡ mã */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Checkout"];
+                };
+            };
+            404: components["responses"]["NotFound"];
             422: components["responses"]["UnprocessableEntity"];
         };
     };

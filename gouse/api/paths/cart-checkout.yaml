@@ -441,6 +441,36 @@ checkout_coupon:
               $ref: '../components/schemas.yaml#/Checkout'
       '422':
         $ref: '../components/common.yaml#/responses/UnprocessableEntity'
+  delete:
+    tags: [Checkout]
+    summary: Gỡ mã giảm giá khỏi phiên
+    description: |
+      Gỡ mã làm tiền hàng **tăng lại**, nên phí vận chuyển và thuế được
+      tính lại — đơn có thể vừa tụt xuống dưới ngưỡng miễn phí ship.
+
+      **Idempotent**: gỡ mã trên phiên không có mã trả về chính phiên đó,
+      không phải lỗi.
+    operationId: removeCheckoutCoupon
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    responses:
+      '200':
+        description: Phiên thanh toán sau khi đã gỡ mã
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/Checkout'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '422':
+        $ref: '../components/common.yaml#/responses/UnprocessableEntity'
 
 checkout_complete:
   post:
