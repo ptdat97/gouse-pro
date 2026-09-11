@@ -269,18 +269,6 @@ func (m *Module) GetProductsBySKUIDs(ctx context.Context, skuIDs []string) (map[
 	return out, nil
 }
 
-func (m *Module) GetVariantsByProduct(ctx context.Context, productID string) ([]VariantView, error) {
-	id, err := ids.Parse(productID, ids.PrefixProduct)
-	if err != nil {
-		return nil, ErrInvalidID
-	}
-	p, err := m.svc.GetProduct(ctx, id)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-	return toVariantViews(p.Variants()), nil
-}
-
 func (m *Module) GetSKUsByProduct(ctx context.Context, productID string) ([]SKUView, error) {
 	id, err := ids.Parse(productID, ids.PrefixProduct)
 	if err != nil {

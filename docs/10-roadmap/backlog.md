@@ -4191,6 +4191,63 @@ Cũng dọn một chú thích đã sai: handler checkout vẫn ghi "payment_meth
 CHƯA ĐƯỢC LƯU, handler kiểm tra rồi BỎ QUA" trong khi migration 000041 đã
 lưu nó và ADR-0018 dùng nó để quyết luồng thanh toán.
 
+### P3-34 — dọn bề mặt API chết
+
+**Đã xong (11/09).**
+
+Phép quét "phương thức công khai không ai gọi" ra 65 ứng viên; lọc bằng
+"tên xuất hiện đúng HAI lần trong toàn bộ mã nguồn" (khai báo ở `public.go`
++ cài đặt ở `module.go`, không chỗ nào khác) còn bốn:
+
+```text
+cart.UpdateItemQuantity      HTTP đã đi thẳng svc.UpdateQuantity
+marketplace.GetBuyBoxOffer   HTTP đã đi qua svc.GetPriceRanges
+marketplace.GetBuyBoxOffers
+product.GetVariantsByProduct catalog trả biến thể kèm ProductView
+```
+
+Đây KHÔNG phải khoảng hở — chức năng vẫn tới được khách qua tầng ứng dụng.
+Nó là **cửa thứ hai vào cùng một phòng**, và hai cửa mời gọi phân kỳ: người
+sau sửa một cửa rồi quên cửa kia, và hai đường cho hai kết quả khác nhau.
+
+Xóa kéo theo cả một tầng chết: `BuyBoxView` và `toBuyBoxView` chỉ tồn tại
+để phục vụ hai hàm buy box ở trên, không ai khác chạm tới. `VariantView`
+thì KHÔNG chết — nó vẫn nằm trong `ProductView.Variants` và cart đọc nó.
+
+**Còn một tầng nữa, chưa xóa.** `application.GetBuyBox` (số ít) nay chỉ còn
+test gọi — `GetPriceRanges` dùng bản số NHIỀU, `ListProductOffers` dùng
+`buyBoxes` nội bộ. Đây là API nội bộ của module chứ không phải bề mặt công
+khai, nên để lại chờ quyết riêng.
+
+### Quyết định: trả tiền hãng vận chuyển theo ĐỐI SOÁT CUỐI KỲ
+
+**Đã chốt (11/09), chưa xây.**
+
+`CARRIER_PAYABLE` hiện chỉ tăng. Bút toán trả (`DEBIT CARRIER_PAYABLE /
+CREDIT PLATFORM_CASH`) sẽ ghi khi **hóa đơn hãng về và đã đối chiếu số
+kiện**, không phải lúc bàn giao.
+
+Lý do chọn: nghĩa vụ phát sinh lúc hàng rời kho, nhưng tiền rời tài khoản
+lúc thanh toán hóa đơn. Ghi trả ngay lúc bàn giao sẽ làm `PLATFORM_CASH`
+báo ít hơn số thật suốt cả tháng — đúng dạng lỗi mà ADR-0018 vừa dọn cho
+khoản phải thu, chỉ ngược chiều.
+
+Phần việc kèm theo: luồng nhập hóa đơn hãng, đối chiếu số kiện trên hóa đơn
+với số kiện đã bàn giao, và xử lý CHÊNH LỆCH (hãng tính thừa/thiếu một
+kiện là chuyện thường).
+
+### Quyết định: giá trả hãng vận chuyển khai qua /admin/config
+
+**Đã chốt (11/09).**
+
+`fulfillment.carrier_cost_standard` và `_express` KHÔNG đặt giá trị mặc
+định trong mã. Chừng nào chưa khai, bút toán chi phí vận chuyển không được
+ghi — và đó là im lặng **có chủ ý**, không phải quên.
+
+Lý do: giá hợp đồng với hãng là con số nghiệp vụ thật. Đặt một con số đoán
+vào mã nghĩa là sổ cái ghi chi phí sai mà không ai biết nó sai, còn ngày
+khai giá thật thì mọi bút toán cũ đều lệch.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này

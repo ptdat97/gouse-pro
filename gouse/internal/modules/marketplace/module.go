@@ -317,52 +317,6 @@ func (m *Module) GetOffersByIDs(
 	return out, nil
 }
 
-func (m *Module) GetBuyBoxOffer(ctx context.Context, skuID string) (*BuyBoxView, error) {
-	id, err := ids.Parse(skuID, ids.PrefixSKU)
-	if err != nil {
-		return nil, ErrInvalidID
-	}
-
-	res, err := m.svc.GetBuyBox(ctx, id)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-	if res.Winner == nil {
-		// Không offer nào đủ điều kiện — không phải lỗi, chỉ là chưa có
-		// ai bán được món này.
-		return nil, nil
-	}
-	v := toBuyBoxView(res)
-	return &v, nil
-}
-
-func (m *Module) GetBuyBoxOffers(
-	ctx context.Context, skuIDs []string,
-) (map[string]BuyBoxView, error) {
-	parsed := make([]ids.ID, 0, len(skuIDs))
-	for _, raw := range skuIDs {
-		id, err := ids.Parse(raw, ids.PrefixSKU)
-		if err != nil {
-			continue
-		}
-		parsed = append(parsed, id)
-	}
-
-	found, err := m.svc.GetBuyBoxes(ctx, parsed)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-
-	out := make(map[string]BuyBoxView, len(found))
-	for skuID, res := range found {
-		if res.Winner == nil {
-			continue
-		}
-		out[skuID.String()] = toBuyBoxView(res)
-	}
-	return out, nil
-}
-
 func (m *Module) GetCommissionRate(ctx context.Context, sellerID string) (int32, error) {
 	id, err := ids.Parse(sellerID, ids.PrefixSeller)
 	if err != nil {
@@ -431,14 +385,6 @@ func toViews(list []*domain.Offer) []OfferView {
 		out = append(out, toView(o))
 	}
 	return out
-}
-
-func toBuyBoxView(r domain.BuyBoxResult) BuyBoxView {
-	return BuyBoxView{
-		Offer:            toView(r.Winner),
-		Score:            r.Score,
-		OtherOffersCount: r.OtherCount,
-	}
 }
 
 func translateErr(err error) error {

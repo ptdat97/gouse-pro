@@ -176,21 +176,6 @@ func (m *Module) AddItem(ctx context.Context, req AddItemRequest) (*CartView, er
 	return &v, nil
 }
 
-func (m *Module) UpdateItemQuantity(
-	ctx context.Context, cartID, itemID string, quantity int,
-) (*CartView, error) {
-	cid, iid, err := parseCartAndItem(cartID, itemID)
-	if err != nil {
-		return nil, err
-	}
-	c, err := m.svc.UpdateQuantity(ctx, cid, iid, quantity)
-	if err != nil {
-		return nil, translateErr(err)
-	}
-	v := toCartView(c)
-	return &v, nil
-}
-
 func (m *Module) RemoveItem(ctx context.Context, cartID, itemID string) (*CartView, error) {
 	cid, iid, err := parseCartAndItem(cartID, itemID)
 	if err != nil {

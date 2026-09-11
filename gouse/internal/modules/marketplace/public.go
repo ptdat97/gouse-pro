@@ -42,16 +42,6 @@ type API interface {
 	// đó là "đã bị gỡ".
 	GetOffersByIDs(ctx context.Context, offerIDs []string) (map[string]OfferView, error)
 
-	// ---- Buy box ----
-
-	// GetBuyBoxOffer trả offer hiển thị mặc định cho một SKU.
-	//
-	// Chỉ chọn offer CÒN HÀNG, seller ACTIVE, offer ACTIVE. Trả nil nếu
-	// không offer nào đủ điều kiện.
-	GetBuyBoxOffer(ctx context.Context, skuID string) (*BuyBoxView, error)
-
-	GetBuyBoxOffers(ctx context.Context, skuIDs []string) (map[string]BuyBoxView, error)
-
 	// ---- Hoa hồng ----
 
 	// GetCommissionRate chỉ trả TỶ LỆ, KHÔNG tính số tiền (quy tắc 8).
@@ -102,21 +92,6 @@ type OfferView struct {
 	// Offer ACTIVE **và** còn hàng. Offer hết hàng vẫn ACTIVE và vẫn hiện
 	// trên trang (cho khách đăng ký nhận thông báo), chỉ là cờ này tắt.
 	IsSellable bool
-}
-
-// BuyBoxView là kết quả chọn buy box.
-type BuyBoxView struct {
-	Offer OfferView
-
-	// Score là điểm của offer thắng, theo công thức CÔNG KHAI.
-	//
-	// Trả ra ngoài để seller hiểu vì sao mình không thắng và làm gì để cải
-	// thiện. Mô hình hộp đen tạo tranh chấp không giải quyết được và cảm
-	// giác bất công — dẫn tới seller rời nền tảng.
-	Score int
-
-	// OtherOffersCount là số offer khác cùng tranh.
-	OtherOffersCount int
 }
 
 // ---------------------------------------------------------------- Lỗi

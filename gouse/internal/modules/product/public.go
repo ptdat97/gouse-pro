@@ -36,8 +36,6 @@ type API interface {
 
 	// ---- Biến thể và SKU ----
 
-	GetVariantsByProduct(ctx context.Context, productID string) ([]VariantView, error)
-
 	// GetSKUsByProduct trả mọi SKU của sản phẩm.
 	//
 	// Module inventory dùng để biết cần theo dõi tồn kho những mã nào.

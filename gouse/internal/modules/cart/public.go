@@ -36,7 +36,6 @@ type API interface {
 	GetCart(ctx context.Context, cartID string) (*CartView, error)
 
 	AddItem(ctx context.Context, req AddItemRequest) (*CartView, error)
-	UpdateItemQuantity(ctx context.Context, cartID, itemID string, quantity int) (*CartView, error)
 	RemoveItem(ctx context.Context, cartID, itemID string) (*CartView, error)
 	ClearCart(ctx context.Context, cartID string) error
 
