@@ -269,6 +269,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ghi sự kiện hành vi từ storefront
+         * @description **Nửa ĐẦU của phễu chuyển đổi.**
+         *
+         *     Xem sản phẩm, tìm kiếm, xem trang không làm đổi trạng thái nghiệp vụ
+         *     nào, nên chúng không phát domain event. Chúng chỉ tồn tại ở trình
+         *     duyệt — không có đường này thì dữ liệu ấy KHÔNG BAO GIỜ tồn tại, và
+         *     `conversion_rate` mãi bằng 0 với cỡ mẫu 0.
+         *
+         *     **Không xác thực**, vì phần lớn lưu lượng cần đo là khách chưa đăng
+         *     nhập. Ba hàng rào thay cho xác thực:
+         *
+         *     - `name` phải nằm trong danh sách ĐÓNG: `page_view`, `product_view`,
+         *       `search`. Sự kiện nghiệp vụ (đặt hàng, thanh toán) KHÔNG nhận ở
+         *       đây — chúng đến từ domain event, nơi server tự biết sự thật.
+         *     - Tối đa 50 sự kiện mỗi lô.
+         *     - Giới hạn theo `session_id` mỗi phút; ngưỡng là tham số vận hành
+         *       `analytics.max_events_per_session_per_minute`.
+         *
+         *     **KHÔNG thu địa chỉ IP và user-agent.** Phễu nhu cầu chỉ cần biết món
+         *     nào được xem bao nhiêu lần trong bao nhiêu phiên, không cần biết ai.
+         *
+         *     Thời gian do SERVER đặt: đồng hồ máy khách lệch, và mốc từ client là
+         *     thứ bẻ được.
+         *
+         *     Sự kiện có `name` lạ bị BỎ QUA chứ không làm hỏng cả lô — client cũ
+         *     gửi một tên đã gỡ bỏ không nên làm mất những sự kiện hợp lệ đi cùng.
+         *     Response trả số thực sự đã ghi.
+         */
+        post: operations["trackBehaviorEvents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -3872,6 +3917,72 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    trackBehaviorEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "session_id": "ses_7f3a9c",
+                 *       "events": [
+                 *         {
+                 *           "name": "product_view",
+                 *           "subject_type": "product",
+                 *           "subject_id": "prd_01J9XABC123DEF456GHJKMNPQR"
+                 *         },
+                 *         {
+                 *           "name": "search",
+                 *           "properties": {
+                 *             "query": "áo khoác dạ"
+                 *           }
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/json": {
+                    /**
+                     * @description Do client sinh, KHÔNG phải định danh người. Nó nối các sự
+                     *     kiện của một lượt truy cập để đo được phễu.
+                     */
+                    session_id: string;
+                    events: {
+                        /** @enum {string} */
+                        name: "page_view" | "product_view" | "search";
+                        /** @example product */
+                        subject_type?: string;
+                        subject_id?: components["schemas"]["Id"];
+                        properties?: {
+                            [key: string]: unknown;
+                        };
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Số sự kiện đã ghi */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "accepted": 2
+                     *     }
+                     */
+                    "application/json": {
+                        accepted?: number;
+                    };
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     search: {

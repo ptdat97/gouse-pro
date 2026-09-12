@@ -389,6 +389,95 @@ collection_detail:
       '404':
         $ref: '../components/common.yaml#/responses/NotFound'
 
+behavior_events:
+  post:
+    tags: [Storefront]
+    summary: Ghi sự kiện hành vi từ storefront
+    description: |
+      **Nửa ĐẦU của phễu chuyển đổi.**
+
+      Xem sản phẩm, tìm kiếm, xem trang không làm đổi trạng thái nghiệp vụ
+      nào, nên chúng không phát domain event. Chúng chỉ tồn tại ở trình
+      duyệt — không có đường này thì dữ liệu ấy KHÔNG BAO GIỜ tồn tại, và
+      `conversion_rate` mãi bằng 0 với cỡ mẫu 0.
+
+      **Không xác thực**, vì phần lớn lưu lượng cần đo là khách chưa đăng
+      nhập. Ba hàng rào thay cho xác thực:
+
+      - `name` phải nằm trong danh sách ĐÓNG: `page_view`, `product_view`,
+        `search`. Sự kiện nghiệp vụ (đặt hàng, thanh toán) KHÔNG nhận ở
+        đây — chúng đến từ domain event, nơi server tự biết sự thật.
+      - Tối đa 50 sự kiện mỗi lô.
+      - Giới hạn theo `session_id` mỗi phút; ngưỡng là tham số vận hành
+        `analytics.max_events_per_session_per_minute`.
+
+      **KHÔNG thu địa chỉ IP và user-agent.** Phễu nhu cầu chỉ cần biết món
+      nào được xem bao nhiêu lần trong bao nhiêu phiên, không cần biết ai.
+
+      Thời gian do SERVER đặt: đồng hồ máy khách lệch, và mốc từ client là
+      thứ bẻ được.
+
+      Sự kiện có `name` lạ bị BỎ QUA chứ không làm hỏng cả lô — client cũ
+      gửi một tên đã gỡ bỏ không nên làm mất những sự kiện hợp lệ đi cùng.
+      Response trả số thực sự đã ghi.
+    operationId: trackBehaviorEvents
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [session_id, events]
+            properties:
+              session_id:
+                type: string
+                description: |
+                  Do client sinh, KHÔNG phải định danh người. Nó nối các sự
+                  kiện của một lượt truy cập để đo được phễu.
+                maxLength: 128
+              events:
+                type: array
+                minItems: 1
+                maxItems: 50
+                items:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      enum: [page_view, product_view, search]
+                    subject_type:
+                      type: string
+                      example: product
+                    subject_id:
+                      $ref: '../components/common.yaml#/schemas/Id'
+                    properties:
+                      type: object
+                      additionalProperties: true
+          example:
+            session_id: ses_7f3a9c
+            events:
+              - name: product_view
+                subject_type: product
+                subject_id: prd_01J9XABC123DEF456GHJKMNPQR
+              - name: search
+                properties:
+                  query: áo khoác dạ
+    responses:
+      '200':
+        description: Số sự kiện đã ghi
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accepted:
+                  type: integer
+            example:
+              accepted: 2
+      '429':
+        $ref: '../components/common.yaml#/responses/TooManyRequests'
+
 search:
   get:
     tags: [Catalog]

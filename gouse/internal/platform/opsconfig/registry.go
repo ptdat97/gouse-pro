@@ -114,6 +114,9 @@ const (
 
 	// KeyNhipTaoDoiSoat là nhịp GOM bút toán thành đợt cho nhà bán.
 	KeyNhipTaoDoiSoat = "payment.settlement_batch_interval_hours"
+
+	// KeyTranSuKienMotPhien là trần sự kiện hành vi MỖI PHIÊN mỗi phút.
+	KeyTranSuKienMotPhien = "analytics.max_events_per_session_per_minute"
 )
 
 // TranLuuTruSoLuong là trần CỨNG của cột `quantity_*` trong database.
@@ -337,6 +340,17 @@ var soDangKy = map[string]ThamSo{
 		MacDinh: 1, Min: 1, Max: 60,
 		MoTa:  "Số ngày vận chuyển dự kiến, giao nhanh.",
 		HeQua: "Xem fulfillment.shipping_days_standard.",
+	},
+	KeyTranSuKienMotPhien: {
+		Khoa: KeyTranSuKienMotPhien, Kieu: KieuSoNguyen,
+		MacDinh: 120, Min: 0, Max: 100_000,
+		MoTa: "Số sự kiện hành vi tối đa MỘT PHIÊN được ghi mỗi phút qua " +
+			"POST /api/v1/events. 0 = TẮT giới hạn.",
+		HeQua: "Đặt quá thấp thì mất dữ liệu phễu của khách duyệt nhanh — " +
+			"và mất im lặng, vì client không báo gì cho người dùng. Đặt quá " +
+			"cao thì một client hỏng gửi vòng lặp có thể bơm đầy bảng sự " +
+			"kiện, nơi mọi chỉ số kinh doanh đọc từ đó. 120/phút tương ứng " +
+			"hai sự kiện mỗi giây — cao hơn nhiều so với người thật duyệt.",
 	},
 	KeyNhipTaoDoiSoat: {
 		Khoa: KeyNhipTaoDoiSoat, Kieu: KieuThoiLuong,

@@ -105,6 +105,8 @@ paths:
     $ref: './paths/storefront.yaml#/brand_detail'
   /api/v1/collections/{collection_id}:
     $ref: './paths/storefront.yaml#/collection_detail'
+  /api/v1/events:
+    $ref: './paths/storefront.yaml#/behavior_events'
   /api/v1/search:
     $ref: './paths/storefront.yaml#/search'
   /api/v1/feed:

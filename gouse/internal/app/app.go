@@ -40,8 +40,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/modules/analytics"
+	analyticshttp "github.com/fashion-commerce/platform/internal/modules/analytics/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
@@ -147,6 +150,7 @@ func Build(
 		fulfillmentModule *fulfillment.Module
 		returnsModule     *returns.Module
 		promotionModule   *promotion.Module
+		analyticsModule   *analytics.Module
 		identityModule    *identity.Module
 
 		// ownBrandSellerID cần ở bước nạp dữ liệu mẫu bên dưới: offer phải
@@ -404,6 +408,19 @@ func Build(
 			return Modules{}, err
 		}
 
+		// analytics: CHỈ để nhận dữ liệu hành vi từ storefront.
+		//
+		// Việc tính chỉ số vẫn do worker chạy — API không tính gì, nên hai
+		// tiến trình không tranh nhau ghi cùng bảng chỉ số.
+		analyticsModule, err = analytics.New(analytics.Config{
+			Storage: "postgres",
+			DB:      db,
+			Log:     log,
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+
 		returnsModule, err = returns.New(returns.Config{
 			Storage:   "postgres",
 			DB:        db,
@@ -617,6 +634,7 @@ func Build(
 		fulfillment: fulfillmentModule,
 		returns:     returnsModule,
 		promotion:   promotionModule,
+		analytics:   analyticsModule,
 		inventory:   inventoryModule,
 		audit:       auditRecorder,
 		opsConfig:   opsConfigStore,
@@ -638,6 +656,13 @@ type Modules struct {
 	returns     *returns.Module
 	promotion   *promotion.Module
 	inventory   *inventory.Module
+
+	// analytics nằm ở đây CHỈ để phơi bày đường thu dữ liệu hành vi.
+	//
+	// Việc tính chỉ số vẫn do worker chạy; API không tính gì. Nhưng nửa
+	// ĐẦU phễu — xem sản phẩm, tìm kiếm — chỉ tồn tại ở trình duyệt, nên
+	// nếu API không nhận thì dữ liệu ấy không bao giờ tồn tại.
+	analytics *analytics.Module
 
 	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
 	// cũng cần nối route nên đi cùng chỗ này.
@@ -687,6 +712,26 @@ func RegisterRoutes(
 	// Offer của sản phẩm — công khai, khách vãng lai xem được.
 	if marketplaceModule != nil {
 		marketplaceModule.RegisterRoutes(mux, log)
+	}
+
+	// THU DỮ LIỆU HÀNH VI — công khai, không xác thực.
+	//
+	// Không xác thực vì phần lớn lưu lượng cần đo là khách CHƯA đăng nhập:
+	// bắt đăng nhập mới ghi được thì phễu chỉ còn khúc đã chuyển đổi, tức
+	// là đúng khúc ta đã đo được rồi.
+	//
+	// Bù lại bằng ba hàng rào ở tầng module: danh sách tên sự kiện ĐÓNG,
+	// trần 50 sự kiện mỗi lô, và giới hạn theo phiên với ngưỡng đọc từ cấu
+	// hình vận hành.
+	if m.analytics != nil {
+		analyticshttp.NewHandler(m.analytics,
+			analyticshttp.NewGioiHanPhien(func() int {
+				if m.opsConfig == nil {
+					return 0
+				}
+				return m.opsConfig.DocSoNguyen(opsconfig.KeyTranSuKienMotPhien)
+			}, time.Minute),
+			log).Register(mux)
 	}
 
 	// Hồ sơ nhà bán — công khai, và đi CÙNG CẶP với offer ở trên.

@@ -4580,6 +4580,77 @@ trường.
 Ghi lại vì đây là bài học chung: **một danh sách bỏ qua là một lỗ hổng có
 chủ ý, và phải có bài khác bịt nó.**
 
+### P3-41 — nửa ĐẦU của phễu nay được thu
+
+**Đã xong (12/09).** Rà soát core so với `docs/00-overview/vision.md`.
+
+Ba cấu trúc tầm nhìn bắt buộc đều VỮNG: `Offer` tách khỏi `Product`,
+`Order` tách khỏi `Fulfillment Order`, ledger bất biến. Chỗ hở nằm ở nửa
+**CẦU** của bánh đà, không phải nửa **BÁN**.
+
+**Đo được:**
+
+```text
+gmv            1.125.327.000 đ   tính đúng
+order_count            3.093     tính đúng
+aov                  612.500 đ   tính đúng
+conversion_rate            0     cỡ mẫu 0
+session_count              0     cỡ mẫu 0
+sự kiện khám phá           0     xem sản phẩm · tìm kiếm · xem trang
+```
+
+Nền tảng trả lời được "bán bao nhiêu" và **mù** với "bao nhiêu người xem mà
+không mua" — đúng câu hỏi cả tầm nhìn dựng lên để trả lời.
+
+Nguyên nhân: xem một sản phẩm KHÔNG làm đổi trạng thái nghiệp vụ nào, nên
+nó không phát domain event. Nó chỉ tồn tại ở trình duyệt. Analytics trước
+đây chỉ nghe domain event, tức là chỉ thấy nửa cuối phễu — nửa đã quyết
+định mua.
+
+Đã thêm `POST /api/v1/events`, không xác thực (phần lớn lưu lượng cần đo là
+khách chưa đăng nhập). Ba hàng rào thay cho xác thực:
+
+| Hàng rào | Vì sao |
+|---|---|
+| danh sách tên ĐÓNG | endpoint công khai + danh sách mở = ai cũng ghi được `purchase` giả vào bảng mọi chỉ số đọc từ đó |
+| trần 50 sự kiện mỗi lô | chặn lô khổng lồ làm nghẽn một giao dịch |
+| giới hạn theo phiên | chặn client HỎNG gửi vòng lặp — thường gặp hơn kẻ cố tình phá, và hỏng dữ liệu y như vậy |
+
+Ngưỡng là tham số vận hành `analytics.max_events_per_session_per_minute`
+(mặc định 120 = hai sự kiện mỗi giây).
+
+**KHÔNG thu IP và user-agent.** Phễu nhu cầu chỉ cần biết MÓN NÀO được xem
+bao nhiêu lần trong bao nhiêu phiên, không cần biết AI.
+
+Tôi đã suýt xóa hai cột `ip_hash`/`user_agent` khỏi `event_log` vì tưởng là
+dây chết. **Sai:** analytics có sẵn `privacy.HashIP` ở biên module và một
+bài test canh rằng IP không bao giờ lưu nguyên văn. Chúng rỗng vì bên nhận
+domain event không có request HTTP, không phải vì không ai định dùng. Giữ
+nguyên.
+
+Thời gian do SERVER đặt: đồng hồ máy khách lệch, và mốc từ client là thứ bẻ
+được để làm sai báo cáo.
+
+### Còn lại của nửa CẦU — chưa làm
+
+```text
+6/10 loại tín hiệu nhu cầu chưa có bên phát:
+    VIEW · CLICK          cần nối từ đường thu hành vi vừa dựng
+    WISHLIST · RETURN     tính năng ĐÃ chạy, hai module chưa có đường
+                          phát event nên phải dựng thêm
+    NOTIFY_REQUEST        cần tính năng "báo khi có hàng" cho khách
+    SEARCH                đã có SEARCH_NO_RESULT, chưa có lượt tìm thành công
+
+module `recommendation`   KHÔNG tồn tại, dù tầm nhìn yêu cầu định nghĩa
+                          interface TỪ SỚM và đã có đặc tả 195 dòng.
+                          Hai trong bốn quy tắc MVP dùng được dữ liệu đang
+                          có (sản phẩm tương tự, xu hướng 7 ngày).
+```
+
+Khâu `Behavior Data → Demand Signal` nay có dữ liệu ở đầu vào; việc nối
+tiếp sang tín hiệu VIEW còn một câu hỏi về khối lượng (hàng triệu lượt xem
+so với hàng nghìn tín hiệu) chưa quyết.
+
 ---
 
 ## 6. FUTURE — không làm trong giai đoạn này
