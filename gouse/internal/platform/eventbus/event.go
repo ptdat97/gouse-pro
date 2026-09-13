@@ -272,6 +272,13 @@ const (
 	// được: không ghi hôm nay thì Phase 3 khởi động với lịch sử trống.
 	TypeSearchNoResult = "search.no_result"
 
+	// TypeReturnRequested là khách XIN TRẢ hàng, kèm lý do.
+	//
+	// Lý do hoàn là ĐẦU VÀO CHẤT LƯỢNG, không chỉ là chi phí: với thời
+	// trang, "size nhỏ" lặp lại trên một mã hàng nghĩa là bảng size sai,
+	// và sửa bảng size rẻ hơn nhiều so với chịu tỷ lệ hoàn cao mãi.
+	TypeReturnRequested = "returns.requested"
+
 	TypeInventoryReserved  = "inventory.reserved"
 	TypeInventoryCommitted = "inventory.committed"
 	TypeInventoryReleased  = "inventory.reservation_released"
@@ -297,4 +304,6 @@ const (
 	// thực thể nào. Dùng để event có đủ trường bắt buộc; định danh là bản
 	// băm của từ khóa.
 	AggregateSearch = "Search"
+
+	AggregateReturn = "ReturnRequest"
 )

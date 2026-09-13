@@ -432,6 +432,7 @@ func Build(
 			// nào chuyển tiền cho nhà bán. Thiếu nó thì hạn không được
 			// cưỡng chế và khách trả hàng sau bao lâu cũng được.
 			OpsConfig: opsConfigStore,
+			Events:    eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
 			return Modules{}, err

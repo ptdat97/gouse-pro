@@ -430,3 +430,84 @@ func TestEventHetHangSinhTinHieuStockout(t *testing.T) {
 		t.Errorf("tín hiệu STOCKOUT gắn với SKU: %d, cần 1", n)
 	}
 }
+
+// TestEventTraHangSinhTinHieuKemLyDo.
+//
+// # Vì sao trả hàng là tín hiệu NHU CẦU, không chỉ là chi phí
+//
+// Với thời trang, LÝ DO hoàn là đầu vào để sửa bảng size và mô tả sản
+// phẩm: "size nhỏ" lặp lại trên một mã nghĩa là bảng size của mã đó sai,
+// và sửa bảng size rẻ hơn nhiều so với chịu tỷ lệ hoàn cao mãi.
+//
+// Con số ấy chỉ gom được khi lý do được CHUẨN HÓA — "áo bé quá" viết tự do
+// thì không cộng được với "chật". Nên bài này kiểm cả việc mã lý do TỚI
+// ĐƯỢC metadata của tín hiệu, không chỉ việc tín hiệu tồn tại.
+func TestEventTraHangSinhTinHieuKemLyDo(t *testing.T) {
+	m, pool := newModule(t)
+	ctx := context.Background()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus := eventbus.NewDispatcher(pool, log)
+	bus.Subscribe(supplychain.NewSignalHandler(m))
+
+	skuNho := ids.MustNew(ids.PrefixSKU).String()
+	skuKhac := ids.MustNew(ids.PrefixSKU).String()
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeReturnRequested, eventbus.AggregateReturn,
+		ids.MustNew(ids.PrefixReturnRequest),
+		map[string]any{
+			"order_id": ids.MustNew(ids.PrefixOrder).String(),
+			"lines": []map[string]any{
+				{"sku_id": skuNho, "quantity": 1, "reason_code": "SIZE_TOO_SMALL"},
+				{"sku_id": skuKhac, "quantity": 2, "reason_code": "NOT_AS_DESCRIBED"},
+			},
+		})
+	if err != nil {
+		t.Fatalf("NewEvent: %v", err)
+	}
+	if err := bus.Outbox().Publish(ctx, e); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if _, err := bus.DispatchBatch(ctx, 10); err != nil {
+		t.Fatalf("DispatchBatch: %v", err)
+	}
+
+	// MỘT tín hiệu MỖI DÒNG: một yêu cầu có thể trả ba món với ba lý do
+	// khác nhau, và gộp lại sẽ buộc phải chọn một lý do đại diện.
+	var soTinHieu int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM demand_signal WHERE signal_type = 'RETURN'`).
+		Scan(&soTinHieu); err != nil {
+		t.Fatalf("đếm tín hiệu: %v", err)
+	}
+	if soTinHieu != 2 {
+		t.Fatalf("ghi được %d tín hiệu RETURN, cần 2 (một mỗi dòng)", soTinHieu)
+	}
+
+	// LÝ DO phải tới được metadata — đó là phần đáng giữ nhất.
+	var lyDo string
+	if err := pool.QueryRow(ctx, `
+		SELECT metadata->>'reason_code' FROM demand_signal
+		 WHERE signal_type = 'RETURN' AND sku_id = $1`, skuNho).
+		Scan(&lyDo); err != nil {
+		t.Fatalf("đọc lý do: %v", err)
+	}
+	if lyDo != "SIZE_TOO_SMALL" {
+		t.Errorf("mã lý do = %q, cần SIZE_TOO_SMALL — không có nó thì tín "+
+			"hiệu chỉ nói CÓ hàng bị trả, không nói VÌ SAO, và dữ liệu "+
+			"chất lượng của thời trang mất hết", lyDo)
+	}
+
+	// Số lượng phải giữ nguyên: trả 2 món khác trả 1 món.
+	var sl int
+	if err := pool.QueryRow(ctx, `
+		SELECT quantity FROM demand_signal
+		 WHERE signal_type = 'RETURN' AND sku_id = $1`, skuKhac).
+		Scan(&sl); err != nil {
+		t.Fatalf("đọc số lượng: %v", err)
+	}
+	if sl != 2 {
+		t.Errorf("số lượng = %d, cần 2", sl)
+	}
+}

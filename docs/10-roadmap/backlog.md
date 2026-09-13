@@ -4631,12 +4631,49 @@ nguyên.
 Thời gian do SERVER đặt: đồng hồ máy khách lệch, và mốc từ client là thứ bẻ
 được để làm sai báo cáo.
 
+### P3-42 — tín hiệu TRẢ HÀNG kèm lý do
+
+**Đã xong (13/09).**
+
+`SignalReturn` khai trong domain supply-chain từ đầu, kèm chú thích nói rõ
+lý do hoàn là **dữ liệu chất lượng** của thời trang chứ không chỉ là chi
+phí — và không bên phát nào tồn tại.
+
+Với thời trang, lý do hoàn là đầu vào để sửa hàng hóa:
+
+```text
+"size nhỏ" lặp lại trên một mã   → bảng size của mã đó sai
+"khác mô tả" lặp lại             → ảnh hoặc mô tả đang nói quá
+```
+
+Sửa bảng size rẻ hơn nhiều so với chịu tỷ lệ hoàn cao mãi. Con số ấy chỉ
+gom được khi lý do được CHUẨN HÓA — "áo bé quá" viết tự do không cộng được
+với "chật". Module `returns` đã có mã lý do chuẩn hóa từ trước; thiếu đúng
+đường đưa nó sang supply-chain.
+
+**MỘT tín hiệu MỖI DÒNG**, không phải mỗi yêu cầu: một yêu cầu có thể trả
+ba món với ba lý do khác nhau, và gộp lại sẽ buộc phải chọn một lý do đại
+diện — mất đúng phần đáng giữ nhất.
+
+`returns.Luu` tự mở giao dịch, nên đã thêm `LuuKemEvent` theo đúng khuôn
+`checkout.SaveWithEvents`: yêu cầu và tín hiệu cùng thành công hoặc cùng
+thất bại.
+
+**Kiểm ở HAI tầng, mỗi tầng một trách nhiệm.** Module `returns` chịu trách
+nhiệm PHÁT event đúng (bài ở `internal/app` đọc outbox); module
+`supplychain` chịu trách nhiệm GHI tín hiệu đúng (bài ở module đó đọc
+`demand_signal`). Gộp một bài sẽ không nói được bên nào hỏng.
+
+**Bao phủ tín hiệu: 4/10 → 5/10.**
+
 ### Còn lại của nửa CẦU — chưa làm
 
 ```text
-6/10 loại tín hiệu nhu cầu chưa có bên phát:
-    VIEW · CLICK          cần nối từ đường thu hành vi vừa dựng
-    WISHLIST · RETURN     tính năng ĐÃ chạy, hai module chưa có đường
+5/10 loại tín hiệu nhu cầu chưa có bên phát:
+    VIEW · CLICK          dữ liệu đã có (đường thu hành vi), nhưng khối
+                          lượng khác hai bậc so với tín hiệu — cần quyết
+                          gom trước khi ghi hay ghi 1:1
+    WISHLIST              tính năng ĐÃ chạy, module customer chưa có đường
                           phát event nên phải dựng thêm
     NOTIFY_REQUEST        cần tính năng "báo khi có hàng" cho khách
     SEARCH                đã có SEARCH_NO_RESULT, chưa có lượt tìm thành công

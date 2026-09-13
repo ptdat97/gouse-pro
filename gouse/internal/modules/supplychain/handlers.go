@@ -76,6 +76,9 @@ func (h *RecordSignalsFromEvents) EventTypes() []string {
 		// STOCKOUT và NOTIFY_REQUEST. Chỉ cái đầu có bên phát; hai cái
 		// còn lại được khai trong domain và không dòng mã nào tạo ra.
 		eventbus.TypeInventoryDepleted,
+
+		// TRẢ HÀNG kèm lý do — dữ liệu CHẤT LƯỢNG của thời trang.
+		eventbus.TypeReturnRequested,
 	}
 }
 
@@ -115,6 +118,8 @@ func (h *RecordSignalsFromEvents) Handle(ctx context.Context, e eventbus.Event) 
 		return h.handleSearchNoResult(ctx, e)
 	case eventbus.TypeInventoryDepleted:
 		return h.handleHetHang(ctx, e)
+	case eventbus.TypeReturnRequested:
+		return h.handleTraHang(ctx, e)
 	}
 	// Loại event không quan tâm: không phải lỗi.
 	return nil
@@ -280,4 +285,61 @@ func (h *RecordSignalsFromEvents) handleHetHang(
 			"inventory_owner_id": p.OwnerID,
 		},
 	})
+}
+
+// traHangPayload là dữ liệu từ event khách xin trả hàng.
+type traHangPayload struct {
+	Lines []struct {
+		SKUID    string `json:"sku_id"`
+		Quantity int    `json:"quantity"`
+		LyDo     string `json:"reason_code"`
+	} `json:"lines"`
+}
+
+// handleTraHang ghi tín hiệu RETURN cho từng dòng hàng bị trả.
+//
+// # Vì sao trả hàng là tín hiệu NHU CẦU
+//
+// Nhìn thoáng thì trả hàng là chi phí, không phải nhu cầu. Nhưng với thời
+// trang, LÝ DO hoàn là đầu vào để sửa bảng size và mô tả sản phẩm:
+//
+//	"size nhỏ" lặp lại trên một mã   → bảng size của mã đó sai
+//	"khác mô tả" lặp lại             → ảnh hoặc mô tả đang nói quá
+//
+// Sửa bảng size rẻ hơn nhiều so với chịu tỷ lệ hoàn cao mãi. Và con số ấy
+// chỉ gom được khi lý do được CHUẨN HÓA — "áo bé quá" viết tự do thì không
+// cộng được với "chật".
+//
+// # Một tín hiệu MỖI DÒNG, không phải mỗi yêu cầu
+//
+// Một yêu cầu có thể trả ba món với ba lý do khác nhau. Ghi một tín hiệu
+// cho cả yêu cầu sẽ buộc phải chọn một lý do đại diện, và hai lý do kia
+// mất — chính là phần dữ liệu đáng giữ nhất.
+func (h *RecordSignalsFromEvents) handleTraHang(
+	ctx context.Context, e eventbus.Event,
+) error {
+	var p traHangPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event trả hàng: %w", err)
+	}
+	if len(p.Lines) == 0 {
+		// Yêu cầu không có dòng nào: không có gì để ghi. Không phải lỗi —
+		// trả nil để event không kẹt trong hàng đợi.
+		return nil
+	}
+
+	reqs := make([]SignalRequest, 0, len(p.Lines))
+	for _, d := range p.Lines {
+		reqs = append(reqs, SignalRequest{
+			Type:       SignalReturn,
+			SKUID:      d.SKUID,
+			Quantity:   d.Quantity,
+			OccurredAt: e.OccurredAt.Format(time.RFC3339),
+			SourceType: "return_request",
+			SourceID:   e.AggregateID.String(),
+			Metadata:   map[string]string{"reason_code": d.LyDo},
+		})
+	}
+
+	return h.module.RecordSignals(ctx, reqs)
 }

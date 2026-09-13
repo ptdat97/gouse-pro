@@ -130,6 +130,9 @@ type HoanTienInput struct {
 // Repository là PORT cho kho lưu trữ.
 type Repository interface {
 	Luu(ctx context.Context, y *domain.YeuCauTraHang) error
+
+	// LuuKemEvent ghi yêu cầu VÀ chạy fn trong CÙNG giao dịch.
+	LuuKemEvent(ctx context.Context, y *domain.YeuCauTraHang, fn domain.TxFunc) error
 	TimTheoID(ctx context.Context, id ids.ID) (*domain.YeuCauTraHang, error)
 	TimTheoDon(ctx context.Context, orderID ids.ID) ([]*domain.YeuCauTraHang, error)
 	TimTheoNhaBan(ctx context.Context, sellerID ids.ID, status string, limit int) ([]*domain.YeuCauTraHang, error)
@@ -149,10 +152,60 @@ type Service struct {
 	payment   PaymentPort
 	han       HanDoiTraPort
 	clock     Clock
+	events    EventPublisher
+}
+
+// EventPublisher là cổng ra của module tới hàng đợi event.
+type EventPublisher interface {
+	// PublishTraHangDuocXin phát tín hiệu khách XIN TRẢ hàng, kèm lý do.
+	PublishTraHangDuocXin(ctx context.Context, e TraHangDuocXin) error
+}
+
+// TraHangDuocXin là sự thật "khách xin trả hàng", kèm LÝ DO từng dòng.
+//
+// Lý do là phần quý nhất của payload. Với thời trang, "size nhỏ" lặp lại
+// trên một mã hàng nghĩa là bảng size sai — dữ liệu chất lượng, không chỉ
+// là chi phí.
+type TraHangDuocXin struct {
+	ReturnID   ids.ID
+	OrderID    ids.ID
+	CustomerID ids.ID
+	Dong       []DongTinHieu
+	XinLuc     time.Time
+}
+
+// DongTinHieu là một dòng hàng bị trả, kèm lý do chuẩn hóa.
+type DongTinHieu struct {
+	SKUID    ids.ID
+	Quantity int
+	LyDo     string
+}
+
+// dongTinHieu rút phần supply-chain cần từ yêu cầu trả hàng.
+//
+// Chỉ SKU, số lượng và lý do — KHÔNG mang tiền hoàn hay ghi chú của khách.
+// Payload event nên chứa đủ thứ bên nhận cần và không hơn: dữ liệu thừa
+// tạo cảm giác bên nhận phụ thuộc vào nhiều hơn thực tế, và khi bên phát
+// bỏ một trường thì không rõ có phá gì không.
+func dongTinHieu(y *domain.YeuCauTraHang) []DongTinHieu {
+	out := make([]DongTinHieu, 0, len(y.Dong()))
+	for _, d := range y.Dong() {
+		out = append(out, DongTinHieu{
+			SKUID:    d.SKUID,
+			Quantity: d.Quantity,
+			LyDo:     string(d.LyDo),
+		})
+	}
+	return out
 }
 
 type Deps struct {
-	Repo      Repository
+	Repo Repository
+
+	// Events có thể nil: khi đó module vẫn chạy nhưng KHÔNG phát tín hiệu
+	// trả hàng, và dữ liệu chất lượng của thời trang mất vĩnh viễn.
+	Events EventPublisher
+
 	Orders    OrderPort
 	Inventory InventoryPort
 	Payment   PaymentPort
@@ -171,7 +224,8 @@ func NewService(d Deps) *Service {
 		c = SystemClock
 	}
 	return &Service{repo: d.Repo, orders: d.Orders,
-		inventory: d.Inventory, payment: d.Payment, han: d.Han, clock: c}
+		inventory: d.Inventory, payment: d.Payment, han: d.Han, clock: c,
+		events: d.Events}
 }
 
 // HetHanTra cho biết đơn đã quá hạn đổi trả chưa.
@@ -354,7 +408,25 @@ func (s *Service) XinTra(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.repo.Luu(ctx, y); err != nil {
+	// Ghi yêu cầu VÀ phát tín hiệu nhu cầu trong CÙNG giao dịch.
+	//
+	// Lý do hoàn là dữ liệu CHẤT LƯỢNG: "size nhỏ" lặp lại trên một mã
+	// hàng nghĩa là bảng size sai, và sửa bảng size rẻ hơn nhiều so với
+	// chịu tỷ lệ hoàn cao mãi. Ghi rời nghĩa là có yêu cầu trả hàng mà lý
+	// do không vào được dữ liệu ấy — và nó không tạo ngược được.
+	if s.events != nil {
+		if err := s.repo.LuuKemEvent(ctx, y, func(txCtx context.Context) error {
+			return s.events.PublishTraHangDuocXin(txCtx, TraHangDuocXin{
+				ReturnID:   y.ID(),
+				OrderID:    y.OrderID(),
+				CustomerID: y.CustomerID(),
+				Dong:       dongTinHieu(y),
+				XinLuc:     y.RequestedAt(),
+			})
+		}); err != nil {
+			return nil, err
+		}
+	} else if err := s.repo.Luu(ctx, y); err != nil {
 		return nil, err
 	}
 	return y, nil

@@ -20,6 +20,7 @@ import (
 	returnspg "github.com/fashion-commerce/platform/internal/modules/returns/infrastructure/postgres"
 	returnshttp "github.com/fashion-commerce/platform/internal/modules/returns/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
@@ -51,6 +52,12 @@ type Config struct {
 	OpsConfig *opsconfig.Store
 
 	Clock application.Clock
+
+	// Events là outbox để phát tín hiệu TRẢ HÀNG kèm lý do.
+	//
+	// Có thể nil: module vẫn chạy, nhưng lý do hoàn không vào được dữ liệu
+	// chất lượng — và với thời trang đó là mất đầu vào để sửa bảng size.
+	Events *eventbus.Outbox
 }
 
 // hanDoiTraAdapter đọc hạn đổi trả từ cấu hình vận hành.
@@ -87,6 +94,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.OpsConfig != nil {
 		deps.Han = &hanDoiTraAdapter{cfg: cfg.OpsConfig}
+	}
+	if cfg.Events != nil {
+		deps.Events = NewEventPublisher(cfg.Events)
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil

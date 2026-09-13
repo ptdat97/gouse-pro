@@ -11,6 +11,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 	"github.com/fashion-commerce/platform/internal/modules/returns/domain"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // Store lưu yêu cầu trả hàng.
@@ -32,6 +33,18 @@ const cols = `
 // Khóa lạc quan theo `version`: nhà bán duyệt trong lúc khách hủy là ca có
 // thật, và ai ghi sau sẽ xóa quyết định của người kia nếu không có ràng buộc.
 func (s *Store) Luu(ctx context.Context, y *domain.YeuCauTraHang) error {
+	return s.LuuKemEvent(ctx, y, nil)
+}
+
+// LuuKemEvent ghi yêu cầu VÀ chạy fn trong CÙNG một giao dịch.
+//
+// Cần cho Transactional Outbox: yêu cầu trả hàng và tín hiệu nhu cầu sinh
+// ra từ nó phải cùng thành công hoặc cùng thất bại. Ghi rời nghĩa là có
+// yêu cầu trả hàng mà lý do hoàn không vào được dữ liệu chất lượng — và
+// dữ liệu ấy không tạo ngược được.
+func (s *Store) LuuKemEvent(
+	ctx context.Context, y *domain.YeuCauTraHang, fn domain.TxFunc,
+) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("returns: mở giao dịch: %w", err)
@@ -84,6 +97,12 @@ func (s *Store) Luu(ctx context.Context, y *domain.YeuCauTraHang) error {
 			kiemDinhHoacMacDinh(d.KiemDinh), d.GhiChuKiemDinh,
 			nullTime(d.InspectedAt)); err != nil {
 			return fmt.Errorf("returns: ghi dòng trả hàng: %w", err)
+		}
+	}
+
+	if fn != nil {
+		if err := fn(eventbus.WithTx(ctx, tx)); err != nil {
+			return err
 		}
 	}
 

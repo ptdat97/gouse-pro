@@ -93,3 +93,52 @@ func TestHoSoNhaBanDiTronTuNopToiDuyet(t *testing.T) {
 			xem.CommissionRateBP)
 	}
 }
+
+// TestXinTraHangPhatTinHieuKemLyDo.
+//
+// # Vì sao bài này ở tầng app
+//
+// Trách nhiệm của module `returns` là PHÁT event đúng, không phải ghi tín
+// hiệu — việc ghi là của `supplychain`, và nó có bài riêng. Nên bài này
+// kiểm outbox, không kiểm bảng tín hiệu.
+//
+// `SignalReturn` được khai trong domain supply-chain từ đầu, kèm chú thích
+// nói rõ lý do hoàn là dữ liệu CHẤT LƯỢNG của thời trang — và không bên
+// phát nào tồn tại. Đây là mắt xích đó.
+func TestXinTraHangPhatTinHieuKemLyDo(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	maDon, maDong, _ := a.dungDonDaGiao(t)
+	if maDon == "" {
+		t.Skip("không dựng được đơn đã giao")
+	}
+
+	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns",
+		map[string]any{"lines": []any{map[string]any{
+			"order_line_id": maDong, "quantity": 1,
+			"reason_code": "SIZE_TOO_SMALL",
+		}}},
+		hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"}))
+	if res.code != http.StatusCreated {
+		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
+	}
+
+	var soEvent int
+	var lyDo string
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT count(*), coalesce(max(payload->'lines'->0->>'reason_code'), '')
+		  FROM event_outbox
+		 WHERE event_type = 'returns.requested'
+		   AND payload->>'order_id' = $1`, maDon).Scan(&soEvent, &lyDo); err != nil {
+		t.Fatalf("đọc outbox: %v", err)
+	}
+	if soEvent != 1 {
+		t.Fatalf("xin trả hàng phát %d event returns.requested, cần 1 — "+
+			"lý do hoàn không vào được dữ liệu chất lượng", soEvent)
+	}
+	if lyDo != "SIZE_TOO_SMALL" {
+		t.Errorf("mã lý do trong payload = %q, cần SIZE_TOO_SMALL — thiếu "+
+			"nó thì tín hiệu chỉ nói CÓ hàng bị trả, không nói VÌ SAO", lyDo)
+	}
+}

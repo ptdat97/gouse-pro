@@ -7,6 +7,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -14,6 +15,13 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 )
+
+// TxFunc chạy trong giao dịch mà kho lưu trữ đang mở.
+//
+// Ngữ cảnh truyền vào MANG giao dịch đó, nên bên trong ghi được event vào
+// outbox cùng lúc với yêu cầu trả hàng. Hai giao dịch tách rời nghĩa là có
+// thể có yêu cầu mà không có tín hiệu, hoặc ngược lại.
+type TxFunc func(ctx context.Context) error
 
 var (
 	ErrNotFound      = errors.New("returns: không tìm thấy yêu cầu trả hàng")
