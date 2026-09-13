@@ -511,3 +511,97 @@ func TestEventTraHangSinhTinHieuKemLyDo(t *testing.T) {
 		t.Errorf("số lượng = %d, cần 2", sl)
 	}
 }
+
+// TestEventYeuThichSinhHaiTinHieu.
+//
+// # HAI tín hiệu từ MỘT hành động, và vì sao không gộp
+//
+// Thêm vào yêu thích là "tôi muốn món này" — ý định mua rõ ràng, chỉ chưa
+// đúng thời điểm. Bật thêm "báo khi có hàng" là việc KHÁC: khách nói "có
+// hàng là tôi mua", cam kết mạnh hơn hẳn.
+//
+// Gộp thành một loại sẽ không phân biệt được hai mức cam kết, mà chênh
+// lệch giữa chúng chính là thứ quyết định nên sản xuất bao nhiêu.
+// `NOTIFY_REQUEST` là một trong BA tín hiệu module này tồn tại để thu, và
+// trước hôm nay không bên phát nào tồn tại.
+func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
+	m, pool := newModule(t)
+	ctx := context.Background()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	bus := eventbus.NewDispatcher(pool, log)
+	bus.Subscribe(supplychain.NewSignalHandler(m))
+
+	spXinBao := ids.MustNew(ids.PrefixProduct).String()
+	spChiThich := ids.MustNew(ids.PrefixProduct).String()
+
+	phat := func(productID string, muonBao bool) {
+		t.Helper()
+		e, err := eventbus.NewEvent(
+			eventbus.TypeWishlistItemAdded, eventbus.AggregateCustomer,
+			ids.MustNew(ids.PrefixCustomer),
+			map[string]any{
+				"customer_id":           ids.MustNew(ids.PrefixCustomer).String(),
+				"product_id":            productID,
+				"variant_id":            "",
+				"notify_when_available": muonBao,
+			})
+		if err != nil {
+			t.Fatalf("NewEvent: %v", err)
+		}
+		if err := bus.Outbox().Publish(ctx, e); err != nil {
+			t.Fatalf("Publish: %v", err)
+		}
+	}
+
+	phat(spXinBao, true)
+	phat(spChiThich, false)
+	if _, err := bus.DispatchBatch(ctx, 10); err != nil {
+		t.Fatalf("DispatchBatch: %v", err)
+	}
+
+	dem := func(loai, productID string) int {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `
+			SELECT count(*) FROM demand_signal
+			 WHERE signal_type = $1 AND product_id = $2`, loai, productID).
+			Scan(&n); err != nil {
+			t.Fatalf("đếm tín hiệu %s: %v", loai, err)
+		}
+		return n
+	}
+
+	// Món xin báo: CẢ HAI tín hiệu.
+	if got := dem("WISHLIST", spXinBao); got != 1 {
+		t.Errorf("món xin báo có %d tín hiệu WISHLIST, cần 1", got)
+	}
+	if got := dem("NOTIFY_REQUEST", spXinBao); got != 1 {
+		t.Errorf("món xin báo có %d tín hiệu NOTIFY_REQUEST, cần 1 — đây "+
+			"là một trong ba tín hiệu quý nhất, và lời hứa 'có hàng là tôi "+
+			"mua' bị mất", got)
+	}
+
+	// Món chỉ thích: CHỈ MỘT.
+	if got := dem("WISHLIST", spChiThich); got != 1 {
+		t.Errorf("món chỉ thích có %d tín hiệu WISHLIST, cần 1", got)
+	}
+	if got := dem("NOTIFY_REQUEST", spChiThich); got != 0 {
+		t.Errorf("món KHÔNG xin báo mà có %d tín hiệu NOTIFY_REQUEST — "+
+			"gộp hai mức cam kết lại thì không còn phân biệt được", got)
+	}
+
+	// Ghi theo SẢN PHẨM, không đoán SKU: khách thường thích cả sản phẩm
+	// rồi mới chọn size, và điền một SKU đoán làm mọi phép tổng hợp theo
+	// size sai.
+	var sku string
+	if err := pool.QueryRow(ctx, `
+		SELECT sku_id FROM demand_signal
+		 WHERE signal_type = 'WISHLIST' AND product_id = $1`, spXinBao).
+		Scan(&sku); err != nil {
+		t.Fatalf("đọc sku_id: %v", err)
+	}
+	if sku != "" {
+		t.Errorf("sku_id = %q, cần RỖNG khi khách chưa chọn size", sku)
+	}
+}

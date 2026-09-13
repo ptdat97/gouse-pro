@@ -110,6 +110,14 @@ type WishlistRepository interface {
 	// Trả về true nếu món thật sự được thêm mới.
 	AddItem(ctx context.Context, wishlistID ids.ID, item WishlistItem) (bool, error)
 
+	// AddItemKemEvent thêm món VÀ chạy fn trong CÙNG giao dịch.
+	//
+	// fn CHỈ chạy khi món thật sự được thêm: bấm tim lần thứ hai không
+	// thêm gì, và phát tín hiệu cho một lần bấm không đổi gì sẽ thổi phồng
+	// nhu cầu theo số lần khách bấm lại.
+	AddItemKemEvent(ctx context.Context, wishlistID ids.ID, item WishlistItem,
+		fn TxFunc) (bool, error)
+
 	// RemoveItem bỏ một món. Trả về true nếu thật sự có món bị bỏ.
 	RemoveItem(ctx context.Context, wishlistID, productID, variantID ids.ID) (bool, error)
 

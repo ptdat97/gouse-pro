@@ -14,6 +14,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 	"github.com/fashion-commerce/platform/internal/modules/customer/domain"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
 // CustomerStore lưu và đọc hồ sơ khách hàng.
@@ -617,7 +618,28 @@ func (s *WishlistStore) loadItems(
 func (s *WishlistStore) AddItem(
 	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
 ) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
+	return s.AddItemKemEvent(ctx, wishlistID, item, nil)
+}
+
+// AddItemKemEvent thêm món VÀ chạy fn trong CÙNG một giao dịch.
+//
+// Cần cho Transactional Outbox: món yêu thích và tín hiệu nhu cầu sinh ra
+// từ nó phải cùng thành công hoặc cùng thất bại.
+//
+// fn CHỈ chạy khi món THẬT SỰ được thêm. `ON CONFLICT DO NOTHING` nghĩa là
+// bấm tim lần thứ hai không thêm gì — và phát tín hiệu cho một lần bấm
+// không đổi gì sẽ thổi phồng nhu cầu theo số lần khách bấm lại.
+func (s *WishlistStore) AddItemKemEvent(
+	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
+	fn domain.TxFunc,
+) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("customer: mở giao dịch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO wishlist_item (
 			wishlist_id, product_id, variant_id, note,
 			notify_when_available, added_at
@@ -628,7 +650,18 @@ func (s *WishlistStore) AddItem(
 	if err != nil {
 		return false, fmt.Errorf("customer: thêm món yêu thích: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+
+	them := tag.RowsAffected() > 0
+	if them && fn != nil {
+		if err := fn(eventbus.WithTx(ctx, tx)); err != nil {
+			return false, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("customer: xác nhận giao dịch: %w", err)
+	}
+	return them, nil
 }
 
 func (s *WishlistStore) RemoveItem(

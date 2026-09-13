@@ -4666,16 +4666,68 @@ nhiệm PHÁT event đúng (bài ở `internal/app` đọc outbox); module
 
 **Bao phủ tín hiệu: 4/10 → 5/10.**
 
+### P3-43 — YÊU THÍCH sinh HAI tín hiệu, đủ cả ba tín hiệu quý nhất
+
+**Đã xong (13/09).**
+
+`AddToWishlist` đã có sẵn cờ `notifyWhenAvailable` từ trước, được lưu xuống
+database, và chú thích trong `public.go` tự gọi nó là *"lời hứa 'có hàng là
+tôi mua' — thước đo nhu cầu"*. Tôi đã tưởng `NOTIFY_REQUEST` cần một tính
+năng mới; **nó đã tồn tại**, chỉ thiếu dây.
+
+Một dây nối được HAI tín hiệu, và chúng cố ý KHÔNG gộp:
+
+```text
+WISHLIST        "tôi muốn món này"     — ý định mua, chưa đúng thời điểm
+NOTIFY_REQUEST  "có hàng là tôi mua"   — CAM KẾT
+```
+
+Chênh lệch giữa hai mức cam kết ấy chính là thứ quyết định nên sản xuất bao
+nhiêu. Gộp lại là mất đúng thông tin đó.
+
+**Ghi theo SẢN PHẨM, không đoán SKU.** Khách thường thích cả sản phẩm rồi
+mới chọn size, nên `variant_id` có thể rỗng; điền một SKU đoán vào sẽ làm
+mọi phép tổng hợp theo size sai. Cột `product_id` của `demand_signal` — cột
+mà phép quét cột-không-ai-ghi từng gọi tên — nay có dữ liệu đúng mục đích.
+
+**Bao phủ tín hiệu: 5/10 → 7/10, và đủ CẢ BA tín hiệu quý nhất**
+(`SEARCH_NO_RESULT`, `STOCKOUT`, `NOTIFY_REQUEST`) — ba loại đo nhu cầu
+KHÔNG được đáp ứng, thứ không bao giờ xuất hiện trong dữ liệu bán hàng.
+
+### Một hàng rào không có test, tìm ra bằng cách phá
+
+`ON CONFLICT DO NOTHING` nghĩa là bấm tim lần hai không ghi gì. Bộ phát
+event nằm NGOÀI câu lệnh đó, nên `AddItemKemEvent` kiểm cờ "đã thêm được"
+trước khi chạy nó — không kiểm thì nhu cầu của một sản phẩm bằng **số lần
+bấm**, không phải số người muốn.
+
+Phá thử bằng cách bỏ điều kiện ấy: **không bài nào đỏ.** Hàng rào có, test
+thì không. Đã thêm `TestBamTimLanHaiKhongPhatTinHieuMoi`; phá lại thì đỏ.
+
+Cùng lớp với bài học ở P3-40: viết hàng rào mà không phá thử thì không biết
+nó có canh gì.
+
+### Vì sao CHƯA dựng module `recommendation`
+
+Tầm nhìn yêu cầu định nghĩa interface từ sớm, và đặc tả đã có 195 dòng.
+Nhưng rà soát cho thấy **không có bên gọi nào đang chờ**: đặc tả API không
+khai `similar_products`, không có `/products/{id}/similar`, không có endpoint
+xu hướng nào. Dựng module bây giờ là tạo ca thứ 13 của lớp lỗi ở mục 8 —
+lần này ở mức MODULE.
+
+`size_recommendation` thì KHÁC: nó là trường đã khai trong `ProductDetail`,
+có bên gọi thật, và dữ liệu vừa đủ (lịch sử mua + lý do trả hàng chuẩn hóa,
+xong ngày 13/09). Nhưng nó cần điều phối chéo module — ai sở hữu "lịch sử
+size của khách" — và đó là câu hỏi ranh giới cần ADR trước, không phải thứ
+lặng lẽ quyết trong một lần sửa mã.
+
 ### Còn lại của nửa CẦU — chưa làm
 
 ```text
-5/10 loại tín hiệu nhu cầu chưa có bên phát:
+3/10 loại tín hiệu nhu cầu chưa có bên phát:
     VIEW · CLICK          dữ liệu đã có (đường thu hành vi), nhưng khối
                           lượng khác hai bậc so với tín hiệu — cần quyết
                           gom trước khi ghi hay ghi 1:1
-    WISHLIST              tính năng ĐÃ chạy, module customer chưa có đường
-                          phát event nên phải dựng thêm
-    NOTIFY_REQUEST        cần tính năng "báo khi có hàng" cho khách
     SEARCH                đã có SEARCH_NO_RESULT, chưa có lượt tìm thành công
 
 module `recommendation`   KHÔNG tồn tại, dù tầm nhìn yêu cầu định nghĩa

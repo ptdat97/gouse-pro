@@ -361,7 +361,8 @@ func Build(
 
 			// Audit để endpoint quản trị ghi vết mọi lần nhân viên MỞ hồ sơ
 			// khách — tên, email, số điện thoại.
-			Audit: auditRecorder,
+			Audit:  auditRecorder,
+			Events: eventbus.NewOutbox(db.Pool()),
 		})
 		if err != nil {
 			return Modules{}, err

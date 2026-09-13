@@ -32,9 +32,35 @@ type Service struct {
 	merges    domain.MergeLogRepository
 	clock     Clock
 	audit     AuditRecorder
+	events    EventPublisher
+}
+
+// EventPublisher là cổng ra của module tới hàng đợi event.
+type EventPublisher interface {
+	// PublishThemYeuThich phát tín hiệu khách thêm một món vào yêu thích.
+	PublishThemYeuThich(ctx context.Context, e ThemYeuThich) error
+}
+
+// ThemYeuThich là sự thật "khách thêm món này vào danh sách yêu thích".
+//
+// Ý ĐỊNH MUA RÕ RÀNG, chỉ chưa đúng thời điểm — mạnh hơn lượt xem rất
+// nhiều. Và `MuonBaoKhiCoHang` bật nghĩa là khách chủ động để lại lời hứa
+// "có hàng là tôi mua", tín hiệu nhu cầu rõ ràng nhất có thể có.
+type ThemYeuThich struct {
+	CustomerID ids.ID
+	ProductID  ids.ID
+	VariantID  ids.ID
+
+	MuonBaoKhiCoHang bool
+
+	ThemLuc time.Time
 }
 
 type Deps struct {
+	// Events có thể nil: module vẫn chạy nhưng KHÔNG phát tín hiệu yêu
+	// thích, và hai trong ba tín hiệu nhu cầu quý nhất mất đường vào.
+	Events EventPublisher
+
 	Customers domain.CustomerRepository
 	Addresses domain.AddressRepository
 	Consents  domain.ConsentRepository
@@ -61,6 +87,7 @@ func NewService(d Deps) *Service {
 		merges:    d.Merges,
 		clock:     clock,
 		audit:     d.Audit,
+		events:    d.Events,
 	}
 }
 
@@ -501,13 +528,34 @@ func (s *Service) AddToWishlist(
 		return false, err
 	}
 
-	return s.wishlists.AddItem(ctx, w.ID(), domain.WishlistItem{
+	now := s.clock.Now()
+	item := domain.WishlistItem{
 		ProductID:           productID,
 		VariantID:           variantID,
 		Note:                note,
 		NotifyWhenAvailable: notifyWhenAvailable,
-		AddedAt:             s.clock.Now(),
-	})
+		AddedAt:             now,
+	}
+
+	if s.events == nil {
+		return s.wishlists.AddItem(ctx, w.ID(), item)
+	}
+
+	// Món yêu thích và tín hiệu nhu cầu vào CÙNG một giao dịch.
+	//
+	// `AddItemKemEvent` chỉ chạy hàm này khi món THẬT SỰ được thêm: bấm
+	// tim lần thứ hai không thêm gì, và phát tín hiệu cho một lần bấm
+	// không đổi gì sẽ thổi phồng nhu cầu theo số lần khách bấm lại.
+	return s.wishlists.AddItemKemEvent(ctx, w.ID(), item,
+		func(txCtx context.Context) error {
+			return s.events.PublishThemYeuThich(txCtx, ThemYeuThich{
+				CustomerID:       customerID,
+				ProductID:        productID,
+				VariantID:        variantID,
+				MuonBaoKhiCoHang: notifyWhenAvailable,
+				ThemLuc:          now,
+			})
+		})
 }
 
 // RemoveFromWishlist bỏ một món.

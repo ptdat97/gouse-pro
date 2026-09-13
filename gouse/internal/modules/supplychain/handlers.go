@@ -79,6 +79,10 @@ func (h *RecordSignalsFromEvents) EventTypes() []string {
 
 		// TRẢ HÀNG kèm lý do — dữ liệu CHẤT LƯỢNG của thời trang.
 		eventbus.TypeReturnRequested,
+
+		// YÊU THÍCH — ý định mua rõ ràng, và khi kèm "báo khi có hàng" thì
+		// là lời hứa "có hàng là tôi mua".
+		eventbus.TypeWishlistItemAdded,
 	}
 }
 
@@ -120,6 +124,8 @@ func (h *RecordSignalsFromEvents) Handle(ctx context.Context, e eventbus.Event) 
 		return h.handleHetHang(ctx, e)
 	case eventbus.TypeReturnRequested:
 		return h.handleTraHang(ctx, e)
+	case eventbus.TypeWishlistItemAdded:
+		return h.handleYeuThich(ctx, e)
 	}
 	// Loại event không quan tâm: không phải lỗi.
 	return nil
@@ -339,6 +345,63 @@ func (h *RecordSignalsFromEvents) handleTraHang(
 			SourceID:   e.AggregateID.String(),
 			Metadata:   map[string]string{"reason_code": d.LyDo},
 		})
+	}
+
+	return h.module.RecordSignals(ctx, reqs)
+}
+
+// yeuThichPayload là dữ liệu từ event thêm món vào yêu thích.
+type yeuThichPayload struct {
+	CustomerID       string `json:"customer_id"`
+	ProductID        string `json:"product_id"`
+	VariantID        string `json:"variant_id"`
+	MuonBaoKhiCoHang bool   `json:"notify_when_available"`
+}
+
+// handleYeuThich ghi tín hiệu WISHLIST, và NOTIFY_REQUEST nếu khách xin báo.
+//
+// # HAI tín hiệu từ MỘT hành động, và vì sao không gộp
+//
+// Thêm vào yêu thích là "tôi muốn món này" — ý định mua rõ ràng, chỉ chưa
+// đúng thời điểm. Bật thêm "báo khi có hàng" là một việc KHÁC: khách nói
+// "có hàng là tôi mua", và đó là cam kết mạnh hơn hẳn.
+//
+// Gộp thành một loại tín hiệu sẽ không phân biệt được hai mức cam kết ấy,
+// mà chênh lệch giữa chúng chính là thứ quyết định nên sản xuất bao nhiêu.
+// `NOTIFY_REQUEST` là một trong BA tín hiệu mà module này tồn tại để thu.
+//
+// # Vì sao ghi theo SẢN PHẨM, không theo SKU
+//
+// Khách thường thích cả sản phẩm rồi mới chọn size. `variant_id` có thể
+// rỗng, và điền một SKU đoán vào đó sẽ làm mọi phép tổng hợp theo size sai.
+// Cột `product_id` của bảng tín hiệu tồn tại đúng cho trường hợp này.
+func (h *RecordSignalsFromEvents) handleYeuThich(
+	ctx context.Context, e eventbus.Event,
+) error {
+	var p yeuThichPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event yêu thích: %w", err)
+	}
+
+	chung := SignalRequest{
+		SKUID:      p.VariantID,
+		ProductID:  p.ProductID,
+		Quantity:   1,
+		OccurredAt: e.OccurredAt.Format(time.RFC3339),
+		SourceType: "wishlist",
+		SourceID:   p.CustomerID,
+	}
+
+	reqs := make([]SignalRequest, 0, 2)
+
+	yeuThich := chung
+	yeuThich.Type = SignalWishlist
+	reqs = append(reqs, yeuThich)
+
+	if p.MuonBaoKhiCoHang {
+		xinBao := chung
+		xinBao.Type = SignalNotifyRequest
+		reqs = append(reqs, xinBao)
 	}
 
 	return h.module.RecordSignals(ctx, reqs)

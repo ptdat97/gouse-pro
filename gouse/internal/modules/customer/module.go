@@ -14,6 +14,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
 
@@ -56,6 +57,12 @@ type Config struct {
 	DB *database.DB
 
 	Clock application.Clock
+
+	// Events là outbox để phát tín hiệu YÊU THÍCH.
+	//
+	// Có thể nil: module vẫn chạy, nhưng hai trong ba tín hiệu nhu cầu quý
+	// nhất (WISHLIST, NOTIFY_REQUEST) mất đường vào.
+	Events *eventbus.Outbox
 
 	// Identity tạo tài khoản đăng nhập ở đường ĐĂNG KÝ.
 	//
@@ -102,6 +109,7 @@ func New(cfg Config) (*Module, error) {
 		Merges:    customerpg.NewMergeLogStore(pool),
 		Clock:     cfg.Clock,
 		Audit:     auditPort(cfg.Audit),
+		Events:    eventsPort(cfg.Events),
 	})}, nil
 }
 
@@ -527,4 +535,16 @@ func translateErr(err error) error {
 	default:
 		return err
 	}
+}
+
+// eventsPort dựng bộ phát event, hoặc nil khi chưa nối outbox.
+//
+// Trả nil thay vì một bộ phát rỗng: tầng application kiểm nil để chọn
+// đường ghi không kèm event, nên một bộ phát "không làm gì" sẽ khiến nó đi
+// đường có giao dịch mà không có ai ghi event vào đó.
+func eventsPort(outbox *eventbus.Outbox) application.EventPublisher {
+	if outbox == nil {
+		return nil
+	}
+	return NewEventPublisher(outbox)
 }

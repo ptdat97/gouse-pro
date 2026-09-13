@@ -1,11 +1,18 @@
 package domain
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
+
+// TxFunc chạy trong giao dịch mà kho lưu trữ đang mở.
+//
+// Ngữ cảnh truyền vào MANG giao dịch đó, nên bên trong ghi được event vào
+// outbox cùng lúc với thay đổi dữ liệu.
+type TxFunc func(ctx context.Context) error
 
 // Wishlist là danh sách yêu thích của một khách.
 //

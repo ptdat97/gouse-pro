@@ -272,6 +272,13 @@ const (
 	// được: không ghi hôm nay thì Phase 3 khởi động với lịch sử trống.
 	TypeSearchNoResult = "search.no_result"
 
+	// TypeWishlistItemAdded là khách thêm một món vào danh sách yêu thích.
+	//
+	// Ý ĐỊNH MUA RÕ RÀNG, chỉ chưa đúng thời điểm — mạnh hơn lượt xem rất
+	// nhiều. Kèm cờ "báo khi có hàng": khi cờ bật, đó là lời hứa "có hàng
+	// là tôi mua", tín hiệu nhu cầu rõ ràng nhất mà khách chủ động để lại.
+	TypeWishlistItemAdded = "customer.wishlist_item_added"
+
 	// TypeReturnRequested là khách XIN TRẢ hàng, kèm lý do.
 	//
 	// Lý do hoàn là ĐẦU VÀO CHẤT LƯỢNG, không chỉ là chi phí: với thời
@@ -306,4 +313,6 @@ const (
 	AggregateSearch = "Search"
 
 	AggregateReturn = "ReturnRequest"
+
+	AggregateCustomer = "Customer"
 )

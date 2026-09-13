@@ -184,3 +184,53 @@ func TestLoQuaLonBiTuChoi(t *testing.T) {
 		t.Errorf("lô 51 sự kiện trả HTTP %d, cần bị từ chối", res.code)
 	}
 }
+
+// TestBamTimLanHaiKhongPhatTinHieuMoi.
+//
+// # Vì sao hàng rào này cần test riêng
+//
+// `ON CONFLICT DO NOTHING` nghĩa là thêm cùng một món lần thứ hai không ghi
+// gì. Nhưng bộ phát event nằm NGOÀI câu lệnh đó, nên nếu không kiểm cờ "đã
+// thêm được" thì mỗi lần khách bấm lại sẽ sinh một tín hiệu nhu cầu mới —
+// và nhu cầu của một sản phẩm sẽ bằng số lần bấm, không phải số người muốn.
+//
+// Phát hiện lúc phá: bỏ điều kiện `them &&` trong `AddItemKemEvent` mà KHÔNG
+// bài nào đỏ. Hàng rào có, test thì không.
+func TestBamTimLanHaiKhongPhatTinHieuMoi(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	tok := a.dangKyVaDangNhap(emailMoi("bamtim"))
+	var maSP string
+	if err := a.db.Pool().QueryRow(ctx,
+		`SELECT id FROM product LIMIT 1`).Scan(&maSP); err != nil {
+		t.Skip("không có sản phẩm nào")
+	}
+
+	them := func() int {
+		hh := khoaIdem()
+		hh["Authorization"] = "Bearer " + tok
+		res := a.call(http.MethodPost, "/api/v1/me/wishlist", map[string]any{
+			"product_id": maSP, "notify_when_available": true,
+		}, hh)
+		if res.code != http.StatusOK && res.code != http.StatusCreated {
+			t.Fatalf("thêm yêu thích: HTTP %d — %s", res.code, res.raw)
+		}
+		var n int
+		if err := a.db.Pool().QueryRow(ctx, `
+			SELECT count(*) FROM event_outbox
+			 WHERE event_type = 'customer.wishlist_item_added'
+			   AND payload->>'product_id' = $1`, maSP).Scan(&n); err != nil {
+			t.Fatalf("đọc outbox: %v", err)
+		}
+		return n
+	}
+
+	if n := them(); n != 1 {
+		t.Fatalf("lần thêm đầu phát %d event, cần 1", n)
+	}
+	if n := them(); n != 1 {
+		t.Errorf("bấm tim lần HAI làm số event thành %d, cần vẫn 1 — nhu "+
+			"cầu của sản phẩm sẽ bằng số lần bấm, không phải số người muốn", n)
+	}
+}

@@ -136,6 +136,22 @@ func (f *fakeWishlists) FindDefault(
 	}), nil
 }
 
+// AddItemKemEvent: bản giả CHẠY fn khi thêm được, đúng như bản thật.
+//
+// Trả nil ở đây sẽ làm bài test xanh với một bộ phát event không bao giờ
+// được gọi — đúng lớp lỗi "khai mà không ai chạy" mà dự án này đã gặp
+// mười hai lần.
+func (f *fakeWishlists) AddItemKemEvent(
+	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
+	fn domain.TxFunc,
+) (bool, error) {
+	them, err := f.AddItem(ctx, wishlistID, item)
+	if err != nil || !them || fn == nil {
+		return them, err
+	}
+	return them, fn(ctx)
+}
+
 func (f *fakeWishlists) AddItem(
 	_ context.Context, wishlistID ids.ID, item domain.WishlistItem,
 ) (bool, error) {
