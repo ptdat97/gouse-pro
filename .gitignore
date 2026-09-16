@@ -2,3 +2,6 @@
 
 # Cấu hình Claude Code của từng máy, không dùng chung.
 .claude/settings.local.json
+
+# Binary Linux dựng tạm để chạy stack trong Docker — không thuộc mã nguồn.
+.docker-bin/
