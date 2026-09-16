@@ -212,6 +212,30 @@ func TokenRejected(ctx context.Context) bool {
 	return v
 }
 
+// LoiTokenHetHan trả lỗi 401 KHI VÀ CHỈ KHI request này mang một token
+// mà OptionalAuth đã bỏ qua; ngoài ra trả nil.
+//
+// Dùng ở chỗ handler sắp từ chối vì người gọi "không phải chủ". Với chủ
+// sở hữu vừa hết hạn token, câu 403/404 mà những chỗ đó trả ra là NGÕ
+// CỤT: client không thử lại sau 403 lẫn 404, nên người dùng kẹt lại dù
+// refresh token còn hạn.
+//
+//	if err := httpserver.LoiTokenHetHan(r.Context()); err != nil {
+//	    h.fail(w, r, err)
+//	    return
+//	}
+//
+// KHÔNG lộ thêm gì: người gọi mang token hỏng nhận 401 cho MỌI mã đơn,
+// có thật hay không, nên phép dò tuần tự vẫn không đếm được gì — đúng
+// tính chất mà các câu 404 ở đó tồn tại để giữ.
+func LoiTokenHetHan(ctx context.Context) error {
+	if !TokenRejected(ctx) {
+		return nil
+	}
+	return apierror.New(apierror.CodeUnauthorized,
+		"Phiên đăng nhập đã hết hạn, vui lòng thử lại")
+}
+
 // RequireRole chặn request không có ít nhất một trong các vai trò.
 //
 // PHẢI đặt SAU Auth trong chuỗi middleware. Nếu đặt trước, context chưa có

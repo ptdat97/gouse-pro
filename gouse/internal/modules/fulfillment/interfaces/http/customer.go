@@ -119,6 +119,13 @@ func (h *CustomerHandler) listShipments(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !allowed {
+		// Chủ đơn vừa hết hạn token KHÔNG phải người lạ — xem
+		// `httpserver.LoiTokenHetHan`.
+		if err := httpserver.LoiTokenHetHan(r.Context()); err != nil {
+			h.fail(w, r, err)
+			return
+		}
+
 		// 404 chứ không phải 403, và GIỐNG HỆT câu trả lời cho đơn không
 		// tồn tại: mã đơn tăng dần nên hai thông báo khác nhau sẽ đếm được
 		// số đơn nền tảng bán mỗi tháng.
