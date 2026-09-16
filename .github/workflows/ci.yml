@@ -1,0 +1,179 @@
+# Bộ kiểm tự động của gouse-pro.
+#
+# # Vì sao tệp này tồn tại
+#
+# Dự án đã đầu tư nhiều vào HÀNG RÀO TỰ ĐỘNG: archcheck cưỡng chế tám quy
+# tắc ranh giới, một bài canh mọi tuyến của module đều được app phơi bày,
+# một bài canh ma trận phân quyền không bỏ sót đường nào, một bài canh
+# khoảng cách giữa đặc tả API và mã, hai bài canh không trường nào biến mất
+# khi lưu rồi đọc lại, và bộ luật cảnh báo Prometheus có test riêng.
+#
+# Trước tệp này, TẤT CẢ chỉ chạy khi có người nhớ gõ lệnh. Makefile thậm
+# chí đã có sẵn mục tiêu `check` với chú thích "Chạy toàn bộ kiểm tra như
+# CI" — nghĩa là CI được dự tính từ đầu và chưa bao giờ tồn tại.
+#
+# # Vì sao gọi mục tiêu Makefile thay vì viết lại lệnh
+#
+# Viết lại nghĩa là có HAI định nghĩa của "kiểm tra", và chúng sẽ lệch
+# nhau. Lệch theo hướng CI lỏng hơn máy thì CI vô dụng; lệch theo hướng
+# chặt hơn thì người viết mã không tái hiện được lỗi trên máy mình.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Hủy lượt chạy cũ khi có push mới trên cùng nhánh: lượt cũ không còn nói
+# lên điều gì, và để nó chạy tiếp chỉ tốn runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go — định dạng, ranh giới, test
+    runs-on: ubuntu-latest
+
+    # Postgres THẬT, không phải bản giả.
+    #
+    # Module inventory dựa vào KHÓA LẠC QUAN, và nó không kiểm chứng được
+    # bằng bộ nhớ — cần hai giao dịch database thật chạy song song trên
+    # cùng một dòng. Đó là lý do dự án cố ý KHÔNG có kho lưu trữ in-memory.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+
+          # Dịch vụ tự tạo sẵn database khuôn.
+          #
+          # Nhờ vậy CI KHÔNG cần `psql`: bước duy nhất còn lại là chạy
+          # migration. Bớt một phụ thuộc vào ảnh runner là bớt một thứ có
+          # thể đổi dưới chân mình.
+          POSTGRES_DB: gouse_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: gouse
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Phiên bản Go đọc TỪ go.mod, không ghi cứng ở đây.
+      #
+      # Ghi cứng nghĩa là nâng Go phải sửa hai chỗ, và chỗ bị quên sẽ là
+      # chỗ này — CI chạy phiên bản khác máy là một dạng lệch im lặng.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gouse/go.mod
+          cache-dependency-path: gouse/go.sum
+
+      - name: Cài golang-migrate
+        run: |
+          curl -sSL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
+            | tar xz -C /tmp migrate
+          sudo mv /tmp/migrate /usr/local/bin/migrate
+          migrate -version
+
+      # Database khuôn do dịch vụ Postgres tạo sẵn (POSTGRES_DB ở trên).
+      # Ở đây chỉ còn việc áp migration — tương đương `make test-db` nhưng
+      # không cần `psql`.
+      - name: Áp migration lên database khuôn
+        run: |
+          migrate -path migrations \
+            -database "postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable" up
+
+      # Bốn bước dưới đây CHÍNH LÀ `make check`, tách rời để khi đỏ thì
+      # biết ngay bước nào hỏng mà không phải đọc log.
+      - name: Định dạng
+        run: make fmt-check
+
+      - name: Phân tích tĩnh
+        run: make vet
+
+      - name: Ranh giới module
+        run: make arch
+
+      - name: Test
+        env:
+          TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable
+        run: make test
+
+      # Race detector chạy RIÊNG vì nó chậm hơn nhiều.
+      #
+      # Đáng chạy: dự án có test tranh chấp thật (giữ hàng song song, khóa
+      # lạc quan), và một cuộc đua chỉ lộ ra dưới race detector thì không
+      # lộ ra ở đâu khác.
+      - name: Test có race detector
+        env:
+          TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable
+        run: make test-race
+
+  api:
+    name: Đặc tả API và kiểu TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: gouse-web/package-lock.json
+
+      - name: Lint đặc tả
+        working-directory: gouse
+        run: npx --yes @redocly/cli@latest lint api/openapi.yaml
+
+      - name: Cài phụ thuộc web
+        working-directory: gouse-web
+        run: npm ci
+
+      # KIỂU SINH RA phải khớp đặc tả ĐÃ COMMIT.
+      #
+      # `types:check` sinh lại rồi `git diff --exit-code`. Bắt đúng lỗi đã
+      # xảy ra thật: sửa đặc tả, commit, quên sinh lại kiểu — và frontend
+      # gọi một endpoint với kiểu cũ mà trình biên dịch không phàn nàn.
+      - name: Kiểu TypeScript đã sinh lại chưa
+        working-directory: gouse-web
+        run: npm run types:check
+
+      - name: Kiểm kiểu và lint web
+        working-directory: gouse-web
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Test đơn vị web
+        working-directory: gouse-web
+        run: npx playwright test --project=unit
+
+  alerts:
+    name: Luật cảnh báo Prometheus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Luật cảnh báo có test riêng, và trước đây KHÔNG ai chạy chúng.
+      #
+      # Hệ quả đã xảy ra thật: một cảnh báo mức nghiêm trọng luôn kêu vì
+      # ngưỡng cố định không khớp nhịp job. Cảnh báo luôn kêu thì không ai
+      # đọc, và cảnh báo thật chìm cùng nó.
+      - name: Cài promtool
+        run: |
+          curl -sSL https://github.com/prometheus/prometheus/releases/download/v2.53.0/prometheus-2.53.0.linux-amd64.tar.gz \
+            | tar xz -C /tmp
+          sudo mv /tmp/prometheus-2.53.0.linux-amd64/promtool /usr/local/bin/promtool
+          promtool --version
+
+      - name: Kiểm luật và chạy test luật
+        working-directory: gouse
+        run: make alerts

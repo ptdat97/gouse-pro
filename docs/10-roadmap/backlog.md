@@ -4769,6 +4769,58 @@ interface khai nhưng trả rỗng theo cơ chế dự phòng bắt buộc, cho 
 bên gọi thật — vì đặc tả API hiện KHÔNG khai `similar_products` hay endpoint
 xu hướng nào.
 
+### P3-44 — CI, và tám hàng rào nay tự chạy
+
+**Đã xong (16/09).**
+
+Dự án đã đầu tư nhiều vào hàng rào tự động — `archcheck` tám quy tắc ranh
+giới, canh tuyến module ↔ app, canh ma trận phân quyền, canh đặc tả ↔ mã
+bằng `x-phase`, hai bài khứ hồi trường, canh phễu, canh giới hạn sự kiện.
+**Không cái nào tự chạy.** Makefile thậm chí đã có sẵn mục tiêu `check` kèm
+chú thích *"Chạy toàn bộ kiểm tra như CI"* — CI được dự tính từ đầu và chưa
+bao giờ tồn tại.
+
+`.github/workflows/ci.yml` gọi CHÍNH các mục tiêu Makefile thay vì viết lại
+lệnh: viết lại nghĩa là có hai định nghĩa của "kiểm tra", và chúng sẽ lệch
+nhau — lỏng hơn máy thì CI vô dụng, chặt hơn thì người viết mã không tái
+hiện được lỗi.
+
+Ba job: **go** (định dạng, vet, ranh giới, test với Postgres thật, test có
+race detector), **api** (lint đặc tả, kiểu TypeScript đã sinh lại chưa,
+typecheck, lint, test đơn vị web), **alerts** (`promtool` kiểm và chạy test
+luật cảnh báo).
+
+Hai chi tiết đáng ghi:
+
+- Phiên bản Go đọc TỪ `go.mod`, không ghi cứng. Ghi cứng nghĩa là nâng Go
+  phải sửa hai chỗ, và chỗ bị quên sẽ là CI — chạy khác phiên bản với máy
+  là một dạng lệch im lặng.
+- Dịch vụ Postgres tự tạo `gouse_test` qua `POSTGRES_DB`, nên CI **không
+  cần `psql`**. Bớt một phụ thuộc vào ảnh runner là bớt một thứ đổi được
+  dưới chân mình.
+
+**Đã kiểm từng lệnh tại máy trước khi commit** — `fmt-check`, `vet`, `arch`,
+`test`, `test-race`, `types:check`, `typecheck`, `lint`, `playwright unit`:
+tất cả đạt. Một tệp CI chưa từng chạy đúng là thứ mục 8 của tài liệu này
+phê bình.
+
+Chưa kiểm được tại máy: job `alerts`, vì `promtool` không có trên máy này.
+
+### Phát hiện kèm: 9/17 luật cảnh báo KHÔNG có test
+
+```text
+có test (8)     WorkerJobStalled và bảy luật khác
+KHÔNG test (9)  DatabasePoolExhausted · DatabasePoolNearLimit
+                DatabasePoolWaiting · DatabaseReadSlow · DatabaseWriteSlow
+                OutboxBacklogGrowing · OutboxOldestPendingTooOld
+                WorkerJobFailing · WorkerJobRunningTooLong
+```
+
+`promtool check rules` kiểm cú pháp CẢ 17, nhưng chỉ 8 luật có bài chứng
+minh chúng kêu đúng lúc. Phiên 11/09 đã có một luật mức nghiêm trọng LUÔN
+kêu vì ngưỡng cố định không khớp nhịp job — lỗi đó thuộc nhóm có test, và
+vẫn lọt tới lúc có người đọc. Chín luật không test thì không có gì chặn.
+
 ### Còn lại của nửa CẦU — chưa làm
 
 ```text
