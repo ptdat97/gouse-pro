@@ -324,9 +324,19 @@ func (a *orderAdapter) PlaceOrder(
 		return application.PlacedOrder{}, err
 	}
 
+	// Dòng của ĐƠN, để checkout ghép được mã dòng vào event.
+	dong := make([]application.PlacedOrderLine, 0, len(res.Order.Lines))
+	for _, l := range res.Order.Lines {
+		dong = append(dong, application.PlacedOrderLine{
+			OfferID: ids.ID(l.OfferID),
+			LineID:  ids.ID(l.ID),
+		})
+	}
+
 	return application.PlacedOrder{
 		OrderID:     ids.ID(res.Order.ID),
 		OrderNumber: res.Order.OrderNumber,
+		Lines:       dong,
 		// Từ ĐƠN, không phải từ `in.PaymentMethod`: lần thử lại phải nhận
 		// về phương thức của đơn đã tạo, không phải cái vừa gửi.
 		PaymentMethod: res.Order.PaymentMethod,
