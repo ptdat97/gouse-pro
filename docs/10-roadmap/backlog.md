@@ -5010,6 +5010,38 @@ nên gợi ý không làm chậm trang sản phẩm.
 Đã ghi cả phần này vào ADR, kèm ranh giới: nếu sau này `product` cần gợi ý
 ở tầng application thì vòng quay lại và phương án B mới thực sự cần.
 
+### P3-49 — 86/86 tuyến có test, và hai tuyến cuối là hai rủi ro khác nhau
+
+**Đã xong (16/09).** Trục quét mới: **tuyến có thật mà không bài test nào
+gọi tới**. Kết quả 84/86 — độ phủ tốt — và đúng hai tuyến còn lại, mỗi cái
+một loại rủi ro.
+
+**`POST /api/v1/auth/logout`.** Đăng xuất không thu hồi được phiên là lỗ
+hổng NHÌN TỪ NGOÀI KHÔNG THẤY: giao diện báo đã đăng xuất, cookie biến mất,
+nhưng ai giữ bản sao token — người mượn máy, một dòng log, một tiện ích
+trình duyệt — vẫn đăng nhập lại được.
+
+Bài kiểm vì thế KHÔNG chỉ xem cookie đã xóa. Nó GIỮ LẠI token rồi thử dùng
+sau khi đăng xuất, đúng cách kẻ giữ token sẽ làm.
+
+Bài thứ hai canh chiều ngược: đăng xuất trên điện thoại KHÔNG được đá người
+dùng khỏi máy tính. Sai theo hướng này khó thấy hơn — người dùng chỉ thấy
+mình bị đăng xuất "vô cớ".
+
+Mã vốn đã đúng cả hai chiều; nay có bài canh. Hai phép phá đều đỏ đúng chỗ.
+
+**`GET /api/v1/orders/{order_id}/shipments`.** Tuyến này phục vụ
+`estimated_delivery_date` — trường mà đến 11/09 vẫn rỗng trên mọi đơn thực
+hiện (P3-36). Đã sửa, nhưng chưa bài nào đi qua tuyến KHÁCH thật sự gọi.
+
+> Một trường tính đúng ở domain mà không tới được response thì với khách nó
+> vẫn không tồn tại.
+
+Bài kiểm đi trọn: trước khi bàn giao KHÔNG được hứa ngày nào (đồng hồ của
+hãng chưa chạy), sau khi bàn giao phải thấy cả ngày dự kiến lẫn mã vận đơn.
+Kèm một bài hàng rào: số điện thoại khác không xem được lô hàng của đơn
+này — mã vận đơn và trạng thái giao đủ để lần ra đơn người khác.
+
 ### Còn lại của nửa CẦU — chưa làm
 
 ```text
