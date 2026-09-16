@@ -56,6 +56,29 @@ func (m *Module) RecordSignal(ctx context.Context, req SignalRequest) error {
 // Nếu ngữ cảnh mang giao dịch của dispatcher event, ghi bằng giao dịch đó:
 // việc ghi tín hiệu và việc đánh dấu event đã xử lý phải cùng thành công
 // hoặc cùng thất bại.
+// GhiTinHieuGom ghi các tín hiệu GOM theo kỳ — chạy lại KHÔNG đếm hai lần.
+//
+// # Vì sao lượt xem phải gom trước khi ghi
+//
+// Lượt xem sản phẩm có khối lượng lớn hơn mọi tín hiệu khác hai bậc. Ghi
+// một dòng cho mỗi lượt xem làm bảng tín hiệu phình theo lưu lượng ĐỌC chứ
+// không theo nhu cầu — và mọi phép tổng hợp về sau vẫn phải gom lại.
+//
+// Gom theo NGÀY × SẢN PHẨM giữ đúng thứ lập kế hoạch cần, với khối lượng
+// tỷ lệ với số sản phẩm chứ không tỷ lệ với số lượt truy cập.
+func (m *Module) GhiTinHieuGom(ctx context.Context, reqs []SignalRequest) error {
+	for _, req := range reqs {
+		sig, err := toSignal(req)
+		if err != nil {
+			return err
+		}
+		if err := m.store.GhiGom(ctx, sig); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *Module) RecordSignals(ctx context.Context, reqs []SignalRequest) error {
 	if len(reqs) == 0 {
 		return nil

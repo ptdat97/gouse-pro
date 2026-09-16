@@ -18,6 +18,12 @@ type SignalRepository interface {
 	// Append ghi một tín hiệu.
 	Append(ctx context.Context, s *Signal) error
 
+	// GhiGom ghi một tín hiệu GOM, CẬP NHẬT nếu đã có của cùng kỳ.
+	//
+	// Dòng gom không phải "một sự thật đã xảy ra" mà là "kết quả đếm của
+	// một kỳ", nên đếm lại phải ra cùng một dòng với số mới.
+	GhiGom(ctx context.Context, s *Signal) error
+
 	// AppendBatch ghi nhiều tín hiệu trong một lượt.
 	//
 	// Một đơn hàng ba dòng sinh ba tín hiệu. Ghi từng cái là ba lượt đi

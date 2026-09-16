@@ -42,7 +42,12 @@ jobs:
     # cùng một dòng. Đó là lý do dự án cố ý KHÔNG có kho lưu trữ in-memory.
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
+        # PHIÊN BẢN 18, khớp máy phát triển và khớp `docs/10-roadmap/todo.md`.
+        #
+        # ADR-0010 chỉ đòi "16+", nhưng CI chạy phiên bản KHÁC máy phát
+        # triển là một nguồn khác biệt không ai kiểm soát: lỗi chỉ xảy ra ở
+        # một bên thì mất nhiều thời gian nhất để tìm.
         env:
           POSTGRES_USER: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -88,6 +93,21 @@ jobs:
       # không cần `psql`.
       - name: Áp migration lên database khuôn
         run: |
+          migrate -path migrations \
+            -database "postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable" up
+
+      # MIGRATION PHẢI ĐẢO ĐƯỢC.
+      #
+      # docs/10-roadmap/todo.md nêu đây là yêu cầu của CI. Một migration
+      # không lùi được chỉ lộ ra vào lúc cần lùi nhất — giữa một sự cố
+      # triển khai, khi không còn thời gian để sửa.
+      #
+      # Đảo TOÀN BỘ rồi dựng lại: chạy xuôi một lần nữa cũng chứng minh
+      # trạng thái sau khi lùi vẫn dựng lên được.
+      - name: Migration đảo được
+        run: |
+          migrate -path migrations \
+            -database "postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable" down -all
           migrate -path migrations \
             -database "postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable" up
 

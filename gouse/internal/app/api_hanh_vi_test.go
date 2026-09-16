@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
@@ -232,5 +234,66 @@ func TestBamTimLanHaiKhongPhatTinHieuMoi(t *testing.T) {
 	if n := them(); n != 1 {
 		t.Errorf("bấm tim lần HAI làm số event thành %d, cần vẫn 1 — nhu "+
 			"cầu của sản phẩm sẽ bằng số lần bấm, không phải số người muốn", n)
+	}
+}
+
+// TestGomLuotXemDemTheoPHIENKhongTheoLuot.
+//
+// # Vì sao đếm PHIÊN
+//
+// Một người mở đi mở lại một trang mười lần là MỘT người muốn món đó,
+// không phải mười. Đếm lượt sẽ làm nhu cầu của những trang khách hay quay
+// lại — trang có ảnh đẹp, trang nhiều biến thể — cao giả tạo, và kế hoạch
+// sản xuất đi theo con số đó.
+//
+// Bài này gửi 5 lượt xem từ 2 phiên cho cùng một sản phẩm và khẳng định
+// phép gom trả về 2.
+func TestGomLuotXemDemTheoPHIENKhongTheoLuot(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	// Mã sản phẩm RIÊNG cho bài này.
+	//
+	// Cả gói test dùng chung một database, và ba bài khác cũng gửi lượt
+	// xem cho một mã cố định. Dùng chung mã nghĩa là phép gom đếm cả lượt
+	// của bài khác — bài xanh khi chạy riêng, đỏ khi chạy cả gói, và
+	// thông điệp lỗi chỉ vào phép đếm chứ không vào sự trùng mã.
+	maSP := ids.MustNew(ids.PrefixProduct).String()
+
+	gui := func(session string, soLan int) {
+		t.Helper()
+		ev := make([]any, 0, soLan)
+		for i := 0; i < soLan; i++ {
+			ev = append(ev, map[string]any{
+				"name": "product_view", "subject_type": "product",
+				"subject_id": maSP,
+			})
+		}
+		res := a.call(http.MethodPost, "/api/v1/events", map[string]any{
+			"session_id": session, "events": ev,
+		}, nil)
+		if res.code != http.StatusOK {
+			t.Fatalf("gửi lượt xem: HTTP %d — %s", res.code, res.raw)
+		}
+	}
+
+	gui("ses-gom-1", 3)
+	gui("ses-gom-2", 2)
+
+	now := time.Now().UTC()
+	dau := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	theoSP, err := a.mods.analytics.GomLuotXem(ctx, dau, dau.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("gom lượt xem: %v", err)
+	}
+	if got := theoSP[maSP]; got != 2 {
+		t.Errorf("gom ra %d cho sản phẩm được xem 5 lượt từ 2 phiên, cần 2 "+
+			"— đếm lượt thay vì đếm phiên làm nhu cầu cao giả tạo", got)
+	}
+
+	// Sản phẩm không ai xem KHÔNG có trong kết quả — phép gom không được
+	// bịa ra dòng 0 cho mọi sản phẩm trong danh mục.
+	if _, co := theoSP["prd_01J9XKHONGAIXEM000000000"]; co {
+		t.Error("phép gom trả về sản phẩm không có lượt xem nào")
 	}
 }

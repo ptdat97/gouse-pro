@@ -207,6 +207,16 @@ const (
 	//
 	// Xem docs/04-modules/analytics.md mục 4.
 	computeMetricsInterval = 5 * time.Minute
+
+	// gomLuotXemInterval là nhịp gom lượt xem thành tín hiệu nhu cầu.
+	//
+	// Nửa giờ, không phải mỗi phút: đây là dữ liệu LẬP KẾ HOẠCH, và kế
+	// hoạch sản xuất không đổi theo từng phút. Chạy dày chỉ tốn truy vấn
+	// gom trên bảng ghi nhiều nhất hệ thống.
+	//
+	// Nhịp này là quyết định KỸ THUẬT, không phải chính sách kinh doanh,
+	// nên nó ở lại trong mã (ADR-0015).
+	gomLuotXemInterval = 30 * time.Minute
 )
 
 func main() {
@@ -507,6 +517,11 @@ func run() error {
 			name:     "tính chỉ số phân tích",
 			interval: computeMetricsInterval,
 			run:      computeMetrics(analyticsModule, log),
+		},
+		{
+			name:     "gom lượt xem thành tín hiệu nhu cầu",
+			interval: gomLuotXemInterval,
+			run:      gomLuotXem(analyticsModule, supplyModule, log),
 		},
 		{
 			name:     "đối soát tiền đã thu với trạng thái đơn",
@@ -1173,5 +1188,84 @@ func (g *giaHangVanChuyen) GiaMotKien(phuongThuc string) int64 {
 		// Phương thức lạ: không đoán. Ghi một con số sai còn tệ hơn thiếu,
 		// vì thiếu thì `cmd/doisoatso` báo, còn sai thì không ai biết.
 		return 0
+	}
+}
+
+// gomLuotXem biến lượt xem sản phẩm thành tín hiệu nhu cầu loại VIEW.
+//
+// # Mắt xích mà tầm nhìn gọi tên
+//
+// docs/00-overview/vision.md nói rõ: không được để đứt ở khâu
+// `Behavior Data → Demand Signal`, và gọi đó là chỗ đa số nền tảng thương
+// mại điện tử đứt — dữ liệu hành vi nằm trong công cụ analytics của bên
+// thứ ba, không quay ngược được vào quy trình lập kế hoạch sản phẩm.
+//
+// Đường thu hành vi (12/09) lấp nửa đầu: lượt xem nay được ghi lại. Hàm
+// này là nửa sau.
+//
+// # Vì sao NỐI Ở ĐÂY chứ không trong module
+//
+// `analytics` không biết `supplychain` tồn tại, và ngược lại. Worker là
+// tầng composition — nơi duy nhất được biết cả hai. Để module này gọi
+// module kia sẽ tạo một phụ thuộc mà không quy tắc nghiệp vụ nào đòi hỏi.
+//
+// # Vì sao GOM chứ không ghi từng lượt
+//
+// Lượt xem có khối lượng lớn hơn mọi tín hiệu khác hai bậc. Ghi 1:1 làm
+// bảng tín hiệu phình theo lưu lượng ĐỌC chứ không theo nhu cầu, và mọi
+// phép tổng hợp về sau vẫn phải gom lại.
+//
+// Gom theo NGÀY × SẢN PHẨM, và `GhiTinHieuGom` CẬP NHẬT dòng của cùng ngày
+// thay vì thêm mới — nên chạy lại giữa ngày là an toàn và cho con số ĐÚNG,
+// không phải con số cộng dồn. Đó là lý do job này không cần con trỏ.
+func gomLuotXem(
+	a *analytics.Module, sc *supplychain.Module, log *slog.Logger,
+) func(context.Context) error {
+	return func(ctx context.Context) error {
+		now := time.Now().UTC()
+
+		// HÔM NAY và HÔM QUA.
+		//
+		// Hôm qua vẫn phải gom lại vì lượt xem sát nửa đêm có thể tới sau
+		// lần chạy cuối của ngày đó — client gom lô rồi mới gửi.
+		for _, ngay := range []time.Time{now, now.AddDate(0, 0, -1)} {
+			dau := time.Date(ngay.Year(), ngay.Month(), ngay.Day(), 0, 0, 0, 0, time.UTC)
+			cuoi := dau.AddDate(0, 0, 1)
+
+			theoSP, err := a.GomLuotXem(ctx, dau, cuoi)
+			if err != nil {
+				return fmt.Errorf("gom lượt xem ngày %s: %w",
+					dau.Format("2006-01-02"), err)
+			}
+			if len(theoSP) == 0 {
+				continue
+			}
+
+			reqs := make([]supplychain.SignalRequest, 0, len(theoSP))
+			for productID, soPhien := range theoSP {
+				reqs = append(reqs, supplychain.SignalRequest{
+					Type:      supplychain.SignalView,
+					ProductID: productID,
+					Quantity:  soPhien,
+
+					// Mốc là ĐẦU NGÀY, không phải lúc chạy job: tín hiệu
+					// nói về nhu cầu của NGÀY ĐÓ, và đặt mốc theo lúc chạy
+					// sẽ dồn cả hai ngày vào thời điểm hiện tại.
+					OccurredAt: dau.Format(time.RFC3339),
+
+					// SourceID là NGÀY — cũng chính là khóa chống trùng.
+					SourceType: "view_rollup",
+					SourceID:   dau.Format("2006-01-02"),
+				})
+			}
+
+			if err := sc.GhiTinHieuGom(ctx, reqs); err != nil {
+				return fmt.Errorf("ghi tín hiệu lượt xem ngày %s: %w",
+					dau.Format("2006-01-02"), err)
+			}
+			log.InfoContext(ctx, "đã gom lượt xem thành tín hiệu nhu cầu",
+				"ngày", dau.Format("2006-01-02"), "số_sản_phẩm", len(reqs))
+		}
+		return nil
 	}
 }

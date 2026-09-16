@@ -35,6 +35,13 @@ type EventRepository interface {
 	// thấp hơn thực tế nhiều lần.
 	CountDistinctSessions(ctx context.Context, name string, r TimeRange, sellerID string) (int64, error)
 
+	// GomLuotXemTheoSanPham đếm số PHIÊN khác nhau đã xem từng sản phẩm.
+	//
+	// Đầu vào của tín hiệu nhu cầu loại VIEW. Đếm PHIÊN chứ không đếm
+	// lượt: một người mở đi mở lại một trang mười lần là MỘT người muốn
+	// món đó.
+	GomLuotXemTheoSanPham(ctx context.Context, r TimeRange) (map[string]int, error)
+
 	// SumAmount cộng số tiền của các sự kiện trong một khoảng.
 	//
 	// Bỏ qua sự kiện có amount NULL: chúng không liên quan tới tiền, và

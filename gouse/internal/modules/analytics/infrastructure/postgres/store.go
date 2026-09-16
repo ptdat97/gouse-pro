@@ -174,6 +174,46 @@ func (s *EventStore) CountDistinctSessions(
 	return n, nil
 }
 
+// GomLuotXemTheoSanPham đếm số PHIÊN khác nhau đã xem từng sản phẩm.
+//
+// # Vì sao đếm PHIÊN chứ không đếm lượt
+//
+// Một người mở đi mở lại một trang mười lần là MỘT người muốn món đó,
+// không phải mười. Đếm lượt sẽ làm nhu cầu của những trang khách hay quay
+// lại — trang có ảnh đẹp, trang có nhiều biến thể — cao giả tạo, và kế
+// hoạch sản xuất đi theo con số đó.
+//
+// Cùng cách đếm mà tỷ lệ chuyển đổi đang dùng, nên hai chỉ số nói cùng một
+// ngôn ngữ.
+func (s *EventStore) GomLuotXemTheoSanPham(
+	ctx context.Context, r domain.TimeRange,
+) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT subject_id, count(DISTINCT session_id)
+		  FROM event_log
+		 WHERE event_name = $1
+		   AND occurred_at >= $2 AND occurred_at < $3
+		   AND subject_type = 'product' AND subject_id <> ''
+		   AND session_id <> ''
+		 GROUP BY subject_id`,
+		domain.EventProductView, r.From, r.To)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: gom lượt xem: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string]int{}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("analytics: đọc dòng gom: %w", err)
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
 // SumAmount cộng số tiền của các sự kiện trong một khoảng.
 //
 // COALESCE vì SUM trả NULL khi không có hàng nào — và quét NULL vào int64

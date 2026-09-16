@@ -53,6 +53,41 @@ const insertSignal = `
 		quantity, occurred_at, source_type, source_id, metadata
 	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
 
+// GhiGom ghi một tín hiệu GOM — CẬP NHẬT nếu đã có của cùng kỳ.
+//
+// # Vì sao khác `Append`
+//
+// Nhật ký tín hiệu là CHỈ THÊM: mỗi lần thêm giỏ là một sự thật riêng, và
+// hai sự thật giống hệt nhau vẫn là hai sự thật.
+//
+// Dòng GOM thì không phải "một sự thật đã xảy ra" mà là "kết quả đếm của
+// một kỳ". Đếm lại cùng một kỳ phải RA CÙNG MỘT DÒNG với số mới — nếu
+// không, chạy job hai lần trong ngày sẽ nhân đôi nhu cầu của ngày đó.
+//
+// Đó cũng là lý do job này không cần con trỏ: chạy lại luôn an toàn, và
+// chạy giữa ngày rồi chạy lại cuối ngày cho ra con số ĐÚNG chứ không phải
+// con số cộng dồn.
+func (s *SignalStore) GhiGom(ctx context.Context, sig *domain.Signal) error {
+	meta, err := marshalMetadata(sig.Metadata())
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(ctx, insertSignal+`
+		ON CONFLICT (signal_type, product_id, source_id)
+		WHERE source_type = 'view_rollup'
+		DO UPDATE SET quantity = EXCLUDED.quantity,
+		              occurred_at = EXCLUDED.occurred_at`,
+		string(sig.Type()), sig.SKUID().String(), sig.ProductID().String(),
+		sig.CategoryID().String(), sig.SearchTerm(),
+		sig.Quantity(), sig.OccurredAt(), sig.SourceType(),
+		sig.SourceID().String(), meta)
+	if err != nil {
+		return fmt.Errorf("supplychain: ghi tín hiệu gom: %w", err)
+	}
+	return nil
+}
+
 // Append ghi một tín hiệu.
 func (s *SignalStore) Append(ctx context.Context, sig *domain.Signal) error {
 	meta, err := marshalMetadata(sig.Metadata())

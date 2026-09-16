@@ -49,7 +49,7 @@ Deprecated — không còn áp dụng
 | [0016](0016-phien-ban-event.md) | Bên nhận khai phiên bản hiểu được; event mới hơn bị HOÃN | Accepted | Platform, mọi bên nhận event |
 | [0017](0017-payment-intent.md) | `payment_intent` — số tiền chờ thu, thứ webhook đối chiếu vào | Accepted | Payment, Checkout, Order |
 | [0018](0018-checkout-completed-khong-phai-da-tra-tien.md) | `checkout.completed` bị dùng như "đã trả tiền" — giao hàng và ghi sổ đều sớm | Accepted | Payment, Fulfillment, Order |
-| [0019](0019-goi-y-size-thuoc-ve-dau.md) | Gợi ý size cần dữ liệu của ba module và bên gọi là module thứ tư — đặt ở đâu để không tạo phụ thuộc vòng | Proposed | Recommendation, Product, Order, Returns |
+| [0019](0019-goi-y-size-thuoc-ve-dau.md) | Gợi ý size cần dữ liệu của ba module và bên gọi là module thứ tư — đặt ở đâu để không tạo phụ thuộc vòng | Accepted | Recommendation, Product, Order, Returns |
 
 ## Quy trình thêm ADR mới
 

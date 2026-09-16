@@ -1,6 +1,6 @@
 # ADR-0019 — Gợi ý size thuộc về đâu
 
-**Trạng thái:** Đã đề xuất · 16/09/2026
+**Trạng thái:** Đã chấp nhận · 16/09/2026
 
 ## Bối cảnh
 

@@ -605,3 +605,109 @@ func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
 		t.Errorf("sku_id = %q, cần RỖNG khi khách chưa chọn size", sku)
 	}
 }
+
+// TestTinHieuGomChayLaiKhongDemHaiLan.
+//
+// # Tính chất quan trọng nhất của tín hiệu GOM
+//
+// Lượt xem có khối lượng lớn hơn mọi tín hiệu khác hai bậc, nên chúng được
+// GOM theo ngày × sản phẩm thay vì ghi 1:1. Một dòng gom không phải "một
+// sự thật đã xảy ra" mà là "kết quả đếm của một ngày".
+//
+// Hệ quả: đếm lại cùng một ngày phải RA CÙNG MỘT DÒNG với số mới. Nếu nó
+// thêm dòng, job chạy mỗi 30 phút sẽ nhân nhu cầu của một ngày lên 48 lần,
+// và kế hoạch sản xuất đi theo con số đó.
+//
+// Đây cũng là lý do job không cần con trỏ: chạy lại luôn an toàn.
+func TestTinHieuGomChayLaiKhongDemHaiLan(t *testing.T) {
+	m, pool := newModule(t)
+	ctx := context.Background()
+
+	sp := ids.MustNew(ids.PrefixProduct).String()
+	ngay := "2026-09-16"
+
+	gom := func(soPhien int) {
+		t.Helper()
+		if err := m.GhiTinHieuGom(ctx, []supplychain.SignalRequest{{
+			Type:       supplychain.SignalView,
+			ProductID:  sp,
+			Quantity:   soPhien,
+			OccurredAt: ngay + "T00:00:00Z",
+			SourceType: "view_rollup",
+			SourceID:   ngay,
+		}}); err != nil {
+			t.Fatalf("ghi tín hiệu gom: %v", err)
+		}
+	}
+
+	dem := func() (soDong, soLuong int) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `
+			SELECT count(*), coalesce(max(quantity), 0) FROM demand_signal
+			 WHERE signal_type = 'VIEW' AND product_id = $1`, sp).
+			Scan(&soDong, &soLuong); err != nil {
+			t.Fatalf("đếm tín hiệu: %v", err)
+		}
+		return
+	}
+
+	gom(12)
+	if d, q := dem(); d != 1 || q != 12 {
+		t.Fatalf("lần gom đầu: %d dòng, số lượng %d — cần 1 dòng, 12", d, q)
+	}
+
+	// Job chạy lại giữa ngày: số phiên đã tăng.
+	gom(20)
+	d, q := dem()
+	if d != 1 {
+		t.Errorf("gom lại cùng ngày tạo %d dòng, cần vẫn 1 — job chạy mỗi "+
+			"30 phút sẽ nhân nhu cầu của một ngày lên 48 lần", d)
+	}
+	if q != 20 {
+		t.Errorf("số lượng = %d, cần 20 — dòng gom phải mang con số MỚI "+
+			"NHẤT, không phải con số đầu tiên hay tổng cộng dồn", q)
+	}
+
+	// Ngày KHÁC là dòng khác: khóa chống trùng không được gộp hai ngày.
+	if err := m.GhiTinHieuGom(ctx, []supplychain.SignalRequest{{
+		Type:       supplychain.SignalView,
+		ProductID:  sp,
+		Quantity:   7,
+		OccurredAt: "2026-09-17T00:00:00Z",
+		SourceType: "view_rollup",
+		SourceID:   "2026-09-17",
+	}}); err != nil {
+		t.Fatalf("ghi ngày thứ hai: %v", err)
+	}
+	if d, _ := dem(); d != 2 {
+		t.Errorf("hai ngày cho %d dòng, cần 2 — khóa chống trùng đang gộp "+
+			"nhầm các ngày lại với nhau", d)
+	}
+
+	// Nhật ký CHỈ THÊM của các loại tín hiệu khác KHÔNG bị đụng tới: hai
+	// lần thêm giỏ giống hệt nhau vẫn phải là hai dòng.
+	for i := 0; i < 2; i++ {
+		if err := m.RecordSignal(ctx, supplychain.SignalRequest{
+			Type:       supplychain.SignalAddToCart,
+			ProductID:  sp,
+			SKUID:      ids.MustNew(ids.PrefixSKU).String(),
+			Quantity:   1,
+			OccurredAt: ngay + "T10:00:00Z",
+			SourceType: "cart",
+			SourceID:   ids.MustNew(ids.PrefixCart).String(),
+		}); err != nil {
+			t.Fatalf("ghi tín hiệu thêm giỏ: %v", err)
+		}
+	}
+	var themGio int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM demand_signal
+		 WHERE signal_type = 'ADD_TO_CART' AND product_id = $1`, sp).
+		Scan(&themGio); err != nil {
+		t.Fatalf("đếm thêm giỏ: %v", err)
+	}
+	if themGio != 2 {
+		t.Errorf("hai lần thêm giỏ cho %d dòng, cần 2 — chỉ mục chống trùng "+
+			"của dòng GOM đang lan sang nhật ký chỉ-thêm", themGio)
+	}
+}

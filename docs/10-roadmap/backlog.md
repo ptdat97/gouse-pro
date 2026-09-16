@@ -4860,6 +4860,63 @@ minh chúng kêu đúng lúc. Phiên 11/09 đã có một luật mức nghiêm t
 kêu vì ngưỡng cố định không khớp nhịp job — lỗi đó thuộc nhóm có test, và
 vẫn lọt tới lúc có người đọc. Chín luật không test thì không có gì chặn.
 
+### P3-46 — lượt xem thành tín hiệu nhu cầu (7/10 → 8/10)
+
+**Đã xong (16/09).** Khép mắt xích `Behavior Data → Demand Signal` mà tầm
+nhìn gọi tên: đường thu hành vi (12/09) lấp nửa đầu, job này là nửa sau.
+
+**GOM theo NGÀY × SẢN PHẨM, không ghi 1:1.** Lượt xem có khối lượng lớn hơn
+mọi tín hiệu khác hai bậc; ghi từng lượt làm bảng tín hiệu phình theo lưu
+lượng ĐỌC chứ không theo nhu cầu, và mọi phép tổng hợp về sau vẫn phải gom
+lại.
+
+**Đếm PHIÊN, không đếm lượt.** Một người mở đi mở lại một trang mười lần là
+MỘT người muốn món đó. Đếm lượt làm nhu cầu của những trang khách hay quay
+lại — trang ảnh đẹp, trang nhiều biến thể — cao giả tạo. Cùng cách đếm mà
+tỷ lệ chuyển đổi đang dùng.
+
+**Chạy lại KHÔNG đếm hai lần, và không cần con trỏ.** Một chỉ mục duy nhất
+MỘT PHẦN (`WHERE source_type = 'view_rollup'`) cho phép `ON CONFLICT DO
+UPDATE`: đếm lại cùng một ngày ra cùng một dòng với số mới. Job chạy mỗi 30
+phút vì thế an toàn, và chạy giữa ngày cho con số ĐÚNG chứ không phải con
+số cộng dồn. Chỉ mục một phần nên nhật ký chỉ-thêm của mọi loại tín hiệu
+khác không bị đụng tới — có bài test canh đúng điều đó.
+
+**Nối ở tầng composition.** `analytics` không biết `supplychain` tồn tại và
+ngược lại; worker là nơi duy nhất được biết cả hai.
+
+`CLICK` vẫn chưa có bên phát: danh sách tên sự kiện client được gửi là danh
+sách ĐÓNG (`page_view`, `product_view`, `search`), và thêm `click` vào đó
+khi chưa client nào gửi sẽ lặp lại đúng lớp lỗi ở mục 8.
+
+### CI đỏ ở lần chạy đầu — đã loại sáu giả thuyết
+
+Lần push đầu tiên: job `api` và `alerts` XANH, job `go` đỏ ở bước `Test`
+với `exit code 2`. Chú thích của GitHub không kèm chi tiết, và API log cần
+xác thực (403) nên không đọc được từ đây.
+
+Đã loại bằng cách kiểm tại máy:
+
+| Giả thuyết | Kết quả |
+|---|---|
+| khuôn ở máy có dữ liệu mẫu mà CI không có | cả hai đều RỖNG |
+| múi giờ (máy ICT, CI UTC) | chạy `TZ=UTC` vẫn xanh |
+| migration chỉ chạy được khi migrate dần | dựng từ số 0 rồi test: xanh |
+| cây hiện tại đã vô tình sửa | chạy đúng commit `b3f87bc` qua worktree: xanh |
+| phân biệt hoa/thường (macOS ↔ Linux) | không có tệp/import nào lệch |
+| tệp theo nền tảng (`_linux.go`…) | không có |
+
+Khác biệt còn lại là **phiên bản PostgreSQL**: máy chạy 18.4, CI chạy 16.
+`docs/10-roadmap/todo.md` nêu rõ CI dự kiến dùng `postgres:18` — tôi đã
+dùng nhầm 16. Đã sửa. CI chạy phiên bản khác máy phát triển là một nguồn
+khác biệt không ai kiểm soát.
+
+Cùng lúc bổ sung yêu cầu thứ hai của `todo.md` mà workflow đầu thiếu:
+**kiểm migration ĐẢO ĐƯỢC** (`down -all` rồi `up` lại). Đã chạy thử tại
+máy: sạch.
+
+Nếu lần push này vẫn đỏ thì cần nội dung log — hoặc cài `gh` để tôi tự đọc.
+
 ### Còn lại của nửa CẦU — chưa làm
 
 ```text

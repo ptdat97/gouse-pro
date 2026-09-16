@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/fashion-commerce/platform/internal/modules/analytics/application"
 	"github.com/fashion-commerce/platform/internal/modules/analytics/domain"
@@ -113,6 +114,17 @@ func (m *Module) ComputeMetrics(ctx context.Context, req ComputeRequest) error {
 		SellerID:    req.SellerID,
 		Currency:    req.Currency,
 	}))
+}
+
+// GomLuotXem trả số PHIÊN đã xem từng sản phẩm trong một khoảng.
+//
+// Khóa của map là mã sản phẩm. Đếm PHIÊN chứ không đếm lượt: một người mở
+// đi mở lại một trang mười lần là MỘT người muốn món đó, và đếm lượt sẽ
+// làm nhu cầu của những trang khách hay quay lại cao giả tạo.
+func (m *Module) GomLuotXem(
+	ctx context.Context, tu, den time.Time,
+) (map[string]int, error) {
+	return m.svc.GomLuotXem(ctx, tu, den)
 }
 
 func (m *Module) CountEvents(ctx context.Context, req CountRequest) (int64, error) {

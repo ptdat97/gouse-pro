@@ -282,6 +282,17 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 //
 // Trả về giá trị 0 nếu chưa tính — dashboard mở vào một ngày chưa có
 // worker chạy là chuyện bình thường.
+// GomLuotXem trả số PHIÊN đã xem từng sản phẩm trong một khoảng.
+//
+// Đường ĐỌC của dữ liệu hành vi, phục vụ việc dựng tín hiệu nhu cầu. Module
+// này KHÔNG tự ghi tín hiệu — nó không biết supply-chain tồn tại; tầng
+// composition nối hai đầu lại.
+func (s *Service) GomLuotXem(
+	ctx context.Context, tu, den time.Time,
+) (map[string]int, error) {
+	return s.events.GomLuotXemTheoSanPham(ctx, domain.TimeRange{From: tu, To: den})
+}
+
 func (s *Service) GetMetric(
 	ctx context.Context, name string, periodStart time.Time,
 	g domain.Granularity, sellerID string,
