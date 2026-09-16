@@ -5063,6 +5063,88 @@ so với hàng nghìn tín hiệu) chưa quyết.
 
 ---
 
+### P3-50 — một lượt chạy thật trên Docker, và sáu thứ chỉ ở đó mới lộ ra
+
+Dựng cả stack bằng Docker (postgres 18 + api + worker, `APP_ENV=production`,
+52 migration, dữ liệu mẫu qua `SeedDemo`) rồi đi hết chuỗi mà một khách
+thật đi: đăng ký → đăng nhập → xem hàng → giỏ → thanh toán → đặt đơn →
+nhà bán bàn giao → giao xong → thu tiền COD → xin trả hàng → gửi sự kiện
+hành vi → đổi cấu hình nghiệp vụ.
+
+Không bước nào trong số này được tìm ra bằng đọc mã. Cả sáu đều cần một
+request thật và một response thật.
+
+| Lỗi | Hình dạng | Đã sửa |
+|---|---|---|
+| Lỗi PHIÊN nói về mật khẩu | `/auth/refresh` trả "Email hoặc mật khẩu không đúng" cho request không mang email lẫn mật khẩu | `translatePhienErr` |
+| Token hết hạn → 403 ở checkout | client KHÔNG thử lại sau 403, nên khách kẹt giữa bước thanh toán dù refresh token còn hạn | `httpserver.TokenRejected` |
+| Token hết hạn → 404 ở ba đường đọc đơn | chủ đơn được trả lời "đơn của bạn không tồn tại" | `httpserver.LoiTokenHetHan` |
+| Kiện hàng mang mã dòng của PHIÊN | `order_line_ids` trả `cln_…` còn đơn trả `oln_…`; phép ghép khớp 0 dòng trên MỌI đơn | `PlacedOrder.Lines` + migration 000053 |
+| `size_recommendation` không bao giờ xuất hiện | hai chỗ đứt độc lập: tham số truyền vào rồi không dùng, và tuyến thiếu middleware nhận diện khách | gán vào DTO + `ResolveShopperChiDoc` |
+| `cmd/taonhaban` panic mọi lần chạy | thiếu khóa mã hóa; đăng nhập một tài khoản không ai tạo; thiếu biến môi trường thì panic GIỮA CHỪNG | tự tạo tài khoản, kiểm biến trước khi ghi |
+
+**Cái được kiểm chứng là ĐÚNG** cũng đáng ghi, vì mỗi cái là một bản sửa
+cũ nay có bằng chứng trên hệ thống chạy thật: ngưỡng miễn phí ship
+(đơn 1.960.000đ miễn phí, đơn 259.000đ thu 30.000đ), thuế 8% tính gộp
+trong giá, `shipping_method` vào đơn thực hiện, `estimated_delivery_date`
+ghi lúc bàn giao, COD ghi `paid_at` và bút toán PAYMENT_RECEIVED khớp sổ
+(phải thu về 0), lý do trả hàng thành quan sát size, và đổi
+`checkout.free_shipping_threshold` qua `/admin/config` có tác dụng ở
+LƯỢT THANH TOÁN KẾ TIẾP kèm bản ghi kiểm toán đủ người-lý-do-giá trị cũ.
+
+#### Còn mở: `conversion_rate` bằng 0 vĩnh viễn — CẦN MỘT QUYẾT ĐỊNH
+
+Đo trên hệ thống thật: `gmv`, `order_count`, `aov` tính đúng;
+`conversion_rate` và `session_count` bằng 0 với dữ liệu có thật.
+
+Hai nguyên nhân chồng lên nhau:
+
+```text
+1. `EventPurchase = "purchase"` được ĐỌC để tính tử số, và KHÔNG AI GHI.
+   Sự kiện thật sự được ghi lúc đặt đơn tên là `order.placed`.
+   → dạng lỗi mục 8, nhưng sửa tên KHÔNG làm kết quả khác 0, vì:
+
+2. Cột `session_id` chứa BA không gian mã khác nhau:
+       product_view / search   ses_…   phiên duyệt web (cookie)
+       add_to_cart             crt_…   mã giỏ hàng
+       checkout_start          crt_…   mã giỏ hàng
+       order.placed            chk_…   mã phiên thanh toán
+   Mẫu số đếm `ses_…`, tử số đếm `chk_…`. Hai tập KHÔNG BAO GIỜ giao nhau,
+   nên tỷ lệ bằng 0 bất kể bán được bao nhiêu.
+```
+
+Mỗi lựa chọn đều có chú thích giải thích và đều hợp lý KHI XÉT RIÊNG —
+"một giỏ là một lượt mua sắm", "checkout id nối các sự kiện của cùng một
+lượt mua". Cộng lại thì phễu không nối được một bước nào.
+
+Đây KHÔNG phải lỗi gõ nhầm mà là câu hỏi mô hình hoá: **một "phiên" là
+gì** — lượt duyệt, lượt mua sắm, hay lượt thanh toán? Câu trả lời đổi ý
+nghĩa của một chỉ số đã công bố, nên theo mục 7 nó cần ADR trước, không
+sửa thẳng. Việc kèm theo: đưa mã phiên duyệt (`ses_…` từ cookie
+`shopper_session`) vào payload của event giỏ/checkout — đường đã có sẵn,
+chỉ là chưa ai truyền qua.
+
+#### Còn mở: `shipping_groups` khai trong đặc tả, không có trong mã
+
+`Checkout.shipping_groups` (thời gian giao và phí ship RIÊNG cho từng nhà
+bán) không xuất hiện ở bất kỳ file `.go` nào. Dữ liệu thì ĐÃ CÓ:
+`fulfillment.EstimateShipping` tính sẵn `PerSource` kèm `EstimatedDays`,
+và adapter của checkout vứt đi tất cả trừ `Total`.
+
+Chú thích ở `ShippingPort` nói phần còn lại để "trang hiển thị hỏi thẳng
+fulfillment" — nhưng KHÔNG có endpoint nào như vậy, cả trong mã lẫn trong
+đặc tả. Nên với đơn trộn hàng ba nhà bán, khách thấy một con số phí gấp
+ba mà không có cách nào biết vì sao, và không biết kiện nào tới ngày nào.
+
+#### Vặt: `BrandRef.name` là trường BẮT BUỘC mà API cố ý không trả
+
+`dto.go` giải thích rõ và hợp lý (product không gọi catalog ở tầng trình
+bày; `GET /api/v1/brands/{id}` là nguồn đúng và nó chạy tốt). Nhưng đặc
+tả vẫn ghi `required: [id, name]`. Một trong hai phải đổi — sửa đặc tả là
+đúng, vì quyết định của mã mới là quyết định đã cân nhắc.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
@@ -5191,6 +5273,9 @@ gán giá trị cho nó.**
 | lượt dùng mã | — | `max_uses`, `max_uses_per_customer` và `max_budget` đều vô hiệu; một mã dùng được vô hạn lần bởi vô hạn người |
 | `shipping_method` của đơn thực hiện | P3-36 | rỗng trên CẢ 3.207 đơn; bút toán chi phí hãng vận chuyển không bao giờ ghi được |
 | `estimated_delivery_date` | P3-36 | trang theo dõi trả cho KHÁCH một `estimated_arrival` trống |
+| `size_recommendation` | P3-50 | tham số được TRUYỀN VÀO hàm dựng response rồi không dùng — Go không báo tham số thừa |
+| `shipping_groups` | P3-50 | khai trong đặc tả, không có trong mã; dữ liệu đã tính sẵn rồi bị vứt ở adapter |
+| `purchase` (tên sự kiện) | P3-50 | được ĐỌC để tính tỷ lệ chuyển đổi, không ai GHI → chỉ số bằng 0 vĩnh viễn |
 
 **Hai cách kết thúc, và phải phân biệt.** Tám dòng là trường ĐÚNG mà
 chưa nối dây → nối dây. `buy_box_offer` thì khác: buy box quyết theo SKU
@@ -5251,6 +5336,24 @@ liệu thật mới thấy được bảng size ra hay không ra.
 Bước 2 chạy rộng thì bắt được thứ lớn hơn một trường: cũng phép grep ấy
 cho thấy TÁM use case ghi của product không ai gọi — tức cả một mặt của
 sản phẩm chưa có cửa vào. Xem P3-25.
+
+**Bước 6, thêm sau P3-50 — ĐỐI CHIẾU HAI RESPONSE với nhau.** Năm bước
+trên đều soi MỘT chỗ mỗi lần, nên chúng mù với dạng lỗi mà từng đầu đều
+đúng và hai đầu không khớp nhau:
+
+```text
+GET /orders/{id}            → order_line_id:  "oln_…"
+GET /orders/{id}/shipments  → order_line_ids: ["cln_…"]
+```
+
+Cả hai trường đều được gán, đều có dữ liệu, đều đúng kiểu. Phép ghép mà
+chúng tồn tại để phục vụ khớp 0 dòng. Cùng hình dạng ấy lặp lại ở cột
+`session_id` của `event_log`, nơi ba không gian mã nằm chung một cột và
+không tập nào giao tập nào.
+
+Dấu hiệu nhận ra: một trường ở response A chỉ có nghĩa khi ghép với
+response B. Cách kiểm rẻ nhất là một bài test gọi CẢ HAI rồi giao nhau
+hai tập mã — đúng những gì `TestKienGhepDuocVoiDongHang` làm.
 
 ---
 
