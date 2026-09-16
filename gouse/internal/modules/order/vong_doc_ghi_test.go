@@ -9,6 +9,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	orderdom "github.com/fashion-commerce/platform/internal/modules/order/domain"
 	orderpg "github.com/fashion-commerce/platform/internal/modules/order/infrastructure/postgres"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
@@ -43,7 +44,7 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 		OfferID: ids.MustNew(ids.PrefixOffer), SKUID: ids.MustNew(ids.PrefixSKU),
 		SellerID:    ids.MustNew(ids.PrefixSeller),
 		ProductName: "Áo thử vòng đọc ghi", VariantDescription: "Trắng / M",
-		UnitPrice: tien(199000), Quantity: 2, Now: time.Now().UTC(),
+		UnitPrice: tien(199000), Quantity: 2, Now: types.BayGio(),
 	})
 	if err != nil {
 		t.Fatalf("dựng dòng hàng: %v", err)
@@ -64,7 +65,7 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 		Lines:            []*orderdom.Line{line},
 		IdempotencyKey:   "req_" + ids.MustNew(ids.PrefixRequest).String()[4:],
 		SourceCheckoutID: ids.MustNew(ids.PrefixCheckout),
-		Now:              time.Now().UTC(),
+		Now:              types.BayGio(),
 	})
 	if err != nil {
 		t.Fatalf("dựng đơn: %v", err)
@@ -135,7 +136,7 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 	//
 	// Đó lại đúng là trường từng gây hỏng. Nên phải đẩy nó khác 0 rồi mới
 	// so, bằng chính đường mà production đi.
-	if err := doc.MarkPaid(time.Now().UTC()); err != nil {
+	if err := doc.MarkPaid(types.BayGio()); err != nil {
 		t.Fatalf("đánh dấu đã thanh toán: %v", err)
 	}
 	if err := kho.Update(ctx, doc); err != nil {
@@ -154,7 +155,7 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 
 	// Và lần cập nhật kế tiếp phải chạy được: đó chính là thứ hỏng lần
 	// trước — lần một thành công, mọi lần sau thất bại im lặng.
-	if err := lai.CancelWithReason("kiểm chuyển trạng thái lần hai", time.Now().UTC()); err != nil {
+	if err := lai.CancelWithReason("kiểm chuyển trạng thái lần hai", types.BayGio()); err != nil {
 		t.Fatalf("hủy đơn: %v", err)
 	}
 	if err := kho.Update(ctx, lai); err != nil {

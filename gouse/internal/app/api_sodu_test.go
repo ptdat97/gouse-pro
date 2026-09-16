@@ -8,6 +8,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	fulfillmentapp "github.com/fashion-commerce/platform/internal/modules/fulfillment/application"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
@@ -191,7 +192,7 @@ func TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan(t *testing.T) {
 		t.Fatalf("không dựng được số dư rút được (%v)", rut)
 	}
 
-	den := time.Now().UTC().Add(time.Minute)
+	den := types.BayGio().Add(time.Minute)
 	tu := den.Add(-7 * 24 * time.Hour)
 
 	n, err := a.mods.payment.TaoDoiSoatChoKy(ctx, tu, den, 1000)

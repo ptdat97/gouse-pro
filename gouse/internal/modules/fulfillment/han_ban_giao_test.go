@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	fulfillmentpg "github.com/fashion-commerce/platform/internal/modules/fulfillment/infrastructure/postgres"
 )
 
@@ -76,7 +77,7 @@ func TestHanTrenManHinhKhopVoiPhepChamDiem(t *testing.T) {
 			// Chênh lệch đó có thật nhưng dưới một giây, và một hạn hiển
 			// thị cho người đọc thì tính bằng giây là đúng. Xem ghi chú ở
 			// `HanBanGiao`.
-			tao := time.Now().UTC().Truncate(time.Second).Add(-72 * time.Hour)
+			tao := types.BayGio().Truncate(time.Second).Add(-72 * time.Hour)
 			giao := tao.Add(sla + tt.treBaoNhieu)
 			if _, err := h.pool.Exec(ctx, `
 				UPDATE fulfillment_order
@@ -88,7 +89,7 @@ func TestHanTrenManHinhKhopVoiPhepChamDiem(t *testing.T) {
 			// Câu trả lời của SQL — thứ đi vào điểm hiệu suất.
 			store := fulfillmentpg.NewFulfillmentStore(h.pool)
 			so, err := store.DemHieuSuat(ctx, sellerA,
-				tao.Add(-time.Hour), time.Now().UTC(), sla)
+				tao.Add(-time.Hour), types.BayGio(), sla)
 			if err != nil {
 				t.Fatalf("DemHieuSuat: %v", err)
 			}

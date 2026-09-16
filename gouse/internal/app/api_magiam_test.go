@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
 )
@@ -18,8 +19,8 @@ func (a *apiTest) dungMaGiamGia(t *testing.T, ma string, phanTramBP int32) {
 	pr, err := a.mods.promotion.CreatePromotion(ctx, promotion.CreatePromotionRequest{
 		Name: "Thử phân bổ " + ma, Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: phanTramBP,
-		StartsAt: time.Now().UTC().Add(-time.Hour),
-		EndsAt:   time.Now().UTC().Add(24 * time.Hour),
+		StartsAt: types.BayGio().Add(-time.Hour),
+		EndsAt:   types.BayGio().Add(24 * time.Hour),
 		Currency: "VND",
 	})
 	if err != nil {

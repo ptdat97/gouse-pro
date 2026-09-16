@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/domain"
 )
 
@@ -27,7 +28,7 @@ func newAuth(t *testing.T, from, until time.Time) *domain.BrandAuthorization {
 func TestAuthorizationRequiresDocument(t *testing.T) {
 	// Không có giấy tờ thì không có ủy quyền — đây là bằng chứng pháp lý
 	// khi chủ thương hiệu khiếu nại hàng giả.
-	now := time.Now().UTC()
+	now := types.BayGio()
 	_, err := domain.NewBrandAuthorization(domain.NewAuthorizationParams{
 		BrandID:    ids.MustNew(ids.PrefixBrand),
 		SellerID:   ids.MustNew(ids.PrefixSeller),
@@ -40,7 +41,7 @@ func TestAuthorizationRequiresDocument(t *testing.T) {
 }
 
 func TestAuthorizationRejectsInvalidDateRange(t *testing.T) {
-	now := time.Now().UTC()
+	now := types.BayGio()
 	_, err := domain.NewBrandAuthorization(domain.NewAuthorizationParams{
 		BrandID:     ids.MustNew(ids.PrefixBrand),
 		SellerID:    ids.MustNew(ids.PrefixSeller),
@@ -94,7 +95,7 @@ func TestAuthorizationValidityWindow(t *testing.T) {
 }
 
 func TestAuthorizationRevokeBlocksImmediately(t *testing.T) {
-	base := time.Now().UTC()
+	base := types.BayGio()
 	a := newAuth(t, base, base.Add(365*24*time.Hour))
 	_ = a.Approve("nv.hoa", base)
 

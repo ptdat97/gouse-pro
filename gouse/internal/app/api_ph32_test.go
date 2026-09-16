@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
 	checkoutpg "github.com/fashion-commerce/platform/internal/modules/checkout/infrastructure/postgres"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
@@ -48,7 +49,7 @@ func (d *dongHoChanCheckout) Now() time.Time {
 		close(d.toiRoi)
 		<-d.diTiep
 	}
-	return time.Now().UTC()
+	return types.BayGio()
 }
 
 // TestPH32_PhienHetHanTrongLucDangHoanTat.
@@ -194,7 +195,7 @@ func TestPH32_GiuDeHoanTatChanJobDonHan(t *testing.T) {
 	// Khách bấm "Đặt hàng": phiên được giữ lại thêm một quãng ân hạn.
 	kho := checkoutpg.NewCheckoutStore(a.db.Pool())
 	if err := kho.GiuDeHoanTat(
-		ctx, ids.ID(maPhien), time.Now().UTC(), 30*time.Second); err != nil {
+		ctx, ids.ID(maPhien), types.BayGio(), 30*time.Second); err != nil {
 		t.Fatalf("giữ để hoàn tất: %v", err)
 	}
 

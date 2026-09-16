@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
 )
 
@@ -20,8 +21,8 @@ func (a *apiTest) dungMaCoGioiHan(
 		Name: "Giới hạn lượt " + ma, Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: phanTramBP,
 		MaxUses:  tranLuot,
-		StartsAt: time.Now().UTC().Add(-time.Hour),
-		EndsAt:   time.Now().UTC().Add(24 * time.Hour),
+		StartsAt: types.BayGio().Add(-time.Hour),
+		EndsAt:   types.BayGio().Add(24 * time.Hour),
 		Currency: "VND",
 	})
 	if err != nil {

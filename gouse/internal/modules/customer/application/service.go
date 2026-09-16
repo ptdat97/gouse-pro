@@ -9,6 +9,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/customer/domain"
 )
 
@@ -19,7 +20,7 @@ type Clock interface {
 
 type systemClock struct{}
 
-func (systemClock) Now() time.Time { return time.Now().UTC() }
+func (systemClock) Now() time.Time { return types.BayGio() }
 
 var SystemClock Clock = systemClock{}
 

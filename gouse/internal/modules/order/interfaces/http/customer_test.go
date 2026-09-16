@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
@@ -178,7 +177,7 @@ func newOrder(t *testing.T, customerID ids.ID, guestPhone string) *domain.Order 
 		ShippingFee:    money.MustNew(30_000, money.VND),
 		Lines:          []*domain.Line{line},
 		IdempotencyKey: string(ids.MustNew(ids.PrefixOrder)),
-		Now:            time.Now().UTC(),
+		Now:            types.BayGio(),
 	})
 	if err != nil {
 		t.Fatalf("tạo đơn hàng: %v", err)

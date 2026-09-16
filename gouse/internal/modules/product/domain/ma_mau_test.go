@@ -3,8 +3,8 @@ package domain_test
 import (
 	"errors"
 	"testing"
-	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/product/domain"
 )
 
@@ -19,7 +19,7 @@ func TestMaMauChuanHoaVeChuHoa(t *testing.T) {
 			domain.AttrColor:    "Đỏ",
 			domain.AttrColorHex: "#ff0000",
 		},
-		Now: time.Now().UTC(),
+		Now: types.BayGio(),
 	})
 	if err != nil {
 		t.Fatalf("NewVariant: %v", err)
@@ -49,7 +49,7 @@ func TestMaMauSaiDinhDangBiTuChoi(t *testing.T) {
 				domain.AttrColor:    "Đỏ",
 				domain.AttrColorHex: ma,
 			},
-			Now: time.Now().UTC(),
+			Now: types.BayGio(),
 		})
 		if !errors.Is(err, domain.ErrMaMauKhongHopLe) {
 			t.Errorf("mã %q: lỗi = %v, mong ErrMaMauKhongHopLe", ma, err)
@@ -64,7 +64,7 @@ func TestMaMauSaiDinhDangBiTuChoi(t *testing.T) {
 func TestMaMauLaTuyChon(t *testing.T) {
 	v, err := domain.NewVariant(domain.NewVariantParams{
 		Attributes: map[string]string{domain.AttrColor: "Đỏ"},
-		Now:        time.Now().UTC(),
+		Now:        types.BayGio(),
 	})
 	if err != nil {
 		t.Fatalf("biến thể không có mã màu phải tạo được: %v", err)
@@ -89,7 +89,7 @@ func TestMaMauKhongVaoKhoaDinhDanh(t *testing.T) {
 				domain.AttrSize:     "M",
 				domain.AttrColorHex: hex,
 			},
-			Now: time.Now().UTC(),
+			Now: types.BayGio(),
 		})
 		if err != nil {
 			t.Fatalf("NewVariant(%s): %v", hex, err)

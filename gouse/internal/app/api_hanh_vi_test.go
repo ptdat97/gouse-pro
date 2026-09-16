@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
@@ -280,7 +281,7 @@ func TestGomLuotXemDemTheoPHIENKhongTheoLuot(t *testing.T) {
 	gui("ses-gom-1", 3)
 	gui("ses-gom-2", 2)
 
-	now := time.Now().UTC()
+	now := types.BayGio()
 	dau := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	theoSP, err := a.mods.analytics.GomLuotXem(ctx, dau, dau.AddDate(0, 0, 1))
 	if err != nil {

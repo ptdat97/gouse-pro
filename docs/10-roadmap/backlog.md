@@ -4889,6 +4889,50 @@ ngược lại; worker là nơi duy nhất được biết cả hai.
 sách ĐÓNG (`page_view`, `product_view`, `search`), và thêm `click` vào đó
 khi chưa client nào gửi sẽ lặp lại đúng lớp lỗi ở mục 8.
 
+### P3-47 — CI bắt được lỗi đầu tiên: mốc thời gian NANO không lưu được
+
+**Đã xong (16/09).** CI đỏ hai lượt liên tiếp ở bước `Test`. Sau mười giả
+thuyết bị loại, Docker cho câu trả lời trong một lần chạy:
+
+```text
+CreatedAt(): ghi 2026-09-16 13:01:00.281165804, đọc lại ...281165
+```
+
+**`time.Time` của Go giữ tới NANO giây; `timestamptz` của PostgreSQL chỉ
+lưu tới MICRO.** Ghi một mốc có phần nano khác 0 nghĩa là giá trị trong bộ
+nhớ và giá trị đã lưu KHÁC NHAU — im lặng, và mãi mãi. Hệ quả thấy được:
+một thực thể vừa tạo KHÔNG bằng chính nó sau khi đọc lại.
+
+**Vì sao ẩn suốt trên macOS.** Đồng hồ macOS trả mốc có độ phân giải thô
+hơn, nên phần nano thường đã bằng 0 và vòng đọc-ghi tình cờ khớp. Trên
+Linux, `time.Now()` có độ phân giải nano thật.
+
+Đây đúng là loại khác biệt mà CI tồn tại để bắt — và nó bắt được ở **lượt
+chạy đầu tiên**. Bộ test đã xanh hàng tháng trên máy phát triển.
+
+**Sửa ở GỐC, không nới test.** `types.BayGio()` trả "bây giờ" theo độ chính
+xác hệ thống LƯU ĐƯỢC, và 17 bản `systemClock` cùng 42 chỗ trong test đều
+dùng nó. Cùng nguyên tắc đã áp cho cột `DATE` ở P3-36: làm bộ nhớ khớp với
+kho lưu trữ, thay vì che sai lệch bằng một phép so lỏng hơn.
+
+Nới test sẽ để lại đúng thứ đã sửa: hai giá trị khác nhau mà không gì báo.
+
+### Cách tìm ra — và chi phí của việc thiếu công cụ
+
+Mười giả thuyết bị loại bằng suy luận và thử nghiệm tại máy trước khi có
+Docker: dữ liệu mẫu, múi giờ, migration từ số 0, đúng commit đỏ, phân biệt
+hoa/thường, tệp theo nền tảng, phiên bản Postgres 16 → 18, mức song song,
+collation `C`, tệp bị `.gitignore`.
+
+**Không cái nào đúng.** Một container Linux cho câu trả lời trong một lần
+chạy đầu tiên.
+
+Bài học ghi lại: khi lỗi CHỈ xảy ra ở một môi trường, tái hiện môi trường
+đó rẻ hơn mọi phép suy luận cộng lại. Và `exit code 2` từng dẫn tôi đi
+nhầm hướng suốt — đó là mã của GNU `make` khi một recipe hỏng, không phải
+mã của `go test`; `go test` thoát 1, tức là CÓ BÀI ĐỎ chứ không phải lỗi
+dựng.
+
 ### CI đỏ ở lần chạy đầu — đã loại sáu giả thuyết
 
 Lần push đầu tiên: job `api` và `alerts` XANH, job `go` đỏ ở bước `Test`

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/analytics"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
@@ -95,7 +96,7 @@ func TestEventDatHangChayVaoGMV(t *testing.T) {
 	dispatch(t, bus)
 
 	if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
-		PeriodStart: time.Now().UTC(),
+		PeriodStart: types.BayGio(),
 		Granularity: analytics.GranularityDay,
 	}); err != nil {
 		t.Fatalf("ComputeMetrics: %v", err)
@@ -103,7 +104,7 @@ func TestEventDatHangChayVaoGMV(t *testing.T) {
 
 	got, err := m.GetMetric(ctx, analytics.MetricRequest{
 		Name:        analytics.MetricGMV,
-		PeriodStart: time.Now().UTC(),
+		PeriodStart: types.BayGio(),
 		Granularity: analytics.GranularityDay,
 	})
 	if err != nil {
@@ -133,7 +134,7 @@ func TestDonNhieuGianHangTachTheoSeller(t *testing.T) {
 	})
 	dispatch(t, bus)
 
-	now := time.Now().UTC()
+	now := types.BayGio()
 	for _, sellerID := range []string{sellerA, sellerB, ""} {
 		if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
 			PeriodStart: now,
@@ -185,7 +186,7 @@ func TestNhieuDongCungGianHangLaMotDon(t *testing.T) {
 	})
 	dispatch(t, bus)
 
-	now := time.Now().UTC()
+	now := types.BayGio()
 	if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
 		PeriodStart: now,
 		Granularity: analytics.GranularityDay,
@@ -545,8 +546,8 @@ func TestPhienThanhToanChayVaoPheuChuyenDoi(t *testing.T) {
 	for _, ten := range []string{analytics.EventCheckoutStart, analytics.EventCheckoutExpired} {
 		n, err := m.CountEvents(ctx, analytics.CountRequest{
 			Name: ten,
-			From: time.Now().UTC().Add(-time.Hour),
-			To:   time.Now().UTC().Add(time.Hour),
+			From: types.BayGio().Add(-time.Hour),
+			To:   types.BayGio().Add(time.Hour),
 		})
 		if err != nil {
 			t.Fatalf("đếm %s: %v", ten, err)

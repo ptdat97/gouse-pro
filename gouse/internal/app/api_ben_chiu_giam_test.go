@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
 )
 
@@ -34,8 +35,8 @@ func TestKhuyenMaiDoNhaBanChiuPhaiGhiDungBenChiu(t *testing.T) {
 		Name: "Nhà bán tự giảm", Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: 1000,
 		CostBearer: "SELLER",
-		StartsAt:   time.Now().UTC().Add(-time.Hour),
-		EndsAt:     time.Now().UTC().Add(24 * time.Hour),
+		StartsAt:   types.BayGio().Add(-time.Hour),
+		EndsAt:     types.BayGio().Add(24 * time.Hour),
 		Currency:   "VND",
 	})
 	if err != nil {
@@ -174,8 +175,8 @@ func TestKhuyenMaiChiaDoiPhaiTruDungTyLe(t *testing.T) {
 		CostBearer:       "SHARED",
 		PlatformShareBPS: 5000,
 		SellerShareBPS:   5000,
-		StartsAt:         time.Now().UTC().Add(-time.Hour),
-		EndsAt:           time.Now().UTC().Add(24 * time.Hour),
+		StartsAt:         types.BayGio().Add(-time.Hour),
+		EndsAt:           types.BayGio().Add(24 * time.Hour),
 		Currency:         "VND",
 	})
 	if err != nil {

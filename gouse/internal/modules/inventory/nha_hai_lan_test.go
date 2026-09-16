@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
@@ -53,7 +54,7 @@ func (d *dongHoChan) Now() time.Time {
 		close(d.toiRoi)
 		<-d.diTiep
 	}
-	return time.Now().UTC()
+	return types.BayGio()
 }
 
 // TestNhaGiuHangHaiLan_TaiHienXacDinh dựng lại ĐÚNG cơ chế của PH-31.

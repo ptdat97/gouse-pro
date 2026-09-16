@@ -2,7 +2,6 @@ package domain_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
@@ -39,7 +38,7 @@ func orderFor(t *testing.T, customerID ids.ID, guestEmail, guestPhone string) *d
 		Currency:       money.VND,
 		Lines:          []*domain.Line{line},
 		IdempotencyKey: string(ids.MustNew(ids.PrefixOrder)),
-		Now:            time.Now().UTC(),
+		Now:            types.BayGio(),
 	})
 	if err != nil {
 		t.Fatalf("NewOrder: %v", err)

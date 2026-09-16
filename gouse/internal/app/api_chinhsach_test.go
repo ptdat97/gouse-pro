@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
@@ -128,7 +129,7 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 		}
 	}
 
-	truocKhiBanGiao := time.Now().UTC()
+	truocKhiBanGiao := types.BayGio()
 	if err := a.mods.fulfillment.HandOverToCarrier(ctx,
 		fulfillment.HandOverRequest{
 			SellerID: sellerID, FulfillmentID: foID,

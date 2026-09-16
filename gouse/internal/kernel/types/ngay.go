@@ -66,3 +66,26 @@ func DauNgay(t time.Time) time.Time {
 	tv := t.In(MuiGioNghiepVu)
 	return time.Date(tv.Year(), tv.Month(), tv.Day(), 0, 0, 0, 0, MuiGioNghiepVu)
 }
+
+// BayGio là "bây giờ" theo độ chính xác mà hệ thống LƯU ĐƯỢC.
+//
+// # Vì sao cắt về MICRO giây
+//
+// `time.Time` của Go giữ tới nano giây; `timestamptz` của PostgreSQL chỉ
+// lưu tới MICRO giây. Ghi một mốc có phần nano khác 0 nghĩa là giá trị
+// trong bộ nhớ và giá trị đã lưu KHÁC NHAU — im lặng, và mãi mãi.
+//
+// Hệ quả thấy được: một thực thể vừa tạo KHÔNG bằng chính nó sau khi đọc
+// lại từ database, dù không trường nào bị mất.
+//
+// # Vì sao lỗi này ẩn suốt trên macOS
+//
+// Đồng hồ của macOS trả về mốc có độ phân giải thô hơn, nên phần nano
+// thường đã bằng 0 và vòng đọc-ghi tình cờ khớp. Trên Linux, `time.Now()`
+// có độ phân giải nano thật, nên sai lệch lộ ra ngay.
+//
+// Đây chính là loại khác biệt mà CI tồn tại để bắt: bộ test xanh suốt trên
+// máy phát triển và đỏ ở lượt chạy đầu tiên trên Linux.
+func BayGio() time.Time {
+	return time.Now().UTC().Truncate(time.Microsecond)
+}

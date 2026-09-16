@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 )
 
@@ -36,7 +37,7 @@ func (d *dongHoChanOrder) Now() time.Time {
 		close(d.toiRoi)
 		<-d.diTiep
 	}
-	return time.Now().UTC()
+	return types.BayGio()
 }
 
 // TestHuyDonKhongDeGhiDeTienDoGiaoHang.

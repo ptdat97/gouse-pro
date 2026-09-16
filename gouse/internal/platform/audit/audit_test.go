@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
@@ -362,7 +363,7 @@ func TestQueryTimeRange(t *testing.T) {
 		t.Fatalf("ghi nhật ký: %v", err)
 	}
 
-	now := time.Now().UTC()
+	now := types.BayGio()
 
 	got, _, err := r.Query(ctx, audit.Filter{
 		From: now.Add(-time.Hour),

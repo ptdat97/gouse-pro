@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/supplychain"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
@@ -328,7 +329,7 @@ func TestGiuThoiDiemNghiepVuKhongPhaiThoiDiemGhi(t *testing.T) {
 	ctx := context.Background()
 
 	// Tín hiệu xảy ra 3 ngày trước.
-	occurred := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Second)
+	occurred := types.BayGio().Add(-72 * time.Hour).Truncate(time.Second)
 
 	if err := m.RecordSignal(ctx, supplychain.SignalRequest{
 		Type:       supplychain.SignalView,

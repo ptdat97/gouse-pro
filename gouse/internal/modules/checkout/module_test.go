@@ -270,7 +270,7 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	fc := &fakeCart{}
-	clock := &fakeClock{now: time.Now().UTC()}
+	clock := &fakeClock{now: types.BayGio()}
 	owners := &fakeSellerOwner{internal: map[ids.ID]bool{}}
 	svc := application.NewService(application.Deps{
 		Checkouts:   checkoutpg.NewCheckoutStore(db.Pool()),

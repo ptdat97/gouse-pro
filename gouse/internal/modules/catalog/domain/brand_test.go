@@ -3,9 +3,9 @@ package domain_test
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/domain"
 )
 
@@ -94,7 +94,7 @@ func TestBrandProtectionLevels(t *testing.T) {
 	}
 
 	// Đổi mức bảo vệ
-	now := time.Now().UTC()
+	now := types.BayGio()
 	if err := b.SetProtectionLevel(domain.ProtectionRestricted, now); err != nil {
 		t.Fatalf("đổi mức bảo vệ hợp lệ không được lỗi: %v", err)
 	}
