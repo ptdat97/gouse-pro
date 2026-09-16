@@ -96,6 +96,43 @@ func ResolveShopper(resolver CustomerResolver) Middleware {
 	}
 }
 
+// ResolveShopperChiDoc giống ResolveShopper nhưng KHÔNG cấp phiên vãng lai.
+//
+// # Dùng ở đâu
+//
+// Tuyến CHỈ ĐỌC của cửa hàng — trang danh mục, trang chi tiết sản phẩm.
+// Chúng cần biết khách là AI nếu khách đã đăng nhập (để cá nhân hóa), và
+// không cần gì cả nếu không.
+//
+// # Vì sao không dùng thẳng ResolveShopper
+//
+// ResolveShopper CẤP cookie `shopper_session` cho mọi request chưa có.
+// Trên đường mua hàng đó là đúng: cookie ấy là thứ giữ giỏ hàng của khách
+// vãng lai. Trên đường xem hàng thì không — nó đặt một cookie định danh
+// vào trình duyệt của người chỉ mới lướt xem, và không dùng cookie ấy vào
+// việc gì. Giỏ hàng vẫn tự cấp phiên ở lần thêm hàng đầu tiên.
+//
+// Cookie ĐÃ CÓ thì vẫn đọc: khách vãng lai đang có giỏ phải giữ nguyên
+// danh tính khi họ quay lại xem hàng.
+func ResolveShopperChiDoc(resolver CustomerResolver) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var s Shopper
+			if c, err := r.Cookie(guestSessionCookie); err == nil {
+				s.SessionID = c.Value
+			}
+
+			if ac, ok := AuthContextFrom(r.Context()); ok && resolver != nil {
+				if id, err := resolver.CustomerIDForUser(r.Context(), ac.UserID); err == nil {
+					s.CustomerID = id
+				}
+			}
+
+			next.ServeHTTP(w, r.WithContext(WithShopper(r.Context(), s)))
+		})
+	}
+}
+
 // guestSession đọc phiên vãng lai từ cookie, tạo mới nếu chưa có.
 func guestSession(w http.ResponseWriter, r *http.Request) string {
 	if c, err := r.Cookie(guestSessionCookie); err == nil && c.Value != "" {

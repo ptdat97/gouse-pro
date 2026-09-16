@@ -731,11 +731,39 @@ func RegisterRoutes(
 	// Mỗi module tự đăng ký route của mình. main không biết đường dẫn hay
 	// hình dạng response của module nào — nó chỉ trao mux.
 	catalogModule.RegisterRoutes(mux, log)
+
 	// Trang chi tiết sản phẩm kèm GỢI Ý SIZE.
 	//
 	// Cổng nil thì trang vẫn chạy, chỉ không có gợi ý — gợi ý là tính năng
 	// tăng cường, hỏng nó không được làm hỏng việc bán hàng.
-	productModule.RegisterRoutesKemGoiY(mux, goiYSizeTu(m.recommendation), log)
+	//
+	// CHUỖI MIDDLEWARE là bắt buộc, không phải trang trí: gợi ý cần biết
+	// khách là ai, và `ShopperFrom` chỉ có dữ liệu khi request đi qua
+	// `OptionalAuth` + `ResolveShopper…`. Thiếu nó thì `CustomerID` rỗng
+	// với MỌI người gọi và trường `size_recommendation` không bao giờ
+	// xuất hiện — đúng tình trạng đo được trên môi trường thật 16/09.
+	//
+	// Bản CHỈ ĐỌC: trang xem hàng không được đặt cookie phiên vãng lai
+	// vào trình duyệt của người mới lướt.
+	productMux := http.NewServeMux()
+	productModule.RegisterRoutesKemGoiY(productMux, goiYSizeTu(m.recommendation), log)
+	{
+		chain := []httpserver.Middleware{
+			httpserver.ResolveShopperChiDoc(khachTu(m.customer)),
+		}
+		if identityModule != nil {
+			chain = append([]httpserver.Middleware{
+				httpserver.OptionalAuth(identityModule),
+			}, chain...)
+		}
+		h := httpserver.Chain(productMux, chain...)
+
+		// Liệt kê đường dẫn ở đây, cùng cách `registerShoppingRoutes` làm:
+		// mux con phải được gắn theo từng tuyến, không gắn được cả khối.
+		mux.Handle("GET /api/v1/products", h)
+		mux.Handle("GET /api/v1/products/{product_id}", h)
+		mux.Handle("GET /api/v1/search", h)
+	}
 
 	// Offer của sản phẩm — công khai, khách vãng lai xem được.
 	if marketplaceModule != nil {
