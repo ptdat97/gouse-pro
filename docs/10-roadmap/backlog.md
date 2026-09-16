@@ -4721,6 +4721,54 @@ xong ngày 13/09). Nhưng nó cần điều phối chéo module — ai sở hữ
 size của khách" — và đó là câu hỏi ranh giới cần ADR trước, không phải thứ
 lặng lẽ quyết trong một lần sửa mã.
 
+### Quét lỗi domain khai mà không ai trả về — kết quả ÂM
+
+**Đã xong (16/09).** 140 lỗi domain được khai; **5** không bao giờ được trả
+về. Cả năm đều KHÔNG phải khoảng hở — ghi ra để lần sau không quét lại:
+
+| Lỗi | Vì sao không bao giờ xảy ra |
+|---|---|
+| `ErrBrandNotAuthorized` | hàng rào chống hàng giả dùng **struct kết quả** `SellPermission{Allowed, Reason, RequiredAction}` chứ không dùng lỗi — thiết kế TỐT HƠN, vì nó nói được cả "phải làm gì tiếp" |
+| `ErrAuthorizationExpired` | như trên (`Reason = AUTHORIZATION_EXPIRED`) |
+| `ErrCategoryCycle` | `parentID` chỉ đặt LÚC TẠO và không có thao tác đổi cha, nên vòng không hình thành được |
+| `ErrInvariantBroken` | mọi phép biến đổi CHUYỂN số lượng giữa các trạng thái nên tổng bảo toàn theo cấu trúc — và `TestChuyenTrangThaiBaoToanTong` chứng minh điều đó |
+| `ErrTotalMismatch` | `Order.Total()` TÍNH TỪ dòng hàng, không lưu riêng, nên không có hai con số để lệch |
+
+Đã xóa cả năm. Một lỗi khai mà không ai trả về mời người sau viết nhánh xử
+lý cho một tình huống không tồn tại — cùng lý do đã xóa bề mặt API chết ở
+P3-34.
+
+Đáng chú ý: bốn trong năm là **hàng rào được thay bằng thiết kế mạnh hơn**,
+không phải hàng rào bị quên. Đó là kết quả tốt, và nó nói rằng lớp lỗi "khai
+mà không ai điền" KHÔNG lan sang vùng lỗi domain.
+
+### ADR-0019 — gợi ý size thuộc về đâu
+
+**Đã viết (16/09), trạng thái Proposed.**
+
+`size_recommendation` là trường đã khai trong `ProductDetail`, đặc tả gọi nó
+là *"cơ chế giảm trực tiếp tỷ lệ hoàn hàng"*, và `dto.go` ghi lý do chưa
+điền là *"cần lịch sử mua hàng (Phase 2)"*. **Từ 13/09 lý do đó không còn
+đúng** — `RETURN_HISTORY` là nguồn mạnh nhất và nó vừa được nối ở P3-42.
+
+Vấn đề thật không phải dữ liệu mà là **phụ thuộc vòng**: gợi ý size cần dữ
+liệu của `order`, `returns`, `product`, và bên gọi lại chính là `product`.
+Mọi cách đặt logic vào một module rồi để `product` gọi nó đều tạo vòng, vì
+module đó cần `product` để dịch SKU sang size.
+
+Đề xuất: **ghi `size` vào event lúc phát** (`checkout.completed`,
+`returns.requested`), để module gợi ý chỉ đọc event và giữ read model riêng
+— không gọi module nào lúc phục vụ request, nên cũng không làm chậm trang.
+
+Read model lưu **quan sát** `(khách, thương hiệu, size, GIỮ|CHẬT|RỘNG)`,
+không lưu kết luận đã tính sẵn — cùng lý do sổ cái lưu bút toán chứ không
+lưu số dư.
+
+Phạm vi đợt đầu: **đúng một phương thức**. Bốn phương thức còn lại của
+interface khai nhưng trả rỗng theo cơ chế dự phòng bắt buộc, cho tới khi có
+bên gọi thật — vì đặc tả API hiện KHÔNG khai `similar_products` hay endpoint
+xu hướng nào.
+
 ### Còn lại của nửa CẦU — chưa làm
 
 ```text

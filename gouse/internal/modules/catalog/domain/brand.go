@@ -18,10 +18,8 @@ import (
 )
 
 var (
-	ErrEmptyName            = errors.New("catalog: tên không được rỗng")
-	ErrInvalidSlug          = errors.New("catalog: slug không hợp lệ")
-	ErrBrandNotAuthorized   = errors.New("catalog: seller không có ủy quyền cho thương hiệu này")
-	ErrAuthorizationExpired = errors.New("catalog: giấy ủy quyền đã hết hạn")
+	ErrEmptyName   = errors.New("catalog: tên không được rỗng")
+	ErrInvalidSlug = errors.New("catalog: slug không hợp lệ")
 )
 
 // ProtectionLevel xác định ai được phép tạo offer cho thương hiệu.

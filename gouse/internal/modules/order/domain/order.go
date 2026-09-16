@@ -26,7 +26,6 @@ var (
 	ErrInvalidStatus   = errors.New("order: chuyển trạng thái không hợp lệ")
 	ErrNotCancellable  = errors.New("order: đơn không còn hủy được")
 	ErrMissingIdempKey = errors.New("order: thiếu khóa idempotency")
-	ErrTotalMismatch   = errors.New("order: tổng tiền không khớp với các dòng hàng")
 	ErrNotFound        = errors.New("order: không tìm thấy")
 	ErrDuplicateOrder  = errors.New("order: đơn với khóa idempotency này đã tồn tại")
 

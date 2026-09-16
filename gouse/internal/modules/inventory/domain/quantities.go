@@ -29,7 +29,6 @@ var (
 	// kinh doanh quyết.
 	ErrQuaLon            = errors.New("inventory: số lượng vượt sức chứa của kho dữ liệu")
 	ErrInsufficientStock = errors.New("inventory: không đủ hàng")
-	ErrInvariantBroken   = errors.New("inventory: tổng các trạng thái không khớp số lượng vật lý")
 )
 
 // Quantities là số lượng hàng theo SÁU trạng thái.

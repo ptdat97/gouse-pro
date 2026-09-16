@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	ErrCategoryCycle   = errors.New("catalog: danh mục không được là tổ tiên của chính nó")
 	ErrCategoryTooDeep = errors.New("catalog: cây danh mục quá sâu")
 )
 
