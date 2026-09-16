@@ -153,6 +153,12 @@ func (h *CustomerHandler) kiemQuyen(r *http.Request, key string) (string, error)
 		return "", err
 	}
 	if !duoc {
+		// Chủ đơn vừa hết hạn token KHÔNG phải người lạ — xem
+		// `httpserver.LoiTokenHetHan`.
+		if err := httpserver.LoiTokenHetHan(r.Context()); err != nil {
+			return "", err
+		}
+
 		// 404 chứ không phải 403: phân biệt "không có quyền" với "không
 		// tồn tại" cho phép dò mã đơn của người khác.
 		return "", apierror.New(apierror.CodeNotFound, "Không tìm thấy đơn hàng")
