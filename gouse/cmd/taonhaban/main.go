@@ -19,6 +19,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -38,13 +40,19 @@ import (
 	productdom "github.com/fashion-commerce/platform/internal/modules/product/domain"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/database"
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 	"github.com/fashion-commerce/platform/internal/platform/token"
 )
 
 const (
 	emailNhaBan = "nhaban2@example.com"
-	tenNhaBan   = "Xưởng May Bảy"
-	slugNhaBan  = "xuong-may-bay"
+
+	// matKhauNhaBan dùng chung cho cả bước tạo và bước đăng nhập. Trước
+	// đây chỉ có ở chỗ đăng nhập, nên không ai thấy là tài khoản không
+	// tồn tại.
+	matKhauNhaBan = "mat-khau-du-dai-123"
+	tenNhaBan     = "Xưởng May Bảy"
+	slugNhaBan    = "xuong-may-bay"
 )
 
 func main() {
@@ -74,7 +82,20 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	sel, err := seller.New(seller.Config{Storage: "postgres", DB: db})
+	// Khóa mã hóa BẮT BUỘC, không phải tùy chọn.
+	//
+	// `NopHoSo` nhận số tài khoản ngân hàng, và store từ chối ghi nó ở
+	// dạng rõ. Không truyền khóa thì công cụ này panic ngay ở bước đầu —
+	// đúng lỗi gặp khi chạy nó lần đầu trên Docker (16/09).
+	//
+	// Rơi về một khóa cố định khi thiếu biến môi trường: công cụ chỉ chạy
+	// ở máy phát triển (đã chặn APP_ENV ở trên), và bắt người dùng tự sinh
+	// khóa cho một lệnh dựng dữ liệu mẫu là rào cản không đổi lấy gì.
+	maHoa, err := boMaHoa()
+	if err != nil {
+		panic(err)
+	}
+	sel, err := seller.New(seller.Config{Storage: "postgres", DB: db, MaHoa: maHoa})
 	if err != nil {
 		panic(err)
 	}
@@ -98,6 +119,18 @@ func main() {
 		panic(err)
 	}
 
+	// Kiểm biến môi trường TRƯỚC khi ghi bản ghi đầu tiên.
+	//
+	// `dungSanPham` cần BRAND_ID_OPEN và panic khi thiếu. Panic ở đó là
+	// panic GIỮA CHỪNG: nhà bán đã được tạo và duyệt xong, nên chạy lại
+	// sau khi khai biến sẽ đẻ thêm một nhà bán trùng tên.
+	if os.Getenv("BRAND_ID_OPEN") == "" {
+		fmt.Fprintln(os.Stderr,
+			"cần BRAND_ID_OPEN — mã thương hiệu ở mức OPEN.\n"+
+				"lấy bằng: select id, name from brand where protection_level = 'OPEN';")
+		os.Exit(1)
+	}
+
 	sellerID := dungNhaBan(ctx, sel)
 	fmt.Println("nhà bán :", sellerID, tenNhaBan)
 
@@ -114,6 +147,25 @@ func main() {
 // Bốn bước, không tắt bước nào: nộp hồ sơ → duyệt → xác minh ngân hàng →
 // kích hoạt. Ghi thẳng ACTIVE vào database sẽ tạo ra một nhà bán không
 // bao giờ tồn tại được ngoài đời, và test dựa trên nó sẽ nói dối.
+// boMaHoa lấy khóa từ ENCRYPTION_KEY, hoặc sinh một khóa dùng một lần.
+//
+// Khóa sinh ra ở đây KHÔNG đọc lại được ở lần chạy sau, nên số tài khoản
+// ngân hàng của nhà bán mẫu thành rác sau khi tiến trình kết thúc. Chấp
+// nhận được: dữ liệu mẫu tồn tại để bấm thử giao diện, không để đối soát.
+// Ai cần đọc lại thì đặt ENCRYPTION_KEY — cùng khóa mà `api` đang dùng.
+func boMaHoa() (*privacy.BoMaHoa, error) {
+	if k := os.Getenv("ENCRYPTION_KEY"); k != "" {
+		return privacy.NewBoMaHoa(k)
+	}
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return nil, err
+	}
+	fmt.Println("cảnh báo : ENCRYPTION_KEY trống — dùng khóa tạm, " +
+		"số tài khoản ngân hàng của nhà bán mẫu sẽ không đọc lại được")
+	return privacy.NewBoMaHoa(base64.StdEncoding.EncodeToString(b[:]))
+}
+
 func dungNhaBan(ctx context.Context, sel *seller.Module) string {
 	// Đã có thì dùng lại — công cụ này chạy lại nhiều lần.
 	if cu, err := sel.Service().GetSellerBySlug(ctx, slugNhaBan); err == nil {
@@ -178,8 +230,26 @@ func kichHoat(ctx context.Context, sel *seller.Module, id string) {
 // làm chủ MỌI gian hàng. Đó đúng là lỗ hổng mà cách ly giữa các nhà bán
 // tồn tại để chặn.
 func ganVaiTro(ctx context.Context, idm *identity.Module, sellerID string) {
+	// TẠO tài khoản nếu chưa có, đừng giả định ai đó đã tạo hộ.
+	//
+	// `taotaikhoan` dựng khách/quản trị/vận hành, KHÔNG dựng tài khoản nhà
+	// bán. Trước bản sửa này, `taonhaban` đăng nhập thẳng và in một CẢNH
+	// BÁO rồi đi tiếp khi thất bại — nên nó dựng xong nhà bán mà không ai
+	// đăng nhập vào được, đúng thứ duy nhất công cụ này tồn tại để cho.
+	// Thấy khi chạy nó lần đầu trên Docker (16/09).
+	switch _, err := idm.Register(ctx, identity.RegisterRequest{
+		Email: emailNhaBan, Password: matKhauNhaBan,
+	}); {
+	case err == nil:
+		fmt.Printf("tài khoản: đã tạo %s\n", emailNhaBan)
+	case errors.Is(err, identity.ErrDuplicateEmail):
+	default:
+		fmt.Printf("CẢNH BÁO tạo tài khoản %s: %v\n", emailNhaBan, err)
+		return
+	}
+
 	res, err := idm.Login(ctx, identity.LoginRequest{
-		Email: emailNhaBan, Password: "mat-khau-du-dai-123",
+		Email: emailNhaBan, Password: matKhauNhaBan,
 	})
 	if err != nil {
 		fmt.Printf("CẢNH BÁO không đăng nhập được %s: %v\n", emailNhaBan, err)
