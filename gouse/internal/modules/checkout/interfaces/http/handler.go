@@ -148,6 +148,19 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.CartID != own.String() {
+		// Token vừa hết hạn KHÔNG phải người lạ.
+		//
+		// OptionalAuth cho request đi tiếp như khách vãng lai, nên giỏ
+		// "đang dùng" lúc này là giỏ của cookie phiên chứ không phải giỏ
+		// của tài khoản — và hai mã không khớp. Trả 403 ở đây là ngõ cụt:
+		// client theo hợp đồng không thử lại sau 403, nên khách kẹt giữa
+		// lúc thanh toán dù refresh token vẫn còn hạn.
+		if httpserver.TokenRejected(r.Context()) {
+			h.fail(w, r, apierror.New(apierror.CodeUnauthorized,
+				"Phiên đăng nhập đã hết hạn, vui lòng thử lại"))
+			return
+		}
+
 		// 403 chứ không phải 404: nói "không tìm thấy" cho một giỏ có thật
 		// là nói dối, và 404 vẫn để lộ mã giỏ nào tồn tại qua chênh lệch
 		// thời gian phản hồi. Từ chối thẳng.
