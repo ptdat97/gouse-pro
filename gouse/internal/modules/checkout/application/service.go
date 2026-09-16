@@ -517,8 +517,27 @@ type PlacedOrder struct {
 	// đúng với thứ nằm trong database.
 	PaymentMethod string
 
+	// Lines nối dòng của PHIÊN với dòng của ĐƠN vừa tạo.
+	//
+	// Cần vì hai bên đánh mã ĐỘC LẬP: phiên sinh `cln_…`, đơn sinh
+	// `oln_…`. Event `checkout.completed` phải mang mã của ĐƠN (xem
+	// `ReservedLine.LineID`), nên chỗ duy nhất biết được cả hai là đây —
+	// ngay sau khi đơn được tạo.
+	Lines []PlacedOrderLine
+
 	// Replayed = true nghĩa là đơn đã tồn tại từ lần gọi trước.
 	Replayed bool
+}
+
+// PlacedOrderLine là một dòng của đơn vừa tạo.
+//
+// Ghép theo OFFER chứ không theo vị trí trong mảng: thứ tự dòng là chuyện
+// nội bộ của module order, còn "một offer chỉ xuất hiện một lần trong giỏ"
+// là bất biến có thật — `cart.AddItem` cộng dồn số lượng vào dòng cũ thay
+// vì thêm dòng mới.
+type PlacedOrderLine struct {
+	OfferID ids.ID
+	LineID  ids.ID
 }
 
 // ---------------------------------------------------------------- Service
@@ -1418,8 +1437,11 @@ func (s *Service) CompleteCheckout(
 		if s.events == nil {
 			return nil
 		}
-		return s.events.PublishCheckoutCompleted(txCtx,
-			s.completedEvent(c, placed.OrderID, placed.OrderNumber, paymentMethod))
+		ev, err := s.completedEvent(c, placed, paymentMethod)
+		if err != nil {
+			return err
+		}
+		return s.events.PublishCheckoutCompleted(txCtx, ev)
 	}); err != nil {
 		return nil, err
 	}
@@ -1466,14 +1488,40 @@ func (s *Service) phanBoGiamGia(
 
 // completedEvent dựng dữ liệu event từ phiên đã hoàn tất.
 func (s *Service) completedEvent(
-	c *domain.Checkout, orderID ids.ID, orderNumber, paymentMethod string,
-) CheckoutCompleted {
+	c *domain.Checkout, placed PlacedOrder, paymentMethod string,
+) (CheckoutCompleted, error) {
+	// Mã dòng của ĐƠN, tra theo offer.
+	//
+	// Trước bản sửa này chỗ đây gán thẳng `l.ID()` — mã dòng của PHIÊN —
+	// vào một trường mà chú thích của `ReservedLine.LineID` nói rõ là
+	// "dòng hàng trong ĐƠN HÀNG, không phải trong phiên". Hệ quả: mọi
+	// `fulfillment_order_line.order_line_id` trong hệ thống đều mang
+	// `cln_…`, nên phép ghép mà trường ấy tồn tại để phục vụ — trang đơn
+	// hàng nối kiện với dòng hàng — KHÔNG khớp một dòng nào.
+	dongDon := make(map[ids.ID]ids.ID, len(placed.Lines))
+	for _, l := range placed.Lines {
+		dongDon[l.OfferID] = l.LineID
+	}
+
 	lines := c.Lines()
 	reservations := make([]ReservedLine, 0, len(lines))
 	for _, l := range lines {
 		if !l.HasStock() {
 			continue
 		}
+
+		// Thiếu mã dòng đơn thì DỪNG, đừng phát event với mã sai.
+		//
+		// Bên nhận không có cách nào biết mã họ nhận thuộc không gian
+		// nào; phát bừa nghĩa là ghi sai vào database của họ và im lặng.
+		// Giao dịch chưa commit ở đây nên dừng lại là an toàn.
+		maDongDon, co := dongDon[l.OfferID()]
+		if !co {
+			return CheckoutCompleted{}, fmt.Errorf(
+				"checkout: đơn %s không có dòng cho offer %s",
+				placed.OrderID, l.OfferID())
+		}
+
 		// Hoa hồng tính từ con số ĐÃ ĐÓNG BĂNG trong phiên — cùng cách
 		// module order tính, nên hai bên ra cùng kết quả.
 		lineTotal := l.LineTotal()
@@ -1482,7 +1530,7 @@ func (s *Service) completedEvent(
 		reservations = append(reservations, ReservedLine{
 			ReservationID:      l.ReservationID(),
 			InventoryItemID:    l.InventoryItemID(),
-			LineID:             l.ID(),
+			LineID:             maDongDon,
 			SKUID:              l.SKUID(),
 			SellerID:           l.SellerID(),
 			Quantity:           l.Quantity(),
@@ -1496,8 +1544,8 @@ func (s *Service) completedEvent(
 
 	return CheckoutCompleted{
 		CheckoutID:     c.ID(),
-		OrderID:        orderID,
-		OrderNumber:    orderNumber,
+		OrderID:        placed.OrderID,
+		OrderNumber:    placed.OrderNumber,
 		CartID:         c.CartID(),
 		CustomerID:     c.CustomerID(),
 		GuestEmail:     c.GuestEmail(),
@@ -1512,7 +1560,7 @@ func (s *Service) completedEvent(
 		ShippingAddress: c.ShippingAddress(),
 		Currency:        c.Currency(),
 		Reservations:    reservations,
-	}
+	}, nil
 }
 
 // ---------------------------------------------------------------- Dọn dẹp

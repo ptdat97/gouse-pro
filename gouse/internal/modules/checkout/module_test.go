@@ -215,9 +215,18 @@ func (r *realOrder) PlaceOrder(
 	if err != nil {
 		return application.PlacedOrder{}, err
 	}
+	// Ghép dòng phiên ↔ dòng đơn, y như adapter thật: event
+	// `checkout.completed` mang mã dòng của ĐƠN.
+	dong := make([]application.PlacedOrderLine, 0, len(res.Order.Lines))
+	for _, l := range res.Order.Lines {
+		dong = append(dong, application.PlacedOrderLine{
+			OfferID: ids.ID(l.OfferID), LineID: ids.ID(l.ID),
+		})
+	}
 	return application.PlacedOrder{
 		OrderID:     ids.ID(res.Order.ID),
 		OrderNumber: res.Order.OrderNumber,
+		Lines:       dong,
 		Replayed:    res.Replayed,
 	}, nil
 }
