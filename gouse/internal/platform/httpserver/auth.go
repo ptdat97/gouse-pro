@@ -170,13 +170,46 @@ func OptionalAuth(v TokenVerifier) Middleware {
 					"error", err,
 					"path", r.URL.Path,
 				)
-				next.ServeHTTP(w, r)
+				// Đi tiếp như khách vãng lai, NHƯNG để lại dấu. Handler
+				// phía sau cần phân biệt "không đăng nhập" với "đã đăng
+				// nhập mà token vừa hết hạn" — xem TokenRejected.
+				next.ServeHTTP(w, r.WithContext(WithTokenRejected(r.Context())))
 				return
 			}
 
 			next.ServeHTTP(w, r.WithContext(WithAuthContext(r.Context(), ac)))
 		})
 	}
+}
+
+type tokenRejectedCtxKey struct{}
+
+// WithTokenRejected đánh dấu request CÓ mang token nhưng token đó không
+// dùng được. Xuất ra để test dựng context.
+func WithTokenRejected(ctx context.Context) context.Context {
+	return context.WithValue(ctx, tokenRejectedCtxKey{}, true)
+}
+
+// TokenRejected cho biết OptionalAuth đã BỎ QUA một token hỏng hoặc hết
+// hạn của request này.
+//
+// # Vì sao handler cần biết
+//
+// OptionalAuth cho request đi tiếp như khách vãng lai — đúng, vì token hết
+// hạn giữa lúc mua hàng là chuyện thường và chặn ở đó làm hỏng giỏ đang có.
+//
+// Nhưng "vãng lai" và "vừa hết hạn" dẫn tới HAI câu trả lời khác nhau khi
+// handler đụng dữ liệu của người khác. Với khách vãng lai thật, 403 là
+// đúng: không có gì để khôi phục. Với token vừa hết hạn thì 403 là ngõ
+// cụt — client theo hợp đồng KHÔNG thử lại sau 403 (admin-ui-plan.md mục
+// 291), nên khách kẹt ở đó dù đang giữ refresh token còn hạn. Câu đúng là
+// 401: client làm mới token rồi gọi lại.
+//
+// Thấy trên môi trường Docker thật (16/09): token hết hạn giữa phiên làm
+// `POST /api/v1/checkout` trả 403 "Giỏ hàng này không thuộc về bạn".
+func TokenRejected(ctx context.Context) bool {
+	v, _ := ctx.Value(tokenRejectedCtxKey{}).(bool)
+	return v
 }
 
 // RequireRole chặn request không có ít nhất một trong các vai trò.
