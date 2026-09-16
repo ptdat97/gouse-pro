@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -112,5 +113,45 @@ func TestDangXuatMotThietBiKhongDuoiThietBiKhac(t *testing.T) {
 	if res := a.call(http.MethodPost, "/api/v1/auth/refresh", nil, nil); res.code != http.StatusOK {
 		t.Errorf("phiên thiết bị KHÁC chết theo: HTTP %d — %s — đăng xuất "+
 			"trên điện thoại đã đá người dùng khỏi máy tính", res.code, res.raw)
+	}
+}
+
+// TestLoiPhienKhongNoiVeMatKhau.
+//
+// # Vì sao bài này tồn tại
+//
+// Chạy hệ thống thật trên Docker (16/09): xoay refresh token rồi gửi lại
+// token CŨ trả 401 kèm "Email hoặc mật khẩu không đúng". Request đó không
+// mang email lẫn mật khẩu.
+//
+// Thiệt hại không nằm ở mã trạng thái — 401 vẫn đúng. Nó nằm ở chỗ người
+// đọc câu đó đi sai đường: khách sẽ đặt lại mật khẩu đang dùng tốt, người
+// trực hỗ trợ đọc log sẽ soi bảng mật khẩu thay vì bảng phiên.
+//
+// Bài này khóa NỘI DUNG câu trả lời, không chỉ mã lỗi.
+func TestLoiPhienKhongNoiVeMatKhau(t *testing.T) {
+	a := newAPITest(t)
+	a.dangKyVaDangNhap(emailMoi("loiphien"))
+
+	cu := a.cookies["refresh_token"]
+	if cu == "" {
+		t.Fatal("đăng nhập không cấp refresh token")
+	}
+
+	// Xoay một lần: token `cu` từ đây là token đã dùng.
+	if res := a.call(http.MethodPost, "/api/v1/auth/refresh", nil, nil); res.code != http.StatusOK {
+		t.Fatalf("làm mới phiên: HTTP %d — %s", res.code, res.raw)
+	}
+
+	a.cookies["refresh_token"] = cu
+	res := a.call(http.MethodPost, "/api/v1/auth/refresh", nil, nil)
+	if res.code != http.StatusUnauthorized {
+		t.Fatalf("gửi lại token đã xoay phải bị từ chối: HTTP %d — %s", res.code, res.raw)
+	}
+	if strings.Contains(res.raw, "mật khẩu") {
+		t.Errorf("lỗi phiên nói về mật khẩu trong khi request không có mật khẩu: %s", res.raw)
+	}
+	if !strings.Contains(res.raw, "Phiên") {
+		t.Errorf("lỗi phiên không nhắc tới phiên — người đọc không biết phải làm gì: %s", res.raw)
 	}
 }
