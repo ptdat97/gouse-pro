@@ -330,7 +330,7 @@ groups:
       - alert: DatabasePoolNearLimit
         expr: >-
           gouse_db_pool_connections{state="acquired"}
-            / gouse_db_pool_max_connections > 0.9
+            / ignoring(state) gouse_db_pool_max_connections > 0.9
         for: 10m
         labels:
           severity: warning

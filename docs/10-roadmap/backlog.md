@@ -4806,7 +4806,46 @@ phê bình.
 
 Chưa kiểm được tại máy: job `alerts`, vì `promtool` không có trên máy này.
 
-### Phát hiện kèm: 9/17 luật cảnh báo KHÔNG có test
+### P3-45 — 17/17 luật cảnh báo có test, và một luật KHÔNG BAO GIỜ kêu được
+
+**Đã xong (16/09).** Viết bài cho 9 luật còn thiếu. Bài đầu tiên chạy đã đỏ
+— và nó đỏ vì **luật sai, không phải vì bài sai**:
+
+```promql
+gouse_db_pool_connections{state="acquired"}
+  / gouse_db_pool_max_connections > 0.9        ← KHÔNG BAO GIỜ khớp
+```
+
+PromQL khớp phép chia theo TOÀN BỘ nhãn. Vế trái có `state="acquired"`, vế
+phải **không có nhãn `state`** (xác nhận ở `internal/platform/database/metrics.go`:
+`ketNoi` khai `[]string{"state"}`, `toiDa` khai `nil`). Hai tập nhãn không
+bao giờ khớp, biểu thức luôn rỗng, và `DatabasePoolNearLimit` **chưa từng
+có khả năng kêu**.
+
+Đây đúng là thứ phần mở đầu của chính tệp test đã cảnh báo: *"một biểu thức
+đúng cú pháp nhưng lọc nhầm nhãn ... nó chạy, không bao giờ khớp dòng nào,
+và không bao giờ kêu"*. Sửa bằng `ignoring(state)`.
+
+**Mỗi luật có ít nhất một ca NGƯỢC**, vì không có ca ngược thì một luật
+"kêu với mọi thứ" vẫn qua được mọi ca thuận. Ba ca ngược đáng kể:
+
+| Ca ngược | Bắt được lỗi gì |
+|---|---|
+| tồn đọng CAO nhưng ĐỨNG YÊN | luật đo XU HƯỚNG bị đổi thành đo MỨC — 5.000 event ổn định là bình thường, 50 event tăng đều mới là hỏng |
+| chỉ có dữ liệu GHI chậm | luật ĐỌC quên bộ lọc `operation="select"` sẽ kêu vì dữ liệu của phép ghi |
+| pool dùng 80% | luật là một PHÉP CHIA; quên mẫu số sẽ đúng ở ca thuận và sai ở đây |
+
+**Một bài của tôi xanh vì lý do sai.** Ca ngược của `OutboxOldestPendingTooOld`
+đặt mốc vào phút mà giá trị ĐÃ vượt ngưỡng — nó xanh nhờ `for: 2m` chưa
+trôi hết, không phải nhờ ngưỡng. Phá thử bằng cách đổi `> 300` thành
+`>= 290` thì nó VẪN XANH. Đã sửa chuỗi để giữ 290 suốt bốn phút; phá lại
+thì đỏ.
+
+Bốn phép phá đã chạy trên luật: bỏ `ignoring(state)`, đổi `deriv` thành so
+mức, bỏ bộ lọc `operation`, hạ ngưỡng. Cả bốn đỏ đúng chỗ.
+
+`promtool` không có trên máy này nên tôi tải bản dùng riêng vào scratchpad
+để chạy — CI thì tự cài ở job `alerts`.
 
 ```text
 có test (8)     WorkerJobStalled và bảy luật khác

@@ -237,3 +237,272 @@ tests:
           phải vài gói lẻ mắc kẹt. Mỗi gói là một khoản phải trả nhà bán chưa chuyển sang khả dụng, vì
           số dư chỉ giải phóng khi đơn đi hết DELIVERED → COMPLETED.
         runbook: docs/09-operations/observability.md
+
+# ---------------------------------------------------------------------
+# Chín luật dưới đây trước ngày 16/09 KHÔNG có bài nào.
+#
+# `promtool check rules` kiểm cú pháp cả 17 luật, nhưng cú pháp đúng không
+# có nghĩa là luật kêu đúng lúc. Luật mức nghiêm trọng LUÔN kêu hồi 11/09
+# nằm trong nhóm ĐÃ có test — và nó vẫn lọt tới khi có người đọc. Chín luật
+# không test thì không có gì chặn cả.
+#
+# Mỗi luật dưới đây có ít nhất một ca NGƯỢC: chứng minh nó IM khi phải im.
+# Không có ca ngược thì một luật "kêu với mọi thứ" vẫn qua được mọi ca
+# thuận — đúng cái bẫy mà bài WorkerJobStalled đã nêu.
+# ---------------------------------------------------------------------
+
+# Job đang chạy: cờ bật LIÊN TỤC hơn 10 phút mới đáng ngờ.
+- interval: 1m
+  input_series:
+  - series: gouse_worker_job_running{job="gouse-worker", job_name="phát domain event"}
+    values: 1+0x15
+  - series: gouse_worker_job_running{job="gouse-worker", job_name="dọn giữ hàng quá hạn"}
+    values: 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0
+  alert_rule_test:
+  # Ca NGƯỢC: mới chạy 5 phút thì chưa ai kêu.
+  - eval_time: 5m
+    alertname: WorkerJobRunningTooLong
+    exp_alerts: []
+  # Quá 10 phút: CHỈ job còn đang chạy bị gọi tên. Job đã xong lúc phút 3
+  # không được kêu — nếu nó cũng kêu thì luật đang bỏ qua giá trị 0.
+  - eval_time: 12m
+    alertname: WorkerJobRunningTooLong
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: gouse-worker
+        job_name: phát domain event
+      exp_annotations:
+        summary: Job phát domain event đã chạy hơn 10 phút
+        description: Một lượt chạy kéo dài bất thường. Chưa chắc hỏng, nhưng nếu kéo dài thêm thì tồn
+          đọng sẽ tăng theo.
+
+# Job lỗi ĐỀU trong 5 phút. Một lần lỗi rồi thôi thì KHÔNG kêu.
+- interval: 1m
+  input_series:
+  - series: gouse_worker_job_failures_total{job="gouse-worker", job_name="tạo đợt đối soát cho nhà bán"}
+    values: 0+1x15
+  - series: gouse_worker_job_failures_total{job="gouse-worker", job_name="dọn phiên thanh toán quá hạn"}
+    values: 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+  alert_rule_test:
+  # Ca NGƯỢC: job lỗi ĐÚNG MỘT LẦN ở phút 1 rồi thôi. Sau khi cửa sổ 5 phút
+  # trôi qua, tốc độ về 0 và nó phải im. Luật đếm TỔNG thay vì tốc độ sẽ
+  # kêu mãi ở đây.
+  - eval_time: 12m
+    alertname: WorkerJobFailing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: gouse-worker
+        job_name: tạo đợt đối soát cho nhà bán
+      exp_annotations:
+        summary: Job tạo đợt đối soát cho nhà bán đang lỗi liên tục
+        description: 'Job thất bại đều trong 5 phút. Xem log để biết lỗi cụ thể; nếu là job phát event
+          thì tồn đọng sẽ tăng ngay sau đó.'
+
+# Event cũ nhất chờ quá 5 phút — mức NGHIÊM TRỌNG.
+#
+# Đây là luật đứng giữa "hàng đã bán vẫn ở trạng thái đang giữ" và việc
+# tiến trình dọn nhả hàng của một đơn đã thanh toán.
+- interval: 1m
+  input_series:
+  - series: gouse_outbox_oldest_pending_age_seconds{job="gouse-api"}
+    values: 60 120 180 240 290 290 290 290 310 330 350 370
+  alert_rule_test:
+  # Ca NGƯỢC: GIỮ ở 290 giây suốt bốn phút — dưới ngưỡng 300, và đủ lâu để
+  # `for: 2m` không còn là lý do nó im.
+  #
+  # Bản đầu của bài này đặt mốc vào phút mà giá trị ĐÃ là 310: nó xanh nhờ
+  # `for` chưa trôi hết, không phải nhờ ngưỡng. Phá thử bằng cách đổi `>`
+  # thành `>= 290` thì nó VẪN XANH — một bài kiểm xanh vì lý do sai.
+  - eval_time: 7m
+    alertname: OutboxOldestPendingTooOld
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: OutboxOldestPendingTooOld
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: gouse-api
+      exp_annotations:
+        summary: Event cũ nhất trong outbox đã chờ hơn 5 phút
+        description: Hàng đã bán có thể vẫn ở trạng thái đang giữ, và tiến trình dọn có thể nhả hàng
+          của một đơn đã thanh toán.
+
+# Tồn đọng TĂNG ĐỀU: bên phát nhanh hơn bên xử lý.
+- interval: 1m
+  input_series:
+  - series: gouse_outbox_pending_events{job="gouse-api"}
+    values: 10+20x25
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: OutboxBacklogGrowing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: gouse-api
+      exp_annotations:
+        summary: Tồn đọng outbox tăng đều
+        description: Bên phát đang nhanh hơn bên xử lý. Chưa hỏng, nhưng sẽ hỏng nếu xu hướng giữ nguyên.
+
+# Ca NGƯỢC của luật trên: tồn đọng CAO nhưng ĐỨNG YÊN thì KHÔNG kêu.
+#
+# Đây là ca quan trọng nhất của cả nhóm outbox. Luật này đo XU HƯỚNG chứ
+# không đo mức — một hệ thống ổn định với 5.000 event chờ thường xuyên là
+# bình thường, còn 50 event nhưng tăng đều mới là dấu hiệu hỏng. Đổi
+# `deriv` thành một phép so mức sẽ qua ca thuận ở trên và đỏ ở đây.
+- interval: 1m
+  input_series:
+  - series: gouse_outbox_pending_events{job="gouse-api"}
+    values: 5000+0x25
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: OutboxBacklogGrowing
+    exp_alerts: []
+
+# Request phải CHỜ lấy kết nối: hơn 1 lượt mỗi giây, kéo dài 5 phút.
+- interval: 1m
+  input_series:
+  - series: gouse_db_pool_empty_acquire_total{job="gouse-api"}
+    values: 0+120x15
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: DatabasePoolWaiting
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: gouse-api
+      exp_annotations:
+        summary: Request đang phải chờ để lấy kết nối database
+        description: Hơn 1 lượt/giây phải chờ vì pool đã cạn, kéo dài 5 phút. Chưa có ai bị từ chối,
+          nhưng độ trễ đã tăng. Kiểm `MaxConns` so với `max_connections` của PostgreSQL trước khi đi tìm
+          truy vấn chậm.
+        runbook: docs/09-operations/observability.md
+
+# Ca NGƯỢC: chờ LÁC ĐÁC (0,5 lượt/giây) thì chưa đáng gọi người trực dậy.
+- interval: 1m
+  input_series:
+  - series: gouse_db_pool_empty_acquire_total{job="gouse-api"}
+    values: 0+30x15
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: DatabasePoolWaiting
+    exp_alerts: []
+
+# Có request BỎ CUỘC vì không lấy được kết nối — mức NGHIÊM TRỌNG.
+#
+# Khác luật trên ở chỗ đây là khách đã bị TỪ CHỐI, không phải chỉ chậm.
+# Ngưỡng là > 0: con số này bình thường phải bằng 0.
+- interval: 1m
+  input_series:
+  - series: gouse_db_pool_canceled_acquire_total{job="gouse-api"}
+    values: 0 0 1 2 3 4 5 6
+  alert_rule_test:
+  # Ca NGƯỢC: chưa ai bỏ cuộc thì im.
+  - eval_time: 2m
+    alertname: DatabasePoolExhausted
+    exp_alerts: []
+  - eval_time: 6m
+    alertname: DatabasePoolExhausted
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: gouse-api
+      exp_annotations:
+        summary: Có request bỏ cuộc vì không lấy được kết nối database
+        description: Khách đang bị từ chối vì hết kết nối, không phải vì nghiệp vụ. Con số này bình thường
+          phải bằng 0.
+        runbook: docs/09-operations/observability.md
+
+# Pool dùng trên 90% trần — cảnh báo SỚM, chưa ai phải chờ.
+- interval: 1m
+  input_series:
+  - series: gouse_db_pool_connections{job="gouse-api", state="acquired"}
+    values: 23+0x15
+  - series: gouse_db_pool_max_connections{job="gouse-api"}
+    values: 25+0x15
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: DatabasePoolNearLimit
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: gouse-api
+      exp_annotations:
+        summary: Pool kết nối database dùng trên 90% trần
+        description: Chưa ai phải chờ, nhưng không còn chỗ cho một đợt tải cao điểm.
+        runbook: docs/09-operations/observability.md
+
+# Ca NGƯỢC: dùng 80% thì chưa kêu.
+#
+# Quan trọng vì luật này là một PHÉP CHIA. Quên mẫu số — so thẳng số kết
+# nối với một hằng số — sẽ đúng ở ca thuận và sai ở đây, vì 20 kết nối vẫn
+# lớn hơn phần lớn hằng số người ta hay ghi đại.
+- interval: 1m
+  input_series:
+  - series: gouse_db_pool_connections{job="gouse-api", state="acquired"}
+    values: 20+0x15
+  - series: gouse_db_pool_max_connections{job="gouse-api"}
+    values: 25+0x15
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: DatabasePoolNearLimit
+    exp_alerts: []
+
+# Truy vấn ĐỌC chậm: phân vị 95 vượt 500ms.
+#
+# Chuỗi histogram phải CỘNG DỒN theo `le` — đó là quy ước của Prometheus, và
+# một bài test dựng sai chuỗi sẽ "chứng minh" một luật hỏng là đúng.
+- interval: 1m
+  input_series:
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="select", le="0.1"}
+    values: 0+10x15
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="select", le="0.5"}
+    values: 0+10x15
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="select", le="1"}
+    values: 0+100x15
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="select", le="+Inf"}
+    values: 0+100x15
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: DatabaseReadSlow
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+      exp_annotations:
+        summary: Phân vị 95 của truy vấn ĐỌC vượt 500ms
+        description: Thường là thiếu chỉ mục hoặc bảng đã lớn hơn lúc thiết kế. Dùng `pg_stat_statements`
+          để biết truy vấn nào — chỉ số này chỉ nói có vấn đề, không nói ở câu nào.
+        runbook: docs/09-operations/observability.md
+
+# Ca NGƯỢC cho ĐỌC, và nó cũng canh việc LỌC THEO `operation`.
+#
+# Chuỗi duy nhất ở đây là GHI chậm. Nếu luật đọc quên bộ lọc
+# `operation="select"` thì nó sẽ kêu vì dữ liệu của phép ghi — một lỗi
+# không lộ ra ở bất kỳ ca thuận nào.
+- interval: 1m
+  input_series:
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="insert", le="0.1"}
+    values: 0+0x15
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="insert", le="0.5"}
+    values: 0+0x15
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="insert", le="1"}
+    values: 0+100x15
+  - series: gouse_db_query_duration_seconds_bucket{job="gouse-api", operation="insert", le="+Inf"}
+    values: 0+100x15
+  alert_rule_test:
+  - eval_time: 12m
+    alertname: DatabaseReadSlow
+    exp_alerts: []
+  # Cùng chuỗi đó PHẢI làm luật GHI kêu — nếu không thì bộ lọc
+  # `operation=~"insert|update|delete"` đang sai chiều.
+  - eval_time: 12m
+    alertname: DatabaseWriteSlow
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+      exp_annotations:
+        summary: Phân vị 95 của truy vấn GHI vượt 500ms
+        description: 'Thường là tranh chấp khóa. Xem cùng lúc với `gouse_business_failures_total{reason="version_conflict"}`:
+          hai con số cùng tăng nghĩa là đang có tranh chấp thật, chứ không phải database chậm chung.'
+        runbook: docs/09-operations/observability.md
