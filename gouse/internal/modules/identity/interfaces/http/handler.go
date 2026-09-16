@@ -38,6 +38,12 @@ import (
 // refreshCookieName là tên cookie chứa refresh token.
 const refreshCookieName = "refresh_token"
 
+// msgPhienKhongHopLe là câu trả lời cho MỌI lý do phiên không dùng được:
+// thiếu cookie, token đã xoay, đã thu hồi, hết hạn. Gộp làm một vì client
+// xử lý cả bốn giống nhau — đăng nhập lại — và vì tách ra chỉ giúp người
+// đang thử token không phải chủ.
+const msgPhienKhongHopLe = "Phiên đăng nhập không hợp lệ hoặc đã hết hạn"
+
 // Handler phục vụ các endpoint xác thực.
 type Handler struct {
 	svc    *application.Service
@@ -129,7 +135,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(refreshCookieName)
 	if err != nil || cookie.Value == "" {
 		h.fail(w, r, apierror.New(apierror.CodeUnauthorized,
-			"Phiên đăng nhập không hợp lệ hoặc đã hết hạn"))
+			msgPhienKhongHopLe))
 		return
 	}
 
@@ -139,7 +145,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		// Xóa cookie hỏng để trình duyệt không gửi lại mãi. Không xóa thì
 		// client lặp vô hạn: gửi token chết → 401 → thử refresh → 401.
 		h.clearRefreshCookie(w)
-		h.fail(w, r, translateAuthErr(err))
+		h.fail(w, r, translatePhienErr(err))
 		return
 	}
 
@@ -192,7 +198,7 @@ func (h *Handler) adminMe(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.svc.GetUser(r.Context(), ids.ID(ac.UserID))
 	if err != nil {
-		h.fail(w, r, translateAuthErr(err))
+		h.fail(w, r, translatePhienErr(err))
 		return
 	}
 
@@ -335,6 +341,40 @@ func translateAuthErr(err error) error {
 		errors.Is(err, domain.ErrNotFound):
 		return apierror.New(apierror.CodeUnauthorized,
 			"Email hoặc mật khẩu không đúng")
+
+	default:
+		return apierror.From(err)
+	}
+}
+
+// translatePhienErr dịch lỗi cho các đường KHÔNG nhận mật khẩu: `refresh`
+// và `/me`.
+//
+// # Vì sao không dùng chung translateAuthErr
+//
+// translateAuthErr trả "Email hoặc mật khẩu không đúng" cho mọi lỗi, và ở
+// đường đăng nhập đó là câu ĐÚNG — nó vừa che việc email nào có tài khoản,
+// vừa mô tả đúng thứ người dùng vừa gõ.
+//
+// Ở hai đường này thì câu đó SAI cả hai vế. Request không mang email lẫn
+// mật khẩu, nên chẳng có gì để lộ và cũng chẳng có gì sai. Người đọc nó —
+// khách, hay người trực hỗ trợ đọc log — sẽ đi kiểm tra mật khẩu, trong
+// khi chuyện thật là phiên hết hạn hoặc đã bị thu hồi.
+//
+// Cụ thể: tái dùng refresh token đã xoay trả về 401 kèm câu "Email hoặc
+// mật khẩu không đúng" — thấy trên môi trường Docker thật ngày 16/09.
+func translatePhienErr(err error) error {
+	switch {
+	case errors.Is(err, domain.ErrAccountLocked):
+		return apierror.New(apierror.CodeUnauthorized,
+			"Tài khoản tạm khóa do đăng nhập sai nhiều lần, vui lòng thử lại sau")
+
+	case errors.Is(err, domain.ErrSessionInvalid),
+		errors.Is(err, domain.ErrAccountSuspended),
+		errors.Is(err, domain.ErrNotFound),
+		errors.Is(err, domain.ErrInvalidLogin):
+		return apierror.New(apierror.CodeUnauthorized,
+			msgPhienKhongHopLe)
 
 	default:
 		return apierror.From(err)
