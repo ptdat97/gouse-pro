@@ -122,10 +122,28 @@ jobs:
       - name: Ranh giới module
         run: make arch
 
+      # Khi test hỏng, ĐƯA LÝ DO VÀO ANNOTATION.
+      #
+      # Log của Actions chỉ đọc được khi đã xác thực, còn annotation thì
+      # đọc được qua API công khai. Một lượt chạy đỏ mà chỉ nói "exit code
+      # 2" buộc người sửa phải mở trình duyệt mới biết chuyện gì — và nếu
+      # họ không có quyền vào repo thì không biết được gì cả.
       - name: Test
         env:
           TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable
-        run: make test
+        run: |
+          set +e
+          make test > /tmp/test.log 2>&1
+          ma=$?
+          cat /tmp/test.log
+          if [ $ma -ne 0 ]; then
+            # Chỉ giữ dòng CÓ NGHĨA: gói hỏng, bài đỏ, và thông điệp kèm.
+            tom=$(grep -E '^(---|FAIL|# |ok +[^ ]+ +\[)|\.go:[0-9]+:' /tmp/test.log \
+                  | head -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            [ -z "$tom" ] && tom=$(tail -40 /tmp/test.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=go test that bai (ma $ma)::$tom"
+          fi
+          exit $ma
 
       # Race detector chạy RIÊNG vì nó chậm hơn nhiều.
       #
