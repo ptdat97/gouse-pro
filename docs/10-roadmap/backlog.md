@@ -4961,6 +4961,55 @@ máy: sạch.
 
 Nếu lần push này vẫn đỏ thì cần nội dung log — hoặc cài `gh` để tôi tự đọc.
 
+### P3-48 — GỢI Ý SIZE: trường đã khai nay có dữ liệu thật
+
+**Đã xong (16/09).** Thực thi ADR-0019.
+
+`size_recommendation` khai trong `ProductDetail` từ lâu; đặc tả gọi nó là
+*"cơ chế giảm trực tiếp tỷ lệ hoàn hàng"*, và `dto.go` ghi lý do chưa điền
+là *"cần lịch sử mua hàng (Phase 2)"*. Từ 13/09 lý do đó hết đúng.
+
+**Lưu QUAN SÁT, không lưu kết luận.** Bảng `quan_sat_size` giữ
+`(khách, thương hiệu, size, DA_MUA|CHAT|RONG)`. Không có cột "size gợi ý
+đã tính sẵn" — cùng lý do sổ cái lưu bút toán chứ không lưu số dư: quy tắc
+gợi ý SẼ đổi, và đổi quy tắc không được làm mất dữ liệu đã quan sát.
+
+**Trả hàng thắng lần mua.** Khách trả vì size là người CHỦ ĐỘNG nói ra size
+đó sai và sai hướng nào; khách giữ hàng thì mơ hồ — có thể vừa, có thể ngại
+trả. Quan sát trả hàng mới nhất thắng mọi lần mua.
+
+**Không đoán.** Thang size lấy theo đúng thứ tự biến thể của sản phẩm đang
+xem. Size ngoài thang, hoặc chật ở size lớn nhất, thì KHÔNG gợi ý — và
+tuyệt đối không rơi xuống "size đã mua", vì khách vừa nói size ấy sai.
+
+Bốn phép phá trên quy tắc đều đỏ đúng chỗ: đảo chiều dịch size, cho lần mua
+thắng trả hàng, rơi xuống size đã mua khi hết thang, và sắp lại thang theo
+bảng chữ cái.
+
+**Phạm vi: ĐÚNG MỘT phương thức.** Bốn phương thức còn lại của đặc tả
+(sản phẩm tương tự, xu hướng, hoàn thiện bộ, nội dung liên quan) không có
+bên gọi nào — đặc tả API không khai `similar_products`, không có endpoint
+xu hướng. Dựng chúng bây giờ là tạo thêm một ca "khai mà không ai gọi".
+
+### Lệch khỏi ADR-0019, và vì sao
+
+ADR chốt phương án B: ghi `size` vào payload event để module gợi ý không
+phải hỏi `product`. Lúc thực thi mới thấy B đắt hơn cần thiết —
+`CartItemSnapshot` không mang size lẫn `brand_id`, nên chúng phải luồn qua
+cart → checkout → dòng đơn hàng → returns, cộng một lần nâng phiên bản
+`checkout.completed` (tám bên nhận khai lại).
+
+Cách đã làm cắt vòng ở ĐẦU KIA: `product` không import module gợi ý; tầng
+interfaces của nó khai một cổng hẹp và `internal/app` nối vào. Chiều phụ
+thuộc chỉ còn một: `recommendation → product`.
+
+Tính chất mà B bảo vệ vẫn giữ: việc tra `product` xảy ra lúc dựng read
+model từ event, còn lúc phục vụ request module chỉ đọc bảng của chính nó —
+nên gợi ý không làm chậm trang sản phẩm.
+
+Đã ghi cả phần này vào ADR, kèm ranh giới: nếu sau này `product` cần gợi ý
+ở tầng application thì vòng quay lại và phương án B mới thực sự cần.
+
 ### Còn lại của nửa CẦU — chưa làm
 
 ```text

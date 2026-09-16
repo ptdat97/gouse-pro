@@ -98,7 +98,18 @@ func (m *Module) Service() *application.Service { return m.svc }
 // Module tự đăng ký route của mình. cmd/api KHÔNG cầm được *application.Service,
 // nên không thể đi tắt qua tầng application của module khác.
 func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
-	producthttp.NewHandler(m.svc, log).Register(mux)
+	m.RegisterRoutesKemGoiY(mux, nil, log)
+}
+
+// RegisterRoutesKemGoiY gắn route kèm cổng gợi ý size.
+//
+// `goiY` có thể nil: trang sản phẩm chạy bình thường, chỉ không có gợi ý.
+// Gợi ý là tính năng TĂNG CƯỜNG — hỏng nó không được làm hỏng việc bán
+// hàng (docs/04-modules/recommendation.md mục 5).
+func (m *Module) RegisterRoutesKemGoiY(
+	mux *http.ServeMux, goiY producthttp.GoiYSizePort, log *slog.Logger,
+) {
+	producthttp.NewHandlerKemGoiY(m.svc, goiY, log).Register(mux)
 }
 
 // RegisterSellerRoutes gắn các endpoint GHI của nhà bán.

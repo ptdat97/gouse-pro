@@ -9,7 +9,7 @@ package http
 //	price_from, compare_at_price  → tra qua listBuyBoxPrices
 //	available, buy_box_offer      → tra qua /products/{id}/offers
 //	rating                        → module review (Phase 2)
-//	size_recommendation           → cần lịch sử mua hàng (Phase 2)
+//	(size_recommendation ĐÃ có từ 16/09 — xem ADR-0019)
 //
 // Hai dòng đầu KHÔNG phải "chưa làm" — chúng sẽ không bao giờ nằm ở đây.
 // Giá và buy box thuộc về OFFER, và `product` cùng tầng với `marketplace`
@@ -51,6 +51,24 @@ type productDetail struct {
 	Variants []variant `json:"variants"`
 
 	SizeChart *sizeChart `json:"size_chart,omitempty"`
+
+	// SizeRecommendation là nil với khách chưa đăng nhập hoặc chưa có lịch
+	// sử — đặc tả khai kiểu nullable đúng vì thế.
+	//
+	// Nó KHÔNG được đoán: một gợi ý sai làm khách chọn nhầm rồi đổ lỗi cho
+	// nền tảng, tức là làm TĂNG đúng tỷ lệ hoàn hàng mà nó sinh ra để giảm.
+	SizeRecommendation *sizeRecommendation `json:"size_recommendation,omitempty"`
+}
+
+// sizeRecommendation khớp schemas.yaml#/ProductDetail/size_recommendation.
+type sizeRecommendation struct {
+	SuggestedSize string `json:"suggested_size"`
+
+	// Reason: PREVIOUS_PURCHASE hoặc RETURN_HISTORY.
+	//
+	// BODY_MEASUREMENTS có trong đặc tả nhưng chưa dùng được — khách chưa
+	// lưu số đo ở đâu cả.
+	Reason string `json:"reason"`
 }
 
 // brandRef khớp schemas.yaml#/BrandRef.

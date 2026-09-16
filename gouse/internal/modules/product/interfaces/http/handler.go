@@ -6,6 +6,7 @@
 package http
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,18 +18,48 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/product/application"
 	"github.com/fashion-commerce/platform/internal/modules/product/domain"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
+	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
 // Handler phục vụ các endpoint product công khai.
 type Handler struct {
-	svc *application.Service
-	log *slog.Logger
+	svc  *application.Service
+	goiY GoiYSizePort
+	log  *slog.Logger
+}
+
+// GoiYSizePort là cổng HẸP tới module gợi ý.
+//
+// # Vì sao cổng nằm Ở ĐÂY chứ không import thẳng
+//
+// Gợi ý size cần tra SKU về thương hiệu và size, tức là module gợi ý phải
+// biết `product`. Nếu `product` cũng import module gợi ý thì thành vòng và
+// Go không biên dịch được.
+//
+// Cổng hẹp khai tại đây, `internal/app` nối bên cài đặt vào. Chiều phụ
+// thuộc vì thế chỉ có MỘT: `recommendation → product`. Xem ADR-0019.
+//
+// Nil là hợp lệ: trang sản phẩm chạy bình thường, chỉ không có gợi ý.
+type GoiYSizePort interface {
+	GoiYSize(ctx context.Context, customerID, brandID string, cacSize []string) (
+		suggestedSize, reason string, err error)
 }
 
 // NewHandler tạo handler.
 func NewHandler(svc *application.Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
+}
+
+// NewHandlerKemGoiY tạo handler CÓ gợi ý size.
+//
+// Tách thành hàm riêng thay vì thêm tham số vào `NewHandler`: mọi bên gọi
+// hiện có không cần gợi ý, và bắt chúng truyền `nil` sẽ làm điểm gọi khó
+// đọc mà không đổi lại được gì.
+func NewHandlerKemGoiY(
+	svc *application.Service, goiY GoiYSizePort, log *slog.Logger,
+) *Handler {
+	return &Handler{svc: svc, goiY: goiY, log: log}
 }
 
 // Register gắn route vào mux.
@@ -127,7 +158,7 @@ func (h *Handler) getProduct(w http.ResponseWriter, r *http.Request) {
 		chart = nil
 	}
 
-	h.ok(w, r, toProductDetail(p, chart))
+	h.ok(w, r, toProductDetail(p, chart, h.goiYSizeCho(r, p)))
 }
 
 // listProducts phục vụ GET /api/v1/products.
@@ -274,7 +305,7 @@ func (h *Handler) listByIDs(w http.ResponseWriter, r *http.Request, raw string) 
 
 // ---------------------------------------------------------------- Chuyển đổi
 
-func toProductDetail(p *domain.Product, chart *application.SizeChartInfo) productDetail {
+func toProductDetail(p *domain.Product, chart *application.SizeChartInfo, goiY *sizeRecommendation) productDetail {
 	out := productDetail{
 		ID:                  p.ID().String(),
 		Name:                p.Name(),
@@ -459,4 +490,55 @@ func tachDanhSach(raw string) []string {
 		}
 	}
 	return out
+}
+
+// goiYSizeCho lấy gợi ý size cho khách đang xem, hoặc nil.
+//
+// # Hỏng gợi ý KHÔNG được làm hỏng trang sản phẩm
+//
+// Mọi đường thất bại đều trả nil và ghi log ở mức cảnh báo: không có cổng,
+// khách chưa đăng nhập, sản phẩm không bán theo size, hay module gợi ý lỗi.
+// Đặc tả mục 5 đặt điều này thành yêu cầu bắt buộc — gợi ý là tính năng
+// TĂNG CƯỜNG.
+func (h *Handler) goiYSizeCho(
+	r *http.Request, p *domain.Product,
+) *sizeRecommendation {
+	if h.goiY == nil {
+		return nil
+	}
+	// Mã KHÁCH, không phải mã người dùng.
+	//
+	// `ResolveShopper` gắn nó vào ngữ cảnh cho MỌI tuyến công khai, kể cả
+	// khách chưa đăng nhập — khi đó nó rỗng và ta không gợi ý gì.
+	sh, ok := httpserver.ShopperFrom(r.Context())
+	if !ok || sh.CustomerID == "" {
+		return nil
+	}
+
+	// Thang size lấy theo ĐÚNG THỨ TỰ biến thể của sản phẩm.
+	//
+	// Đó là thứ tự người dựng danh mục đã đặt, và nó là thứ tự duy nhất có
+	// nghĩa: sắp lại theo bảng chữ cái sẽ biến "S, M, L" thành "L, M, S"
+	// và mọi phép "lên một size" đảo chiều.
+	cacSize := make([]string, 0, len(p.Variants()))
+	for _, v := range p.Variants() {
+		if s := v.Size(); s != "" {
+			cacSize = append(cacSize, s)
+		}
+	}
+	if len(cacSize) == 0 {
+		return nil
+	}
+
+	size, lyDo, err := h.goiY.GoiYSize(
+		r.Context(), sh.CustomerID, p.BrandID().String(), cacSize)
+	if err != nil {
+		h.log.WarnContext(r.Context(), "không lấy được gợi ý size",
+			"error", err, "product_id", p.ID().String())
+		return nil
+	}
+	if size == "" {
+		return nil
+	}
+	return &sizeRecommendation{SuggestedSize: size, Reason: lyDo}
 }

@@ -37,6 +37,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
+	"github.com/fashion-commerce/platform/internal/modules/recommendation"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/modules/supplychain"
 	"github.com/fashion-commerce/platform/internal/platform/config"
@@ -315,6 +316,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// recommendation dựng SAU product: nó tra SKU về thương hiệu và size
+	// qua API công khai của product (ADR-0019).
+	recommendationModule, err := recommendation.New(recommendation.Config{
+		Storage: "postgres",
+		DB:      db,
+		Product: recommendation.NewProductPort(productModule),
+	})
+	if err != nil {
+		return err
+	}
+
 	marketplaceModule, err := marketplace.New(marketplace.Config{
 		Storage:   "postgres",
 		DB:        db,
@@ -476,6 +488,12 @@ func run() error {
 	// Thiếu hai bên nhận này thì mọi giới hạn của mã đều vô hiệu: bộ đếm
 	// không tăng nên `max_uses` không bao giờ chạm, ngân sách không bao
 	// giờ cạn, và "mỗi khách một lượt" thành vô hạn lượt.
+	// Read model GỢI Ý SIZE, dựng từ hành vi mua và trả hàng.
+	//
+	// Nó tra SKU về thương hiệu và size lúc XỬ LÝ EVENT, nên trang chi
+	// tiết sản phẩm chỉ đọc read model và không bao giờ chờ module khác.
+	bus.Subscribe(recommendation.NewQuanSatSizeHandler(recommendationModule, log))
+
 	bus.Subscribe(promotion.NewGhiLuotDungHandler(promotionModule, log))
 	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(promotionModule, log))
 

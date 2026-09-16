@@ -104,6 +104,46 @@ câu hỏi "khách có quyền xóa cái này không" không có câu trả lờ
 Đây cũng chính là việc tầm nhìn yêu cầu: *"Định nghĩa interface
 `Recommendation` ... từ sớm, dù cài đặt ban đầu chỉ là rule đơn giản."*
 
+## Bổ sung 16/09 — cài đặt RẺ HƠN phương án B đã chốt
+
+Lúc thực thi mới thấy phương án B đắt hơn cần thiết, và có cách giữ nguyên
+mọi tính chất nó bảo vệ với chi phí thấp hơn nhiều.
+
+**B đòi ghi `size` vào payload event.** Nhưng `CartItemSnapshot` không mang
+size lẫn `brand_id` — chúng phải luồn qua `cart` → `checkout` → dòng đơn
+hàng → `returns`, cộng thêm một lần nâng phiên bản `checkout.completed`
+(tám bên nhận khai lại) và một trường mới cho `returns.requested`.
+
+**Cách đã làm:** module gợi ý tra SKU về (thương hiệu, size) qua API công
+khai của `product`, ngay lúc XỬ LÝ EVENT. `SKUView.VariantID` nối về biến
+thể, và biến thể mang thuộc tính `size` — không cần thêm gì vào event.
+
+### Vòng phụ thuộc được cắt ở chỗ khác
+
+B cắt vòng bằng cách làm module gợi ý không cần `product`. Cách này cắt ở
+đầu kia: **`product` không import module gợi ý.** Tầng interfaces của nó
+khai một cổng hẹp, `internal/app` nối bên cài đặt vào.
+
+```text
+recommendation → product        chiều DUY NHẤT
+product        → (cổng của chính nó) ← app nối recommendation vào
+```
+
+Không có import vòng, nên Go biên dịch được — và đó là toàn bộ điều kiện.
+
+### Tính chất của B vẫn giữ nguyên
+
+Lý do thứ hai của B là "không gọi module khác lúc phục vụ request, để gợi ý
+không làm chậm trang". Tính chất đó KHÔNG mất: việc tra `product` xảy ra
+lúc dựng read model từ event, còn lúc phục vụ request module chỉ đọc bảng
+của chính nó.
+
+### Giá phải trả của cách này
+
+`recommendation` phụ thuộc `product`. Nếu sau này `product` cần gợi ý ở
+tầng application (không phải tầng interfaces), vòng sẽ quay lại và khi đó
+phương án B mới thực sự cần. Ghi ra để người sau biết ranh giới ở đâu.
+
 ## Điều kiện để bắt đầu — và vì sao nêu ra
 
 Module `recommendation` **chỉ nên dựng khi có bên gọi thật**. Rà soát ngày

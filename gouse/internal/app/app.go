@@ -60,7 +60,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
+	producthttp "github.com/fashion-commerce/platform/internal/modules/product/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
+	"github.com/fashion-commerce/platform/internal/modules/recommendation"
 	"github.com/fashion-commerce/platform/internal/modules/returns"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
@@ -140,18 +142,19 @@ func Build(
 	// in-memory, module này đơn giản là KHÔNG được khởi tạo — thà thiếu
 	// tính năng còn hơn có một bản giả tạo cảm giác an toàn sai.
 	var (
-		inventoryModule   *inventory.Module
-		marketplaceModule *marketplace.Module
-		paymentModule     *payment.Module
-		orderModule       *order.Module
-		customerModule    *customer.Module
-		cartModule        *cart.Module
-		checkoutModule    *checkout.Module
-		fulfillmentModule *fulfillment.Module
-		returnsModule     *returns.Module
-		promotionModule   *promotion.Module
-		analyticsModule   *analytics.Module
-		identityModule    *identity.Module
+		inventoryModule      *inventory.Module
+		marketplaceModule    *marketplace.Module
+		paymentModule        *payment.Module
+		orderModule          *order.Module
+		customerModule       *customer.Module
+		cartModule           *cart.Module
+		checkoutModule       *checkout.Module
+		fulfillmentModule    *fulfillment.Module
+		returnsModule        *returns.Module
+		promotionModule      *promotion.Module
+		analyticsModule      *analytics.Module
+		recommendationModule *recommendation.Module
+		identityModule       *identity.Module
 
 		// ownBrandSellerID cần ở bước nạp dữ liệu mẫu bên dưới: offer phải
 		// đứng tên một nhà bán CÓ THẬT.
@@ -422,6 +425,17 @@ func Build(
 			return Modules{}, err
 		}
 
+		// recommendation dựng SAU product: nó tra SKU về thương hiệu và
+		// size qua API công khai của product.
+		recommendationModule, err = recommendation.New(recommendation.Config{
+			Storage: "postgres",
+			DB:      db,
+			Product: recommendation.NewProductPort(productModule),
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+
 		returnsModule, err = returns.New(returns.Config{
 			Storage:   "postgres",
 			DB:        db,
@@ -623,23 +637,24 @@ func Build(
 	}
 
 	return Modules{
-		catalog:     catalogModule,
-		product:     productModule,
-		identity:    identityModule,
-		marketplace: marketplaceModule,
-		seller:      sellerModule,
-		payment:     paymentModule,
-		order:       orderModule,
-		customer:    customerModule,
-		cart:        cartModule,
-		checkout:    checkoutModule,
-		fulfillment: fulfillmentModule,
-		returns:     returnsModule,
-		promotion:   promotionModule,
-		analytics:   analyticsModule,
-		inventory:   inventoryModule,
-		audit:       auditRecorder,
-		opsConfig:   opsConfigStore,
+		catalog:        catalogModule,
+		product:        productModule,
+		identity:       identityModule,
+		marketplace:    marketplaceModule,
+		seller:         sellerModule,
+		payment:        paymentModule,
+		order:          orderModule,
+		customer:       customerModule,
+		cart:           cartModule,
+		checkout:       checkoutModule,
+		fulfillment:    fulfillmentModule,
+		returns:        returnsModule,
+		promotion:      promotionModule,
+		analytics:      analyticsModule,
+		recommendation: recommendationModule,
+		inventory:      inventoryModule,
+		audit:          auditRecorder,
+		opsConfig:      opsConfigStore,
 	}, nil
 }
 
@@ -658,6 +673,13 @@ type Modules struct {
 	returns     *returns.Module
 	promotion   *promotion.Module
 	inventory   *inventory.Module
+
+	// recommendation giữ read model gợi ý size, dựng từ event.
+	//
+	// Chiều phụ thuộc chỉ có MỘT: recommendation → product. `product` khai
+	// một cổng hẹp ở tầng interfaces và được nối ở đây, nên không có vòng
+	// (ADR-0019).
+	recommendation *recommendation.Module
 
 	// analytics nằm ở đây CHỈ để phơi bày đường thu dữ liệu hành vi.
 	//
@@ -709,7 +731,11 @@ func RegisterRoutes(
 	// Mỗi module tự đăng ký route của mình. main không biết đường dẫn hay
 	// hình dạng response của module nào — nó chỉ trao mux.
 	catalogModule.RegisterRoutes(mux, log)
-	productModule.RegisterRoutes(mux, log)
+	// Trang chi tiết sản phẩm kèm GỢI Ý SIZE.
+	//
+	// Cổng nil thì trang vẫn chạy, chỉ không có gợi ý — gợi ý là tính năng
+	// tăng cường, hỏng nó không được làm hỏng việc bán hàng.
+	productModule.RegisterRoutesKemGoiY(mux, goiYSizeTu(m.recommendation), log)
 
 	// Offer của sản phẩm — công khai, khách vãng lai xem được.
 	if marketplaceModule != nil {
@@ -1148,4 +1174,30 @@ func RegisterRoutes(
 			apierror.Newf(apierror.CodeNotFound, "Không tìm thấy %s %s", r.Method, r.URL.Path),
 			requestID, log)
 	})
+}
+
+// goiYSizeTu dịch API của module gợi ý sang cổng hẹp mà `product` khai.
+//
+// Đây là chỗ hai chiều gặp nhau mà không tạo vòng: `product` chỉ biết một
+// interface do chính nó định nghĩa, còn `recommendation` không biết ai gọi
+// mình. Tầng composition nối hai đầu.
+func goiYSizeTu(m *recommendation.Module) producthttp.GoiYSizePort {
+	if m == nil {
+		return nil
+	}
+	return goiYSizeAdapter{m: m}
+}
+
+type goiYSizeAdapter struct{ m *recommendation.Module }
+
+func (a goiYSizeAdapter) GoiYSize(
+	ctx context.Context, customerID, brandID string, cacSize []string,
+) (string, string, error) {
+	v, err := a.m.GoiYSize(ctx, recommendation.GoiYSizeRequest{
+		CustomerID: customerID, BrandID: brandID, CacSize: cacSize,
+	})
+	if err != nil || v == nil {
+		return "", "", err
+	}
+	return v.SuggestedSize, v.Reason, nil
 }
