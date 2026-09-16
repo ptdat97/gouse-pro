@@ -319,6 +319,13 @@ func toProductDetail(p *domain.Product, chart *application.SizeChartInfo, goiY *
 		OriginCountry:       p.OriginCountry(),
 		Images:              toImages(p.Images()),
 		Variants:            toVariants(p.Variants()),
+
+		// GÁN gợi ý vào response.
+		//
+		// Trước 16/09 tham số `goiY` được truyền vào hàm này rồi KHÔNG
+		// dùng — Go không báo tham số thừa, nên cả chuỗi từ event tới
+		// quy tắc suy luận chạy đúng và kết quả bị vứt ở dòng cuối cùng.
+		SizeRecommendation: goiY,
 	}
 
 	// Tên thương hiệu và bộ sưu tập thuộc module catalog. Ở đây chỉ trả
@@ -508,8 +515,13 @@ func (h *Handler) goiYSizeCho(
 	}
 	// Mã KHÁCH, không phải mã người dùng.
 	//
-	// `ResolveShopper` gắn nó vào ngữ cảnh cho MỌI tuyến công khai, kể cả
-	// khách chưa đăng nhập — khi đó nó rỗng và ta không gợi ý gì.
+	// Có được nhờ tuyến này đi qua `OptionalAuth` + `ResolveShopperChiDoc`
+	// ở tầng nối dây. Khách chưa đăng nhập thì nó rỗng và ta không gợi ý.
+	//
+	// Chú thích cũ ở đây nói `ResolveShopper` chạy cho "MỌI tuyến công
+	// khai" — KHÔNG đúng, nó chỉ có trên chuỗi mua hàng. Vì tin vào câu
+	// đó, tuyến sản phẩm được đăng ký thẳng lên mux gốc và trường
+	// `size_recommendation` không bao giờ xuất hiện với bất kỳ ai.
 	sh, ok := httpserver.ShopperFrom(r.Context())
 	if !ok || sh.CustomerID == "" {
 		return nil

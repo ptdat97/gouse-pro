@@ -25,6 +25,18 @@ type customerResolver struct{ api customer.API }
 
 var _ httpserver.CustomerResolver = (*customerResolver)(nil)
 
+// khachTu dựng resolver, hoặc nil khi chưa có module customer.
+//
+// nil là chấp nhận được ở mọi nơi dùng nó: khi đó khách đăng nhập bị coi
+// như vãng lai — mất tính liên tục giữa các thiết bị, nhưng không ai bị
+// chặn khỏi việc mua hàng.
+func khachTu(api customer.API) httpserver.CustomerResolver {
+	if api == nil {
+		return nil
+	}
+	return &customerResolver{api: api}
+}
+
 // CustomerIDForUser trả hồ sơ khách hàng của một tài khoản.
 //
 // KHÔNG có hồ sơ là trạng thái HỢP LỆ, không phải lỗi: nhân viên vận hành
@@ -94,10 +106,7 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 	// resolver nil là chấp nhận được: khi đó khách đăng nhập bị coi như
 	// vãng lai và giỏ gắn với cookie phiên. Mất tính liên tục giữa các
 	// thiết bị, nhưng không ai bị chặn khỏi việc mua hàng.
-	var resolver httpserver.CustomerResolver
-	if m.customer != nil {
-		resolver = &customerResolver{api: m.customer}
-	}
+	resolver := khachTu(m.customer)
 
 	shopper := func(inner *http.ServeMux, extra ...httpserver.Middleware) http.Handler {
 		chain := []httpserver.Middleware{httpserver.ResolveShopper(resolver)}
