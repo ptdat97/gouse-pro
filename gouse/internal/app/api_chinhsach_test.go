@@ -148,8 +148,21 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 		t.Fatal("không có ngày giao dự kiến sau khi bàn giao")
 	}
 
-	can := truocKhiBanGiao.AddDate(0, 0, 5).Format("2006-01-02")
-	got := ngayDuKien.Format("2006-01-02")
+	// So sánh theo MÚI GIỜ NGHIỆP VỤ, không theo UTC.
+	//
+	// `types.BayGio()` trả UTC; `DauNgay` — hàm mà miền dùng để tính ngày
+	// hứa giao — quy về giờ Việt Nam rồi lấy ngày ở đó. Với khách Việt Nam
+	// đó là cách ĐÚNG: "giao ngày 22" là ngày 22 theo lịch của họ.
+	//
+	// Bản trước định dạng vế `can` theo UTC. Nó đúng 17 giờ mỗi ngày và
+	// SAI 7 giờ còn lại — từ 00:00 tới 07:00 giờ Việt Nam, khi UTC vẫn
+	// đang ở ngày hôm trước. Bài test đỏ lúc 02:43 ngày 18/09/2026, và
+	// trên CI nó sẽ đỏ một cách ngẫu nhiên tùy giờ chạy.
+	//
+	// Cả hai vế nay đi qua cùng một hàm, nên chúng không thể lệch nhau vì
+	// múi giờ nữa.
+	can := types.DauNgay(truocKhiBanGiao.AddDate(0, 0, 5)).Format("2006-01-02")
+	got := types.DauNgay(*ngayDuKien).Format("2006-01-02")
 	if got != can {
 		t.Errorf("hứa giao ngày %s, cần %s (bàn giao + 5 ngày) — lời hứa "+
 			"giao hàng không đổi theo cấu hình", got, can)
