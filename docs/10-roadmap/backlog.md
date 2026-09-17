@@ -5292,6 +5292,67 @@ nợ được trả, và tự phủ dòng nợ tiếp theo.
 
 ---
 
+### P3-54 — thư MARKETING phải có đồng ý, và ai được cho đồng ý
+
+`Category.RequiresConsent()` được viết cẩn thận, kèm chú thích giải thích
+lý do pháp lý — và không dòng mã nào gọi nó. Cùng hình dạng với
+`promotion.RecordUsage` ngày trước: quy tắc đúng nằm sau một hàm không ai
+gọi.
+
+docs/04-modules/notification.md mục 5 là **bắt buộc tuân thủ** và thuộc
+MVP. Hôm nay hệ thống chưa gửi thư marketing nào nên rủi ro còn tiềm ẩn,
+nhưng lá thư marketing ĐẦU TIÊN sẽ đi thẳng ra ngoài mà không ai chặn — và
+một lần gửi không rút lại được.
+
+Nay `Send` từ chối theo hướng ĐÓNG. Bốn tình huống, cùng một kết quả:
+
+```text
+khách chưa đồng ý          →  không gửi
+tra đồng ý HỎNG            →  không gửi
+chưa nối cổng tra          →  không gửi
+không biết người nhận nào  →  không gửi
+```
+
+Chỉ "chắc chắn CÓ đồng ý" mới mở đường. Kiểm theo KÊNH chứ không chỉ theo
+loại nội dung: tick ô nhận email khuyến mãi không phải giấy phép nhắn tin.
+
+Hỏi LÚC GỬI, không tin payload — mục 5 gọi đây là "ngoại lệ có kiểm soát
+duy nhất" của quy tắc không-gọi-ngược, vì đồng ý có thể bị rút SAU khi
+event được phát.
+
+#### Thế bất đối xứng phải biết trước
+
+Hàng rào đã dựng. Nhưng KHÔNG CÓ đường nào để khách cho đồng ý:
+`marketing_consent` nằm trong `CustomerPreferences`, và cả khối ấy đang bị
+hoãn vì **số đo cơ thể** cần mã hóa khi lưu (P3-14) — chính đặc tả ghi
+"CHƯA được trả về".
+
+Hệ quả: tính năng marketing đầu tiên sẽ chạy đúng luật và gửi được KHÔNG
+MỘT LÁ THƯ NÀO, cho tới khi có đường ghi đồng ý. Trạng thái ấy AN TOÀN, và
+nó cũng dễ bị đọc nhầm thành "bộ gửi hỏng".
+
+Việc nhỏ gỡ được nút này: tách `marketing_consent` ra khỏi khối
+`CustomerPreferences`. Nó là hai cờ boolean, KHÔNG phải dữ liệu nhạy cảm,
+nên nó không cần chờ phần mã hóa số đo cơ thể. Hai thứ nằm chung một khối
+chỉ vì cùng là "tùy chọn của khách".
+
+#### Câu hỏi còn mở: `notification_preference` có còn lý do tồn tại?
+
+Bảng ấy đã migrate và KHÔNG dòng mã nào chạm tới. Đặc tả mục 9 khai
+`GetPreferences` / `UpdatePreference` trong interface công khai.
+
+Nhưng `customer_consent` nay là điểm cưỡng chế, và hai bảng mô hình hóa
+cùng một thứ: một cái là bản ghi PHÁP LÝ (có lịch sử, có mốc thời gian),
+một cái là công tắc giao diện. Dựng cái thứ hai bây giờ sẽ là một bảng
+điều khiển không điều khiển gì — đúng thứ mục 8 gọi là "bảng rỗng chỉ tạo
+cảm giác tính năng đã có".
+
+Tiền lệ: `buy_box_offer` bị BỎ khỏi đặc tả vì trường ở mức sản phẩm không
+có nghĩa đúng. Câu hỏi ở đây cùng dạng, và nó cần người quyết chứ không
+cần người gõ.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
@@ -5424,6 +5485,7 @@ gán giá trị cho nó.**
 | `shipping_groups` | P3-50 | khai trong đặc tả, không có trong mã; dữ liệu đã tính sẵn rồi bị vứt ở adapter |
 | `purchase` (tên sự kiện) | P3-50 | được ĐỌC để tính tỷ lệ chuyển đổi, không ai GHI → chỉ số bằng 0 vĩnh viễn |
 | `recipient` của thư đơn hàng | P3-51 | lấy từ `guest_email`, nên khách ĐÃ ĐĂNG KÝ không nhận được thư nào — cả thư xác nhận đơn lẫn thư báo giao |
+| `Category.RequiresConsent()` | P3-54 | quy tắc pháp lý viết đúng, có test riêng, KHÔNG ai gọi — thư marketing đầu tiên sẽ đi thẳng ra ngoài |
 
 **Hai cách kết thúc, và phải phân biệt.** Tám dòng là trường ĐÚNG mà
 chưa nối dây → nối dây. `buy_box_offer` thì khác: buy box quyết theo SKU
