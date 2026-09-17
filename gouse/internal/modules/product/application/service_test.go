@@ -482,14 +482,28 @@ func taoSanPhamDuDieuKien(
 
 // ---------------------------------------------------------------- Tìm kiếm
 
-// fakeSearchSignals ghi lại các từ khóa không ra kết quả.
+// fakeSearchSignals ghi lại từ khóa của CẢ HAI loại tín hiệu tìm kiếm.
+//
+// Tách hai danh sách chứ không gộp: nhầm "không ra kết quả" với "có ra
+// kết quả" là nhầm hai câu hỏi trái ngược nhau, và một bài test gộp chúng
+// sẽ xanh cả khi mã phát nhầm loại.
 type fakeSearchSignals struct {
-	queries []string
-	err     error
+	queries  []string // không ra kết quả
+	coKetQua []string // có ra kết quả
+	soKetQua []int
+	err      error
 }
 
 func (f *fakeSearchSignals) PublishSearchNoResult(_ context.Context, q string) error {
 	f.queries = append(f.queries, q)
+	return f.err
+}
+
+func (f *fakeSearchSignals) PublishSearchPerformed(
+	_ context.Context, q string, n int,
+) error {
+	f.coKetQua = append(f.coKetQua, q)
+	f.soKetQua = append(f.soKetQua, n)
 	return f.err
 }
 
@@ -641,5 +655,74 @@ func TestSizeChartOfLoiCatalogTraLoi(t *testing.T) {
 
 	if _, err := svc.SizeChartOf(context.Background(), p); err == nil {
 		t.Fatal("mong lỗi khi catalog hỏng, nhận nil")
+	}
+}
+
+// TestTimCoKetQuaCungLaTinHieuNhuCau.
+//
+// # Vì sao bài này tồn tại
+//
+// `SignalSearch` ("tìm kiếm CÓ kết quả") được khai trong domain của
+// supply-chain từ đầu và KHÔNG có bên phát nào — chỉ nửa "không ra kết
+// quả" được ghi.
+//
+// Thiếu vế này thì vế kia đọc sai: "áo khoác dạ" 240 lượt tìm không ra kết
+// quả trông như một cơ hội lớn, mà không biết "áo sơ mi" được tìm 24.000
+// lượt. Một con số không có mẫu số để so.
+func TestTimCoKetQuaCungLaTinHieuNhuCau(t *testing.T) {
+	sig := &fakeSearchSignals{}
+	svc := newServiceWithSignals(t, newCatalogOK(), sig)
+	ctx := context.Background()
+
+	p := taoSanPhamDuDieuKien(t, svc)
+	if _, err := svc.SubmitForReview(ctx, p.ID()); err != nil {
+		t.Fatalf("SubmitForReview: %v", err)
+	}
+	if _, err := svc.Approve(ctx, p.ID()); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+
+	found, err := svc.Search(ctx, "áo sơ mi", 20, 0)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(found) == 0 {
+		t.Fatal("tìm không ra sản phẩm vừa đăng")
+	}
+
+	if len(sig.queries) != 0 {
+		t.Errorf("tìm CÓ kết quả mà ghi tín hiệu 'không ra kết quả': %v",
+			sig.queries)
+	}
+	if len(sig.coKetQua) != 1 {
+		t.Fatalf("phải ghi ĐÚNG 1 tín hiệu tìm-có-kết-quả, nhận %d",
+			len(sig.coKetQua))
+	}
+	if sig.coKetQua[0] != "áo sơ mi" {
+		t.Errorf("từ khóa bị đổi: %q", sig.coKetQua[0])
+	}
+	if sig.soKetQua[0] != len(found) {
+		t.Errorf("số kết quả ghi %d, thực tế %d", sig.soKetQua[0], len(found))
+	}
+}
+
+// TestLatTrangKhongPhaiMotNhuCauMOI.
+//
+// Khách lật sang trang hai của cùng một từ khóa không phải một lần hỏi
+// mới. Đếm mỗi trang một lượt sẽ thổi phồng đúng những từ khóa ra NHIỀU
+// kết quả nhất — tức làm tín hiệu nghiêng về thứ danh mục đã phục vụ tốt,
+// ngược với điều nó tồn tại để tìm.
+func TestLatTrangKhongPhaiMotNhuCauMOI(t *testing.T) {
+	sig := &fakeSearchSignals{}
+	svc := newServiceWithSignals(t, newCatalogOK(), sig)
+	ctx := context.Background()
+
+	if _, err := svc.Search(ctx, "áo khoác", 20, 20); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	if len(sig.queries)+len(sig.coKetQua) != 0 {
+		t.Errorf("trang thứ hai cũng ghi tín hiệu: khong_ra=%v co_ra=%v",
+			sig.queries, sig.coKetQua)
 	}
 }

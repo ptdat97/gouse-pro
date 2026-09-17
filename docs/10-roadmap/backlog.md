@@ -5378,6 +5378,50 @@ lời hứa không ai giữ.
 
 ---
 
+### P3-55 — tín hiệu SEARCH có bên phát; CLICK thì KHÔNG nên có
+
+`SignalSearch` ("tìm kiếm CÓ kết quả") được khai trong domain từ đầu và
+không có bên phát nào — chỉ nửa "không ra kết quả" được ghi.
+
+Thiếu vế này thì vế kia đọc sai. "Áo khoác dạ" 240 lượt tìm không ra kết
+quả trông như một cơ hội lớn, cho tới khi biết "áo sơ mi" được tìm 24.000
+lượt. Một con số không có mẫu số để so.
+
+```text
+search.no_result   nhu cầu nền tảng KHÔNG đáp ứng được
+search.performed   nhu cầu nền tảng ĐANG đáp ứng, và mạnh cỡ nào
+```
+
+Hai quyết định trong bản dựng, mỗi cái một bài test:
+
+**`Quantity` là 1, KHÔNG phải số kết quả.** Tín hiệu đếm NHU CẦU, và một
+lượt tìm là một lần khách hỏi. Số kết quả đo độ phủ danh mục; nhân nó vào
+số lượng sẽ khiến từ khóa nào danh mục đã phục vụ tốt nhất trông như nhu
+cầu lớn nhất — đúng ngược thứ tín hiệu này tồn tại để tìm.
+
+**Chỉ trang ĐẦU.** Khách lật sang trang hai không phải một nhu cầu mới, và
+đếm mỗi trang một lượt lại thổi phồng đúng những từ khóa ra nhiều kết quả
+nhất.
+
+#### CLICK: không xây, và lý do đáng ghi
+
+`SignalClick` cũng chưa có bên phát. Nhưng ở cửa hàng hiện tại, MỌI cú bấm
+vào một sản phẩm đều dẫn tới trang chi tiết — tức thành một `product_view`
+rồi thành tín hiệu VIEW. Thêm CLICK bây giờ là đếm HAI LẦN cùng một hành
+động, và hai tín hiệu luôn bằng nhau thì không tín hiệu nào nói thêm gì.
+
+CLICK chỉ có nghĩa riêng khi có bề mặt bấm mà KHÔNG dẫn tới trang sản phẩm
+— banner, nội dung của creator, gợi ý trong kết quả tìm. Cả ba thuộc Phase
+2 trở đi.
+
+Nên đây KHÔNG phải một trường bị bỏ quên mà là một trường chưa tới lúc,
+cùng dạng với `buy_box_offer`: câu hỏi đầu tiên luôn là "giá trị đúng của
+nó là gì", không phải "sao nó còn trống".
+
+Còn lại 1/10 loại tín hiệu chưa có bên phát, và nó có lý do.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

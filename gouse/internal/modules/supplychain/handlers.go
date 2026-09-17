@@ -74,6 +74,7 @@ func (h *RecordSignalsFromEvents) EventTypes() []string {
 		eventbus.TypeCartItemAdded,
 		eventbus.TypeCheckoutCompleted,
 		eventbus.TypeSearchNoResult,
+		eventbus.TypeSearchPerformed,
 
 		// HẾT HÀNG — tín hiệu quý thứ hai, và trước đây KHÔNG ai phát.
 		//
@@ -125,6 +126,8 @@ func (h *RecordSignalsFromEvents) Handle(ctx context.Context, e eventbus.Event) 
 		return h.handleOrderPlaced(ctx, e)
 	case eventbus.TypeSearchNoResult:
 		return h.handleSearchNoResult(ctx, e)
+	case eventbus.TypeSearchPerformed:
+		return h.handleSearchPerformed(ctx, e)
 	case eventbus.TypeInventoryDepleted:
 		return h.handleHetHang(ctx, e)
 	case eventbus.TypeReturnRequested:
@@ -166,6 +169,45 @@ func (h *RecordSignalsFromEvents) handleSearchNoResult(
 
 	return h.module.RecordSignal(ctx, SignalRequest{
 		Type:       SignalSearchNoResult,
+		SearchTerm: p.Query,
+		Quantity:   1,
+	})
+}
+
+// searchPerformedPayload là dữ liệu từ event tìm kiếm có kết quả.
+type searchPerformedPayload struct {
+	Query    string `json:"query"`
+	SoKetQua int    `json:"so_ket_qua"`
+}
+
+// handleSearchPerformed ghi tín hiệu SEARCH.
+//
+// # Vì sao cần, khi đã có SEARCH_NO_RESULT
+//
+// Hai tín hiệu trả lời hai câu khác nhau, và thiếu cái nào cũng đọc sai
+// cái kia. Chỉ có vế "không ra kết quả" thì "áo khoác dạ" 240 lượt trông
+// như một cơ hội lớn — mà không biết "áo sơ mi" được tìm 24.000 lượt, tức
+// không có gì để so.
+//
+// # Quantity là 1, KHÔNG phải số kết quả
+//
+// Tín hiệu đếm NHU CẦU, và một lượt tìm là một lần khách hỏi. Số kết quả
+// đo độ phủ của danh mục, không đo nhu cầu; nhân nó vào số lượng sẽ khiến
+// từ khóa nào danh mục đã phục vụ tốt nhất trông như nhu cầu lớn nhất —
+// đúng ngược thứ tín hiệu này tồn tại để tìm.
+func (h *RecordSignalsFromEvents) handleSearchPerformed(
+	ctx context.Context, e eventbus.Event,
+) error {
+	var p searchPerformedPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf("đọc dữ liệu event tìm kiếm: %w", err)
+	}
+	if p.Query == "" {
+		return nil
+	}
+
+	return h.module.RecordSignal(ctx, SignalRequest{
+		Type:       SignalSearch,
 		SearchTerm: p.Query,
 		Quantity:   1,
 	})

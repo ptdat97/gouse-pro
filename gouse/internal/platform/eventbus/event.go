@@ -272,6 +272,23 @@ const (
 	// được: không ghi hôm nay thì Phase 3 khởi động với lịch sử trống.
 	TypeSearchNoResult = "search.no_result"
 
+	// TypeSearchPerformed là khách tìm và CÓ ra kết quả.
+	//
+	// Nửa còn lại của cặp với `search.no_result`. Hai tín hiệu trả lời hai
+	// câu khác nhau, và thiếu cái nào cũng đọc sai cái kia:
+	//
+	//	search.no_result   nhu cầu nền tảng KHÔNG đáp ứng được
+	//	search.performed   nhu cầu nền tảng ĐANG đáp ứng, và mạnh cỡ nào
+	//
+	// Chỉ có vế đầu thì "áo khoác dạ" 240 lượt trông như một cơ hội lớn mà
+	// không biết "áo sơ mi" được tìm 24.000 lượt — tức không so sánh được
+	// với cái gì.
+	//
+	// KHÔNG suy ra được từ lượt xem sản phẩm: khách tìm "váy công sở" rồi
+	// bấm vào ba chiếc váy sinh ba lượt xem, nhưng TỪ KHÓA mới là thứ nói
+	// họ đang cần gì.
+	TypeSearchPerformed = "search.performed"
+
 	// TypeWishlistItemAdded là khách thêm một món vào danh sách yêu thích.
 	//
 	// Ý ĐỊNH MUA RÕ RÀNG, chỉ chưa đúng thời điểm — mạnh hơn lượt xem rất

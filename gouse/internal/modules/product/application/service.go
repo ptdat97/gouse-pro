@@ -108,6 +108,12 @@ type Service struct {
 // việc ghi tín hiệu có thành công hay không — xem ADR-0006 phần 3.
 type SearchSignalPublisher interface {
 	PublishSearchNoResult(ctx context.Context, query string) error
+
+	// PublishSearchPerformed ghi lượt tìm CÓ kết quả, kèm số kết quả.
+	//
+	// Số kết quả đi cùng từ khóa vì một lượt tìm ra 2 kết quả và một lượt
+	// ra 200 nói hai chuyện khác nhau về độ phủ của danh mục.
+	PublishSearchPerformed(ctx context.Context, query string, soKetQua int) error
 }
 
 type Deps struct {
@@ -528,9 +534,15 @@ func (s *Service) Search(
 
 	// Ghi tín hiệu SAU khi có kết quả, và KHÔNG chặn nếu ghi hỏng: khách
 	// đang đợi kết quả tìm kiếm, không đợi hệ thống ghi số liệu.
-	if len(found) == 0 && s.searchSignals != nil && offset == 0 {
-		if err := s.searchSignals.PublishSearchNoResult(ctx, query); err != nil {
-			return found, nil
+	//
+	// `offset == 0`: chỉ trang ĐẦU. Khách lật sang trang hai không phải
+	// một nhu cầu mới, và đếm mỗi trang một lượt sẽ thổi phồng đúng những
+	// từ khóa ra nhiều kết quả nhất.
+	if s.searchSignals != nil && offset == 0 {
+		if len(found) == 0 {
+			_ = s.searchSignals.PublishSearchNoResult(ctx, query)
+		} else {
+			_ = s.searchSignals.PublishSearchPerformed(ctx, query, len(found))
 		}
 	}
 

@@ -60,6 +60,38 @@ func (p *searchSignalPublisher) PublishSearchNoResult(
 	return p.outbox.Publish(ctx, e)
 }
 
+// PublishSearchPerformed ghi event "khách tìm và CÓ ra kết quả".
+//
+// Cùng cách phát với `PublishSearchNoResult`: rời, ngoài giao dịch, và
+// mất một bản ghi không làm sai kết luận thống kê.
+//
+// Dùng CÙNG `searchID` với event kia, nên hai loại tín hiệu của cùng một
+// từ khóa có cùng định danh nguồn — nhờ vậy Phase 3 xếp hạng nhu cầu theo
+// từ khóa mà không phải ghép hai không gian mã.
+func (p *searchSignalPublisher) PublishSearchPerformed(
+	ctx context.Context, query string, soKetQua int,
+) error {
+	query = strings.TrimSpace(query)
+	if query == "" || soKetQua <= 0 {
+		return nil
+	}
+
+	e, err := eventbus.NewEvent(
+		eventbus.TypeSearchPerformed,
+		eventbus.AggregateSearch,
+		searchID(query),
+		struct {
+			Query    string `json:"query"`
+			SoKetQua int    `json:"so_ket_qua"`
+		}{Query: query, SoKetQua: soKetQua},
+	)
+	if err != nil {
+		return err
+	}
+
+	return p.outbox.Publish(ctx, e)
+}
+
 // searchID sinh định danh ổn định cho một từ khóa.
 //
 // Chuẩn hóa về chữ thường trước khi băm: "Áo Sơ Mi" và "áo sơ mi" là cùng
