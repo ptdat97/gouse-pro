@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  addMyProductVariant,
   createMyProduct,
   getCategoryTree,
   isApiError,
@@ -18,7 +19,11 @@ import { Shell } from "@/components/shell";
 import { dateTime } from "@/lib/format";
 import {
   GIOI_TINH,
+  KHOA_MAU,
+  KHOA_SIZE,
   LOAI_SAN_PHAM,
+  maSKUGoiY,
+  moTaBienThe,
   productStatusLabel,
   productTone,
   slugTu,
@@ -158,6 +163,7 @@ function TaoSanPham({
   const [gioi, setGioi] = React.useState("WOMEN");
   const [moTa, setMoTa] = React.useState("");
   const [chatLieu, setChatLieu] = React.useState("");
+  const [anh, setAnh] = React.useState("");
 
   const phang = React.useMemo(() => lamPhang(cats), [cats]);
 
@@ -175,6 +181,10 @@ function TaoSanPham({
         gender_target: gioi,
         description: moTa.trim() || undefined,
         material_composition: chatLieu.trim() || undefined,
+        images: anh
+          .split("\n")
+          .map((x) => x.trim())
+          .filter(Boolean),
       });
       onXong();
     } catch (err) {
@@ -304,6 +314,32 @@ function TaoSanPham({
           />
         </Field>
 
+        {/*
+          ẢNH BẮT BUỘC ngay từ lúc tạo, dù backend cho phép tạo thiếu.
+
+          Lý do không nằm ở miền mà ở hệ thống: KHÔNG có endpoint sửa sản
+          phẩm. Tạo xong mà thiếu ảnh thì `submit` từ chối vĩnh viễn ("Sản
+          phẩm chưa có ảnh nào") và không đường nào bổ sung — bản ghi chết
+          hẳn. Xem P3-64.
+
+          Nên biểu mẫu không mời nhà bán đi vào ngõ cụt đó. Khi có đường
+          sửa, bỏ `required` ở đây.
+        */}
+        <Field
+          label="Ảnh sản phẩm"
+          htmlFor="anh"
+          hint="Mỗi dòng một địa chỉ ảnh. BẮT BUỘC — hiện chưa có đường sửa sản phẩm sau khi tạo."
+        >
+          <Textarea
+            id="anh"
+            value={anh}
+            onChange={(e) => setAnh(e.target.value)}
+            rows={3}
+            required
+            placeholder="https://cdn.example.com/anh-1.jpg"
+          />
+        </Field>
+
         <p className="actions">
           <Button type="submit" disabled={busy}>
             Tạo nháp
@@ -384,6 +420,8 @@ function Dong({ p, onDoi }: { p: Product; onDoi: () => void }) {
 
       {error && <Alert tone="danger">{error}</Alert>}
 
+      <BienThe p={p} onDoi={onDoi} />
+
       {p.status === "DRAFT" && (
         <p>
           <Button disabled={busy} onClick={() => void guiDuyet()}>
@@ -396,5 +434,166 @@ function Dong({ p, onDoi }: { p: Product; onDoi: () => void }) {
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * Biến thể của một sản phẩm — xem cái đã có, thêm cái mới.
+ *
+ * # Ô CỐ ĐỊNH, không phải cặp khóa–giá trị tự do
+ *
+ * `variant.go` nói vì sao: nếu mỗi gian hàng tự đặt tên khóa ("color",
+ * "colour", "mau_sac") thì bộ lọc theo màu của cả danh mục vô dụng. Biểu
+ * mẫu cho hai ô Màu và Size, nên chuẩn ấy được cưỡng chế bằng HÌNH DẠNG
+ * giao diện chứ không bằng một dòng hướng dẫn ai cũng bỏ qua.
+ *
+ * # Chỉ thêm ở DRAFT
+ *
+ * Sản phẩm đang chờ duyệt hoặc đang bán thì đổi cấu trúc hàng là đổi thứ
+ * người kiểm duyệt đã xem, hoặc thứ khách đang nhìn. Backend từ chối;
+ * giao diện không mời.
+ */
+function BienThe({ p, onDoi }: { p: Product; onDoi: () => void }) {
+  const { api } = useSession();
+  const vs = p.variants ?? [];
+  const [mo, setMo] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const [mau, setMau] = React.useState("");
+  const [size, setSize] = React.useState("");
+  const [ma, setMa] = React.useState("");
+  const [maTuTay, setMaTuTay] = React.useState(false);
+
+  function datGoiY(m: string, s: string) {
+    if (!maTuTay) setMa(maSKUGoiY(p.slug ?? "", m, s));
+  }
+
+  async function them(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await addMyProductVariant(api, p.id!, {
+        attributes: { [KHOA_MAU]: mau.trim(), [KHOA_SIZE]: size.trim() },
+        skus: [{ sku_code: ma.trim() }],
+      });
+      setMau("");
+      setSize("");
+      setMa("");
+      setMaTuTay(false);
+      setMo(false);
+      onDoi();
+    } catch (err) {
+      // Backend từ chối tổ hợp TRÙNG (409) và mã SKU đã có người dùng.
+      // Hiện nguyên văn: cả hai đều là việc nhà bán sửa được ngay.
+      setError(isApiError(err) ? err.message : "Không thêm được biến thể");
+    } finally {
+      // `finally`, KHÔNG chỉ ở nhánh lỗi.
+      //
+      // Bản đầu chỉ đặt lại `busy` khi thất bại. Component này KHÔNG bị
+      // tháo sau một lần thêm thành công — danh sách chỉ render lại — nên
+      // `busy` đứng mãi ở `true` và nút "Thêm" tắt vĩnh viễn. Nhà bán thêm
+      // được ĐÚNG MỘT biến thể mỗi lần tải trang.
+      //
+      // Trình duyệt bắt được, TypeScript thì không: một biến trạng thái
+      // không bao giờ trở về là chuyện đúng kiểu.
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      {vs.length === 0 ? (
+        <p className="muted">
+          Chưa có biến thể nào — sản phẩm chưa gửi duyệt được.
+        </p>
+      ) : (
+        <ul className="lines">
+          {vs.map((v) => (
+            <li key={v.id} className="line">
+              <div>{moTaBienThe(v.attributes)}</div>
+              <div className="muted">
+                {(v.skus ?? []).map((s) => s.sku_code).join(" · ") || "—"}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {p.status === "DRAFT" && !mo && (
+        <p>
+          <Button variant="secondary" onClick={() => setMo(true)}>
+            Thêm biến thể
+          </Button>
+        </p>
+      )}
+
+      {p.status === "DRAFT" && mo && (
+        <form onSubmit={them}>
+          {error && <Alert tone="danger">{error}</Alert>}
+
+          <Field label="Màu" htmlFor={`mau-${p.id}`}>
+            <Input
+              id={`mau-${p.id}`}
+              value={mau}
+              onChange={(e) => {
+                setMau(e.target.value);
+                datGoiY(e.target.value, size);
+              }}
+              placeholder="Đen"
+              required
+            />
+          </Field>
+
+          <Field
+            label="Size"
+            htmlFor={`size-${p.id}`}
+            hint="Theo bảng size của sản phẩm: S/M/L, 38/39/40…"
+          >
+            <Input
+              id={`size-${p.id}`}
+              value={size}
+              onChange={(e) => {
+                setSize(e.target.value);
+                datGoiY(mau, e.target.value);
+              }}
+              placeholder="M"
+              required
+            />
+          </Field>
+
+          <Field
+            label="Mã SKU"
+            htmlFor={`sku-${p.id}`}
+            hint="Mã kho đọc được. Phải khác mọi mã đã có trên hệ thống."
+          >
+            <Input
+              id={`sku-${p.id}`}
+              value={ma}
+              onChange={(e) => {
+                setMaTuTay(true);
+                setMa(e.target.value);
+              }}
+              required
+            />
+          </Field>
+
+          <p className="actions">
+            <Button type="submit" disabled={busy}>
+              Thêm
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => setMo(false)}
+            >
+              Hủy
+            </Button>
+          </p>
+        </form>
+      )}
+    </div>
   );
 }

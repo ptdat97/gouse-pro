@@ -323,6 +323,15 @@ export interface CreateProductInput {
   material_composition?: string;
   care_instructions?: string;
   origin_country?: string;
+
+  /**
+   * Địa chỉ ảnh sản phẩm.
+   *
+   * Miền cho phép tạo thiếu ảnh, và `submitMyProduct` mới đòi. Nhưng KHÔNG
+   * có endpoint sửa sản phẩm, nên tạo thiếu ảnh là tạo một bản ghi không
+   * bao giờ gửi duyệt được và không bao giờ sửa được — xem P3-64.
+   */
+  images?: string[];
 }
 
 /**
@@ -350,5 +359,46 @@ export function submitMyProduct(
 ): Promise<ProductSubmitted> {
   return api.post<ProductSubmitted>(
     `/api/v1/seller/products/${encodeURIComponent(id)}/submit`,
+  );
+}
+
+export interface NewSKUInput {
+  sku_code: string;
+  barcode?: string;
+  weight_gram?: number;
+  length_mm?: number;
+  width_mm?: number;
+  height_mm?: number;
+}
+
+export interface AddVariantInput {
+  /** Tổ hợp làm nên biến thể: `{ color: "Đen", size: "M" }`. */
+  attributes: Record<string, string>;
+  images?: string[];
+  skus: NewSKUInput[];
+}
+
+export type VariantAdded = Ok<operations["addMyProductVariant"]>;
+
+/**
+ * Thêm một biến thể (một tổ hợp thuộc tính) kèm các SKU của nó.
+ *
+ * # Biến thể và SKU là HAI thứ
+ *
+ * Biến thể là tổ hợp khách CHỌN — "áo Đen size M". SKU là mã kho đứng sau
+ * nó. Một biến thể thường có đúng một SKU, nhưng mô hình tách ra vì mã kho
+ * là thứ `inventory` đếm và `pricing` gắn giá.
+ *
+ * Cùng tổ hợp thuộc tính hai lần trên một sản phẩm bị TỪ CHỐI (409) — nếu
+ * không, hai dòng "Đen / M" sẽ chia đôi tồn kho của một món hàng.
+ */
+export function addMyProductVariant(
+  api: ApiClient,
+  productID: string,
+  input: AddVariantInput,
+): Promise<VariantAdded> {
+  return api.post<VariantAdded>(
+    `/api/v1/seller/products/${encodeURIComponent(productID)}/variants`,
+    input,
   );
 }

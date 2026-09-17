@@ -3152,6 +3152,33 @@ export interface components {
             rejection_reason?: string;
             brand_id?: components["schemas"]["Id"];
             product_type?: string;
+            /**
+             * @description Biến thể ĐÃ có. Mảng rỗng nghĩa là sản phẩm chưa gửi duyệt được —
+             *     `submitMyProduct` đòi ít nhất một biến thể.
+             *
+             *     KHÔNG dùng `omitempty` ở phía máy chủ: `[]` và thiếu trường nói hai
+             *     chuyện khác nhau.
+             *
+             *     Thêm 18/09/2026. Dữ liệu vốn đã được nạp sẵn cho mọi truy vấn danh
+             *     sách rồi bị vứt ở tầng DTO — cùng hình dạng với `shipping_groups`
+             *     (P3-50). Hệ quả: nhà bán thêm biến thể xong không có cách nào thấy
+             *     mình đã thêm gì.
+             *
+             *     KHÔNG kèm giá và tồn kho: cả hai thuộc module khác, và nhét chúng
+             *     vào đây biến một lượt đọc sản phẩm thành ba lượt gọi liên module.
+             */
+            variants?: {
+                id: components["schemas"]["Id"];
+                /** @description Tổ hợp làm nên biến thể — `color`, `size`… */
+                attributes: {
+                    [key: string]: string;
+                };
+                images?: string[];
+                skus: {
+                    id: components["schemas"]["Id"];
+                    sku_code: string;
+                }[];
+            }[];
             /** Format: date-time */
             created_at?: string;
         };

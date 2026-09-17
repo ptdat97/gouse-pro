@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  maSKUGoiY,
+  moTaBienThe,
   productStatusLabel,
   productTone,
   slugTu,
@@ -54,4 +56,43 @@ test("mọi trạng thái của miền đều có nhãn, và mã lạ không th�
   }
   expect(productStatusLabel("TRANG_THAI_LA")).toBe("TRANG_THAI_LA");
   expect(productStatusLabel(undefined)).toBe("—");
+});
+
+test("mã SKU gợi ý đọc được và bỏ dấu", () => {
+  /**
+   * Mã SKU là thứ `inventory` đếm và người trong kho đọc. Bắt nhà bán tự
+   * nghĩ ra quy ước đặt mã là cách chắc chắn để có `SP1`, `SP2`,
+   * `test123` trong kho thật.
+   */
+  expect(maSKUGoiY("ao-so-mi-linen", "Trắng", "M")).toBe(
+    "AO-SO-MI-LINEN-TRANG-M",
+  );
+  expect(maSKUGoiY("dam-lua", "Đỏ", "S")).toBe("DAM-LUA-DO-S");
+});
+
+test("mã SKU bỏ qua phần còn trống thay vì để lại gạch thừa", () => {
+  // Người dùng gõ màu trước, size sau — giữa hai lần gõ, gợi ý không được
+  // thành `AO--M`.
+  expect(maSKUGoiY("ao-len", "", "M")).toBe("AO-LEN-M");
+  expect(maSKUGoiY("ao-len", "Đen", "")).toBe("AO-LEN-DEN");
+  expect(maSKUGoiY("", "", "")).toBe("");
+});
+
+test("mô tả biến thể GIẤU thuộc tính máy chủ tự suy ra", () => {
+  /**
+   * Backend thêm `color_family` từ tên màu ("Đỏ" → RED) để bộ lọc danh mục
+   * dùng. Hiện nó thô cạnh "Đỏ" trông như lỗi lặp — và nó không phải thứ
+   * nhà bán gõ vào nên không phải thứ họ sửa được.
+   */
+  expect(moTaBienThe({ color: "Đỏ", size: "M", color_family: "RED" })).toBe(
+    "Đỏ / M",
+  );
+
+  // Thuộc tính HỢP LỆ khác vẫn hiện: giấu đi thì hai biến thể khác nhau
+  // trông giống hệt nhau.
+  expect(moTaBienThe({ color: "Đen", size: "M", fit: "oversize" })).toBe(
+    "Đen / M / fit: oversize",
+  );
+  expect(moTaBienThe({})).toBe("—");
+  expect(moTaBienThe(undefined)).toBe("—");
 });

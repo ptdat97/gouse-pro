@@ -269,6 +269,57 @@ type sanPhamNhaBan struct {
 	BrandID     string `json:"brand_id,omitempty"`
 	ProductType string `json:"product_type,omitempty"`
 	CreatedAt   string `json:"created_at,omitempty"`
+
+	// Variants KHÔNG dùng omitempty: mảng rỗng và thiếu trường nói hai
+	// chuyện khác nhau. `[]` = sản phẩm chưa có biến thể nào, tức CHƯA gửi
+	// duyệt được; thiếu trường = không biết.
+	//
+	// Dữ liệu này đã được nạp sẵn: `queryMany` gọi `loadVariants` cho mọi
+	// truy vấn danh sách. Trước 18/09/2026 nó bị vứt ở đúng đây — cùng
+	// hình dạng với `shipping_groups` ở P3-50, và hệ quả cũng cùng một
+	// kiểu: nhà bán thêm biến thể xong không có cách nào thấy mình đã thêm
+	// gì, nên hoặc thêm trùng hoặc bỏ dở.
+	Variants []bienTheNhaBan `json:"variants"`
+}
+
+// bienTheNhaBan là một biến thể nhìn từ phía gian hàng.
+//
+// Chỉ những trường nhà bán cần để biết mình ĐÃ THÊM GÌ và CÒN THIẾU GÌ.
+// Không trả giá và tồn kho: cả hai thuộc module khác (`pricing`,
+// `inventory`) và nhét chúng vào đây sẽ biến một lượt đọc sản phẩm thành
+// ba lượt gọi liên module.
+type bienTheNhaBan struct {
+	ID string `json:"id"`
+
+	// Attributes là tổ hợp làm nên biến thể: màu, size…
+	Attributes map[string]string `json:"attributes"`
+
+	Images []string `json:"images"`
+
+	// SKUs: mỗi biến thể có ít nhất một mã bán hàng.
+	SKUs []skuNhaBan `json:"skus"`
+}
+
+type skuNhaBan struct {
+	ID   string `json:"id"`
+	Code string `json:"sku_code"`
+}
+
+func toBienTheNhaBan(vs []*domain.Variant) []bienTheNhaBan {
+	out := make([]bienTheNhaBan, 0, len(vs))
+	for _, v := range vs {
+		skus := make([]skuNhaBan, 0, len(v.SKUs()))
+		for _, s := range v.SKUs() {
+			skus = append(skus, skuNhaBan{ID: s.ID().String(), Code: s.Code()})
+		}
+		out = append(out, bienTheNhaBan{
+			ID:         v.ID().String(),
+			Attributes: v.Attributes(),
+			Images:     v.Images(),
+			SKUs:       skus,
+		})
+	}
+	return out
 }
 
 func toSanPhamNhaBan(p *domain.Product) sanPhamNhaBan {
@@ -281,6 +332,7 @@ func toSanPhamNhaBan(p *domain.Product) sanPhamNhaBan {
 		BrandID:         p.BrandID().String(),
 		ProductType:     string(p.Type()),
 		CreatedAt:       p.CreatedAt().UTC().Format(time.RFC3339),
+		Variants:        toBienTheNhaBan(p.Variants()),
 	}
 }
 

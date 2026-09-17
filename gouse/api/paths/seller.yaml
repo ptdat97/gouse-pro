@@ -1249,6 +1249,47 @@ SellerProduct:
       $ref: '../components/common.yaml#/schemas/Id'
     product_type:
       type: string
+    variants:
+      type: array
+      description: |
+        Biến thể ĐÃ có. Mảng rỗng nghĩa là sản phẩm chưa gửi duyệt được —
+        `submitMyProduct` đòi ít nhất một biến thể.
+
+        KHÔNG dùng `omitempty` ở phía máy chủ: `[]` và thiếu trường nói hai
+        chuyện khác nhau.
+
+        Thêm 18/09/2026. Dữ liệu vốn đã được nạp sẵn cho mọi truy vấn danh
+        sách rồi bị vứt ở tầng DTO — cùng hình dạng với `shipping_groups`
+        (P3-50). Hệ quả: nhà bán thêm biến thể xong không có cách nào thấy
+        mình đã thêm gì.
+
+        KHÔNG kèm giá và tồn kho: cả hai thuộc module khác, và nhét chúng
+        vào đây biến một lượt đọc sản phẩm thành ba lượt gọi liên module.
+      items:
+        type: object
+        required: [id, attributes, skus]
+        properties:
+          id:
+            $ref: '../components/common.yaml#/schemas/Id'
+          attributes:
+            type: object
+            description: Tổ hợp làm nên biến thể — `color`, `size`…
+            additionalProperties:
+              type: string
+          images:
+            type: array
+            items:
+              type: string
+          skus:
+            type: array
+            items:
+              type: object
+              required: [id, sku_code]
+              properties:
+                id:
+                  $ref: '../components/common.yaml#/schemas/Id'
+                sku_code:
+                  type: string
     created_at:
       type: string
       format: date-time

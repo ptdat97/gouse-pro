@@ -38,7 +38,7 @@ Tuyến đã đăng ký                 88      (84 khớp đặc tả + 4 endpo
 Migration                        56
 Test Go                          1.131
 Test trình duyệt (Playwright)    12
-Test đơn vị TypeScript           61
+Test đơn vị TypeScript           64
 ```
 
 **Tầng HTTP KHÔNG còn là chỗ nghẽn.** Đó là tình hình của tháng 8 đầu; giờ
@@ -6090,6 +6090,104 @@ gửi duyệt         từ chối kèm "Sản phẩm chưa có biến thể nào
 4 test đơn vị (61 xanh) · 4 test tích hợp HTTP mới · 63/63 gói Go xanh.
 `TestMoiDuongCanQuyenDeuDuocKiem` bắt đúng tuyến mới và đòi khai vào danh
 sách kiểm phân quyền — hàng rào cũ vẫn làm việc.
+
+---
+
+### P3-64 — biến thể qua giao diện, và một sản phẩm KHÔNG BAO GIỜ sửa được
+
+P3-63 dựng màn hình tạo sản phẩm. Đi thử tới cuối thì nó dừng ở đây:
+
+```text
+Gửi duyệt → "Sản phẩm chưa có biến thể nào"
+```
+
+Endpoint `addMyProductVariant` đã có từ lâu; không có màn hình.
+
+#### Biến thể được nạp sẵn rồi bị vứt ở tầng DTO
+
+`queryMany` gọi `loadVariants` cho MỌI truy vấn danh sách sản phẩm — dữ
+liệu đã ở trong tay. `toSanPhamNhaBan` không trả nó.
+
+Hệ quả: nhà bán thêm biến thể xong không có cách nào thấy mình đã thêm gì,
+nên hoặc thêm trùng hoặc bỏ dở. Cùng hình dạng với `shipping_groups`
+(P3-50): **dữ liệu đã tính sẵn rồi vứt ở adapter**, không tốn thêm một
+truy vấn nào để sửa.
+
+#### Khóa thuộc tính là CHUẨN CHUNG, nên biểu mẫu cho Ô CỐ ĐỊNH
+
+`variant.go` nói rõ: *"Nếu mỗi seller tự đặt tên khóa ('color', 'colour',
+'mau_sac'), bộ lọc theo màu sẽ vô dụng."*
+
+Biểu mẫu vì thế cho hai ô **Màu** và **Size** thay vì để nhà bán tự nhập
+cặp khóa–giá trị. Ràng buộc được cưỡng chế bằng HÌNH DẠNG giao diện, không
+bằng một dòng hướng dẫn ai cũng bỏ qua.
+
+Mã SKU gợi ý từ slug + thuộc tính (`DAM-LUA-DO-M`), sửa được. Bắt nhà bán
+tự nghĩ ra quy ước đặt mã là cách chắc chắn để có `SP1`, `test123` trong
+kho thật.
+
+`color_family` — thuộc tính máy chủ SUY RA từ tên màu để bộ lọc dùng —
+được giấu khỏi mô tả biến thể: hiện thô `color_family: RED` cạnh "Đỏ"
+trông như lỗi lặp, và nó không phải thứ nhà bán sửa được.
+
+#### Lỗi của tôi mà chỉ TRÌNH DUYỆT bắt được
+
+Sau một lần thêm biến thể thành công, nút "Thêm" **tắt vĩnh viễn**: tôi đặt
+lại `busy` ở nhánh lỗi mà quên nhánh thành công. Component không bị tháo —
+danh sách chỉ render lại — nên `busy` đứng mãi ở `true`.
+
+Nhà bán thêm được ĐÚNG MỘT biến thể mỗi lần tải trang.
+
+TypeScript không thấy gì sai: một biến trạng thái không bao giờ trở về là
+chuyện đúng kiểu. `typecheck` xanh, `lint` xanh, test đơn vị xanh — chỉ có
+lần bấm thứ hai trong trình duyệt thật mới lộ. Cùng họ với P3-58, và là lý
+do bước kiểm chứng phải gồm một lượt CHẠY THẬT, không chỉ một lượt build.
+
+#### Phát hiện lớn hơn: KHÔNG có đường sửa sản phẩm
+
+Đi hết vòng thì lộ ra chỗ này:
+
+```text
+POST   /api/v1/seller/products              tạo
+POST   /api/v1/seller/products/{id}/variants thêm biến thể
+POST   /api/v1/seller/products/{id}/submit   gửi duyệt
+       (không có PATCH, không có PUT)
+```
+
+Không có `UpdateProduct` trong service, không có tuyến PATCH/PUT, và không
+có endpoint tải ảnh ở đâu cả.
+
+Nên một sản phẩm tạo ra thiếu ảnh **không bao giờ gửi duyệt được và không
+bao giờ sửa được** — một bản ghi chết vĩnh viễn. Gõ sai tên hay mô tả cũng
+vậy.
+
+Điều này làm hẹp lại một câu tôi viết ở P3-63: miền CHO PHÉP tạo nháp thiếu
+ảnh, nhưng hệ thống không có đường bổ sung sau. Phép sửa 500 → 201 vẫn
+đúng; kết luận "bổ sung ảnh sau là chuyện bình thường" thì không, vì ở đây
+không có "sau".
+
+Xử tạm: biểu mẫu ĐÒI ít nhất một địa chỉ ảnh, để giao diện không mời nhà
+bán đi vào ngõ cụt. Khi có đường sửa, bỏ ràng buộc ấy.
+
+**Việc còn lại (chưa làm):** `PATCH /api/v1/seller/products/{id}` cho sản
+phẩm ở `DRAFT`, kèm quy tắc trường nào sửa được ở trạng thái nào. Đó là một
+tính năng có quyết định nghiệp vụ trong đó, không phải một lần nối dây.
+
+#### Kiểm chứng — trọn vòng, trên trình duyệt thật
+
+```text
+tạo       "Áo blazer dáng suông" → slug ao-blazer-dang-suong-…, 2 ảnh
+biến thể  Đen/M rồi Be/L — HAI lần liên tiếp, đúng ca lỗi `busy`
+mã SKU    AO-BLAZER-DANG-SUONG-…-DEN-M  (gợi ý, bỏ dấu, viết hoa)
+trùng     Đen/M lần hai → "Sản phẩm đã có biến thể với đúng tổ hợp thuộc
+          tính này" (409 — một trong chín lỗi vừa nối ở P3-63)
+gửi duyệt → Chờ duyệt
+```
+
+Vòng đời sản phẩm của nhà bán nay đi được từ đầu tới `PENDING_REVIEW` mà
+không cần chạm vào API bằng tay.
+
+7 test đơn vị (64 xanh) · 63/63 gói Go xanh.
 
 ---
 

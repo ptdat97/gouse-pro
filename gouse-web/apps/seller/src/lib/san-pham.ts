@@ -103,3 +103,61 @@ export function slugTu(ten: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+
+/**
+ * KHÓA thuộc tính là CHUẨN CHUNG, không phải do nhà bán đặt.
+ *
+ * `variant.go` nói rõ vì sao: *"Nếu mỗi seller tự đặt tên khóa ('color',
+ * 'colour', 'mau_sac'), bộ lọc theo màu sẽ vô dụng."*
+ *
+ * Nên biểu mẫu cho các Ô CỐ ĐỊNH thay vì để nhà bán tự nhập cặp khóa–giá
+ * trị. Ràng buộc được cưỡng chế bằng hình dạng giao diện, không bằng một
+ * dòng hướng dẫn mà ai cũng bỏ qua.
+ */
+export const KHOA_MAU = "color";
+export const KHOA_SIZE = "size";
+
+/**
+ * Gợi ý mã SKU từ slug sản phẩm và tổ hợp thuộc tính.
+ *
+ * Mã SKU là thứ `inventory` đếm và người trong kho đọc, nên nó nên nói
+ * được món hàng là gì. Bắt nhà bán tự nghĩ ra một quy ước đặt mã là cách
+ * chắc chắn để có `SP1`, `SP2`, `test123` trong kho thật.
+ *
+ * Đây là GỢI Ý: sửa được, và backend vẫn từ chối mã trùng (409).
+ */
+export function maSKUGoiY(slug: string, mau: string, size: string): string {
+  const phan = [slug, mau, size]
+    .map((x) => slugTu(x))
+    .filter(Boolean)
+    .join("-");
+  return phan.toUpperCase();
+}
+
+/**
+ * Thuộc tính do MÁY CHỦ suy ra, không phải nhà bán nhập.
+ *
+ * `color_family` sinh từ tên màu: "Đỏ" → `RED`. Khách lọc theo "màu đỏ",
+ * không lọc theo "Đỏ đô", nên nhóm màu là thứ bộ lọc dùng (`color.go`).
+ *
+ * Nó CÓ trong dữ liệu trả về và không nên hiện như một thuộc tính nhà bán
+ * gõ vào — hiện thô `color_family: RED` cạnh "Đỏ" trông như lỗi lặp.
+ */
+const SUY_RA = new Set(["color_family", "color_hex"]);
+
+/** "Đen / M" — mô tả một biến thể theo cách người đọc hiểu ngay. */
+export function moTaBienThe(attrs: Record<string, string> | undefined): string {
+  if (!attrs) return "—";
+  const thuTu = [KHOA_MAU, KHOA_SIZE];
+  const phan: string[] = [];
+  for (const k of thuTu) {
+    if (attrs[k]) phan.push(attrs[k]);
+  }
+  // Thuộc tính NGOÀI hai khóa chuẩn vẫn hiện — chúng hợp lệ (material,
+  // pattern, fit), và giấu đi thì hai biến thể khác nhau trông giống hệt.
+  // Trừ những thuộc tính máy chủ tự suy ra.
+  for (const [k, v] of Object.entries(attrs)) {
+    if (!thuTu.includes(k) && !SUY_RA.has(k) && v) phan.push(`${k}: ${v}`);
+  }
+  return phan.length ? phan.join(" / ") : "—";
+}
