@@ -147,6 +147,7 @@ func Build(
 		paymentModule        *payment.Module
 		orderModule          *order.Module
 		customerModule       *customer.Module
+		notificationModule   *notification.Module
 		cartModule           *cart.Module
 		checkoutModule       *checkout.Module
 		fulfillmentModule    *fulfillment.Module
@@ -339,8 +340,23 @@ func Build(
 		// Cùng database, cùng bảng chống gửi trùng — hai tiến trình cùng
 		// ghi vào một nhật ký gửi là chuyện bình thường và đã có chỉ mục
 		// UNIQUE lo.
-		notificationModule, err := notification.New(notification.Config{
+		notificationModule, err = notification.New(notification.Config{
 			Storage: "postgres", DB: db, Log: log,
+
+			// Nối TRỄ: `customerModule` được dựng ở dưới (nó cần
+			// notification để gửi thư xác minh email). Closure đọc biến
+			// lúc GỌI, và mọi lời gọi đều xảy ra sau khi dựng xong.
+			Khach: notification.KhachPortFunc(
+				func(ctx context.Context, customerID string) (string, error) {
+					if customerModule == nil {
+						return "", nil
+					}
+					v, err := customerModule.GetCustomer(ctx, customerID)
+					if err != nil {
+						return "", err
+					}
+					return v.Email, nil
+				}),
 		})
 		if err != nil {
 			return Modules{}, err
@@ -651,6 +667,7 @@ func Build(
 		returns:        returnsModule,
 		promotion:      promotionModule,
 		analytics:      analyticsModule,
+		notification:   notificationModule,
 		recommendation: recommendationModule,
 		inventory:      inventoryModule,
 		audit:          auditRecorder,
@@ -687,6 +704,14 @@ type Modules struct {
 	// ĐẦU phễu — xem sản phẩm, tìm kiếm — chỉ tồn tại ở trình duyệt, nên
 	// nếu API không nhận thì dữ liệu ấy không bao giờ tồn tại.
 	analytics *analytics.Module
+
+	// notification dựng ở API để gửi thư xác minh email trực tiếp; nó
+	// được giữ lại ở đây để TEST TÍCH HỢP đăng ký được bên nhận
+	// `NewOrderNotifier`.
+	//
+	// Không có nó thì đường thư giao dịch — thư báo đặt hàng, thư báo đã
+	// giao — chỉ chạy ở worker và không bài test nào ở lớp này đi qua.
+	notification *notification.Module
 
 	// audit là năng lực platform (ADR-0011), không phải module — nhưng nó
 	// cũng cần nối route nên đi cùng chỗ này.

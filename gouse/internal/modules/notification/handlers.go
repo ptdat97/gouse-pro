@@ -142,10 +142,9 @@ func (h *NotifyOnOrderEvents) notifyOrderPlaced(
 		Category: CategoryTransactional,
 		Template: TemplateOrderConfirmed,
 
-		// Email khách vãng lai đến từ payload. Với khách đã đăng ký, hiện
-		// chưa có module customer nên cũng dùng trường này — khi có module
-		// đó, event sẽ mang email của tài khoản.
-		Recipient: p.GuestEmail,
+		// Khách vãng lai: email họ gõ ở ô thanh toán. Khách đã đăng ký
+		// KHÔNG gõ ô đó, nên phải tra hồ sơ — xem `KhachPort`.
+		Recipient: h.module.emailNguoiNhan(ctx, p.GuestEmail, p.CustomerID),
 		UserID:    p.CustomerID,
 
 		Subject:       msg.Subject,
@@ -197,11 +196,14 @@ func (h *NotifyOnOrderEvents) notifyProgress(
 	}
 
 	return h.module.Send(ctx, SendRequest{
-		EventID:       e.ID.String(),
-		Channel:       ChannelEmail,
-		Category:      CategoryTransactional,
-		Template:      template,
-		Recipient:     p.Email,
+		EventID:  e.ID.String(),
+		Channel:  ChannelEmail,
+		Category: CategoryTransactional,
+		Template: template,
+		// Cùng lý do với thư xác nhận đơn: `p.Email` là email vãng lai
+		// mà fulfillment chép lại từ `checkout.completed`, nên nó rỗng
+		// với mọi khách đã đăng ký.
+		Recipient:     h.module.emailNguoiNhan(ctx, p.Email, p.CustomerID),
 		UserID:        p.CustomerID,
 		Subject:       msg.Subject,
 		Body:          msg.Body,

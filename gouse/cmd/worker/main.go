@@ -29,6 +29,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/checkout"
+	"github.com/fashion-commerce/platform/internal/modules/customer"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	"github.com/fashion-commerce/platform/internal/modules/marketplace"
@@ -375,10 +376,35 @@ func run() error {
 	// Chưa cấu hình Senders nên nó dùng bộ GHI-LOG: nội dung được ghi ra
 	// nhật ký thay vì gửi đi. Nhờ vậy luồng chạy được đầu-cuối trước khi
 	// nền tảng ký hợp đồng với nhà cung cấp dịch vụ email.
+	// customer CHỈ để tra email người nhận.
+	//
+	// Worker là tiến trình THẬT SỰ gửi thư giao dịch, nên nếu chỗ này
+	// thiếu thì bản sửa "khách đã đăng ký cũng nhận được thư" chỉ đúng
+	// trong test. Không truyền Identity/Notifier/Orders: đường ghi của
+	// module customer không chạy ở đây, và `New` chỉ bắt buộc DB.
+	khachModule, err := customer.New(customer.Config{
+		Storage: "postgres",
+		DB:      db,
+	})
+	if err != nil {
+		return err
+	}
+
 	notificationModule, err := notification.New(notification.Config{
 		Storage: "postgres",
 		DB:      db,
 		Log:     log,
+
+		// Khách ĐÃ ĐĂNG KÝ không gõ email vào ô thanh toán, nên payload
+		// event không mang địa chỉ của họ — xem `notification.KhachPort`.
+		Khach: notification.KhachPortFunc(
+			func(ctx context.Context, customerID string) (string, error) {
+				v, err := khachModule.GetCustomer(ctx, customerID)
+				if err != nil {
+					return "", err
+				}
+				return v.Email, nil
+			}),
 	})
 	if err != nil {
 		return err

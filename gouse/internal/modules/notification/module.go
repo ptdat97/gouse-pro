@@ -13,9 +13,79 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
+// KhachPort trả địa chỉ liên lạc của một khách hàng đã đăng ký.
+//
+// # Vì sao module này cần biết tới khách hàng
+//
+// Thư giao dịch phải có người nhận. Payload của `checkout.completed` mang
+// `guest_email` — địa chỉ khách VÃNG LAI tự gõ vào ô thanh toán. Khách ĐÃ
+// ĐĂNG KÝ không gõ ô đó, nên trường ấy rỗng, và cho tới 17/09 hệ quả là:
+// người có tài khoản KHÔNG nhận được thư xác nhận đơn lẫn thư báo giao
+// hàng, còn khách vãng lai thì có.
+//
+// Tra ở ĐÂY chứ không nhồi email vào payload event, vì ba lý do:
+//
+//  1. Cùng một phép tra vá được CẢ HAI đường — `checkout.completed` và
+//     `fulfillment.progress` đều mang `customer_id`. Đi đường payload thì
+//     fulfillment còn phải lưu lại email rồi phát tiếp, tức ba chỗ sửa.
+//  2. Không phải tăng phiên bản event, tức tám bên nhận không phải khai
+//     lại `MaxEventVersion` cho một trường chỉ một bên dùng (ADR-0016).
+//  3. Gửi thư là việc BẤT ĐỒNG BỘ. Một lượt tra thêm ở đây không nằm trên
+//     đường thanh toán của khách; nhồi vào payload thì checkout phải gọi
+//     customer ngay giữa lúc đặt đơn.
+//
+// Nil thì module vẫn chạy: khách vãng lai vẫn nhận thư như cũ, khách đã
+// đăng ký bị ghi SKIPPED kèm lý do — đúng hành vi trước bản sửa này.
+type KhachPort interface {
+	// EmailCuaKhach trả email của hồ sơ khách. Chuỗi rỗng nghĩa là không
+	// tra được, và đó KHÔNG phải lỗi cần chặn đường gửi.
+	EmailCuaKhach(ctx context.Context, customerID string) (string, error)
+}
+
+// KhachPortFunc nối dây bằng một hàm, cho phép nối TRỄ.
+//
+// Cần vì `internal/app` có vòng khởi tạo: `customer` nhận notification để
+// gửi thư xác minh email, nên nó được dựng SAU. Một closure đọc biến
+// module lúc GỌI thay vì lúc dựng gỡ được vòng đó mà không cần adapter
+// có trạng thái thay đổi được.
+type KhachPortFunc func(ctx context.Context, customerID string) (string, error)
+
+func (f KhachPortFunc) EmailCuaKhach(
+	ctx context.Context, customerID string,
+) (string, error) {
+	return f(ctx, customerID)
+}
+
 // Module là cài đặt của API công khai.
 type Module struct {
-	svc *application.Service
+	svc   *application.Service
+	khach KhachPort
+	log   *slog.Logger
+}
+
+// emailNguoiNhan chọn địa chỉ gửi thư.
+//
+// Ưu tiên email khách tự gõ ở ô thanh toán: đó là địa chỉ họ CHỌN cho đơn
+// này, và với đơn đặt hộ thì nó khác email tài khoản.
+func (m *Module) emailNguoiNhan(
+	ctx context.Context, emailPhien, customerID string,
+) string {
+	if emailPhien != "" {
+		return emailPhien
+	}
+	if m.khach == nil || customerID == "" {
+		return ""
+	}
+	email, err := m.khach.EmailCuaKhach(ctx, customerID)
+	if err != nil {
+		// KHÔNG chặn đường gửi: tầng application đã ghi SKIPPED kèm lý do
+		// khi thiếu địa chỉ, nên sự việc vẫn có vết. Trả lỗi ở đây biến
+		// một sự cố của module customer thành event bị hoãn vô hạn.
+		m.log.ErrorContext(ctx, "không tra được email khách để gửi thư",
+			"error", err, "customer_id", customerID)
+		return ""
+	}
+	return email
 }
 
 var _ API = (*Module)(nil)
@@ -40,6 +110,9 @@ type Config struct {
 	Senders []domain.Sender
 
 	Clock application.Clock
+
+	// Khach để tra email của khách ĐÃ ĐĂNG KÝ — xem KhachPort.
+	Khach KhachPort
 }
 
 // New khởi tạo module notification.
@@ -63,7 +136,7 @@ func New(cfg Config) (*Module, error) {
 		senders = []domain.Sender{logsender.New(log)}
 	}
 
-	return &Module{svc: application.NewService(application.Deps{
+	return &Module{khach: cfg.Khach, log: log, svc: application.NewService(application.Deps{
 		Repo:    notificationpg.NewLogStore(cfg.DB.Pool()),
 		Senders: senders,
 		Clock:   cfg.Clock,

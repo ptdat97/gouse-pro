@@ -8,10 +8,12 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/modules/analytics"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 	marketapp "github.com/fashion-commerce/platform/internal/modules/marketplace/application"
 	marketdom "github.com/fashion-commerce/platform/internal/modules/marketplace/domain"
+	"github.com/fashion-commerce/platform/internal/modules/notification"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 
 	"github.com/fashion-commerce/platform/internal/modules/payment"
@@ -26,10 +28,15 @@ import (
 // Dựng bên nhận riêng cho test sẽ kiểm một thứ khác với thứ chạy thật —
 // đúng cái bẫy đã làm bộ middleware trong test này từng lệch với production.
 //
-// KHÔNG đủ bộ: supplychain, notification và analytics không nằm trong
-// Modules của internal/app. Chúng không ảnh hưởng tới các bất biến mà lớp
-// test này đo (sổ cái, vòng đời đơn), nhưng đây là một khác biệt CÓ THẬT
-// so với worker, không phải sự tương đương.
+// KHÔNG đủ bộ: `supplychain` vẫn không nằm trong Modules của
+// internal/app, nên tín hiệu nhu cầu không được dựng ở lớp test này. Đó
+// là một khác biệt CÓ THẬT so với worker, không phải sự tương đương.
+//
+// `analytics` và `notification` thì ĐÃ đủ từ 17/09 — xem hai dòng
+// Subscribe cuối. Trước đó hai đường ấy chỉ chạy ở worker, nên đường thư
+// giao dịch và đường ghi phễu chuyển đổi không có bài test tích hợp nào
+// đi qua: một lần nối dây hỏng sẽ im lặng y như lỗi `size_recommendation`
+// (P3-50).
 // dangKyBenNhan đăng ký bộ bên nhận chuẩn — dùng chung cho mọi bài test
 // cần phát event, để không có bài nào chạy với bộ bên nhận khác production.
 func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
@@ -51,6 +58,18 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	bus.Subscribe(recommendation.NewQuanSatSizeHandler(a.mods.recommendation, log))
 	bus.Subscribe(promotion.NewGhiLuotDungHandler(a.mods.promotion, log))
 	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(a.mods.promotion, log))
+
+	// Phễu chuyển đổi: `analytics` ghi event_log cho mỗi bước.
+	if a.mods.analytics != nil {
+		bus.Subscribe(analytics.NewEventRecorder(a.mods.analytics))
+	}
+
+	// Thư giao dịch: khách phải nhận được thư báo đặt hàng và thư báo đã
+	// giao. Đây là lời hứa NHÌN THẤY ĐƯỢC với khách, nên nó thuộc bộ bên
+	// nhận chuẩn chứ không phải phần phụ.
+	if a.mods.notification != nil {
+		bus.Subscribe(notification.NewOrderNotifier(a.mods.notification, log))
+	}
 }
 
 func (a *apiTest) phatEvent(t *testing.T) int {
