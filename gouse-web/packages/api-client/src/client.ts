@@ -1,4 +1,5 @@
 import { ApiError, NetworkError } from "./error";
+import { maLuotTruyCap } from "./luot-truy-cap";
 
 /**
  * Client gọi API Go backend.
@@ -155,6 +156,16 @@ export class ApiClient {
     const headers: Record<string, string> = {
       "Accept-Language": this.opts.locale ?? "vi-VN",
     };
+
+    // Mã lượt truy cập đi kèm MỌI lời gọi.
+    //
+    // Gắn ở đây chứ không ở từng nơi gọi: phễu chuyển đổi chỉ nối được khi
+    // lượt xem hàng, lượt thêm giỏ và lượt đặt đơn mang CÙNG một mã, và
+    // một chỗ quên gắn là một bước của phễu biến mất (ADR-0020).
+    //
+    // Rỗng thì không gửi: backend để trống trường phiên thay vì bịa mã.
+    const luot = maLuotTruyCap();
+    if (luot) headers["X-Visit-Id"] = luot;
     if (this.accessToken) {
       headers["Authorization"] = `Bearer ${this.accessToken}`;
     }

@@ -1,4 +1,5 @@
 import type { operations } from "@fc/types/openapi";
+import { maLuotTruyCap } from "./luot-truy-cap";
 import type { ApiClient } from "./client";
 
 /**
@@ -427,4 +428,54 @@ export function listOrderShipments(
     undefined,
     guestPhone ? { "X-Guest-Phone": guestPhone } : undefined,
   );
+}
+
+/**
+ * Sự kiện hành vi — nửa TRÊN của phễu chuyển đổi.
+ *
+ * # Vì sao trang phải tự gửi
+ *
+ * Máy chủ biết mọi việc sau khi khách bấm mua, và KHÔNG biết gì trước đó.
+ * Lượt xem sản phẩm, lượt tìm kiếm — những thứ nói cho nền tảng biết trang
+ * hàng có thuyết phục không — chỉ tồn tại ở trình duyệt. Không gửi thì
+ * mẫu số của `conversion_rate` vĩnh viễn rỗng.
+ *
+ * Đường này CHỈ nhận ba tên: `page_view`, `product_view`, `search`. Sự
+ * kiện nghiệp vụ (đặt hàng, thanh toán) đến từ domain event, nơi máy chủ
+ * tự biết sự thật — gửi từ client là mở đường cho số liệu bịa.
+ */
+export interface SuKienHanhVi {
+  name: "page_view" | "product_view" | "search";
+  subject_type?: string;
+  subject_id?: string;
+  properties?: Record<string, unknown>;
+}
+
+/**
+ * guiSuKien gửi một lô sự kiện hành vi.
+ *
+ * # Hỏng thì IM LẶNG
+ *
+ * Đây là đường ĐO. Một lỗi mạng khi ghi nhận lượt xem không được làm hỏng
+ * trang hàng, và không được hiện gì cho khách — họ không làm gì sai và
+ * cũng không sửa được.
+ *
+ * Trả `false` khi không gửi được, để nơi gọi ghi log nếu muốn.
+ */
+export async function guiSuKien(
+  api: ApiClient,
+  events: SuKienHanhVi[],
+): Promise<boolean> {
+  const sessionID = maLuotTruyCap();
+
+  // Không có mã lượt thì KHÔNG gửi. Một lô sự kiện không mã lượt không
+  // nối được với gì cả, nên nó chỉ làm nặng bảng chứ không đo thêm được.
+  if (!sessionID || events.length === 0) return false;
+
+  try {
+    await api.post("/api/v1/events", { session_id: sessionID, events });
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -2,6 +2,7 @@
 
 import {
   getProduct,
+  guiSuKien,
   isApiError,
   listProductOffers,
   listSellersByIds,
@@ -94,6 +95,22 @@ export default function ProductPage({
         const found = await listSellersByIds(api, ids);
         if (cancelled) return;
         setSellers(Object.fromEntries(found.map((sl) => [sl.id, sl])));
+
+        // GHI NHẬN LƯỢT XEM — nửa TRÊN của phễu chuyển đổi.
+        //
+        // Máy chủ biết mọi việc sau khi khách bấm mua và không biết gì
+        // trước đó, nên nếu trang không gửi thì mẫu số của
+        // `conversion_rate` vĩnh viễn rỗng (ADR-0020).
+        //
+        // Gửi SAU khi sản phẩm đã hiện, và không `await` chặn gì: đo đạc
+        // không được làm chậm thứ khách tới để xem. Hỏng thì im lặng.
+        void guiSuKien(api, [
+          {
+            name: "product_view",
+            subject_type: "PRODUCT",
+            subject_id: productId,
+          },
+        ]);
       } catch (e) {
         if (!cancelled) {
           setError(isApiError(e) ? e.message : "Không tải được sản phẩm");
