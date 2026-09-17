@@ -659,7 +659,7 @@ Câu cuối quyết định thuế thuộc `order` hay `seller`; hôm nay nó n�
 
 | # | Việc | Trạng thái |
 |---|---|---|
-| PH-11 | OpenAPI là nguồn sự thật DUY NHẤT | 🟢 `types:check` chặn ở CI |
+| PH-11 | OpenAPI là nguồn sự thật DUY NHẤT | 🟢 `types:check` **và** `apicheck` chặn ở CI |
 | PH-12 | Kiểm chuỗi: OpenAPI → TypeScript sinh ra → Go → giao diện | ✅ test hợp đồng gọi API thật, xem 2.10 |
 | PH-13 | Giao diện KHÔNG tự cài lại quy tắc nghiệp vụ | 🟢 đã sửa `is_sellable` |
 | PH-14 | Tránh N+1 khi cửa hàng cần dữ liệu seller/product/offer | 🟢 tra theo lô |
@@ -5419,6 +5419,65 @@ cùng dạng với `buy_box_offer`: câu hỏi đầu tiên luôn là "giá tr�
 nó là gì", không phải "sao nó còn trống".
 
 Còn lại 1/10 loại tín hiệu chưa có bên phát, và nó có lý do.
+
+---
+
+### P3-56 — `apicheck`: hợp đồng API nay có người gác
+
+PH-11 "OpenAPI là nguồn sự thật DUY NHẤT" đánh dấu 🟢 vì CI có
+`types:check`. Nhưng `types:check` chỉ so ĐẶC TẢ với TypeScript sinh ra từ
+chính nó — nó không biết gì về route đăng ký trong Go.
+
+Rà soát ngày 17/09 tìm ra **sáu tuyến sống ngoài hợp đồng**, và chúng
+không phải tuyến lặt vặt:
+
+```text
+GET  /api/v1/orders/{order_id}/returns        đặc tả chỉ khai POST
+GET  /api/v1/seller/returns
+POST /api/v1/seller/returns/{return_id}/approve
+POST /api/v1/seller/returns/{return_id}/reject
+POST /api/v1/seller/returns/{return_id}/receive
+GET  /api/v1/seller/settlements               đặc tả chỉ khai /{id}
+```
+
+Cả luồng trả hàng phía nhà bán — duyệt, từ chối, nhận hàng — chạy được, có
+test, và `openapi-typescript` không sinh kiểu cho nó. Giao diện nhà bán
+không gọi được theo cách có kiểu, nên màn hình trả hàng chưa tồn tại một
+phần vì lý do đó.
+
+**Một dấu xanh cho một phép kiểm không kiểm thứ nó nói tệ hơn không có dấu
+nào:** nó khiến người đọc thôi nhìn. Cùng hình dạng với `conversion_rate`
+bằng 0 và `size_recommendation` không bao giờ hiện.
+
+#### Công cụ, và hai hướng lệch KHÔNG đối xứng
+
+```text
+tuyến có, đặc tả không   LỖI, không ngoại lệ
+đặc tả có, tuyến không   phải KHAI vào `chuaCai` kèm lý do
+```
+
+Hướng thứ hai biến câu "24 thao tác chưa cài, 20 thuộc Phase 2/3" — đúng
+vào ngày viết và không có gì giữ cho nó đúng — thành một danh sách máy
+giữ. Thêm thao tác vào đặc tả mà quên cài thì CI đỏ cho tới khi có người
+viết ra LÝ DO; cài xong mà quên xóa dòng thì CI cũng đỏ.
+
+Bốn endpoint vận hành (`/health/*`, `/metrics`, `/version`) nằm trong sổ
+miễn trừ riêng: chúng phục vụ Kubernetes và Prometheus, không phục vụ
+client nào, và hợp đồng của chúng do chính hạ tầng ấy định nghĩa.
+
+#### Ba quyết định trong bản dựng
+
+**Đọc bằng AST, không bằng grep.** Chuỗi `"POST /api/v1/events"` thật sự
+xuất hiện trong MÔ TẢ của một tham số vận hành; grep đếm nó là tuyến rồi
+báo vi phạm giả, và cảnh báo giả là thứ làm người ta tắt hẳn phép kiểm.
+
+**Tự phân tích YAML, không thêm phụ thuộc.** Dự án có đúng bốn phụ thuộc
+trực tiếp. Cái giá phải trả là bộ đọc KHÔNG được dễ dãi: gặp cách khai nó
+không hiểu thì BÁO LỖI chứ không bỏ qua — có một bài test giữ đúng điều đó.
+
+**Tám bài test cho chính công cụ.** Bảy bài dựng dự án GIẢ có đúng một
+lỗi; bài thứ tám chạy công cụ lên chính repo. Thiếu bài cuối thì công cụ
+có thể đúng mà không ai chạy nó lên thứ đáng chạy.
 
 ---
 

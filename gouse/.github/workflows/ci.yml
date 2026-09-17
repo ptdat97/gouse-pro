@@ -33,6 +33,15 @@ jobs:
         # nó tạo cảm giác an toàn giả.
         run: go test ./cmd/archcheck/
 
+      - name: Đối chiếu đặc tả API với tuyến đã đăng ký
+        # `types:check` ở job quality chỉ so ĐẶC TẢ với TypeScript sinh ra
+        # từ chính nó. Nó không biết gì về route trong Go, nên sáu endpoint
+        # từng sống ngoài hợp đồng suốt nhiều tuần mà CI vẫn xanh.
+        run: go run ./cmd/apicheck -v
+
+      - name: Test chính công cụ apicheck
+        run: go test ./cmd/apicheck/
+
   quality:
     name: Định dạng và phân tích tĩnh
     runs-on: ubuntu-latest

@@ -1252,3 +1252,177 @@ SellerProduct:
     created_at:
       type: string
       format: date-time
+
+returns:
+  get:
+    tags: [Seller]
+    summary: Yêu cầu trả hàng của gian hàng tôi
+    description: |
+      Hộp việc của nhà bán cho luồng trả hàng.
+
+      Chỉ trả yêu cầu thuộc gian hàng của người gọi — `seller_id` lấy từ
+      token, KHÔNG nhận từ tham số. Cho client chỉ định nghĩa là ai cũng
+      đọc được yêu cầu trả hàng của gian hàng khác.
+    operationId: listMyReturns
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: status
+        in: query
+        description: Lọc theo trạng thái. Bỏ trống thì trả tất cả.
+        schema:
+          type: string
+          enum: [REQUESTED, APPROVED, REJECTED, RECEIVED, REFUNDED, CANCELLED]
+    responses:
+      '200':
+        description: Danh sách yêu cầu trả hàng
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/ReturnRequest'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+
+return_approve:
+  post:
+    tags: [Seller]
+    summary: Duyệt yêu cầu trả hàng
+    description: |
+      Đồng ý cho khách gửi hàng về. CHƯA hoàn tiền — tiền chỉ đi sau khi
+      hàng về tới nơi (`receiveReturn`).
+
+      Tách hai bước có chủ ý: hoàn tiền ngay lúc duyệt nghĩa là nền tảng
+      trả tiền cho một món hàng có thể không bao giờ được gửi đi.
+    operationId: approveReturn
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: return_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    responses:
+      '200':
+        $ref: '#/ReturnResponse'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        description: Trạng thái hiện tại không cho phép duyệt
+
+return_reject:
+  post:
+    tags: [Seller]
+    summary: Từ chối yêu cầu trả hàng
+    description: |
+      Lý do là BẮT BUỘC và đi thẳng tới khách. Từ chối không kèm lý do là
+      cách chắc chắn nhất để một yêu cầu trả hàng thành một khiếu nại.
+    operationId: rejectReturn
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: return_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason]
+            properties:
+              reason:
+                type: string
+                minLength: 1
+    responses:
+      '200':
+        $ref: '#/ReturnResponse'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
+return_receive:
+  post:
+    tags: [Seller]
+    summary: Xác nhận đã nhận hàng hoàn và hoàn tiền
+    description: |
+      Hàng đã về tới kho. Đây là bước ĐI TIỀN: bút toán hoàn tiền được ghi
+      ở đây, không phải lúc duyệt.
+
+      Hàng về nằm ở trạng thái `Returned`, chưa bán lại được — quyết định
+      đó thuộc bước kiểm định (`inspectReturn`).
+    operationId: receiveReturn
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: return_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+    responses:
+      '200':
+        $ref: '#/ReturnResponse'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        description: Yêu cầu chưa được duyệt
+
+# Ba bước trên trả cùng một hình dạng, nên khai một lần.
+ReturnResponse:
+  description: Yêu cầu trả hàng sau khi cập nhật
+  content:
+    application/json:
+      schema:
+        type: object
+        required: [return]
+        properties:
+          return:
+            $ref: '../components/schemas.yaml#/ReturnRequest'
+
+settlements:
+  get:
+    tags: [Seller]
+    summary: Danh sách đợt đối soát của tôi
+    description: |
+      Các đợt đối soát đã tạo cho gian hàng này, mới nhất trước.
+
+      Chi tiết từng dòng nằm ở `getMySettlement` — danh sách chỉ trả phần
+      đầu để nhà bán biết có đợt nào và tổng bao nhiêu.
+    operationId: listMySettlements
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Danh sách đợt đối soát
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'

@@ -196,6 +196,8 @@ paths:
     $ref: './paths/seller.yaml#/fulfillment_order_deliver'
   /api/v1/seller/balance:
     $ref: './paths/seller.yaml#/balance'
+  /api/v1/seller/settlements:
+    $ref: './paths/seller.yaml#/settlements'
   /api/v1/seller/settlements/{settlement_id}:
     $ref: './paths/seller.yaml#/settlement_detail'
   /api/v1/seller/performance:
@@ -257,6 +259,14 @@ paths:
   # ----------------------------------------------------------------- Webhooks
   /api/v1/webhooks/payment/{provider}:
     $ref: './paths/webhooks.yaml#/payment_webhook'
+  /api/v1/seller/returns:
+    $ref: './paths/seller.yaml#/returns'
+  /api/v1/seller/returns/{return_id}/approve:
+    $ref: './paths/seller.yaml#/return_approve'
+  /api/v1/seller/returns/{return_id}/reject:
+    $ref: './paths/seller.yaml#/return_reject'
+  /api/v1/seller/returns/{return_id}/receive:
+    $ref: './paths/seller.yaml#/return_receive'
   /api/v1/seller/returns/{return_id}/inspect:
     $ref: './paths/seller.yaml#/return_inspect'
   /api/v1/webhooks/shipping/{provider}:

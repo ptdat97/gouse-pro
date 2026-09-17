@@ -253,6 +253,47 @@ order_cancel:
               request_id: req_01J9XABC123DEF456GHJKMNPQR
 
 order_returns:
+  get:
+    tags: [Orders]
+    summary: Yêu cầu trả hàng của một đơn
+    description: |
+      Khách xem các yêu cầu trả hàng họ đã gửi cho đơn này.
+
+      Cùng phép kiểm quyền với `getOrder`: khách vãng lai chứng minh bằng
+      `X-Guest-Phone`, khách đã đăng nhập bằng token. Không phải chủ đơn
+      thì nhận 404 giống hệt đơn không tồn tại — mã đơn tăng dần, nên hai
+      câu trả lời khác nhau sẽ đếm được số đơn nền tảng bán mỗi tháng.
+    operationId: listOrderReturns
+    security:
+      - bearerAuth: []
+      - {}
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+      - name: X-Guest-Phone
+        in: header
+        description: Bắt buộc với khách vãng lai.
+        schema:
+          type: string
+    responses:
+      '200':
+        description: Danh sách yêu cầu trả hàng của đơn
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/ReturnRequest'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+
   post:
     tags: [Orders]
     summary: Yêu cầu trả hàng

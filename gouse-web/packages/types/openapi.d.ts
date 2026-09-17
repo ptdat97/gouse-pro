@@ -879,7 +879,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Yêu cầu trả hàng của một đơn
+         * @description Khách xem các yêu cầu trả hàng họ đã gửi cho đơn này.
+         *
+         *     Cùng phép kiểm quyền với `getOrder`: khách vãng lai chứng minh bằng
+         *     `X-Guest-Phone`, khách đã đăng nhập bằng token. Không phải chủ đơn
+         *     thì nhận 404 giống hệt đơn không tồn tại — mã đơn tăng dần, nên hai
+         *     câu trả lời khác nhau sẽ đếm được số đơn nền tảng bán mỗi tháng.
+         */
+        get: operations["listOrderReturns"];
         put?: never;
         /**
          * Yêu cầu trả hàng
@@ -1337,6 +1346,29 @@ export interface paths {
          *     được tự cộng trừ bản ghi để tính số dư.
          */
         get: operations["getMyBalance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller/settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Danh sách đợt đối soát của tôi
+         * @description Các đợt đối soát đã tạo cho gian hàng này, mới nhất trước.
+         *
+         *     Chi tiết từng dòng nằm ở `getMySettlement` — danh sách chỉ trả phần
+         *     đầu để nhà bán biết có đợt nào và tổng bao nhiêu.
+         */
+        get: operations["listMySettlements"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2069,6 +2101,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seller/returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Yêu cầu trả hàng của gian hàng tôi
+         * @description Hộp việc của nhà bán cho luồng trả hàng.
+         *
+         *     Chỉ trả yêu cầu thuộc gian hàng của người gọi — `seller_id` lấy từ
+         *     token, KHÔNG nhận từ tham số. Cho client chỉ định nghĩa là ai cũng
+         *     đọc được yêu cầu trả hàng của gian hàng khác.
+         */
+        get: operations["listMyReturns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller/returns/{return_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duyệt yêu cầu trả hàng
+         * @description Đồng ý cho khách gửi hàng về. CHƯA hoàn tiền — tiền chỉ đi sau khi
+         *     hàng về tới nơi (`receiveReturn`).
+         *
+         *     Tách hai bước có chủ ý: hoàn tiền ngay lúc duyệt nghĩa là nền tảng
+         *     trả tiền cho một món hàng có thể không bao giờ được gửi đi.
+         */
+        post: operations["approveReturn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller/returns/{return_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Từ chối yêu cầu trả hàng
+         * @description Lý do là BẮT BUỘC và đi thẳng tới khách. Từ chối không kèm lý do là
+         *     cách chắc chắn nhất để một yêu cầu trả hàng thành một khiếu nại.
+         */
+        post: operations["rejectReturn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/seller/returns/{return_id}/receive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Xác nhận đã nhận hàng hoàn và hoàn tiền
+         * @description Hàng đã về tới kho. Đây là bước ĐI TIỀN: bút toán hoàn tiền được ghi
+         *     ở đây, không phải lúc duyệt.
+         *
+         *     Hàng về nằm ở trạng thái `Returned`, chưa bán lại được — quyết định
+         *     đó thuộc bước kiểm định (`inspectReturn`).
+         */
+        post: operations["receiveReturn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/seller/returns/{return_id}/inspect": {
         parameters: {
             query?: never;
@@ -2203,9 +2328,22 @@ export interface components {
              */
             request_id: string;
         };
+        /**
+         * @description Tham chiếu thương hiệu bên trong một tài nguyên khác.
+         *
+         *     `name` KHÔNG bắt buộc, có chủ ý. Tên thương hiệu thuộc module
+         *     `catalog`, và module `product` không gọi catalog ở tầng trình bày —
+         *     làm vậy nghĩa là mỗi request sản phẩm kéo theo một request catalog.
+         *
+         *     Trả `"name": ""` tệ hơn là bỏ trường: chuỗi rỗng trông như dữ liệu
+         *     hợp lệ và sẽ hiển thị thành khoảng trắng trên trang, còn trường thiếu
+         *     thì client biết là chưa có và đi lấy từ nguồn khác.
+         *
+         *     Nguồn đúng cho tên, logo và mô tả là `GET /api/v1/brands/{brand_id}`.
+         */
         BrandRef: {
             id: components["schemas"]["Id"];
-            name: string;
+            name?: string;
             slug?: string;
             /** Format: uri */
             logo_url?: string;
@@ -2262,11 +2400,13 @@ export interface components {
         /**
          * @description Bộ sưu tập — khái niệm **hạng nhất** trong thời trang, không phải nhãn phân loại.
          *     Có ngân sách sản xuất, mốc thời gian, và chỉ số sell-through riêng.
+         *
+         *     `name` KHÔNG bắt buộc, cùng lý do với `BrandRef`.
          */
         CollectionRef: {
             id: components["schemas"]["Id"];
             /** @example Thu Đông 2026 */
-            name: string;
+            name?: string;
             /** @example FW2026 */
             season?: string;
         };
@@ -2914,15 +3054,6 @@ export interface components {
             color_preferences?: string[];
             /** @description Chất liệu khách tránh (dị ứng hoặc không thích). */
             material_avoidance?: string[];
-            /**
-             * @description Đồng ý nhận marketing. **Bắt buộc kiểm tra** trước khi gửi nội dung
-             *     marketing — thông báo giao dịch không cần đồng ý.
-             */
-            marketing_consent?: {
-                email?: boolean;
-                sms?: boolean;
-                push?: boolean;
-            };
         };
         /**
          * @description Sản phẩm nhìn từ phía gian hàng.
@@ -3364,6 +3495,17 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Yêu cầu trả hàng sau khi cập nhật */
+        ReturnResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    return: components["schemas"]["ReturnRequest"];
+                };
             };
         };
     };
@@ -5336,6 +5478,34 @@ export interface operations {
             };
         };
     };
+    listOrderReturns: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Bắt buộc với khách vãng lai. */
+                "X-Guest-Phone"?: string;
+            };
+            path: {
+                order_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách yêu cầu trả hàng của đơn */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReturnRequest"][];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     requestReturn: {
         parameters: {
             query?: never;
@@ -5450,6 +5620,23 @@ export interface operations {
                             /** @enum {string} */
                             tier?: "GUEST" | "REGISTERED" | "MEMBER" | "VIP";
                             /**
+                             * @description Đồng ý nhận marketing, đọc từ `customer_consent`.
+                             *
+                             *     **Bắt buộc kiểm tra** trước khi gửi nội dung
+                             *     marketing — `notification.Send` từ chối thư
+                             *     MARKETING/SOCIAL khi chưa tra được đồng ý, và từ
+                             *     chối theo hướng ĐÓNG (không tra được cũng là
+                             *     không gửi).
+                             *
+                             *     KHÔNG có `push`: `customer` chỉ quản lý hai loại
+                             *     `MARKETING_EMAIL` và `MARKETING_SMS`. Một cờ
+                             *     `push` luôn bằng false là lời hứa không ai giữ.
+                             */
+                            marketing_consent?: {
+                                email: boolean;
+                                sms: boolean;
+                            };
+                            /**
                              * @description **CHƯA được trả về.** Số đo cơ thể là dữ liệu cá nhân
                              *     nhạy cảm, và yêu cầu của chính lược đồ này là "mã hóa
                              *     khi lưu". Module `customer` chưa có chỗ lưu đã mã hóa,
@@ -5489,6 +5676,22 @@ export interface operations {
                 "application/json": {
                     name?: string;
                     phone?: string;
+                    /**
+                     * @description Bật/tắt thư khuyến mãi. Mỗi lần gửi ghi một BẢN GHI MỚI
+                     *     vào `customer_consent` kèm nguồn, dấu thời gian, IP đã
+                     *     băm và user-agent — không ghi đè, vì câu hỏi bản ghi ấy
+                     *     phải trả lời được là "LÚC gửi lá thư đó khách có đồng ý
+                     *     không".
+                     *
+                     *     Trường VẮNG MẶT thì không đổi gì. Đây là PATCH: gửi
+                     *     `{"phone": "..."}` không được rút đồng ý nhận thư, và
+                     *     một bản ghi rút như vậy sẽ có dấu thời gian trông y như
+                     *     khách tự bấm.
+                     */
+                    marketing_consent?: {
+                        email?: boolean;
+                        sms?: boolean;
+                    };
                     /** @description **CHƯA được xử lý** — xem ghi chú ở `getMyProfile`. */
                     preferences?: components["schemas"]["CustomerPreferences"];
                 };
@@ -6618,6 +6821,29 @@ export interface operations {
                 };
             };
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listMySettlements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách đợt đối soát */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: Record<string, never>[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getMySettlement: {
@@ -8648,6 +8874,134 @@ export interface operations {
                      */
                     "application/json": components["schemas"]["Error"];
                 };
+            };
+        };
+    };
+    listMyReturns: {
+        parameters: {
+            query?: {
+                /** @description Lọc theo trạng thái. Bỏ trống thì trả tất cả. */
+                status?: "REQUESTED" | "APPROVED" | "REJECTED" | "RECEIVED" | "REFUNDED" | "CANCELLED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách yêu cầu trả hàng */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ReturnRequest"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    approveReturn: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                return_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ReturnResponse"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description Trạng thái hiện tại không cho phép duyệt */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rejectReturn: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                return_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            200: components["responses"]["ReturnResponse"];
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    receiveReturn: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                return_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ReturnResponse"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description Yêu cầu chưa được duyệt */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
