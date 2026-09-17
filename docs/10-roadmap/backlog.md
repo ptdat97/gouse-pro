@@ -16,27 +16,41 @@
 
 ## 0. Tình hình hiện tại — con số thật
 
-Đếm từ code ngày **20/08/2026**, không phải ước lượng:
+Đếm từ code ngày **17/09/2026**, không phải ước lượng:
 
 ```text
-Module MVP có logic nghiệp vụ    17/17
-Module có tầng HTTP              12/17   (thiếu: analytics · notification ·
-                                         pricing · promotion · supplychain —
-                                         cả năm phục vụ module khác qua Go,
-                                         không cần đường HTTP riêng ở MVP)
-Thao tác trong OpenAPI           75
-Thao tác đã có route             51      (68%)
-Thao tác chưa cài                24      (20 thuộc Phase 2/3 — xem mục 6)
+Module                           19      (17 MVP + recommendation + returns)
+Module có tầng HTTP              14/19   (thiếu: notification · pricing ·
+                                         promotion · recommendation ·
+                                         supplychain — cả năm phục vụ module
+                                         khác qua Go, không cần đường HTTP
+                                         riêng. Đó là thiết kế.)
+Thao tác trong OpenAPI           98
+Thao tác đã có route             83      (85%)
+Thao tác chưa cài                15      (tất cả Phase 2/3, khai từng dòng
+                                         kèm lý do trong `cmd/apicheck`)
 
-Migration                        25
-Test Go                          740
-Test trình duyệt (Playwright)     5
-Test đơn vị TypeScript           10
+Tuyến đã đăng ký                 87      (83 khớp đặc tả + 4 endpoint vận
+                                         hành cố ý nằm ngoài hợp đồng:
+                                         /health/live · /health/ready ·
+                                         /metrics · /version)
+
+Migration                        55
+Test Go                          1.113
+Test trình duyệt (Playwright)    12
+Test đơn vị TypeScript           48
 ```
 
 **Tầng HTTP KHÔNG còn là chỗ nghẽn.** Đó là tình hình của tháng 8 đầu; giờ
 mọi module thương mại đều có đường ra ngoài, ba giao diện đều gọi được, và
 bảy luồng nghiệm thu MVP đều chạy.
+
+**Con số "thao tác chưa cài" nay do MÁY giữ.** Bản trước ghi "24 thao tác
+chưa cài, 20 thuộc Phase 2/3" — đúng vào ngày viết, và không có gì giữ cho
+nó đúng: một thao tác mới thêm vào đặc tả mà quên cài sẽ lẫn vào con số ấy
+và không ai thấy. Từ P3-56, mỗi thao tác hoãn phải có một dòng lý do trong
+`cmd/apicheck`, và CI đỏ khi danh sách lệch khỏi thực tế theo cả hai
+hướng.
 
 ### Đổi phase: từ "dựng commerce core" sang PRODUCTION HARDENING
 

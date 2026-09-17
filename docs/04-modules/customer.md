@@ -216,8 +216,11 @@ Kiểm chứng: 28 test tích hợp trên PostgreSQL thật, đã kiểm chứng
 **Đã có (đúng phạm vi MVP ở mục 11):** hồ sơ · sổ địa chỉ · wishlist ·
 đồng ý cơ bản · ẩn danh hóa · gắn tài khoản cho khách vãng lai.
 
-**Chưa có (Phase 2 trở đi):** dữ liệu size và gợi ý size · phát event ·
-phân khúc khách hàng.
+**Chưa có (Phase 2 trở đi):** phân khúc khách hàng.
+
+**Hai dòng của bản trước đã hết hạn** (sửa 17/09/2026): module này **đã
+phát event** (`PublishThemYeuThich`), và **dữ liệu size đã được ghi** —
+nhưng KHÔNG ở đây. Xem mục 1 ngay dưới.
 
 ### Bốn chỗ code KHÁC tài liệu — và vì sao code đúng
 
@@ -227,10 +230,21 @@ thiết kế.
 **1. Không có `customer_preference` ở MVP**
 
 Mục 3 mô tả dữ liệu size rất kỹ, nhưng mục 11 xếp nó vào **Phase 2**. Code
-theo mục 11. Bảng chưa tồn tại vì chưa có gì ghi vào nó: `return.inspected`
-là nguồn dữ liệu chính, mà module `return` chưa được xây.
+theo mục 11, và bảng `customer_preference` vẫn KHÔNG tồn tại.
 
-Tạo bảng rỗng từ giờ không giúp gì — nó chỉ tạo cảm giác tính năng đã có.
+Lý do thì đã đổi. Bản trước viết "chưa có gì ghi vào nó, vì module `return`
+chưa được xây". Module ấy nay **đã có** (`returns`, 27/08 lõi · 17/09 đủ
+luồng) và dữ liệu size ĐANG được ghi thật — vào bảng `quan_sat_size` của
+module `recommendation`, không phải vào đây.
+
+Đó là quyết định của [ADR-0019](../adr/0019-goi-y-size-thuoc-ve-dau.md):
+gợi ý size là suy luận từ hành vi, không phải thuộc tính hồ sơ. Khách không
+KHAI mình mặc size L; hệ thống đoán ra từ những gì họ mua và trả lại, và
+lời đoán ấy đổi theo từng thương hiệu. Đặt nó trong `customer` sẽ biến một
+kết luận có độ tin cậy thành một trường hồ sơ trông như sự thật.
+
+Nên mục này giữ nguyên kết luận cũ với một lý do mới: bảng vẫn không nên
+tạo, vì thứ nó định chứa đã có chỗ ở đúng hơn.
 
 **2. `MergeGuestIdentity` KHÔNG chuyển đơn hàng**
 
@@ -242,8 +256,10 @@ Lý do: bảng `order` thuộc module khác. `customer` sửa bảng đó là vi
 quy tắc R2 — hai module dùng chung bảng thì thực chất là một module. Việc
 chuyển đơn thuộc `order`, kích hoạt bằng event.
 
-Ở MVP chưa phát event, nên bước đó **chưa chạy**. Đây là giới hạn thật,
-không phải thiết kế xong.
+Module nay ĐÃ có cổng ra event (điểm 4), nhưng **không phát event gộp
+nào**, nên bước chuyển đơn vẫn **chưa chạy**. Đây là giới hạn thật, không
+phải thiết kế xong — và nó không còn bị chặn bởi hạ tầng, chỉ còn thiếu
+một event và một bên nghe trong `order`.
 
 **3. Interface công khai khác mục 8**
 
@@ -254,12 +270,17 @@ Thiếu `GetSizeRecommendation` (thuộc Phase 2, xem điểm 1). Thêm:
 vãng lai quay lại phải vào ĐÚNG hồ sơ cũ, và nó phải an toàn khi mười
 request chạy song song.
 
-**4. Chưa phát event nào**
+**4. Phát MỘT trong năm event** *(sửa 17/09/2026 — bản trước ghi "chưa phát
+event nào")*
 
-Mục 9 liệt kê năm event. Chưa event nào được phát, vì chưa có bên nghe —
-`analytics` chưa tồn tại. `wishlist.item_added` sẽ có giá trị nhất (tín
-hiệu nhu cầu cho `supplychain`), nhưng phát event không ai nghe là thêm
-chỗ hỏng mà không đổi lấy gì.
+Mục 9 liệt kê năm event. Đã phát: `customer.wishlist_item_added`, qua
+`PublishThemYeuThich`. Bốn cái còn lại vẫn chưa.
+
+Lý do bản trước đưa ra — "chưa có bên nghe" — chính là lý do cái này được
+phát: `supplychain` nghe nó và ghi thành tín hiệu nhu cầu
+([handlers.go](../../gouse/internal/modules/supplychain/handlers.go)).
+Quy tắc không đổi, chỉ điều kiện đổi: **phát event khi có bên nghe thật,
+không phát trước.** Bốn event còn lại vẫn chưa có ai nghe.
 
 ### Hai phát hiện từ kiểm chứng ngược
 

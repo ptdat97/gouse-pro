@@ -7,10 +7,12 @@
 > nào. Giá trị của nó nằm ở phần bằng chứng — mỗi bất biến đều được xác
 > nhận bằng cách phá code sản xuất rồi chạy lại test.
 
-**Cập nhật:** 15/08/2026 · **Giai đoạn:** Implementation Completion
+**Cập nhật:** 17/09/2026 · **Giai đoạn:** Production Hardening
 
-**17/17 module MVP đã có logic nghiệp vụ.** Việc còn lại lớn nhất là
-**tầng HTTP**: 20/71 endpoint đã cài đặt, 7/17 module có tầng HTTP.
+**Tầng HTTP không còn là chỗ nghẽn.** 83/98 thao tác đặc tả đã có route;
+15 thao tác còn lại đều thuộc Phase 2/3 và được khai từng dòng kèm lý do
+trong `cmd/apicheck` — không còn là một con số trong tài liệu mà là một
+danh sách máy giữ.
 
 Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chưa bắt đầu
 
@@ -18,36 +20,48 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 
 ## 1. Tình hình hiện tại
 
-Đo ngày **20/08/2026**:
+Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     128 file · 37.107 dòng                  ✓ đồng bộ với code
-Đặc tả API   12 file YAML · 75 thao tác · 0 lỗi lint
-Code Go      282 file · 84.117 dòng · 740 hàm test
-Migration    25 file SQL · đảo được
-Giao diện    3 app Next.js (kho riêng) · 5 test trình duyệt · 10 test đơn vị
+Tài liệu     139 file · 44.496 dòng
+Đặc tả API   12 file YAML · 98 thao tác · 0 lỗi lint
+Code Go      291 file · 82.430 dòng · 1.113 hàm test
+Migration    55 file SQL · đảo được
+Giao diện    3 app Next.js · 12 test trình duyệt · 48 test đơn vị
 
-Module MVP có logic:   17/17
-Module có tầng HTTP:   12/17
-Thao tác có route:     51/75   (24 còn lại: 20 thuộc Phase 2/3)
+Module               19  (17 MVP + recommendation + returns)
+Module có tầng HTTP  14/19
+Thao tác có route    83/98
 
 Bảy luồng nghiệm thu MVP:  7/7 chạy được
 ```
 
+Năm module KHÔNG có tầng HTTP — `notification`, `pricing`, `promotion`,
+`recommendation`, `supplychain` — phục vụ module khác qua Go, không cần
+đường ra ngoài riêng. Đó là thiết kế, không phải việc còn thiếu.
+
+**Hai module từng xếp Phase 2 nay đã xây:** `returns` (luồng đầy đủ:
+xin trả · duyệt · từ chối · nhận hàng · kiểm định, kèm màn hình nhà bán)
+và `recommendation` (gợi ý size, ADR-0019). future-phases.md mục 2.1 đã
+được sửa theo.
+
 **Giai đoạn 1–5 xong. Giai đoạn 6 xong một phần. Giai đoạn 7 xong.**
 Phase hiện tại là **Production Hardening** — mục 12.
 
-Kiểm chứng lần cuối (13/08/2026):
+Kiểm chứng lần cuối (17/09/2026):
 
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 191 file, không vi phạm ranh giới
+✓ archcheck    OK — 469 file, không vi phạm ranh giới
+✓ apicheck     OK — 83/98 thao tác có route, 15 hoãn đều có khai lý do
 ✓ go test      toàn bộ package pass, CÓ database thật
-✓ chạy thật    api chạy đủ 10 module trên PostgreSQL; worker chạy 3 job
-               (phát event 5s, dọn giữ hàng 30s, dọn phiên 60s)
+✓ chạy thật    CẢ STACK trên Docker (postgres 18 + api + worker,
+               APP_ENV=production): đăng ký → giỏ → thanh toán → đặt đơn
+               → bàn giao → giao xong → thu tiền COD → trả hàng.
+               Worker chạy 6 job, không chỉ 3 — xem P3-50
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    15/15 áp dụng được, đảo được
+✓ migration    55/55 áp dụng được, đảo được (CI kiểm `down -all` rồi `up`)
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
 ✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id
@@ -118,7 +132,10 @@ Tài liệu yêu cầu làm việc này **trước module đầu tiên**; đã t
 
 ### 2.5 CI ✓
 
-`.github/workflows/ci.yml` — 5 job:
+`.github/workflows/ci.yml` — **6 job**: `architecture` · `quality` ·
+`test` · `build` · `alerts` · `api-spec`. Danh sách dưới đây có 8 dòng vì
+hai phép kiểm — test của `archcheck` và `apicheck` — là BƯỚC bên trong job
+`architecture`, không phải job riêng:
 
 - [x] `architecture` — chạy **RIÊNG và ĐẦU TIÊN**, vi phạm ranh giới làm CI thất bại
 - [x] Test chính công cụ archcheck (công cụ bỏ sót vi phạm nguy hiểm hơn không có công cụ)
@@ -126,6 +143,11 @@ Tài liệu yêu cầu làm việc này **trước module đầu tiên**; đã t
 - [x] `test` — kèm **race detector** (cần cho khóa lạc quan của `inventory`) + báo cáo độ phủ
 - [x] `build` — kiểm chứng tiến trình **thật sự khởi động** và trả lời health check, không chỉ biên dịch
 - [x] `api-spec` — lint đặc tả + sinh kiểu TypeScript để xác nhận đặc tả dùng được
+- [x] `alerts` — test cho từng luật cảnh báo Prometheus
+- [x] `cmd/apicheck` (trong job `architecture`) — đối chiếu ĐẶC TẢ với TUYẾN
+      đã đăng ký. `types:check` chỉ so đặc tả với TypeScript sinh ra từ
+      chính nó, nên sáu endpoint từng sống ngoài hợp đồng mà CI vẫn xanh.
+      Xem P3-56.
 
 ---
 

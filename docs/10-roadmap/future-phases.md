@@ -8,15 +8,31 @@ FUTURE — KHÔNG TRIỂN KHAI TRONG GIAI ĐOẠN NÀY
 > kế tham chiếu**, nhưng không được triển khai cho tới khi Commerce Core
 > chạy end-to-end.
 >
-> **Mười hai module dưới đây chưa tồn tại trong code** và không được tạo
-> mới: `creator` · `content` · `affiliate` · `loyalty` · `recommendation`
-> · `campaign` · `return` · `warehouse` · `quality` · `procurement` ·
-> `manufacturing` · `supplier`. Hai mươi thao tác thuộc các giai đoạn này
-> đã có trong OpenAPI vẫn ở mức `DESIGNED` — xem
-> [../../gouse/api/README.md](../../gouse/api/README.md).
+> **Mười module dưới đây chưa tồn tại trong code** và không được tạo mới:
+> `creator` · `content` · `affiliate` · `loyalty` · `campaign` ·
+> `warehouse` · `quality` · `procurement` · `manufacturing` · `supplier`
+> (`supplier` là nửa nhà-cung-cấp của `procurement` ở mục 3.1, không phải
+> một module thứ mười một).
+> Các thao tác thuộc các giai đoạn này đã khai trong OpenAPI mà chưa có
+> tuyến thì **máy giữ danh sách, không phải tài liệu**: nhãn `x-phase` ở
+> tầng đường dẫn (canh bởi `TestDacTaVaMaKhongTroiXaNhau`) và
+> [cmd/apicheck/chua_cai.go](../../gouse/cmd/apicheck/chua_cai.go) ở tầng
+> thao tác — 15 dòng, mỗi dòng bắt buộc có lý do. Bảng `DESIGNED` trong
+> [api/README.md](../../gouse/api/README.md) duy trì bằng tay và đã cũ;
+> chính nó nói vậy.
 >
-> `supplychain` LÀ ngoại lệ đã tồn tại: nó chỉ GHI `demand_signal`, không
-> suy luận gì. Phần dự báo nhu cầu vẫn thuộc giai đoạn sau.
+> **Ba ngoại lệ ĐÃ tồn tại**, mỗi cái vì cùng một lý do — thứ không tạo
+> ngược được thì phải ghi từ sớm:
+>
+> - `supplychain` chỉ GHI `demand_signal`, không suy luận gì. Phần dự báo
+>   nhu cầu vẫn thuộc giai đoạn sau.
+> - `returns` (27/08 lõi · 17/09 đủ luồng) — vì **lý do hoàn chuẩn hóa**.
+> - `recommendation` (16/09, ADR-0019) — vì `size_recommendation` đã khai
+>   trong `ProductDetail` từ đầu.
+>
+> Cả ba đều mới có phần KHÔNG TẠO NGƯỢC ĐƯỢC, không phải cả module.
+>
+> Chi tiết ở mục 2.1. Danh sách khóa cứng vẫn là mười module trên.
 >
 > **Trạng thái 20/08/2026: Commerce Core đã chạy end-to-end.** Nhưng điều
 > kiện mở khóa các giai đoạn này KHÔNG phải "chạy được" mà là "chịu được
@@ -30,11 +46,16 @@ FUTURE — KHÔNG TRIỂN KHAI TRONG GIAI ĐOẠN NÀY
 
 ## 1. Tổng quan
 
-| Giai đoạn | Chủ đề | Module thêm mới |
-|---|---|---|
-| **Phase 2** | Creator Commerce và hoàn thiện vận hành | 7 |
-| **Phase 3** | Chuỗi cung ứng | 5 |
-| **Phase 4** | Nâng cấp chiều sâu | 0 |
+| Giai đoạn | Chủ đề | Module thêm mới | Còn lại (17/09) |
+|---|---|---|---|
+| **Phase 2** | Creator Commerce và hoàn thiện vận hành | 7 | **5** — `returns` và `recommendation` đã có, chưa đủ phạm vi |
+| **Phase 3** | Chuỗi cung ứng | 5 | 5 — `supply-chain` mới có phần GHI tín hiệu |
+| **Phase 4** | Nâng cấp chiều sâu | 0 | 0 |
+
+Hai module đi sớm KHÔNG phải vì mở rộng phạm vi tùy hứng. Cả hai đi theo
+cùng một quy tắc đã dùng cho `demand_signal`: **thứ không tạo ngược được
+thì ghi từ sớm** — lý do hoàn hàng chuẩn hóa và lịch sử size của khách đều
+không dựng lại được từ dữ liệu bán hàng. Xem mục 2.1.
 
 ### Vì sao Creator Commerce trước chuỗi cung ứng
 
@@ -84,19 +105,27 @@ Tách service              → CHỈ khi có lý do đo được, theo ADR-0009
 Đây là giai đoạn nền tảng bắt đầu khác biệt so với một website thương mại
 điện tử thông thường.
 
-### 2.1 Module thêm mới (7)
+### 2.1 Module thêm mới (5 còn lại)
 
 | Module | Lý do ở Phase 2 |
 |---|---|
 | `creator` | Danh tính creator |
-| `content` | Nội dung, outfit, product tag |
+| `content` | Nội dung, outfit, product tag, **review** |
 | `affiliate` | Link, click, quy kết, hoa hồng |
 | `campaign` | Chiến dịch với ba cấu trúc chi phí |
-| `recommendation` | Gợi ý bằng quy tắc đơn giản |
-| `return` | Quy trình hoàn hàng đầy đủ |
 | `warehouse` | Vận hành kho, nhập hàng, kiểm kê |
 
-### 2.2 Vì sao `return` ở Phase 2, không sớm hơn
+**Hai module của bảng này đã TỒN TẠI, sớm hơn kế hoạch.** Tồn tại không
+phải là xong: cả hai còn thiếu phần phạm vi Phase 2 — xem dấu `✗` ở 2.3.
+
+| Module | Có từ khi nào, vì sao sớm | Còn thiếu |
+|---|---|---|
+| `returns` | 27/08 lõi, 17/09 đủ luồng + màn hình nhà bán. Xem 2.2. | Duyệt tự động; đảo hoa hồng creator (chờ `affiliate`) |
+| `recommendation` | 16/09 (ADR-0019). `size_recommendation` đã khai trong `ProductDetail` từ đầu và đặc tả gọi nó là "cơ chế giảm trực tiếp tỷ lệ hoàn hàng" — một trường có sẵn bên gọi thì không phải tính năng tương lai, nó là lời hứa đang treo. | CẢ NĂM mục gợi ý ở 2.3; hiện chỉ có khuyến nghị size |
+
+### 2.2 Vì sao `return` ở Phase 2, và vì sao nó tới sớm hơn thế
+
+Lập luận ban đầu:
 
 ```text
 MVP xử lý thủ công được vì khối lượng nhỏ.
@@ -106,6 +135,19 @@ Phase 2 bắt buộc phải có vì:
     - Creator commerce làm tăng đơn từ khách mới → tỷ lệ hoàn cao hơn
     - Cần dữ liệu lý do hoàn chuẩn hóa để cải thiện sản phẩm
 ```
+
+**Vế thứ ba kéo nó về sớm.** "Xử lý tay được" chỉ đúng với việc DUYỆT và
+HOÀN TIỀN. Nó không đúng với **lý do hoàn chuẩn hóa**: dữ liệu ấy không tạo
+ngược được. Ba tháng xử lý tay là ba tháng lý do nằm trong hộp thư và trong
+đầu người trực, và Phase 3 khởi động với lịch sử trống.
+
+Cùng lập luận đã đưa `demand_signal` vào MVP (mục 3.2 của Phase 3 đòi tối
+thiểu 12 tháng dữ liệu). Quy tắc chung: **thứ không tạo ngược được thì ghi
+từ sớm, kể cả khi đường xử lý còn thủ công.**
+
+Và nó trả lãi ngay trong MVP chứ không phải ở Phase 3: `SIZE_TOO_SMALL` /
+`SIZE_TOO_LARGE` là nguồn MẠNH NHẤT của gợi ý size (ADR-0019) — khách chủ
+động nói size sai và sai theo hướng nào.
 
 ### 2.3 Phạm vi chi tiết
 
@@ -145,17 +187,24 @@ Phase 2 bắt buộc phải có vì:
 ✓ Mời creator tham gia
 ```
 
-**Trả hàng**
+**Trả hàng** — phần lớn ĐÃ XÂY (xem 2.1). Dấu ✅ là đã chạy, ✗ là chưa:
 
 ```text
-✓ Yêu cầu trả hàng với LÝ DO CHUẨN HÓA
-✓ Duyệt (tự động một số trường hợp)
-✓ Nhận hàng, kiểm định
-✓ Nhập lại kho theo kết quả kiểm định
-✓ Hoàn tiền theo GIÁ THỰC TRẢ (sau phân bổ giảm giá)
-✓ Đảo ngược ĐỦ chuỗi: hoa hồng NT, số dư seller, hoa hồng creator
-✓ Ghi lịch sử size vào hồ sơ khách
+✅ Yêu cầu trả hàng với LÝ DO CHUẨN HÓA        10 mã, đủ luồng khách
+✅ Duyệt / từ chối                             màn hình nhà bán, 17/09
+ ✗ ...tự động một số trường hợp                cần ngưỡng rủi ro, chưa có
+✅ Nhận hàng, kiểm định                        kiểm theo TỪNG DÒNG
+✅ Nhập lại kho theo kết quả kiểm định         inventory.GhiKetQuaKiemDinh
+✅ Hoàn tiền theo GIÁ THỰC TRẢ                 TestHoanTheoGiaThucTra;
+                                               giảm giá chưa phân bổ ⇒ TỪ CHỐI
+✅ Đảo ngược hoa hồng nền tảng + số dư seller  theo TỶ LỆ, làm tròn XUỐNG
+ ✗ Đảo ngược hoa hồng creator                  chờ module affiliate
+✅ Ghi lịch sử size vào hồ sơ khách            returns.requested →
+                                               recommendation (ADR-0019)
 ```
+
+Một mình phần `✗` này là lý do `returns` vẫn nằm ở bảng Phase 2: chuỗi đảo
+ngược chỉ ĐỦ khi có creator trong đó.
 
 **Kho**
 
@@ -168,14 +217,17 @@ Phase 2 bắt buộc phải có vì:
 ✓ Hàng ký gửi của seller (PLATFORM_SERVICE)
 ```
 
-**Gợi ý**
+**Gợi ý** — module `recommendation` đã tồn tại nhưng làm MỘT việc không
+nằm trong danh sách này: khuyến nghị size cho từng sản phẩm (ADR-0019).
+Năm mục dưới đây vẫn chưa có mục nào:
 
 ```text
-✓ Sản phẩm tương tự (cùng danh mục, khoảng giá, còn hàng)
-✓ "Complete the look" — LẤY TỪ DỮ LIỆU OUTFIT
-✓ Xu hướng (doanh số gần đây có trọng số thời gian)
-✓ Cá nhân hóa cơ bản (danh mục, thương hiệu đã mua/xem)
-✓ LỌC THEO SIZE khách mặc
+ ✗ Sản phẩm tương tự (cùng danh mục, khoảng giá, còn hàng)
+ ✗ "Complete the look" — LẤY TỪ DỮ LIỆU OUTFIT     cần module content
+ ✗ Xu hướng (doanh số gần đây có trọng số thời gian)
+ ✗ Cá nhân hóa cơ bản (danh mục, thương hiệu đã mua/xem)
+ ✗ LỌC THEO SIZE khách mặc      ≠ khuyến nghị size: cái đã có nói "chọn L",
+                                cái này lọc danh sách theo size khách mặc
 ```
 
 **Lưu ý:** "Complete the look" dùng dữ liệu `Outfit` do stylist tạo — chất
