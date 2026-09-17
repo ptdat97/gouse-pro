@@ -23,10 +23,10 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     139 file · 44.659 dòng
+Tài liệu     139 file · 44.806 dòng
 Đặc tả API   12 file YAML · 98 thao tác · 0 lỗi lint
-Code Go      291 file · 82.430 dòng · 1.113 hàm test
-Migration    55 file SQL · đảo được
+Code Go      292 file · 82.763 dòng · 1.125 hàm test
+Migration    56 file SQL · đảo được
 Giao diện    3 app Next.js · 12 test trình duyệt · 48 test đơn vị
 
 Module               19  (17 MVP + recommendation + returns)
@@ -53,7 +53,7 @@ Kiểm chứng lần cuối (17/09/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 470 file, không vi phạm ranh giới
+✓ archcheck    OK — 471 file, không vi phạm ranh giới
 ✓ apicheck     OK — 83/98 thao tác có route, 15 hoãn đều có khai lý do;
                8 header khớp danh sách CORS (tầng thứ ba, thêm 17/09)
 ✓ chất lượng   mvp.md mục 7 nay có SỐ ĐO thay cho dấu ✓: p95 14,3ms ·
@@ -65,7 +65,7 @@ Kiểm chứng lần cuối (17/09/2026):
                → bàn giao → giao xong → thu tiền COD → trả hàng.
                Worker chạy 6 job, không chỉ 3 — xem P3-50
 ✓ bền vững     dữ liệu sống qua khởi động lại, seed tự bỏ qua lần 2
-✓ migration    55/55 áp dụng được, đảo được (CI kiểm `down -all` rồi `up`)
+✓ migration    56/56 áp dụng được, đảo được (CI kiểm `down -all` rồi `up`)
 ✓ tranh chấp   20 khách mua 1 sản phẩm → ĐÚNG 1 người thắng,
                19 xung đột phiên bản được phát hiện và từ chối
 ✓ cách ly      seller A không đọc/ghi được đơn của seller B dù biết id

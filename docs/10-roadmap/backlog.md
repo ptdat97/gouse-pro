@@ -35,8 +35,8 @@ Tuyến đã đăng ký                 87      (83 khớp đặc tả + 4 endpo
                                          /health/live · /health/ready ·
                                          /metrics · /version)
 
-Migration                        55
-Test Go                          1.113
+Migration                        56
+Test Go                          1.125
 Test trình duyệt (Playwright)    12
 Test đơn vị TypeScript           48
 ```
@@ -677,8 +677,8 @@ Câu cuối quyết định thuế thuộc `order` hay `seller`; hôm nay nó n�
 | PH-12 | Kiểm chuỗi: OpenAPI → TypeScript sinh ra → Go → giao diện | ✅ test hợp đồng gọi API thật, xem 2.10 |
 | PH-13 | Giao diện KHÔNG tự cài lại quy tắc nghiệp vụ | 🟢 đã sửa `is_sellable` |
 | PH-14 | Tránh N+1 khi cửa hàng cần dữ liệu seller/product/offer | 🟢 tra theo lô |
-| PH-15 | Chỉ số canh SỔ CÁI ĐÃ LƯU (nợ ≠ có), không chỉ canh lượt ghi bị từ chối | 🔴 chưa có; đo tay 17/09 ra 0/6.229 — xem mvp.md mục 7 |
-| PH-16 | Header: đặc tả ⇄ danh sách CORS | 🟢 `apicheck` chặn ở CI từ 17/09 — xem P3-58 |
+| PH-41 | Canh SỔ CÁI ĐÃ LƯU (nợ ≠ có), không chỉ canh lượt ghi bị từ chối | 🟢 giải bằng **hàng rào** chứ không bằng chỉ số: constraint trigger hoãn, migration 000056 — xem P3-59 |
+| PH-42 | Header: đặc tả ⇄ danh sách CORS | 🟢 `apicheck` chặn ở CI từ 17/09 — xem P3-58 |
 
 ### 2.4b Test tích hợp API (PH-3) `[XONG 26/08]`
 
@@ -5629,6 +5629,91 @@ vẫn là cách P3-57 nói: mỗi endpoint phải có một bên gọi CÓ KIỂ
 
 ---
 
+### P3-59 — bút toán lệch: CHẶN ở database, không phải ĐẾM sau khi ghi
+
+**Bối cảnh.** mvp.md mục 7 ghi tiêu chí "Bút toán không cân bằng = 0". Đo
+tay ngày 17/09/2026 ra **0/6.229** — đúng, mà không có gì giữ cho nó đúng.
+Bộ đếm `gouse_business_failures_total{reason="unbalanced"}` đếm những lượt
+ghi bị TỪ CHỐI, tức đường ghi đang làm đúng việc; nó không nói gì về dữ
+liệu ĐÃ LƯU. Và không có cảnh báo nào trên nhãn ấy.
+
+#### Vì sao KHÔNG chọn "thêm một chỉ số và một cảnh báo"
+
+Đó là cách dễ thấy nhất, và nó sai theo hai hướng:
+
+```text
+phát hiện SAU khi ghi   sổ cái BẤT BIẾN (ADR-0008) — bút toán lệch không
+                        xóa được, chỉ đảo được. Mọi báo cáo tài chính giữa
+                        lúc ghi và lúc đảo đều sai, và không ai biết mình
+                        đang đọc số sai.
+cửa sổ quét hữu hạn     quét toàn bảng mỗi 10 phút là lãng phí; quét cửa
+                        sổ thì bút toán lệch trôi ra ngoài cửa sổ sẽ làm
+                        chỉ số tụt về 0 trong khi dữ liệu hỏng còn nguyên.
+                        Một cảnh báo TỰ TẮT tệ hơn không có cảnh báo.
+```
+
+Tồn kho đã trả lời câu này từ migration 000004: `CHECK (… >= 0)` ở tầng
+database, gọi thẳng trong chú thích là "LỚP BẢO VỆ CUỐI CÙNG". Nhờ nó mà
+tiêu chí "tồn kho âm = 0" **không cần ai canh** — nó không xảy ra được.
+
+#### Vì sao phải là CONSTRAINT TRIGGER HOÃN
+
+| Công cụ | Vì sao không dùng được |
+|---|---|
+| `CHECK` | điều kiện trải trên NHIỀU DÒNG của `ledger_line`; CHECK chỉ nhìn được một dòng |
+| trigger thường | bút toán được ghi TRƯỚC các dòng của nó trong cùng giao dịch, nên `AFTER INSERT` thường chạy lúc bảng dòng còn rỗng và từ chối **mọi** bút toán |
+| `DEFERRABLE INITIALLY DEFERRED` | chạy ở thời điểm COMMIT — bút toán và mọi dòng đều đã có mặt |
+
+#### Ba bất biến, ba thông điệp
+
+Gộp thành một câu "bút toán không hợp lệ" là buộc người trực sự cố tài
+chính phải tự đoán lúc 3 giờ sáng. Nên trigger tách ba:
+
+```text
+bút toán RỖNG       Σ của tập rỗng bằng 0 ở CẢ HAI vế, nên phép so cân
+                    bằng sẽ CHO QUA. Nó không sai số học — nó chỉ không
+                    nói gì, và nó chiếm mất một khóa idempotency, nên lần
+                    ghi lại ĐÚNG sẽ bị từ chối là trùng.
+lệch nợ-có          nêu rõ mã bút toán, đơn vị tiền, và cả hai vế
+lẫn đơn vị tiền     bắt được MIỄN PHÍ nhờ gom theo `currency`: cộng tất
+                    thì 100 JPY nợ đối 100 VND có sẽ "cân bằng"
+```
+
+Ranh giới cố ý giữ rộng: một bút toán **được phép** chạm hai đơn vị tiền
+miễn là mỗi đơn vị tự cân. Có bài test riêng cho ranh giới ấy, để lần sau
+không ai siết nhầm thành "một bút toán một đơn vị tiền" — đó là một quyết
+định khác hẳn và phải quyết có chủ ý.
+
+#### Test đi VÒNG QUA mã Go, có chủ ý
+
+Miền đã từ chối bút toán lệch và đã có test cho việc đó. Sáu bài mới ghi
+bằng **SQL thô** vì chúng kiểm thứ khác: chuyện gì xảy ra khi có người
+không đi qua miền. Không phải giả thiết xa vời — dự án đã có bốn lệnh
+`cmd/doisoat*` nối thẳng vào database và sẽ có thêm.
+
+**Kiểm chứng bằng cách phá:** gỡ migration 000056 khỏi database test → ba
+bài từ chối đỏ ("database CHO QUA một bút toán lệch nợ-có"), ba bài chấp
+nhận vẫn xanh. Áp lại → 6/6 xanh. 63/63 gói xanh, gồm cả e2e — đường ghi
+thật vẫn commit bình thường qua trigger hoãn.
+
+#### Phần trigger KHÔNG che
+
+`AFTER INSERT` chỉ chạy cho bút toán ghi TỪ NAY. 6.229 bút toán có trước
+không đi qua nó; con số 0/6.229 là phép đếm tay ngày 17/09. Thứ giữ cho nó
+đúng về sau là trigger **cộng với** tính bất biến của bảng — dữ liệu cũ đã
+đúng thì không có đường nào làm nó sai đi.
+
+#### Một lỗi nhỏ đáng ghi lại
+
+Hai dòng PH thêm ở mục 2.3/2.4 ban đầu đánh số PH-15 và PH-16 — **đã có
+người dùng**, ở mục 2.12, từ tháng 8. Sửa thành PH-41 và PH-42.
+
+Mã PH và P3 được đánh bằng tay trên một tài liệu gần 6.000 dòng, nên đây là
+đúng dạng lỗi mà mục 8 nói tới, chỉ ở thang nhỏ hơn: một danh sách không ai
+giữ. Chưa đáng dựng công cụ; ghi lại để lần sau `grep` trước khi đặt số.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
@@ -5864,6 +5949,21 @@ P3-58.
 Quy tắc chung rút ra: **một phép kiểm chỉ bảo vệ được đoạn đường nó đi
 qua.** Sáu bước đầu đi từ database ra tới handler. Khách thì đi từ trình
 duyệt vào, và đoạn đầu con đường ấy tới hôm nay mới có người đi thử.
+
+### Và một bước KHÔNG nên thêm: "thêm một chỉ số"
+
+Bảy bước trên đều là cách PHÁT HIỆN. Với phần lớn dạng lỗi ở mục này, phát
+hiện là thứ tốt nhất làm được — một trường không ai điền thì phải có người
+nhìn ra nó.
+
+Với dữ liệu TÀI CHÍNH thì không. PH-41 ban đầu định thêm một chỉ số canh sổ
+cái lệch; lựa chọn ấy bị bỏ, vì sổ cái bất biến nghĩa là phát hiện muộn
+không cứu được gì — bút toán lệch không xóa được, và mọi báo cáo giữa lúc
+ghi với lúc đảo đều sai. Thay bằng hàng rào ở tầng database (P3-59).
+
+Câu hỏi phải hỏi trước khi thêm chỉ số: **phát hiện xong thì SỬA được
+không?** Trả lời "không, chỉ đảo được" thì việc cần làm là chặn, không phải
+đếm.
 
 ---
 

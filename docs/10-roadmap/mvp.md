@@ -231,11 +231,11 @@ Xem [../09-operations/deployment.md](../09-operations/deployment.md).
 | Tiêu chí | Đo được | Thứ GIỮ cho nó đúng |
 |---|---|---|
 | Độ lệch đối soát = 0 | **0** đơn đã thu tiền mà trạng thái chưa theo kịp | Job `doiSoatThanhToan` chạy 5 phút/lần, đặt `gouse_payment_reconcile_mismatch`; cảnh báo `PaymentReconcileMismatch` bắn khi > 0 |
-| Bút toán không cân bằng = 0 | **0/6.229** bút toán lệch nợ-có; 0 bút toán không có dòng nào; 0 bút toán lẫn đơn vị tiền | Miền từ chối bút toán lệch, và bảng CHẶN `UPDATE`/`DELETE`. **Chưa có chỉ số nào canh dữ liệu ĐÃ LƯU** — xem bên dưới |
+| Bút toán không cân bằng = 0 | **0/6.229** bút toán lệch nợ-có; 0 bút toán không có dòng nào; 0 bút toán lẫn đơn vị tiền | Constraint trigger HOÃN ở database (migration 000056) — bút toán lệch **không commit được**. Cùng hạng với `CHECK (… >= 0)` của tồn kho |
 | Tồn kho âm = 0 | **0** | Sáu ràng buộc `CHECK (… >= 0)` ở tầng database. Đây là thứ mang tiêu chí, không phải phép đo |
 | API p95 < 300ms | **14,3ms** ở 100 request đồng thời (phía khách); từng tuyến ≤ 25ms theo histogram máy chủ | `gouse_http_request_duration_seconds`, nhãn theo MẪU đường dẫn |
 | LCP trang sản phẩm < 2,5s | **1,40s** (4G chậm + CPU ×4, cache lạnh, bản build) · 64ms không bóp | Chưa có gì canh. Xem cảnh báo bên dưới |
-| Ranh giới module trong CI | **0 vi phạm / 470 file** | `cmd/archcheck`, chạy RIÊNG và ĐẦU TIÊN |
+| Ranh giới module trong CI | **0 vi phạm / 471 file** | `cmd/archcheck`, chạy RIÊNG và ĐẦU TIÊN |
 
 **Ba điều kiện đo phải đọc kèm, nếu không các con số trên nói quá:**
 
@@ -252,11 +252,29 @@ tới 2,5s — khoảng 1,1 giây — là ngân sách mà ảnh phải nằm v�
 Ngưỡng 2,5s của Web Vitals còn là p75 trên thiết bị THẬT của khách thật;
 không số đo nào ở đây thay thế được nó.
 
-**3. "Bút toán không cân bằng = 0" hôm nay đúng, mà không ai canh.** Bộ đếm
-`gouse_business_failures_total{reason="unbalanced"}` đếm những bút toán bị
-TỪ CHỐI — tức đường ghi đang làm đúng việc — chứ không đếm dữ liệu đã lưu.
-Không có cảnh báo nào trên nhãn ấy. Sổ cái bất biến làm rủi ro thấp, nhưng
-"thấp" không phải "có người canh". Xem PH-15.
+**3. Hàng rào cân bằng sổ cái chỉ canh bút toán VIẾT TỪ NAY.** Trigger là
+`AFTER INSERT`, nên 6.229 bút toán có trước nó không đi qua nó. Con số
+0/6.229 ở bảng trên là phép đếm TAY ngày 17/09 — nó đúng vào ngày ấy, và
+thứ giữ cho nó đúng về sau là trigger cộng với tính bất biến của bảng
+(`UPDATE`/`DELETE` đều bị chặn): dữ liệu cũ đã đúng thì không có đường nào
+làm nó sai đi.
+
+Cách chữa ban đầu định làm cho PH-41 là thêm một chỉ số và một cảnh báo.
+Nó sai theo hai hướng, và ghi lại đây vì đó là lựa chọn dễ thấy nhất:
+
+```text
+phát hiện SAU khi ghi   sổ cái BẤT BIẾN — bút toán lệch không xóa được,
+                        chỉ đảo được. Mọi báo cáo tài chính giữa lúc ghi
+                        và lúc đảo đều sai, và không ai biết mình đang
+                        đọc số sai.
+cửa sổ quét hữu hạn     bút toán lệch trôi ra ngoài cửa sổ làm chỉ số tụt
+                        về 0 trong khi dữ liệu hỏng vẫn nằm đó. Cảnh báo
+                        TỰ TẮT còn tệ hơn không có cảnh báo.
+```
+
+Tồn kho đã trả lời câu này từ migration 000004: hàng rào ở tầng database
+làm tiêu chí "tồn kho âm = 0" không cần ai canh — nó không xảy ra được.
+Xem P3-59.
 
 **Một phát hiện của chính lần đo này:** để đo LCP phải có cửa hàng chạy
 được, và cửa hàng lúc ấy **không tải được dữ liệu nào** — `X-Visit-Id`

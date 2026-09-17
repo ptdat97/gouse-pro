@@ -64,6 +64,35 @@ Sửa sai bằng: ghi bút toán ĐIỀU CHỈNH mới.
 | Phát hiện lỗi | Sổ cái bất biến làm lỗi lộ ra thay vì bị che giấu |
 | Nghĩa vụ pháp lý | Chứng từ kế toán phải lưu giữ nguyên vẹn |
 
+### Hệ quả ít ai nói tới: bất biến làm việc PHÁT HIỆN MUỘN trở nên vô dụng
+
+Sổ cái bất biến có một mặt trái, và nó quyết định cách canh sai sót.
+
+Với dữ liệu sửa được, phát hiện muộn vẫn cứu được: tìm ra, sửa, xong. Với
+sổ cái thì không — bút toán lệch **không xóa được**, chỉ đảo được. Từ lúc
+ghi tới lúc đảo, mọi báo cáo tài chính đọc từ sổ này đều sai, và không ai
+biết mình đang đọc số sai.
+
+Nên với module này, **chặn lúc ghi > phát hiện sau khi ghi**, và khoảng
+cách giữa hai vế lớn hơn ở bất kỳ module nào khác.
+
+Từ migration 000056, ba bất biến của một bút toán được cưỡng chế ở **tầng
+database** bằng constraint trigger hoãn, không phải chỉ ở tầng miền:
+
+```text
+✗ Σ DEBIT ≠ Σ CREDIT trong cùng một đơn vị tiền   → không commit được
+✗ bút toán KHÔNG có dòng nào                      → không commit được
+✗ lẫn hai đơn vị tiền mà không đơn vị nào tự cân  → không commit được
+```
+
+Phải HOÃN tới lúc COMMIT vì bút toán được ghi trước các dòng của nó trong
+cùng giao dịch; một trigger thường sẽ chạy lúc bảng dòng còn rỗng và từ
+chối cả bút toán đúng.
+
+Cùng hạng với `CHECK (… >= 0)` của `inventory`: một lớp bảo vệ mà lỗi ở
+tầng ứng dụng không đi vòng qua được — kể cả một lệnh `cmd/doisoat*` nối
+thẳng vào database. Xem P3-59.
+
 ### Ví dụ: sửa sai đúng cách
 
 ```text
