@@ -184,13 +184,35 @@ admin_me:
                     crash — server có thể thêm vai trò mới.
                   items:
                     type: string
+                    # CHÍN vai trò, và bốn cái phổ biến NHẤT từng bị bỏ sót.
+                    #
+                    # Bản trước liệt kê sáu vai trò vận hành và thiếu
+                    # `CUSTOMER`, `SELLER_OWNER`, `SELLER_STAFF`, `CREATOR`
+                    # — tức thiếu đúng những vai trò mà gần như mọi người
+                    # dùng thật đang mang. `openapi-typescript` sinh ra một
+                    # union sáu giá trị, nên `me.roles.includes("SELLER_OWNER")`
+                    # là lỗi biên dịch, và giao diện nhà bán đã phải viết
+                    # `includes(r as never)` để đi qua.
+                    #
+                    # Đó là cái giá thật của enum lệch: kiểu bị TẮT ở đúng
+                    # chỗ nó cần nhất — một phép kiểm phân quyền. Sửa
+                    # 17/09/2026; nguồn là `domain.Role` trong
+                    # identity/domain/user.go.
+                    #
+                    # `OPS_CONTENT` BỎ: nó chỉ tồn tại trong đặc tả và hai
+                    # trang tài liệu, không có trong `domain.Role`. Nó thuộc
+                    # module `content` của Phase 2 — khai lại khi module ấy
+                    # có thật.
                     enum:
+                      - CUSTOMER
+                      - SELLER_OWNER
+                      - SELLER_STAFF
+                      - CREATOR
                       - ADMIN
                       - OPS_MERCHANDISING
                       - OPS_WAREHOUSE
                       - OPS_FINANCE
                       - OPS_SUPPORT
-                      - OPS_CONTENT
                 scope:
                   type: string
                   enum: [OWN, SELLER, ALL]

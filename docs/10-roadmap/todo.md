@@ -23,7 +23,7 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     139 file · 44.912 dòng
+Tài liệu     139 file · 45.005 dòng
 Đặc tả API   12 file YAML · 98 thao tác · 0 lỗi lint
 Code Go      292 file · 82.763 dòng · 1.125 hàm test
 Migration    56 file SQL · đảo được

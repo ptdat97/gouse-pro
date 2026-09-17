@@ -7,6 +7,7 @@ import {
   login as apiLogin,
   logout as apiLogout,
   type AdminMe,
+  type VaiTro,
 } from "@fc/api-client";
 import * as React from "react";
 
@@ -43,8 +44,14 @@ interface SessionValue {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  /** Vai trò — CHỈ dùng để dựng menu, không phải để bảo vệ dữ liệu. */
-  hasRole: (...roles: string[]) => boolean;
+  /**
+   * Vai trò — CHỈ dùng để dựng menu, không phải để bảo vệ dữ liệu.
+   *
+   * Tham số nhận đúng KIỂU vai trò của hợp đồng, không phải `string`. Gõ
+   * sai một vai trò nay là lỗi biên dịch; trước đây nó âm thầm trả `false`
+   * và mục menu biến mất mà không ai biết vì sao.
+   */
+  hasRole: (...roles: VaiTro[]) => boolean;
 }
 
 const SessionContext = React.createContext<SessionValue | null>(null);
@@ -112,7 +119,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // ADMIN thấy mọi thứ. Vai trò lạ (server thêm mới) KHÔNG làm crash —
       // chỉ đơn giản là không khớp.
       if (me.roles.includes("ADMIN")) return true;
-      return roles.some((r) => me.roles.includes(r as never));
+      // KHÔNG còn `as never` ở đây.
+      //
+      // Phép ép ấy tồn tại vì enum `roles` trong đặc tả thiếu bốn vai trò
+      // phổ biến nhất, gồm cả `SELLER_OWNER` — nên trình biên dịch nói
+      // đúng rằng giá trị đó "không thể có", và cách đi qua là tắt nó đi.
+      // Kiểu bị vô hiệu ở đúng chỗ cần nhất: một phép kiểm phân quyền.
+      // Đặc tả sửa 17/09/2026, nên phép ép hết lý do tồn tại.
+      return roles.some((r) => me.roles.includes(r));
     },
   };
 

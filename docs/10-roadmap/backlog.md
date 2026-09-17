@@ -5819,6 +5819,88 @@ không gom theo loại bút toán. Sổ cái CÓ đủ dữ liệu (`entry_type`
 
 ---
 
+### P3-61 — enum lệch: hợp đồng nói `SELLER_OWNER` không tồn tại, nên kiểu bị TẮT ở chỗ kiểm quyền
+
+P3-60 tìm ra `LedgerLine.account_type` thiếu bốn giá trị. Đi rà tiếp thì
+chỗ thứ hai tệ hơn nhiều.
+
+#### `/api/v1/admin/me` — enum `roles` thiếu bốn vai trò PHỔ BIẾN NHẤT
+
+Đặc tả liệt kê sáu vai trò vận hành. `domain.Role` có chín:
+
+```text
+đặc tả THIẾU   CUSTOMER · SELLER_OWNER · SELLER_STAFF · CREATOR
+đặc tả THỪA    OPS_CONTENT  (chỉ có trong đặc tả và hai trang tài liệu;
+                             thuộc module `content` của Phase 2)
+```
+
+Bốn cái thiếu là bốn vai trò mà gần như mọi người dùng thật đang mang. Một
+lần đăng nhập nhà bán trả về `roles: ["CUSTOMER", "SELLER_OWNER"]` — **cả
+hai đều không có trong hợp đồng.**
+
+#### Cái giá: một phép ép kiểu ở đúng chỗ không nên có
+
+`openapi-typescript` sinh union sáu giá trị, nên
+`me.roles.includes("SELLER_OWNER")` là lỗi biên dịch. Cách đi qua đã nằm
+sẵn trong mã từ lâu, ở CẢ HAI ứng dụng:
+
+```ts
+return roles.some((r) => me.roles.includes(r as never));
+```
+
+`as never` là dấu vân tay của lệch hợp đồng: kiểu nói giá trị ấy "không thể
+có", nên người viết tắt kiểu đi. Và chỗ bị tắt là **một phép kiểm phân
+quyền** — nơi cần kiểu nhất.
+
+Kèm theo đó, `hasRole(...roles: string[])` và `NavItem.roles: string[]`:
+gõ sai một vai trò là lỗi IM LẶNG. Mục menu không hiện với ai cả, và không
+gì nói cho người sửa biết.
+
+#### Sửa
+
+Đặc tả liệt kê đủ chín vai trò, bỏ `OPS_CONTENT`. `@fc/api-client` xuất
+`VaiTro = AdminMe["roles"][number]` — SUY RA từ hợp đồng chứ không chép
+lại, vì một bản sao thứ hai của danh sách chín chuỗi sẽ lệch. Hai ứng dụng
+bỏ `as never` và nhận `VaiTro[]`.
+
+**Kiểm chứng bằng cách phá:** gõ `OPS_MERCHANDISNG` (thiếu chữ I) vào NAV
+của admin → `error TS2820 … Did you mean "OPS_MERCHANDISING"?`. Trước đó,
+cùng lỗi ấy chỉ làm mục "Nhà bán" biến mất.
+
+Chạy thật cả hai ứng dụng để chắc runtime không đổi:
+
+```text
+nhà bán   nhaban2@example.com     4 mục menu · số dư 455.840 ₫ · 0 lỗi console
+admin     admin@gouse.test        4 mục — thấy tất cả
+admin     vanhanh@gouse.test      1 mục — chỉ "Nhà bán", đúng: "Đơn hàng"
+                                  cần OPS_SUPPORT, hai mục còn lại chỉ ADMIN
+```
+
+#### Vì sao chưa dựng hàng rào cho tầng này
+
+Phép so enum đặc tả ⇄ hằng số Go rất đáng có — `apicheck` đã có sẵn bộ đọc
+AST. Cái khó không nằm ở đọc mà ở **GHÉP CẶP**: ghép theo tên không chạy
+được. Một lần rà tự động thử làm thế cho kết quả:
+
+```text
+`OrderStatus` ↔ Go `Status`   khớp 100%, "thiếu" 28 giá trị
+                              — vì hàng chục module đều có kiểu tên `Status`
+                              và chúng gộp thành một tập khổng lồ
+`ReturnReasonCode` ↔ `LyDo`   "thiếu" PREVIOUS_PURCHASE, RETURN_HISTORY
+                              — hai kiểu `LyDo` khác nhau: một của `returns`,
+                              một của `recommendation`
+```
+
+Hai cảnh báo GIẢ trên ba kết quả. Cảnh báo giả là thứ làm người ta tắt hẳn
+phép kiểm — bài học đã ghi ở `apicheck`.
+
+Nên hàng rào đúng cần một sổ ghi cặp TƯỜNG MINH (`schemas.yaml#/OrderStatus`
+↔ `order/domain.Status`), cùng kiểu sổ như `chuaCai` và `headerNgoaiDacTa`.
+Chưa làm; ghi lại ở đây kèm hai bằng chứng rằng hai enum ĐÃ lệch thật, để
+lần sau không phải đi tìm lại lý do.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

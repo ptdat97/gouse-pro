@@ -24,6 +24,20 @@ type Ok<T extends { responses: { 200: { content: { "application/json": unknown }
 export type LoginResult = Ok<operations["login"]>;
 export type AdminMe = Ok<operations["getAdminMe"]>;
 
+/**
+ * Vai trò hệ thống — LẤY TỪ hợp đồng, không viết lại.
+ *
+ * Viết lại một danh sách chín chuỗi ở đây sẽ tạo bản sao thứ hai của thứ
+ * `identity/domain/user.go` đã định nghĩa, và hai bản sao sẽ lệch. Suy ra
+ * từ kiểu sinh bởi `openapi-typescript` thì đặc tả đổi là kiểu đổi theo,
+ * và `types:check` canh cho đặc tả khớp mã.
+ *
+ * Danh sách này TỪNG lệch: đặc tả thiếu `CUSTOMER`, `SELLER_OWNER`,
+ * `SELLER_STAFF`, `CREATOR` — bốn vai trò phổ biến nhất — nên mọi phép
+ * kiểm vai trò ở giao diện phải viết `includes(r as never)`. Sửa 17/09/2026.
+ */
+export type VaiTro = AdminMe["roles"][number];
+
 export async function login(
   api: ApiClient,
   email: string,

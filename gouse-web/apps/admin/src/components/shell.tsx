@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 
+import { type VaiTro } from "@fc/api-client";
+
 import { useSession } from "@/lib/session";
 
 import { LoginForm } from "./login-form";
@@ -22,8 +24,14 @@ import { LoginForm } from "./login-form";
 interface NavItem {
   href: string;
   label: string;
-  /** Vai trò thấy được mục này. ADMIN luôn thấy tất cả. */
-  roles: string[];
+  /**
+   * Vai trò thấy được mục này. ADMIN luôn thấy tất cả.
+   *
+   * `VaiTro[]` chứ không phải `string[]`: gõ sai một vai trò ở đây từng là
+   * lỗi IM LẶNG — mục menu chỉ đơn giản không hiện với ai cả, và không có
+   * gì nói cho người sửa biết. Nay là lỗi biên dịch.
+   */
+  roles: VaiTro[];
 }
 
 const NAV: NavItem[] = [

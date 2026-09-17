@@ -7715,7 +7715,7 @@ export interface operations {
                          * @description Client **phải** xử lý được vai trò chưa biết mà không
                          *     crash — server có thể thêm vai trò mới.
                          */
-                        roles: ("ADMIN" | "OPS_MERCHANDISING" | "OPS_WAREHOUSE" | "OPS_FINANCE" | "OPS_SUPPORT" | "OPS_CONTENT")[];
+                        roles: ("CUSTOMER" | "SELLER_OWNER" | "SELLER_STAFF" | "CREATOR" | "ADMIN" | "OPS_MERCHANDISING" | "OPS_WAREHOUSE" | "OPS_FINANCE" | "OPS_SUPPORT")[];
                         /**
                          * @description Phạm vi rộng nhất của người dùng.
                          * @enum {string}

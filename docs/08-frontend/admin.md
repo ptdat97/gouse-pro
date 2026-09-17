@@ -32,8 +32,15 @@ OPS_MERCHANDISING  — sản phẩm, danh mục, seller
 OPS_WAREHOUSE      — kho, tồn kho, fulfillment
 OPS_FINANCE        — sổ cái, đối soát, chi trả
 OPS_SUPPORT        — đơn hàng, khách hàng (đọc + hỗ trợ)
-OPS_CONTENT        — kiểm duyệt nội dung
 ```
+
+`OPS_CONTENT` chưa tồn tại — thuộc module `content` của Phase 2.
+
+Bốn vai trò KHÔNG phải vận hành cũng có mặt trong cùng một danh sách và
+cùng một kiểu: `CUSTOMER`, `SELLER_OWNER`, `SELLER_STAFF`, `CREATOR`. Giao
+diện quản trị không dựng menu theo chúng, nhưng `hasRole` nhận kiểu
+`VaiTro` lấy thẳng từ hợp đồng, nên gõ sai một vai trò nay là lỗi biên
+dịch chứ không phải một mục menu âm thầm biến mất.
 
 **Giao diện chỉ hiển thị phần được phép** — nhưng đây chỉ là trải nghiệm. Backend luôn kiểm tra lại.
 

@@ -18,8 +18,12 @@ OPS_MERCHANDISING     — sản phẩm, danh mục, seller
 OPS_WAREHOUSE         — kho, tồn kho, fulfillment
 OPS_FINANCE           — sổ cái, đối soát, chi trả
 OPS_SUPPORT           — đơn hàng, khách hàng (chỉ đọc + thao tác hỗ trợ)
-OPS_CONTENT           — kiểm duyệt nội dung
 ```
+
+`OPS_CONTENT` (kiểm duyệt nội dung) **chưa tồn tại** — nó thuộc module
+`content` của Phase 2. Bỏ khỏi đặc tả OpenAPI ngày 17/09/2026 vì một vai
+trò khai trong hợp đồng mà không tài khoản nào mang được là một vai trò
+người tích hợp sẽ viết mã cho rồi không bao giờ chạy tới.
 
 ### Hai yêu cầu bắt buộc
 
