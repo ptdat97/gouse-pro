@@ -5481,6 +5481,59 @@ có thể đúng mà không ai chạy nó lên thứ đáng chạy.
 
 ---
 
+### P3-57 — màn hình trả hàng cho nhà bán, và lỗi thứ BA của hợp đồng API
+
+Backend có đủ bốn bước trả hàng từ lâu và không ai bấm được: sáu tuyến của
+luồng này sống ngoài đặc tả OpenAPI cho tới P3-56, nên
+`openapi-typescript` không sinh kiểu và trang nhà bán không gọi được theo
+cách có kiểu.
+
+Ba chỗ giao diện phải nói đúng, mỗi chỗ một bài test:
+
+```text
+"Đã hoàn tiền"       KHÔNG phải "Hoàn tất". REFUNDED nói về TIỀN; món hàng
+                     vẫn ở `Returned` và chưa bán lại được cho tới khi
+                     kiểm định
+từ chối cần lý do    ô nhập hiện TRƯỚC khi bấm được
+kiểm định từng dòng  mặc định CHƯA CHỌN, không phải "đạt"
+```
+
+Giao diện chỉ hiện nút của bước HIỆN TẠI. Hiện cả bốn rồi để backend từ
+chối là bắt nhà bán học quy trình bằng cách bấm sai.
+
+#### Lỗi thứ ba, và apicheck KHÔNG bắt được nó
+
+`apicheck` so ĐƯỜNG DẪN với METHOD. Schema `ReturnRequest` thì tồn tại —
+nên apicheck xanh — nhưng nó mô tả một payload KHÁC với mã đang chạy:
+
+```text
+đặc tả `lines`                  mã trả `items`
+đặc tả `lines[].refund_amount`  mã trả `refund`
+đặc tả 4 trạng thái KHÔNG có trong domain
+        (IN_TRANSIT · INSPECTING · INSPECTED · COMPLETED)
+đặc tả THIẾU `CANCELLED` — trạng thái CÓ THẬT
+```
+
+Lệch cuối nguy hiểm nhất: client phân nhánh theo `status` không có nhánh
+nào cho yêu cầu khách đã tự hủy.
+
+Nên hợp đồng API có BA tầng lệch, và mỗi tầng cần một phép kiểm khác:
+
+```text
+1. tuyến ⇄ đặc tả      apicheck          ✓ có
+2. đặc tả ⇄ TypeScript types:check       ✓ có
+3. HÌNH DẠNG payload   chưa có phép kiểm nào
+```
+
+Tầng 3 lộ ra bằng cách duy nhất còn lại: viết một client có kiểu và để
+trình biên dịch nói. TypeScript báo mười lỗi ngay lần `typecheck` đầu.
+
+Cách kiểm rẻ nhất cho tầng này là **dùng thật**: mỗi endpoint có một bên
+gọi có kiểu thì lệch hình dạng thành lỗi biên dịch. Sáu tuyến kia im lặng
+được nhiều tuần chính vì không ai gọi chúng.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
