@@ -134,3 +134,86 @@ export function shipFulfillmentOrder(
     { idempotencyKey: id.replace(/[^A-Za-z0-9]/g, "") },
   );
 }
+
+// --------------------------------------------------------------- Trả hàng
+
+export type MyReturns = Ok<operations["listMyReturns"]>;
+export type ReturnUpdated = Ok<operations["approveReturn"]>;
+
+/**
+ * Yêu cầu trả hàng của gian hàng tôi.
+ *
+ * `status` bỏ trống thì trả tất cả. Backend chỉ trả yêu cầu thuộc gian
+ * hàng của người gọi — `seller_id` lấy từ token, không từ tham số.
+ */
+export function listMyReturns(api: ApiClient, status?: string): Promise<MyReturns> {
+  return api.get<MyReturns>("/api/v1/seller/returns", { status });
+}
+
+/**
+ * Duyệt: đồng ý cho khách gửi hàng về. CHƯA hoàn tiền.
+ *
+ * Tiền chỉ đi ở `receiveReturn`. Hoàn tiền ngay lúc duyệt nghĩa là trả
+ * tiền cho một món hàng có thể không bao giờ được gửi đi.
+ */
+export function approveReturn(api: ApiClient, id: string): Promise<ReturnUpdated> {
+  return api.post<ReturnUpdated>(
+    `/api/v1/seller/returns/${encodeURIComponent(id)}/approve`,
+  );
+}
+
+/**
+ * Từ chối, BẮT BUỘC kèm lý do.
+ *
+ * Lý do đi thẳng tới khách. Từ chối không kèm lý do là cách chắc chắn
+ * nhất để một yêu cầu trả hàng thành một khiếu nại.
+ */
+export function rejectReturn(
+  api: ApiClient,
+  id: string,
+  reason: string,
+): Promise<ReturnUpdated> {
+  return api.post<ReturnUpdated>(
+    `/api/v1/seller/returns/${encodeURIComponent(id)}/reject`,
+    { reason },
+  );
+}
+
+/**
+ * Xác nhận hàng đã về kho — bước ĐI TIỀN.
+ *
+ * Bút toán hoàn tiền ghi ở đây. Hàng về nằm ở trạng thái `Returned`, chưa
+ * bán lại được; quyết định đó thuộc bước kiểm định.
+ */
+export function receiveReturn(api: ApiClient, id: string): Promise<ReturnUpdated> {
+  return api.post<ReturnUpdated>(
+    `/api/v1/seller/returns/${encodeURIComponent(id)}/receive`,
+  );
+}
+
+export interface InspectLine {
+  order_line_id: string;
+  passed: boolean;
+  note?: string;
+}
+
+/**
+ * Kiểm định hàng hoàn — mắt xích CUỐI.
+ *
+ * `passed = true` đưa hàng về `Available`, `false` đưa vào `Damaged`.
+ * Không có bước này thì mọi món hàng hoàn nằm chết vĩnh viễn: nhà bán mất
+ * cả hàng lẫn tiền.
+ *
+ * Kiểm theo TỪNG DÒNG: một yêu cầu trả hai món hoàn toàn có thể một món
+ * bán lại được và một món hỏng.
+ */
+export function inspectReturn(
+  api: ApiClient,
+  id: string,
+  lines: InspectLine[],
+): Promise<ReturnUpdated> {
+  return api.post<ReturnUpdated>(
+    `/api/v1/seller/returns/${encodeURIComponent(id)}/inspect`,
+    { lines },
+  );
+}

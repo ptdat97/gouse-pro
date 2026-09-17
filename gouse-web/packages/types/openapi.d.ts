@@ -3006,21 +3006,66 @@ export interface components {
          * @enum {string}
          */
         ReturnReasonCode: "SIZE_TOO_SMALL" | "SIZE_TOO_LARGE" | "NOT_AS_DESCRIBED" | "COLOR_DIFFERENT" | "QUALITY_ISSUE" | "DEFECTIVE" | "WRONG_ITEM_SENT" | "DAMAGED_IN_TRANSIT" | "CHANGED_MIND" | "LATE_DELIVERY";
+        ReturnLine: {
+            order_line_id: components["schemas"]["Id"];
+            sku_id: components["schemas"]["Id"];
+            quantity: components["schemas"]["Quantity"];
+            reason_code: components["schemas"]["ReturnReasonCode"];
+            reason_detail?: string;
+            refund: components["schemas"]["Money"];
+            /**
+             * @description Rỗng nghĩa là CHƯA kiểm định, không phải "đạt". Hàng chưa kiểm nằm
+             *     ở trạng thái `Returned` và không bán lại được.
+             * @enum {string}
+             */
+            inspection?: "" | "PASSED" | "FAILED";
+            /** @description Bắt buộc khi `inspection = FAILED`. */
+            inspection_note?: string;
+        };
+        /**
+         * @description Một yêu cầu trả hàng. Thuộc về ĐÚNG MỘT nhà bán — người duyệt là nhà
+         *     bán, nên một yêu cầu trải trên hai gian hàng thì không ai duyệt được.
+         *
+         *     **Sửa 17/09/2026 cho khớp mã đang chạy.** Bản trước khai `lines` (mã
+         *     trả `items`), khai `lines[].refund_amount` (mã trả `refund`), khai bốn
+         *     trạng thái KHÔNG tồn tại trong domain (`IN_TRANSIT`, `INSPECTING`,
+         *     `INSPECTED`, `COMPLETED`) và THIẾU trạng thái `CANCELLED` có thật.
+         *
+         *     Lệch cuối cùng là lệch nguy hiểm nhất: client phân nhánh theo `status`
+         *     sẽ không có nhánh nào cho yêu cầu khách đã tự hủy.
+         */
         ReturnRequest: {
             id: components["schemas"]["Id"];
-            order_id?: components["schemas"]["Id"];
-            /** @enum {string} */
-            status: "REQUESTED" | "APPROVED" | "REJECTED" | "IN_TRANSIT" | "RECEIVED" | "INSPECTING" | "INSPECTED" | "REFUNDED" | "COMPLETED";
-            lines: {
-                order_line_id?: components["schemas"]["Id"];
-                quantity?: components["schemas"]["Quantity"];
-                reason_code?: components["schemas"]["ReturnReasonCode"];
-                /**
-                 * @description Tính theo **giá thực trả** (sau khi phân bổ giảm giá),
-                 *     không phải giá niêm yết.
-                 */
-                refund_amount?: components["schemas"]["Money"];
-            }[];
+            order_id: components["schemas"]["Id"];
+            /**
+             * @description Vòng đời thật của domain:
+             *
+             *         REQUESTED  → APPROVED → RECEIVED → REFUNDED
+             *                    → REJECTED
+             *                    → CANCELLED   (khách tự rút khi chưa ai xử lý)
+             *
+             *     Kiểm định hàng về là một bước RIÊNG, ghi vào từng dòng
+             *     (`items[].inspection`) chứ không đổi trạng thái của yêu cầu: một
+             *     yêu cầu trả hai món có thể một món bán lại được và một món hỏng.
+             * @enum {string}
+             */
+            status: "REQUESTED" | "APPROVED" | "REJECTED" | "RECEIVED" | "REFUNDED" | "CANCELLED";
+            /**
+             * @description Lý do ở mức YÊU CẦU. Mã chuẩn hóa chứ không phải văn bản tự do —
+             *     đây là thứ nuôi gợi ý size và tín hiệu nhu cầu: `SIZE_TOO_SMALL`
+             *     đếm được, "áo hơi chật" thì không.
+             */
+            reason_code: components["schemas"]["ReturnReasonCode"];
+            /** @description Khách mô tả thêm bằng lời của họ. */
+            customer_note?: string;
+            /** @description Có khi `status = REJECTED`. Khách đọc được câu này. */
+            reject_reason?: string;
+            /**
+             * @description Tính theo **giá thực trả** (sau khi phân bổ giảm giá), không phải
+             *     giá niêm yết.
+             */
+            refund_amount: components["schemas"]["Money"];
+            items: components["schemas"]["ReturnLine"][];
             requested_at: components["schemas"]["Timestamp"];
         };
         /**

@@ -26,6 +26,7 @@ import { LoginForm } from "./login-form";
 const NAV = [
   { href: "/", label: "Việc cần làm" },
   { href: "/offers", label: "Hàng đang bán" },
+  { href: "/returns", label: "Trả hàng" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
