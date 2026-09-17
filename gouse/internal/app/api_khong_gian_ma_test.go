@@ -143,10 +143,12 @@ var ngoaiLeDaHinh = map[string]string{
 // Mỗi dòng phải trỏ tới chỗ ghi quyết định đang chờ.
 var noDaBiet = map[string]string{
 	"event_log.session_id": "ba không gian mã nằm chung một cột — " +
-		"`ses_` (phiên duyệt web), `crt_` (giỏ), `chk_` (phiên thanh toán). " +
+		"`ses_` (lượt truy cập), `crt_` (giỏ), `chk_` (phiên thanh toán). " +
 		"Hệ quả: tử số và mẫu số của `conversion_rate` không bao giờ giao " +
-		"nhau nên chỉ số ấy bằng 0 vĩnh viễn. Sửa được thì phải trả lời " +
-		"trước 'một PHIÊN là gì' — xem P3-50 trong docs/10-roadmap/backlog.md.",
+		"nhau nên chỉ số ấy bằng 0 vĩnh viễn. Câu hỏi 'một PHIÊN là gì' đã " +
+		"được trả lời ở docs/adr/0020-mot-phien-la-gi.md; dòng này xóa được " +
+		"khi bước 3 của ADR đó xong (visit_id đi từ trình duyệt tới domain " +
+		"event).",
 }
 
 // laTienTo cho biết một chuỗi có hình dạng tiền tố mã của hệ thống không.

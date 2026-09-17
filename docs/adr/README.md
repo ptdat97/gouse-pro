@@ -50,6 +50,7 @@ Deprecated — không còn áp dụng
 | [0017](0017-payment-intent.md) | `payment_intent` — số tiền chờ thu, thứ webhook đối chiếu vào | Accepted | Payment, Checkout, Order |
 | [0018](0018-checkout-completed-khong-phai-da-tra-tien.md) | `checkout.completed` bị dùng như "đã trả tiền" — giao hàng và ghi sổ đều sớm | Accepted | Payment, Fulfillment, Order |
 | [0019](0019-goi-y-size-thuoc-ve-dau.md) | Gợi ý size cần dữ liệu của ba module và bên gọi là module thứ tư — đặt ở đâu để không tạo phụ thuộc vòng | Accepted | Recommendation, Product, Order, Returns |
+| [0020](0020-mot-phien-la-gi.md) | Một "phiên" là LƯỢT TRUY CẬP, không phải giỏ hàng hay phiên thanh toán — ba khái niệm trong một cột làm `conversion_rate` bằng 0 vĩnh viễn | Proposed | Analytics, Cart, Checkout, Storefront |
 
 ## Quy trình thêm ADR mới
 
