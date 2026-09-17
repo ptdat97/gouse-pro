@@ -285,6 +285,7 @@ func (s *Service) AddItem(ctx context.Context, in AddItemInput) (*domain.Cart, e
 			VariantDescription: d.VariantDescription,
 			ImageURL:           d.ImageURL,
 			SellerName:         d.SellerName,
+			HandlingTimeHours:  d.HandlingTimeHours,
 			UnitPrice:          d.UnitPrice,
 			Quantity:           in.Quantity,
 			MinOrderQuantity:   d.MinOrderQuantity,

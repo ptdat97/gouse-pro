@@ -102,6 +102,7 @@ func (l *offerLookup) LookupOffers(
 			SKUID:             ids.ID(o.SKUID),
 			SellerID:          ids.ID(o.SellerID),
 			UnitPrice:         price,
+			HandlingTimeHours: o.HandlingTimeHours,
 			MinOrderQuantity:  o.MinOrderQuantity,
 			MaxOrderQuantity:  o.MaxOrderQuantity,
 			AvailableQuantity: stock[o.SKUID],

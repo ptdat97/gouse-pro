@@ -119,12 +119,14 @@ func (s *CheckoutStore) SaveWithEvents(
 				id, checkout_id, cart_item_id, offer_id, sku_id, seller_id,
 				product_name, variant_description, unit_price, currency,
 				quantity, commission_rate,
-				reservation_id, inventory_item_id, created_at
+				reservation_id, inventory_item_id,
+				seller_name, handling_time_hours, created_at
 			) VALUES (
 				$1,$2,$3,$4,$5,$6,
 				$7,$8,$9,$10,
 				$11,$12,
-				$13,$14,$15
+				$13,$14,
+				$15,$16,$17
 			)
 			ON CONFLICT (id) DO NOTHING`,
 			l.ID().String(), c.ID().String(), l.CartItemID().String(),
@@ -133,6 +135,7 @@ func (s *CheckoutStore) SaveWithEvents(
 			l.UnitPrice().Amount(), string(l.UnitPrice().Currency()),
 			l.Quantity(), int(l.CommissionRate().Value()),
 			l.ReservationID().String(), l.InventoryItemID().String(),
+			l.SellerName(), l.HandlingTimeHours(),
 			l.CreatedAt())
 		if err != nil {
 			return fmt.Errorf("checkout: ghi dòng %q: %w", l.ProductName(), err)
@@ -336,7 +339,8 @@ func (s *CheckoutStore) loadLines(ctx context.Context, checkoutID ids.ID) ([]*do
 		SELECT id, cart_item_id, offer_id, sku_id, seller_id,
 		       product_name, variant_description, unit_price, currency,
 		       quantity, commission_rate,
-		       reservation_id, inventory_item_id, created_at
+		       reservation_id, inventory_item_id,
+		       seller_name, handling_time_hours, created_at
 		  FROM checkout_line
 		 WHERE checkout_id = $1
 		 ORDER BY created_at, id`, checkoutID.String())
@@ -354,13 +358,16 @@ func (s *CheckoutStore) loadLines(ctx context.Context, checkoutID ids.ID) ([]*do
 			unitPrice                  int64
 			quantity, commissionRate   int
 			reservationID, inventoryID string
+			sellerName                 string
+			handlingHours              int
 			createdAt                  time.Time
 		)
 		if err := rows.Scan(
 			&id, &cartItemID, &offerID, &skuID, &sellerID,
 			&name, &variant, &unitPrice, &currency,
 			&quantity, &commissionRate,
-			&reservationID, &inventoryID, &createdAt,
+			&reservationID, &inventoryID,
+			&sellerName, &handlingHours, &createdAt,
 		); err != nil {
 			return nil, fmt.Errorf("checkout: đọc dòng hàng: %w", err)
 		}
@@ -372,6 +379,8 @@ func (s *CheckoutStore) loadLines(ctx context.Context, checkoutID ids.ID) ([]*do
 			OfferID:            ids.ID(offerID),
 			SKUID:              ids.ID(skuID),
 			SellerID:           ids.ID(sellerID),
+			SellerName:         sellerName,
+			HandlingTimeHours:  handlingHours,
 			ProductName:        name,
 			VariantDescription: variant,
 			UnitPrice:          mustMoney(unitPrice, money.Currency(currency)),

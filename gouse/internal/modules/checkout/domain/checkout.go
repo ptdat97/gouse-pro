@@ -135,6 +135,10 @@ type Checkout struct {
 
 	lines []*Line
 
+	// nhomGiaoHang là bảng kê phí và ngày giao theo từng nhà bán, dựng
+	// lại mỗi lần `ApDungPhiVaThue` chạy.
+	nhomGiaoHang []NhomGiaoHang
+
 	// Các khoản ở mức phiên. shippingFee tính sau khi có địa chỉ.
 	shippingFee    money.Money
 	discountAmount money.Money
@@ -327,18 +331,21 @@ func RestoreCheckout(p RestoreCheckoutParams) *Checkout {
 	}
 }
 
-func (c *Checkout) ID() ids.ID                  { return c.id }
-func (c *Checkout) CartID() ids.ID              { return c.cartID }
-func (c *Checkout) CustomerID() ids.ID          { return c.customerID }
-func (c *Checkout) GuestEmail() string          { return c.guestEmail }
-func (c *Checkout) GuestPhone() string          { return c.guestPhone }
-func (c *Checkout) Currency() money.Currency    { return c.currency }
-func (c *Checkout) ShippingAddress() Address    { return c.shippingAddress }
-func (c *Checkout) ShippingMethod() string      { return c.shippingMethod }
-func (c *Checkout) ShippingFee() money.Money    { return c.shippingFee }
-func (c *Checkout) DiscountAmount() money.Money { return c.discountAmount }
-func (c *Checkout) TaxAmount() money.Money      { return c.taxAmount }
-func (c *Checkout) CouponCode() string          { return c.couponCode }
+func (c *Checkout) ID() ids.ID               { return c.id }
+func (c *Checkout) CartID() ids.ID           { return c.cartID }
+func (c *Checkout) CustomerID() ids.ID       { return c.customerID }
+func (c *Checkout) GuestEmail() string       { return c.guestEmail }
+func (c *Checkout) GuestPhone() string       { return c.guestPhone }
+func (c *Checkout) Currency() money.Currency { return c.currency }
+func (c *Checkout) ShippingAddress() Address { return c.shippingAddress }
+func (c *Checkout) ShippingMethod() string   { return c.shippingMethod }
+func (c *Checkout) ShippingFee() money.Money { return c.shippingFee }
+
+// NhomGiaoHang trả bảng kê theo từng kiện. Rỗng khi chưa chọn cách giao.
+func (c *Checkout) NhomGiaoHang() []NhomGiaoHang { return c.nhomGiaoHang }
+func (c *Checkout) DiscountAmount() money.Money  { return c.discountAmount }
+func (c *Checkout) TaxAmount() money.Money       { return c.taxAmount }
+func (c *Checkout) CouponCode() string           { return c.couponCode }
 
 // BenChiuGiamGia là bên phải gánh khoản giảm, đóng băng lúc áp mã.
 func (c *Checkout) BenChiuGiamGia() BenChiuGiamGia {

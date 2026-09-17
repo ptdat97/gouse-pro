@@ -74,6 +74,8 @@ func (a *cartAdapter) LoadPurchasable(
 			OfferID:            ids.ID(it.OfferID),
 			SKUID:              ids.ID(it.SKUID),
 			SellerID:           ids.ID(it.SellerID),
+			SellerName:         it.SellerName,
+			HandlingTimeHours:  it.HandlingTimeHours,
 			ProductName:        it.ProductName,
 			VariantDescription: it.VariantDescription,
 			UnitPrice:          price,
@@ -454,7 +456,13 @@ func (a *shippingAdapter) EstimateShipping(
 	if err != nil {
 		return application.UocTinhPhiGiao{}, err
 	}
-	return application.UocTinhPhiGiao{Total: res.Total}, nil
+	nguon := make([]application.PhiMotNguon, 0, len(res.PerSource))
+	for _, p := range res.PerSource {
+		nguon = append(nguon, application.PhiMotNguon{
+			SellerID: p.SellerID, Amount: p.Amount, SoNgay: p.EstimatedDays,
+		})
+	}
+	return application.UocTinhPhiGiao{Total: res.Total, TheoNguon: nguon}, nil
 }
 
 // chinhSachAdapter đọc thuế suất và ngưỡng miễn phí ship từ `opsconfig`.
@@ -464,6 +472,10 @@ func (a *shippingAdapter) EstimateShipping(
 type chinhSachAdapter struct{ cfg *opsconfig.Store }
 
 var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
+
+func (a *chinhSachAdapter) GioChuanBiMacDinh() int {
+	return int(a.cfg.Doc(opsconfig.KeyGioChuanBiMacDinh))
+}
 
 func (a *chinhSachAdapter) ThueSuatBP() int32 {
 	return int32(a.cfg.Doc(opsconfig.KeyThueSuat))

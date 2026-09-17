@@ -100,6 +100,16 @@ type checkoutJSON struct {
 
 	ShippingAddress *addressJSON `json:"shipping_address,omitempty"`
 
+	// ShippingGroups là bảng kê theo TỪNG kiện hàng.
+	//
+	// Đặc tả (schemas.yaml#/Checkout) và docs/04-modules/checkout.md mục 7
+	// cùng quyết định: "hiển thị thời gian giao RIÊNG cho từng nhóm hàng,
+	// không gộp thành một con số. Khách cần biết món nào đến trước."
+	//
+	// `omitempty`: chưa chọn cách giao thì chưa ước tính được gì, và một
+	// mảng rỗng trông như "đơn này không có kiện nào".
+	ShippingGroups []shippingGroupJSON `json:"shipping_groups,omitempty"`
+
 	Subtotal    moneyJSON `json:"subtotal"`
 	ShippingFee moneyJSON `json:"shipping_fee"`
 	Discount    moneyJSON `json:"discount_amount"`
@@ -109,6 +119,28 @@ type checkoutJSON struct {
 	// ExpiresAt là hạn giữ tồn kho. Hết hạn thì hàng được nhả về kho và
 	// khách phải mở phiên mới — giao diện cần đếm ngược cho khách biết.
 	ExpiresAt string `json:"expires_at"`
+}
+
+// shippingGroupJSON khớp schemas.yaml#/Checkout/shipping_groups.
+type shippingGroupJSON struct {
+	Seller sellerRefJSON `json:"seller"`
+
+	// EstimatedDeliveryDate là NGÀY, không phải mốc giờ: lời hứa giao
+	// hàng tính theo ngày, và một mốc giờ chính xác tới giây là một sự
+	// chính xác không có thật.
+	EstimatedDeliveryDate string `json:"estimated_delivery_date"`
+
+	ShippingFee moneyJSON `json:"shipping_fee"`
+}
+
+// sellerRefJSON khớp schemas.yaml#/SellerRef.
+//
+// Chỉ `id` và `name`: `rating`, `response_time_hours` và `is_official` là
+// dữ liệu của module seller, và phiên thanh toán không có chúng. Đặc tả
+// khai chúng KHÔNG bắt buộc, khác với `name`.
+type sellerRefJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 // ---------------------------------------------------------------- Mở phiên
@@ -583,6 +615,17 @@ func toJSON(c *domain.Checkout) checkoutJSON {
 			UnitPrice:          toMoney(l.UnitPrice()),
 			Quantity:           l.Quantity(),
 			LineTotal:          toMoney(l.LineTotal()),
+		})
+	}
+
+	for _, g := range c.NhomGiaoHang() {
+		out.ShippingGroups = append(out.ShippingGroups, shippingGroupJSON{
+			Seller: sellerRefJSON{
+				ID:   g.SellerID.String(),
+				Name: g.SellerName,
+			},
+			EstimatedDeliveryDate: g.NgayGiaoDuKien.Format(time.DateOnly),
+			ShippingFee:           toMoney(g.PhiVanChuyen),
 		})
 	}
 

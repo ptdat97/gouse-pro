@@ -41,6 +41,7 @@ type Item struct {
 	variantDescription string
 	imageURL           string
 	sellerName         string
+	handlingTimeHours  int
 	unitPrice          money.Money
 
 	quantity int
@@ -79,6 +80,7 @@ type NewItemParams struct {
 	VariantDescription string
 	ImageURL           string
 	SellerName         string
+	HandlingTimeHours  int
 	UnitPrice          money.Money
 	Quantity           int
 
@@ -122,6 +124,7 @@ func NewItem(p NewItemParams) (*Item, error) {
 		variantDescription: strings.TrimSpace(p.VariantDescription),
 		imageURL:           strings.TrimSpace(p.ImageURL),
 		sellerName:         strings.TrimSpace(p.SellerName),
+		handlingTimeHours:  p.HandlingTimeHours,
 		unitPrice:          p.UnitPrice,
 		quantity:           p.Quantity,
 		minOrderQuantity:   p.MinOrderQuantity,
@@ -145,6 +148,7 @@ type RestoreItemParams struct {
 	VariantDescription string
 	ImageURL           string
 	SellerName         string
+	HandlingTimeHours  int
 	UnitPrice          money.Money
 	Quantity           int
 	MinOrderQuantity   int
@@ -169,6 +173,7 @@ func RestoreItem(p RestoreItemParams) *Item {
 		variantDescription: p.VariantDescription,
 		imageURL:           p.ImageURL,
 		sellerName:         p.SellerName,
+		handlingTimeHours:  p.HandlingTimeHours,
 		unitPrice:          p.UnitPrice,
 		quantity:           p.Quantity,
 		minOrderQuantity:   p.MinOrderQuantity,
@@ -195,7 +200,17 @@ func (i *Item) ImageURL() string           { return i.imageURL }
 //
 // Rỗng khi giỏ chưa từng đồng bộ kể từ khi cột này ra đời — bên gọi phải
 // chịu được chuỗi rỗng, không được coi nó là "seller không tồn tại".
-func (i *Item) SellerName() string             { return i.sellerName }
+func (i *Item) SellerName() string { return i.sellerName }
+
+// HandlingTimeHours là thời gian nhà bán cần để chuẩn bị món này.
+//
+// Chụp tại lần đồng bộ gần nhất, cùng cách với giá và tên seller. Nó đi
+// tiếp sang phiên thanh toán để tính NGÀY GIAO DỰ KIẾN của từng nhóm —
+// xem migration 000054.
+//
+// 0 nghĩa là KHÔNG BIẾT, không phải "giao ngay": tầng ứng dụng rơi về
+// `marketplace.default_handling_hours`.
+func (i *Item) HandlingTimeHours() int         { return i.handlingTimeHours }
 func (i *Item) UnitPrice() money.Money         { return i.unitPrice }
 func (i *Item) Quantity() int                  { return i.quantity }
 func (i *Item) MinOrderQuantity() int          { return i.minOrderQuantity }
@@ -237,6 +252,9 @@ func (i *Item) Sync(s SyncData, now time.Time) {
 	}
 	if s.SellerName != "" {
 		i.sellerName = s.SellerName
+	}
+	if s.HandlingTimeHours > 0 {
+		i.handlingTimeHours = s.HandlingTimeHours
 	}
 	if s.UnitPrice.IsPositive() {
 		i.unitPrice = s.UnitPrice
@@ -282,6 +300,9 @@ type SyncData struct {
 	VariantDescription string
 	ImageURL           string
 	UnitPrice          money.Money
+
+	// HandlingTimeHours là thời gian chuẩn bị hàng của offer này.
+	HandlingTimeHours int
 
 	// SellerName để hiển thị giỏ NHÓM THEO SELLER mà không phải gọi thêm
 	// module seller ở tầng HTTP.

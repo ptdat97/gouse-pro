@@ -128,6 +128,13 @@ type CartItemView struct {
 	SKUID    string
 	SellerID string
 
+	// SellerName và HandlingTimeHours chụp tại lần đồng bộ gần nhất.
+	//
+	// Checkout cần cả hai để dựng NHÓM GIAO HÀNG — tên để hiển thị, giờ
+	// chuẩn bị để tính ngày giao dự kiến riêng cho từng nhà bán.
+	SellerName        string
+	HandlingTimeHours int
+
 	ProductName        string
 	VariantDescription string
 	ImageURL           string

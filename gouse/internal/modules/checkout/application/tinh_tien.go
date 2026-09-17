@@ -21,10 +21,12 @@ import (
 func (s *Service) chinhSachTien(donVi money.Currency) (domain.ChinhSachTien, error) {
 	thueBP := int32(macDinh(opsconfig.KeyThueSuat))
 	nguong := int64(macDinh(opsconfig.KeyNguongMienPhiShip))
+	gioChuanBi := int(macDinh(opsconfig.KeyGioChuanBiMacDinh))
 
 	if s.chinhSach != nil {
 		thueBP = s.chinhSach.ThueSuatBP()
 		nguong = s.chinhSach.NguongMienPhiShip()
+		gioChuanBi = s.chinhSach.GioChuanBiMacDinh()
 	}
 
 	suat, err := types.NewBasisPoints(thueBP)
@@ -35,7 +37,11 @@ func (s *Service) chinhSachTien(donVi money.Currency) (domain.ChinhSachTien, err
 	if err != nil {
 		return domain.ChinhSachTien{}, err
 	}
-	return domain.ChinhSachTien{ThueSuat: suat, NguongMienPhiShip: m}, nil
+	return domain.ChinhSachTien{
+		ThueSuat:          suat,
+		NguongMienPhiShip: m,
+		GioChuanBiMacDinh: gioChuanBi,
+	}, nil
 }
 
 func macDinh(khoa string) float64 {

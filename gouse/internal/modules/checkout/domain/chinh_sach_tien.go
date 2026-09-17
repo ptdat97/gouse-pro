@@ -19,6 +19,11 @@ type ChinhSachTien struct {
 	// NguongMienPhiShip là TIỀN HÀNG tối thiểu để được miễn phí vận
 	// chuyển. Ngưỡng 0 nghĩa là mọi đơn được miễn.
 	NguongMienPhiShip money.Money
+
+	// GioChuanBiMacDinh dùng cho dòng hàng KHÔNG biết thời gian chuẩn bị
+	// của nhà bán — dòng cũ có trước migration 000054, hoặc offer không
+	// khai. Rơi về 0 nghĩa là hứa nhà bán đóng gói xong tức thì.
+	GioChuanBiMacDinh int
 }
 
 // ApDungPhiVaThue đặt phí vận chuyển (đã xét miễn phí) và thuế.

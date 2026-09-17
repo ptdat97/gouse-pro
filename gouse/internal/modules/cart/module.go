@@ -285,6 +285,8 @@ func toItemView(it *domain.Item) CartItemView {
 		OfferID:            it.OfferID().String(),
 		SKUID:              it.SKUID().String(),
 		SellerID:           it.SellerID().String(),
+		SellerName:         it.SellerName(),
+		HandlingTimeHours:  it.HandlingTimeHours(),
 		ProductName:        it.ProductName(),
 		VariantDescription: it.VariantDescription(),
 		ImageURL:           it.ImageURL(),

@@ -124,6 +124,7 @@ func (s *CartStore) ghi(ctx context.Context, tx querier, c *domain.Cart) error {
 				min_order_quantity, max_order_quantity,
 				availability, available_quantity,
 				source_content_id, source_creator_id,
+				handling_time_hours,
 				added_at, updated_at
 			) VALUES (
 				$1,$2,$3,$4,$5,
@@ -132,7 +133,8 @@ func (s *CartStore) ghi(ctx context.Context, tx querier, c *domain.Cart) error {
 				$13,$14,
 				$15,$16,
 				$17,$18,
-				$19,$20
+				$19,
+				$20,$21
 			)`,
 			it.ID().String(), c.ID().String(), it.OfferID().String(),
 			it.SKUID().String(), it.SellerID().String(),
@@ -141,6 +143,7 @@ func (s *CartStore) ghi(ctx context.Context, tx querier, c *domain.Cart) error {
 			it.MinOrderQuantity(), it.MaxOrderQuantity(),
 			string(it.Availability()), it.AvailableQuantity(),
 			it.SourceContentID().String(), it.SourceCreatorID().String(),
+			it.HandlingTimeHours(),
 			it.AddedAt(), it.UpdatedAt())
 		if err != nil {
 			return fmt.Errorf("cart: ghi món %q: %w", it.ProductName(), err)
@@ -306,6 +309,7 @@ func (s *CartStore) loadItems(
 		       min_order_quantity, max_order_quantity,
 		       availability, available_quantity,
 		       source_content_id, source_creator_id,
+		       handling_time_hours,
 		       added_at, updated_at
 		  FROM cart_item
 		 WHERE cart_id = $1
@@ -327,6 +331,7 @@ func (s *CartStore) loadItems(
 			availability                 string
 			availableQty                 int
 			sourceContent, sourceCreator string
+			handlingHours                int
 			addedAt, updatedAt           time.Time
 		)
 		if err := rows.Scan(
@@ -336,6 +341,7 @@ func (s *CartStore) loadItems(
 			&minQty, &maxQty,
 			&availability, &availableQty,
 			&sourceContent, &sourceCreator,
+			&handlingHours,
 			&addedAt, &updatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("cart: đọc món hàng: %w", err)
@@ -351,6 +357,7 @@ func (s *CartStore) loadItems(
 			VariantDescription: variant,
 			ImageURL:           imageURL,
 			SellerName:         sellerName,
+			HandlingTimeHours:  handlingHours,
 			UnitPrice:          mustMoney(unitPrice, money.Currency(currency)),
 			Quantity:           quantity,
 			MinOrderQuantity:   minQty,

@@ -31,9 +31,15 @@ type Line struct {
 	// cartItemID để truy vết ngược về giỏ.
 	cartItemID ids.ID
 
-	offerID  ids.ID
-	skuID    ids.ID
-	sellerID ids.ID
+	offerID    ids.ID
+	skuID      ids.ID
+	sellerID   ids.ID
+	sellerName string
+
+	// handlingTimeHours là thời gian nhà bán cần để chuẩn bị món này,
+	// ĐÓNG BĂNG từ giỏ. Nó quyết định ngày giao dự kiến của nhóm —
+	// xem migration 000054.
+	handlingTimeHours int
 
 	// ---- ĐÓNG BĂNG tại thời điểm bắt đầu checkout ----
 
@@ -61,10 +67,12 @@ type Line struct {
 }
 
 type NewLineParams struct {
-	CartItemID ids.ID
-	OfferID    ids.ID
-	SKUID      ids.ID
-	SellerID   ids.ID
+	CartItemID        ids.ID
+	OfferID           ids.ID
+	SKUID             ids.ID
+	SellerID          ids.ID
+	SellerName        string
+	HandlingTimeHours int
 
 	ProductName        string
 	VariantDescription string
@@ -109,6 +117,8 @@ func NewLine(p NewLineParams) (*Line, error) {
 		offerID:            p.OfferID,
 		skuID:              p.SKUID,
 		sellerID:           p.SellerID,
+		sellerName:         strings.TrimSpace(p.SellerName),
+		handlingTimeHours:  p.HandlingTimeHours,
 		productName:        strings.TrimSpace(p.ProductName),
 		variantDescription: strings.TrimSpace(p.VariantDescription),
 		unitPrice:          p.UnitPrice,
@@ -128,6 +138,8 @@ type RestoreLineParams struct {
 	OfferID            ids.ID
 	SKUID              ids.ID
 	SellerID           ids.ID
+	SellerName         string
+	HandlingTimeHours  int
 	ProductName        string
 	VariantDescription string
 	UnitPrice          money.Money
@@ -147,6 +159,8 @@ func RestoreLine(p RestoreLineParams) *Line {
 		offerID:            p.OfferID,
 		skuID:              p.SKUID,
 		sellerID:           p.SellerID,
+		sellerName:         p.SellerName,
+		handlingTimeHours:  p.HandlingTimeHours,
 		productName:        p.ProductName,
 		variantDescription: p.VariantDescription,
 		unitPrice:          p.UnitPrice,
@@ -158,12 +172,16 @@ func RestoreLine(p RestoreLineParams) *Line {
 	}
 }
 
-func (l *Line) ID() ids.ID                        { return l.id }
-func (l *Line) CheckoutID() ids.ID                { return l.checkoutID }
-func (l *Line) CartItemID() ids.ID                { return l.cartItemID }
-func (l *Line) OfferID() ids.ID                   { return l.offerID }
-func (l *Line) SKUID() ids.ID                     { return l.skuID }
-func (l *Line) SellerID() ids.ID                  { return l.sellerID }
+func (l *Line) ID() ids.ID         { return l.id }
+func (l *Line) CheckoutID() ids.ID { return l.checkoutID }
+func (l *Line) CartItemID() ids.ID { return l.cartItemID }
+func (l *Line) OfferID() ids.ID    { return l.offerID }
+func (l *Line) SKUID() ids.ID      { return l.skuID }
+func (l *Line) SellerID() ids.ID   { return l.sellerID }
+func (l *Line) SellerName() string { return l.sellerName }
+
+// HandlingTimeHours là thời gian chuẩn bị hàng, 0 nghĩa là KHÔNG BIẾT.
+func (l *Line) HandlingTimeHours() int            { return l.handlingTimeHours }
 func (l *Line) ProductName() string               { return l.productName }
 func (l *Line) VariantDescription() string        { return l.variantDescription }
 func (l *Line) UnitPrice() money.Money            { return l.unitPrice }

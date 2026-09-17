@@ -112,6 +112,15 @@ type CartItemSnapshot struct {
 	SKUID      ids.ID
 	SellerID   ids.ID
 
+	// SellerName và HandlingTimeHours để dựng NHÓM GIAO HÀNG: mỗi nhóm
+	// hiển thị tên nhà bán và ngày giao dự kiến RIÊNG (checkout.md mục 7).
+	//
+	// Đi qua giỏ chứ không tra thẳng marketplace: `cart` là ranh giới đọc
+	// offer, `checkout` đóng băng thứ cart đưa sang — cùng đường với giá
+	// và tỷ lệ hoa hồng.
+	SellerName        string
+	HandlingTimeHours int
+
 	ProductName        string
 	VariantDescription string
 	UnitPrice          money.Money
@@ -390,12 +399,13 @@ type OrderPort interface {
 // với lô hàng, hãng vận chuyển hay tiến độ giao. Một interface rộng buộc
 // mọi bản giả trong test phải cài hàng chục phương thức nó không dùng.
 type ShippingPort interface {
-	// EstimateShipping trả TỔNG phí cho danh sách nguồn hàng.
+	// EstimateShipping trả tổng phí VÀ chi tiết theo từng nguồn.
 	//
-	// Chi tiết theo từng nguồn (thời gian giao riêng cho mỗi nhóm — mục 7
-	// của đặc tả) nằm ở `fulfillment.EstimateShipping`; checkout chỉ cần
-	// con số phải thu, và trang hiển thị hỏi thẳng fulfillment cho phần
-	// còn lại.
+	// Chi tiết cần cho `shipping_groups` — mục 7 của đặc tả quyết định
+	// hiển thị thời gian giao RIÊNG cho từng nhóm. Trước 17/09 cổng này
+	// chỉ lấy tổng và vứt phần còn lại, kèm chú thích nói trang hiển thị
+	// "hỏi thẳng fulfillment" — nhưng KHÔNG có endpoint nào như vậy, nên
+	// bảng kê theo nhóm không tồn tại ở bất kỳ đâu.
 	EstimateShipping(
 		ctx context.Context, method string, sellerIDs []string, currency string,
 	) (UocTinhPhiGiao, error)
@@ -404,6 +414,18 @@ type ShippingPort interface {
 // UocTinhPhiGiao là kết quả ước tính mà checkout cần.
 type UocTinhPhiGiao struct {
 	Total int64
+
+	// TheoNguon là phí và số ngày vận chuyển của TỪNG nguồn hàng.
+	TheoNguon []PhiMotNguon
+}
+
+// PhiMotNguon là ước tính cho một kiện.
+type PhiMotNguon struct {
+	SellerID string
+	Amount   int64
+
+	// SoNgay là thời gian VẬN CHUYỂN, không gồm thời gian chuẩn bị hàng.
+	SoNgay int
 }
 
 // ChinhSachPort cấp hai con số kinh doanh sửa được lúc chạy (ADR-0015).
@@ -412,6 +434,9 @@ type UocTinhPhiGiao struct {
 // biết cấu hình nằm ở đâu, và bản giả trong test đặt được giá trị mà không
 // phải dựng cả một kho cấu hình.
 type ChinhSachPort interface {
+	// GioChuanBiMacDinh dùng cho dòng hàng không biết thời gian chuẩn bị.
+	GioChuanBiMacDinh() int
+
 	// ThueSuatBP là thuế suất theo phần vạn (800 = 8%).
 	ThueSuatBP() int32
 
@@ -860,6 +885,8 @@ func (s *Service) reserveAll(
 			OfferID:            it.OfferID,
 			SKUID:              it.SKUID,
 			SellerID:           it.SellerID,
+			SellerName:         it.SellerName,
+			HandlingTimeHours:  it.HandlingTimeHours,
 			ProductName:        it.ProductName,
 			VariantDescription: it.VariantDescription,
 			// ĐÓNG BĂNG: từ đây tới lúc tạo đơn, con số này không đổi dù
@@ -948,7 +975,64 @@ func (s *Service) ActiveCartID(
 }
 
 func (s *Service) GetCheckout(ctx context.Context, id ids.ID) (*domain.Checkout, error) {
-	return s.checkouts.FindByID(ctx, id)
+	c, err := s.checkouts.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	s.kemNhomGiaoHang(ctx, c)
+	return c, nil
+}
+
+// kemNhomGiaoHang dựng bảng kê phí và ngày giao theo TỪNG nhà bán.
+//
+// # Vì sao gắn ở đây chứ không lưu vào database
+//
+// Bảng kê là trạng thái DẪN XUẤT: phí đã nằm trên phiên, dòng hàng đã nằm
+// trên phiên, biểu phí đọc từ cấu hình vận hành trong bộ nhớ nên phép ước
+// tính không chạm database. Lưu thêm một bản chỉ tạo ra thứ thứ hai phải
+// giữ cho khớp với thứ nhất.
+//
+// # Hỏng thì BỎ QUA, không chặn
+//
+// Thiếu bảng kê làm trang thanh toán mất một khối hiển thị; chặn lại làm
+// khách không thanh toán được. Hai hậu quả không cùng hạng.
+func (s *Service) kemNhomGiaoHang(ctx context.Context, c *domain.Checkout) {
+	if c == nil || s.shipping == nil || c.ShippingMethod() == "" {
+		return
+	}
+
+	sellers := make([]string, 0, len(c.SellerIDs()))
+	for _, sid := range c.SellerIDs() {
+		sellers = append(sellers, sid.String())
+	}
+	if len(sellers) == 0 {
+		return
+	}
+
+	uoc, err := s.shipping.EstimateShipping(
+		ctx, c.ShippingMethod(), sellers, string(c.Currency()))
+	if err != nil {
+		return
+	}
+
+	theoNguon := make([]domain.PhiTheoNguon, 0, len(uoc.TheoNguon))
+	for _, n := range uoc.TheoNguon {
+		tien, err := money.New(n.Amount, c.Currency())
+		if err != nil {
+			return
+		}
+		theoNguon = append(theoNguon, domain.PhiTheoNguon{
+			SellerID: ids.ID(n.SellerID), Phi: tien, SoNgay: n.SoNgay,
+		})
+	}
+
+	// Dùng CÙNG đường giải nghĩa chính sách với phép tính phí, để giờ
+	// chuẩn bị mặc định không có hai nguồn.
+	cs, err := s.chinhSachTien(c.Currency())
+	if err != nil {
+		return
+	}
+	c.DatNhomGiaoHang(theoNguon, cs.GioChuanBiMacDinh, s.clock.Now())
 }
 
 // SetShippingAddress đặt địa chỉ giao hàng.
@@ -1179,6 +1263,8 @@ func (s *Service) Extend(ctx context.Context, id ids.ID) (*domain.Checkout, erro
 	if err := s.checkouts.Save(ctx, c); err != nil {
 		return nil, err
 	}
+	// Gia hạn cũng trả phiên ra ngoài, nên cũng phải kèm bảng kê.
+	s.kemNhomGiaoHang(ctx, c)
 	return c, nil
 }
 
@@ -1214,6 +1300,10 @@ func (s *Service) mutate(
 	if err := s.checkouts.Save(ctx, c); err != nil {
 		return nil, err
 	}
+
+	// Bảng kê theo nhóm dựng SAU khi lưu: mọi đường ghi đều đi qua đây,
+	// nên không đường nào trả về phiên thiếu nó.
+	s.kemNhomGiaoHang(ctx, c)
 	return c, nil
 }
 
