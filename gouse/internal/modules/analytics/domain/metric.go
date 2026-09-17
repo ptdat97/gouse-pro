@@ -91,9 +91,42 @@ const (
 	// hiển thị sai, và số nguyên thì không bao giờ sai.
 	MetricConversionRate = "conversion_rate"
 
-	// MetricSessionCount là số phiên truy cập.
+	// MetricSessionCount là số LƯỢT TRUY CẬP có xem sản phẩm.
 	MetricSessionCount = "session_count"
+
+	// MetricCartConversionRate là tỷ lệ phiên thanh toán MỞ RA thành đơn,
+	// tính bằng điểm cơ bản.
+	//
+	// KHÁC `conversion_rate` ở mẫu số, và khác biệt đó là cả vấn đề:
+	// chỉ số kia đếm từ LƯỢT XEM HÀNG, chỉ số này đếm từ lúc khách đã
+	// bấm thanh toán. "Bao nhiêu phiên thanh toán thành đơn" không trả
+	// lời "trang sản phẩm có thuyết phục không".
+	//
+	// Tên nói rõ mẫu số có chủ ý: mượn tên `conversion_rate` cho một con
+	// số dễ đo hơn là cách chắc chắn để người đọc tưởng đã đo được thứ
+	// chưa đo được (ADR-0020).
+	MetricCartConversionRate = "cart_conversion_rate"
 )
+
+// ChuaDoDuoc liệt kê chỉ số CHƯA đo được, kèm lý do đọc lên hiểu ngay.
+//
+// # Vì sao không ghi 0
+//
+// Số 0 nói với người đọc rằng KHÔNG AI MUA. Sự thật là hệ thống không nối
+// được hai đầu của phép tính. Hai câu đó dẫn tới hai hành động hoàn toàn
+// khác nhau — một bên đi sửa trang sản phẩm, một bên đi sửa đường đo.
+//
+// Dự án đã có tiền lệ đúng: `GET /api/v1/seller/performance` trả
+// `not_measured` kèm lý do cho từng chỉ số chưa tính được.
+//
+// Xóa một dòng ở đây là việc CUỐI CÙNG của phần nối dây tương ứng, không
+// phải việc đầu tiên.
+var ChuaDoDuoc = map[string]string{
+	MetricConversionRate: "tử số cần mã LƯỢT TRUY CẬP trên sự kiện đặt " +
+		"hàng, và sự kiện ấy sinh ở máy chủ nên chưa có. Xem ADR-0020 " +
+		"bước 3. Trong lúc chờ, dùng `cart_conversion_rate` — nó đo từ " +
+		"lúc mở phiên thanh toán chứ không từ lượt xem hàng.",
+}
 
 // Metric là một chỉ số đã tính.
 type Metric struct {

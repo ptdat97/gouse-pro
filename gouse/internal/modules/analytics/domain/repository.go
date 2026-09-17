@@ -35,6 +35,14 @@ type EventRepository interface {
 	// thấp hơn thực tế nhiều lần.
 	CountDistinctSessions(ctx context.Context, name string, r TimeRange, sellerID string) (int64, error)
 
+	// CountDistinctSubjects đếm số ĐỐI TƯỢNG khác nhau của một loại sự
+	// kiện — bao nhiêu ĐƠN, bao nhiêu PHIÊN THANH TOÁN.
+	//
+	// Khác `CountDistinctSessions` ở câu hỏi, không ở kỹ thuật: đếm phiên
+	// trả lời "bao nhiêu lượt truy cập", đếm đối tượng trả lời "bao nhiêu
+	// thứ đã xảy ra".
+	CountDistinctSubjects(ctx context.Context, name string, r TimeRange, sellerID string) (int64, error)
+
 	// GomLuotXemTheoSanPham đếm số PHIÊN khác nhau đã xem từng sản phẩm.
 	//
 	// Đầu vào của tín hiệu nhu cầu loại VIEW. Đếm PHIÊN chứ không đếm
@@ -47,7 +55,9 @@ type EventRepository interface {
 	// Bỏ qua sự kiện có amount NULL: chúng không liên quan tới tiền, và
 	// cộng chúng như 0 không sai nhưng đếm chúng vào sample_size thì sai.
 	//
-	// Trả về tổng và SỐ BẢN GHI đã cộng.
+	// Trả về tổng và số ĐỐI TƯỢNG KHÁC NHAU đã góp vào tổng — mẫu số
+	// đúng của AOV. Không phải số DÒNG: một đơn trộn hàng ba nhà bán
+	// sinh ba dòng `order.placed`.
 	SumAmount(ctx context.Context, name string, r TimeRange, sellerID string) (int64, int64, error)
 
 	// AnonymizeCustomer gỡ định danh khỏi mọi sự kiện của một khách.

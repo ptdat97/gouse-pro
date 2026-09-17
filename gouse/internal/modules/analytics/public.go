@@ -228,6 +228,15 @@ type MetricView struct {
 	// không nói lên điều gì, còn từ 20.000 lượt thì có.
 	SampleSize int64
 
+	// KhongDoDuoc giải thích vì sao chỉ số này CHƯA đo được. Rỗng nghĩa
+	// là con số ở `Value` có nghĩa.
+	//
+	// Bắt buộc phải hiển thị thay cho con số khi nó khác rỗng: ghi 0 là
+	// nói với người đọc rằng không có gì xảy ra, trong khi sự thật là hệ
+	// thống không nối được hai đầu của phép tính. Hai câu đó dẫn tới hai
+	// hành động hoàn toàn khác nhau (ADR-0020 điều 4).
+	KhongDoDuoc string
+
 	Currency   string
 	ComputedAt time.Time
 
@@ -260,7 +269,6 @@ const (
 	EventAddToCart       = "add_to_cart"
 	EventCheckoutStart   = "checkout_start"
 	EventCheckoutExpired = "checkout_expired"
-	EventPurchase        = "purchase"
 )
 
 // Sự kiện nghiệp vụ, đến từ domain event.

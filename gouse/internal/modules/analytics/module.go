@@ -82,6 +82,20 @@ func (m *Module) TrackBatch(ctx context.Context, events []EventInput) (int, erro
 }
 
 func (m *Module) GetMetric(ctx context.Context, req MetricRequest) (MetricView, error) {
+	// Chỉ số CHƯA đo được thì trả lý do, KHÔNG đọc kho.
+	//
+	// Đọc kho ra bản ghi rỗng rồi trả `Value: 0` là đúng thứ ADR-0020
+	// điều 4 cấm — và nó im lặng, nên người đọc không có cách nào biết.
+	if ly := domain.ChuaDoDuoc[req.Name]; ly != "" {
+		return MetricView{
+			Name:        req.Name,
+			PeriodStart: req.PeriodStart,
+			Granularity: req.Granularity,
+			SellerID:    req.SellerID,
+			KhongDoDuoc: ly,
+		}, nil
+	}
+
 	got, err := m.svc.GetMetric(ctx, req.Name, req.PeriodStart,
 		domain.Granularity(req.Granularity), req.SellerID)
 	if err != nil {

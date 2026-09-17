@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,15 +65,33 @@ var day = time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 func amount(v int64) *int64 { return &v }
 
 // order tạo sự kiện đặt hàng đã ghi nhận.
+//
+// `SubjectID` là mã ĐƠN, y như bên nhận thật đặt. Thiếu nó thì bài test
+// dựng một hình dạng sự kiện KHÔNG BAO GIỜ xảy ra ở production, và phép
+// đếm số đơn khác nhau không có gì để đếm.
 func order(sessionID, sellerID string, value int64, at time.Time) analytics.EventInput {
+	return orderCuaDon(ids.MustNew(ids.PrefixOrder).String(),
+		sessionID, sellerID, value, at)
+}
+
+// orderCuaDon tạo sự kiện đặt hàng cho MỘT đơn cụ thể.
+//
+// Cần khi bài test muốn dựng đơn TRỘN HÀNG: `order.placed` phát một sự
+// kiện cho mỗi nhà bán, nên nhiều sự kiện cùng một mã đơn là chuyện bình
+// thường — và là chuyện mà phép đếm phải xử lý đúng.
+func orderCuaDon(
+	orderID, sessionID, sellerID string, value int64, at time.Time,
+) analytics.EventInput {
 	return analytics.EventInput{
-		Name:       analytics.EventOrderPlaced,
-		Category:   analytics.CategoryBusiness,
-		EventID:    ids.MustNew(ids.PrefixEvent).String(),
-		SessionID:  sessionID,
-		SellerID:   sellerID,
-		Amount:     amount(value),
-		OccurredAt: at,
+		Name:        analytics.EventOrderPlaced,
+		Category:    analytics.CategoryBusiness,
+		EventID:     ids.MustNew(ids.PrefixEvent).String(),
+		SessionID:   sessionID,
+		SellerID:    sellerID,
+		SubjectType: "order",
+		SubjectID:   orderID,
+		Amount:      amount(value),
+		OccurredAt:  at,
 	}
 }
 
@@ -463,12 +482,17 @@ func TestTinhGMVvaAOV(t *testing.T) {
 	}
 }
 
-// TỶ LỆ CHUYỂN ĐỔI ĐẾM THEO PHIÊN, KHÔNG THEO SỰ KIỆN.
+// SỐ LƯỢT TRUY CẬP ĐẾM THEO PHIÊN, KHÔNG THEO SỰ KIỆN.
 //
-// Một người xem 20 sản phẩm là 20 sự kiện nhưng MỘT phiên. Dùng số sự
-// kiện làm mẫu số sẽ ra tỷ lệ thấp hơn thực tế nhiều lần, và người đọc sẽ
-// đi tìm một vấn đề không tồn tại.
-func TestTyLeChuyenDoiDemTheoPhien(t *testing.T) {
+// Một người xem 20 sản phẩm là 20 sự kiện nhưng MỘT lượt truy cập. Dùng số
+// sự kiện làm mẫu số sẽ ra tỷ lệ thấp hơn thực tế nhiều lần, và người đọc
+// sẽ đi tìm một vấn đề không tồn tại.
+//
+// Bài này TRƯỚC 17/09 đo `conversion_rate` và tự ghi một sự kiện tên
+// `purchase` để làm tử số. Nó xanh suốt trong lúc chỉ số ấy bằng 0 trên
+// hệ thống thật — vì không dòng mã production nào ghi cái tên đó. Xem
+// ADR-0020.
+func TestSoLuotTruyCapDemTheoPhien(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -486,12 +510,6 @@ func TestTyLeChuyenDoiDemTheoPhien(t *testing.T) {
 		}
 	}
 
-	// 1 trong 4 phiên mua hàng.
-	if err := m.TrackEvent(ctx, behavior(
-		analytics.EventPurchase, "ses-1", "", day.Add(10*time.Hour))); err != nil {
-		t.Fatalf("TrackEvent: %v", err)
-	}
-
 	if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
 		PeriodStart: day,
 		Granularity: analytics.GranularityDay,
@@ -500,7 +518,7 @@ func TestTyLeChuyenDoiDemTheoPhien(t *testing.T) {
 	}
 
 	got, err := m.GetMetric(ctx, analytics.MetricRequest{
-		Name:        analytics.MetricConversionRate,
+		Name:        analytics.MetricSessionCount,
 		PeriodStart: day,
 		Granularity: analytics.GranularityDay,
 	})
@@ -508,22 +526,17 @@ func TestTyLeChuyenDoiDemTheoPhien(t *testing.T) {
 		t.Fatalf("GetMetric: %v", err)
 	}
 
-	// 1 phiên mua / 4 phiên xem = 25% = 2500 điểm cơ bản.
-	//
-	// Nếu đếm theo SỰ KIỆN sẽ ra 1/23 ≈ 4,3% — sai gần sáu lần.
-	if got.Value != 2500 {
-		t.Fatalf("tỷ lệ chuyển đổi = %d điểm cơ bản, mong 2500 (25%%). "+
-			"Đếm theo sự kiện thay vì phiên sẽ ra khoảng 434.", got.Value)
-	}
-	if got.SampleSize != 4 {
-		t.Fatalf("cỡ mẫu = %d, mong 4 phiên", got.SampleSize)
+	// 23 sự kiện xem hàng, nhưng chỉ 4 LƯỢT TRUY CẬP.
+	if got.Value != 4 {
+		t.Fatalf("số lượt truy cập = %d, mong 4. Đếm theo sự kiện sẽ ra 23 "+
+			"— và mọi tỷ lệ chia cho nó sẽ nhỏ đi gần sáu lần.", got.Value)
 	}
 }
 
 // CỠ MẪU PHẢI ĐI KÈM CHỈ SỐ.
 //
-// Tỷ lệ chuyển đổi 50% từ 2 lượt truy cập không nói lên điều gì, còn từ
-// 20.000 lượt thì có. Thiếu cỡ mẫu, người đọc không phân biệt được.
+// Tỷ lệ 50% từ 2 mẫu không nói lên điều gì, còn từ 20.000 mẫu thì có.
+// Thiếu cỡ mẫu, người đọc không phân biệt được.
 func TestCoMauDiKemChiSo(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
@@ -536,17 +549,41 @@ func TestCoMauDiKemChiSo(t *testing.T) {
 		analytics.EventProductView, "ses-2", "", day)); err != nil {
 		t.Fatalf("TrackEvent: %v", err)
 	}
-	if err := m.TrackEvent(ctx, behavior(
-		analytics.EventPurchase, "ses-1", "", day)); err != nil {
-		t.Fatalf("TrackEvent: %v", err)
-	}
-
 	if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
 		PeriodStart: day,
 		Granularity: analytics.GranularityDay,
 	}); err != nil {
 		t.Fatalf("ComputeMetrics: %v", err)
 	}
+
+	got, err := m.GetMetric(ctx, analytics.MetricRequest{
+		Name:        analytics.MetricSessionCount,
+		PeriodStart: day,
+		Granularity: analytics.GranularityDay,
+	})
+	if err != nil {
+		t.Fatalf("GetMetric: %v", err)
+	}
+	if got.SampleSize != 2 {
+		t.Fatalf("cỡ mẫu = %d, mong 2 — không có nó thì một tỷ lệ trông "+
+			"như một con số đáng tin", got.SampleSize)
+	}
+}
+
+// TestChiSoChuaDoDuocPhaiNOIRAChuKhongTraVeKhong.
+//
+// # Vì sao bài này tồn tại
+//
+// `conversion_rate` bằng 0 trên hệ thống thật suốt từ khi có, và số 0 ấy
+// nói với người đọc rằng KHÔNG AI MUA — trong khi sự thật là hệ thống
+// không nối được hai đầu của phép tính (ADR-0020).
+//
+// Hai câu đó dẫn tới hai hành động hoàn toàn khác nhau: một bên đi sửa
+// trang sản phẩm, một bên đi sửa đường đo. Một con số im lặng không cho
+// người đọc cơ hội chọn đúng.
+func TestChiSoChuaDoDuocPhaiNOIRAChuKhongTraVeKhong(t *testing.T) {
+	m, _ := newModule(t, newClock())
+	ctx := context.Background()
 
 	got, err := m.GetMetric(ctx, analytics.MetricRequest{
 		Name:        analytics.MetricConversionRate,
@@ -556,12 +593,27 @@ func TestCoMauDiKemChiSo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMetric: %v", err)
 	}
-	if got.Value != 5000 {
-		t.Fatalf("tỷ lệ = %d, mong 5000 (50%%)", got.Value)
+	if got.KhongDoDuoc == "" {
+		t.Fatalf("`conversion_rate` trả Value=%d mà KHÔNG nói vì sao — "+
+			"người đọc tưởng đã đo được và không ai mua", got.Value)
 	}
-	if got.SampleSize != 2 {
-		t.Fatalf("cỡ mẫu = %d, mong 2 — không có nó thì 50%% trông như "+
-			"một con số đáng tin", got.SampleSize)
+	if !strings.Contains(got.KhongDoDuoc, "ADR-0020") {
+		t.Errorf("lý do không trỏ tới quyết định nào: %q", got.KhongDoDuoc)
+	}
+
+	// Chỉ số ĐO ĐƯỢC thì không được mang lý do, nếu không mọi chỉ số đều
+	// trông như chưa đo được.
+	ok, err := m.GetMetric(ctx, analytics.MetricRequest{
+		Name:        analytics.MetricSessionCount,
+		PeriodStart: day,
+		Granularity: analytics.GranularityDay,
+	})
+	if err != nil {
+		t.Fatalf("GetMetric: %v", err)
+	}
+	if ok.KhongDoDuoc != "" {
+		t.Errorf("`session_count` đo được mà vẫn báo chưa đo được: %q",
+			ok.KhongDoDuoc)
 	}
 }
 
@@ -1034,5 +1086,64 @@ func TestDoMinKhongHopLe(t *testing.T) {
 		To:          day, // ngược
 	}); !errors.Is(err, analytics.ErrInvalidInput) {
 		t.Fatalf("khoảng thời gian ngược = %v, mong ErrInvalidInput", err)
+	}
+}
+
+// TestDonTronHangLaMOTDonKhongPhaiBA.
+//
+// # Vì sao bài này tồn tại
+//
+// `order.placed` phát MỘT sự kiện cho MỖI nhà bán — đó là thiết kế đúng,
+// vì mỗi phần của mỗi nhà bán cần một bút toán riêng. Nhưng `order_count`
+// trước 17/09 đếm số DÒNG sự kiện, nên một đơn trộn hàng ba nhà bán được
+// tính là ba đơn, và `aov` chia cho con số ấy nên nhỏ đi ba lần.
+//
+// Sai ở đúng loại đơn mà cái chợ tồn tại để tạo ra, và sai theo hướng
+// không ai nghi: số đơn trông ĐẸP hơn thực tế.
+//
+// Không bài test nào bắt được vì mọi bài đều dựng đơn một nhà bán — nơi
+// hai cách đếm cho cùng một kết quả.
+func TestDonTronHangLaMOTDonKhongPhaiBA(t *testing.T) {
+	m, _ := newModule(t, newClock())
+	ctx := context.Background()
+
+	// MỘT đơn, ba nhà bán, ba sự kiện — đúng như bên nhận thật ghi.
+	const maDon = "ord_01K0000000000000000TRON"
+	for i, v := range []int64{300_000, 200_000, 100_000} {
+		ev := orderCuaDon(maDon, "ses-1", "sel-"+string(rune('a'+i)), v, day)
+		if err := m.TrackEvent(ctx, ev); err != nil {
+			t.Fatalf("TrackEvent: %v", err)
+		}
+	}
+
+	if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
+		PeriodStart: day,
+		Granularity: analytics.GranularityDay,
+	}); err != nil {
+		t.Fatalf("ComputeMetrics: %v", err)
+	}
+
+	doc := func(ten string) int64 {
+		t.Helper()
+		got, err := m.GetMetric(ctx, analytics.MetricRequest{
+			Name: ten, PeriodStart: day, Granularity: analytics.GranularityDay,
+		})
+		if err != nil {
+			t.Fatalf("GetMetric(%s): %v", ten, err)
+		}
+		return got.Value
+	}
+
+	// GMV cộng theo DÒNG là đúng: ba phần cộng lại thành tổng đơn.
+	if got := doc(analytics.MetricGMV); got != 600_000 {
+		t.Errorf("GMV = %d, mong 600.000đ", got)
+	}
+	if got := doc(analytics.MetricOrderCount); got != 1 {
+		t.Errorf("số đơn = %d, mong 1 — một đơn trộn hàng ba nhà bán vẫn "+
+			"là MỘT đơn", got)
+	}
+	if got := doc(analytics.MetricAOV); got != 600_000 {
+		t.Errorf("AOV = %d, mong 600.000đ — chia cho 3 sẽ ra 200.000đ, "+
+			"tức nền tảng tưởng khách tiêu ít hơn ba lần thực tế", got)
 	}
 }

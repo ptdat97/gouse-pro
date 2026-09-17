@@ -1,6 +1,6 @@
 # ADR-0020 — Một "phiên" là gì
 
-**Trạng thái:** Đề xuất · 17/09/2026
+**Trạng thái:** Đã chấp nhận · 17/09/2026
 
 ## Bối cảnh
 
@@ -10,11 +10,16 @@
 gmv              2.219.000   ✓ đúng
 order_count      2           ✓ đúng
 aov              1.109.500   ✓ đúng
-conversion_rate  0           ✗ bằng 0 vĩnh viễn
-session_count    0           ✗ bằng 0 vĩnh viễn
+conversion_rate  0           ✗ bằng 0 VĨNH VIỄN
+session_count    0           — chưa có lượt xem nào lúc tính
 ```
 
-Hai chỉ số cuối không sai vì thiếu dữ liệu. Chúng sai vì **không thể đúng**.
+Phân biệt hai dòng cuối là việc đầu tiên phải làm, và ban đầu tôi gộp
+nhầm chúng. `session_count` đếm lượt truy cập có xem sản phẩm; nó bằng 0
+vì lúc chạy chưa ai gửi sự kiện `product_view`, và nó tự đúng ngay khi có.
+
+`conversion_rate` thì khác hẳn: nó không sai vì thiếu dữ liệu, nó sai vì
+**không thể đúng**.
 
 ### Nguyên nhân thứ nhất: một cái tên không ai ghi
 
@@ -169,6 +174,32 @@ thấy tác dụng:
 Bước 1 sửa một lời nói dối đang hiển thị. Bước 2 cho một con số thật để
 theo dõi trong lúc chờ bước 3. Bước 3 là thứ trả lại đúng chỉ số mà đặc tả
 hứa.
+
+## Tiến độ
+
+```text
+✓ 1. conversion_rate báo "chưa đo được" thay vì 0
+✓ 2. cart_conversion_rate — chỉ số phiên thanh toán → đơn
+  3. visit_id đi từ trình duyệt tới domain event      cần cửa hàng đổi
+```
+
+Bước 1 và 2 xong ngày 17/09. Chúng không cần cửa hàng đổi gì nên làm được
+ngay sau khi ADR được duyệt.
+
+**Một lỗi khác lộ ra khi làm bước 2.** `order_count` — một trong ba dòng ✓ ở
+trên — đếm số DÒNG sự kiện,
+mà `order.placed` phát MỘT sự kiện cho MỖI nhà bán — nên một đơn trộn hàng
+ba nhà bán được tính là ba đơn, và `aov` chia cho con số ấy nên nhỏ đi ba
+lần. Sai ở đúng loại đơn mà cái chợ tồn tại để tạo ra, và sai theo hướng
+số đơn trông ĐẸP hơn thực tế. Không bài test nào bắt được vì mọi bài đều
+dựng đơn một nhà bán — nơi hai cách đếm cho cùng kết quả. Cũng vì thế mà
+dấu ✓ ở bảng đầu ADR này là ✓ của một phép đo may mắn: hai đơn hôm ấy đều
+một nhà bán.
+
+Đã sửa cùng lúc vì nó nằm đúng trong đoạn mã đang chạm, và mẫu số của
+`aov` nay tách khỏi `order_count`: một sự kiện thiếu `amount` là dữ liệu
+hỏng của bên gọi, nó không được kéo AOV xuống, nhưng `order_count` vẫn
+phải nói đúng số đơn đã đặt.
 
 ## Đánh đổi đã chấp nhận
 

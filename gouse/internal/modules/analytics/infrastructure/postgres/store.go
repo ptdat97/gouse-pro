@@ -156,6 +156,36 @@ func (s *EventStore) CountEvents(
 // Khác CountEvents: một người xem 20 sản phẩm là 20 sự kiện nhưng MỘT
 // phiên. Dùng số sự kiện làm mẫu số của tỷ lệ chuyển đổi sẽ ra con số thấp
 // hơn thực tế nhiều lần.
+// CountDistinctSubjects đếm số ĐỐI TƯỢNG khác nhau của một loại sự kiện.
+//
+// # Vì sao cần, khi đã có CountDistinctSessions
+//
+// Hai câu hỏi khác nhau. "Bao nhiêu lượt truy cập có xem hàng" đếm PHIÊN;
+// "bao nhiêu đơn được đặt" đếm ĐƠN.
+//
+// Đếm nhầm sang số dòng sự kiện thì sai ở đúng loại đơn mà cái chợ tồn tại
+// để tạo ra: `order.placed` phát MỘT sự kiện cho MỖI nhà bán, nên một đơn
+// trộn hàng ba nhà bán thành ba dòng. Trước bản sửa này `order_count` đếm
+// số dòng, tức một đơn ba nguồn được tính là ba đơn — và `aov` chia cho
+// con số ấy nên cũng sai theo.
+func (s *EventStore) CountDistinctSubjects(
+	ctx context.Context, name string, r domain.TimeRange, sellerID string,
+) (int64, error) {
+	clause, extra := sellerFilter(sellerID)
+	args := append([]any{name, r.From, r.To}, extra...)
+
+	var n int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(DISTINCT subject_id) FROM event_log
+		 WHERE event_name = $1 AND occurred_at >= $2 AND occurred_at < $3
+		   AND subject_id <> ''`+clause,
+		args...).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("analytics: đếm đối tượng: %w", err)
+	}
+	return n, nil
+}
+
 func (s *EventStore) CountDistinctSessions(
 	ctx context.Context, name string, r domain.TimeRange, sellerID string,
 ) (int64, error) {
@@ -220,8 +250,17 @@ func (s *EventStore) GomLuotXemTheoSanPham(
 // sẽ lỗi thay vì trả 0. "Chưa bán được gì" là trạng thái bình thường của
 // một ngày mới bắt đầu.
 //
-// Đếm riêng số bản ghi CÓ amount: sự kiện amount NULL không liên quan tới
-// tiền, và tính chúng vào sample_size sẽ làm AOV thấp giả tạo.
+// Giá trị thứ hai là số ĐỐI TƯỢNG KHÁC NHAU đã góp vào tổng — mẫu số đúng
+// của AOV.
+//
+// Hai chỗ tinh tế nằm trong cùng một câu lệnh:
+//
+//	DISTINCT   `order.placed` phát MỘT sự kiện cho MỖI nhà bán. Đếm dòng
+//	           thì một đơn trộn hàng ba nguồn thành ba đơn, và AOV chia
+//	           cho con số ấy nên nhỏ đi ba lần — sai ở đúng loại đơn mà
+//	           cái chợ tồn tại để tạo ra.
+//	có amount  sự kiện amount NULL không liên quan tới tiền; tính chúng
+//	           vào mẫu số làm AOV thấp giả tạo.
 func (s *EventStore) SumAmount(
 	ctx context.Context, name string, r domain.TimeRange, sellerID string,
 ) (int64, int64, error) {
@@ -230,7 +269,10 @@ func (s *EventStore) SumAmount(
 
 	var total, count int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(sum(amount), 0), count(amount) FROM event_log
+		SELECT COALESCE(sum(amount), 0),
+		       count(DISTINCT subject_id) FILTER (
+		           WHERE amount IS NOT NULL AND subject_id <> '')
+		  FROM event_log
 		 WHERE event_name = $1 AND occurred_at >= $2 AND occurred_at < $3`+clause,
 		args...).Scan(&total, &count)
 	if err != nil {

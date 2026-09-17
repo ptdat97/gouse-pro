@@ -59,7 +59,6 @@ const (
 	EventAddToCart       = "add_to_cart"
 	EventCheckoutStart   = "checkout_start"
 	EventCheckoutExpired = "checkout_expired"
-	EventPurchase        = "purchase"
 )
 
 // Tên các sự kiện nghiệp vụ của MVP.

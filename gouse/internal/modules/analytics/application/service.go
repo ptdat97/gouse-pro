@@ -217,8 +217,18 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 		ComputedAt:     now,
 	}
 
-	// GMV và số đơn: đọc MỘT lần, dùng cho ba chỉ số.
-	gmv, orderCount, err := s.events.SumAmount(
+	// GMV cộng số tiền của mọi dòng sự kiện; SỐ ĐƠN đếm đơn KHÁC NHAU.
+	//
+	// Hai phép đếm khác nhau vì `order.placed` phát MỘT sự kiện cho MỖI
+	// nhà bán. Cộng tiền theo dòng là đúng (các phần cộng lại thành tổng
+	// đơn), nhưng đếm dòng thì một đơn trộn hàng ba nhà bán thành ba đơn
+	// — và `aov` chia cho con số ấy nên sai theo.
+	gmv, donCoTien, err := s.events.SumAmount(
+		ctx, domain.EventOrderPlaced, r, in.SellerID)
+	if err != nil {
+		return err
+	}
+	orderCount, err := s.events.CountDistinctSubjects(
 		ctx, domain.EventOrderPlaced, r, in.SellerID)
 	if err != nil {
 		return err
@@ -240,26 +250,27 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 		return err
 	}
 
+	// AOV chia cho số đơn ĐÃ GÓP TIỀN, không cho `orderCount`.
+	//
+	// Hai con số chỉ khác nhau khi có sự kiện `order.placed` thiếu
+	// `amount` — dữ liệu hỏng của bên gọi. Khi đó `order_count` vẫn phải
+	// nói đúng số đơn đã đặt, còn AOV thì không được để một bản ghi hỏng
+	// kéo xuống.
 	aovMetric := base
 	aovMetric.Name = domain.MetricAOV
-	aovMetric.Value = domain.ComputeAOV(gmv, orderCount)
-	aovMetric.SampleSize = orderCount
+	aovMetric.Value = domain.ComputeAOV(gmv, donCoTien)
+	aovMetric.SampleSize = donCoTien
 	if err := s.metrics.Upsert(ctx, aovMetric); err != nil {
 		return err
 	}
 
-	// TỶ LỆ CHUYỂN ĐỔI đếm theo PHIÊN, không theo sự kiện.
+	// SỐ LƯỢT TRUY CẬP đếm theo PHIÊN, không theo sự kiện.
 	//
-	// Một người xem 20 sản phẩm là 20 sự kiện nhưng MỘT phiên. Dùng số sự
-	// kiện làm mẫu số sẽ ra tỷ lệ thấp hơn thực tế nhiều lần, và người đọc
-	// sẽ đi tìm một vấn đề không tồn tại.
+	// Một người xem 20 sản phẩm là 20 sự kiện nhưng MỘT lượt truy cập.
+	// Dùng số sự kiện làm mẫu số sẽ ra tỷ lệ thấp hơn thực tế nhiều lần,
+	// và người đọc sẽ đi tìm một vấn đề không tồn tại.
 	viewSessions, err := s.events.CountDistinctSessions(
 		ctx, domain.EventProductView, r, in.SellerID)
-	if err != nil {
-		return err
-	}
-	buySessions, err := s.events.CountDistinctSessions(
-		ctx, domain.EventPurchase, r, in.SellerID)
 	if err != nil {
 		return err
 	}
@@ -272,11 +283,25 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 		return err
 	}
 
-	convMetric := base
-	convMetric.Name = domain.MetricConversionRate
-	convMetric.Value = domain.ComputeConversionRate(buySessions, viewSessions)
-	convMetric.SampleSize = viewSessions
-	return s.metrics.Upsert(ctx, convMetric)
+	// `conversion_rate` KHÔNG được ghi chừng nào chưa đo được.
+	//
+	// Ghi 0 là nói với người đọc rằng không ai mua, trong khi sự thật là
+	// hai đầu của phép tính không nối được. `GetMetric` trả lý do lấy từ
+	// `domain.ChuaDoDuoc` (ADR-0020 điều 4).
+
+	// TỶ LỆ PHIÊN THANH TOÁN THÀNH ĐƠN — đo được ngay, vì cả hai đầu đều
+	// ở máy chủ.
+	checkouts, err := s.events.CountDistinctSubjects(
+		ctx, domain.EventCheckoutStart, r, in.SellerID)
+	if err != nil {
+		return err
+	}
+
+	cartConv := base
+	cartConv.Name = domain.MetricCartConversionRate
+	cartConv.Value = domain.ComputeConversionRate(orderCount, checkouts)
+	cartConv.SampleSize = checkouts
+	return s.metrics.Upsert(ctx, cartConv)
 }
 
 // GetMetric đọc một chỉ số đã tính.
