@@ -38,7 +38,7 @@ Tuyến đã đăng ký                 87      (83 khớp đặc tả + 4 endpo
 Migration                        56
 Test Go                          1.125
 Test trình duyệt (Playwright)    12
-Test đơn vị TypeScript           52
+Test đơn vị TypeScript           57
 ```
 
 **Tầng HTTP KHÔNG còn là chỗ nghẽn.** Đó là tình hình của tháng 8 đầu; giờ
@@ -5898,6 +5898,83 @@ Nên hàng rào đúng cần một sổ ghi cặp TƯỜNG MINH (`schemas.yaml#/
 ↔ `order/domain.Status`), cùng kiểu sổ như `chuaCai` và `headerNgoaiDacTa`.
 Chưa làm; ghi lại ở đây kèm hai bằng chứng rằng hai enum ĐÃ lệch thật, để
 lần sau không phải đi tìm lại lý do.
+
+---
+
+### P3-62 — màn hình HIỆU SUẤT, và một chỉ số biến mất không một lời
+
+Đặc tả nói vì sao endpoint này tồn tại: *"Seller cần hiểu vì sao mình
+không thắng buy box và cần làm gì để cải thiện. Mô hình chấm điểm hộp đen
+tạo tranh chấp không giải quyết được và cảm giác bất công."*
+
+Backend đã làm đúng tinh thần ấy từ trước — có `sample_size`, có
+`shipping_sla_hours`, có `not_measured` kèm lý do — và **không ai nhìn
+thấy**, vì chưa có màn hình.
+
+#### Lỗ hổng tìm ra khi đọc dữ liệu thật
+
+Gọi API cho gian hàng có 1.564 đơn: `metrics` trả về ĐÚNG MỘT chỉ số.
+`on_time_shipping_rate` không có, và cũng không nằm trong `not_measured`.
+
+Lý do thì hợp lý — nó chỉ được chấm khi có ≥ 10 đơn ĐÃ BÀN GIAO, mà gian
+hàng này chưa bàn giao cái nào. Nhưng nhà bán không có cách nào biết điều
+đó. Một chỉ số vắng mặt vì hai chuyện khác hẳn nhau:
+
+```text
+thiếu NGUỒN DỮ LIỆU   vĩnh viễn cho tới khi có người xây
+chưa đủ MẪU           đo được, chỉ là kỳ này ít đơn quá. TỰ HẾT.
+```
+
+Bản trước chỉ nói ra loại thứ nhất. Loại thứ hai biến mất im lặng — tức
+đúng thứ hộp đen mà endpoint sinh ra để tránh, chỉ khác là ở phía người
+viết API.
+
+`ChiSoChuaDo` nay nhận số liệu và ngưỡng, rồi thêm các chỉ số thiếu mẫu
+kèm **con số cụ thể**: "cần ít nhất 10 đơn ĐÃ BÀN GIAO trong kỳ, hiện có
+0". Biết còn thiếu bao nhiêu thì mới làm gì được.
+
+#### Bất biến mới, và bài test giữ nó
+
+Hai danh sách dùng hai điều kiện phải là **phủ định của nhau**. Lệch nhau
+thì hoặc mâu thuẫn (một chỉ số nằm ở cả hai), hoặc tệ hơn: nó biến mất
+khỏi CẢ HAI.
+
+`TestKhongChiSoNaoVuaDoVuaChuaDo` quét năm tổ hợp số liệu quanh ngưỡng.
+Phá thử: đổi điều kiện của `on_time_shipping_rate` từ `DonDaGiao` sang
+`TongDon` → đỏ ngay tại `{TongDon:10, DonDaGiao:9}` với câu *"biến mất khỏi
+CẢ HAI danh sách"*. Đó đúng là tổ hợp mà mắt người bỏ qua.
+
+#### Ba quyết định của màn hình
+
+**Ngưỡng nằm NGAY CẠNH giá trị**, không ở trang chính sách. Đây là toàn bộ
+khác biệt giữa "bạn bị chấm 3 sao" và "bạn ở 4%, ngưỡng là ≤ 3%".
+
+**Hướng của ngưỡng phải hiện ra.** "Ngưỡng 3%" một mình không nói được gì —
+3% là sàn hay trần? Tỷ lệ hủy càng thấp càng tốt, giao đúng hạn thì ngược
+lại. Hiện sai hướng là nói với nhà bán rằng họ đang đạt trong khi họ đang
+vi phạm. Nên bảng nhãn khai cả `huong`, và chỉ số LẠ hiện "ngưỡng X" chứ
+KHÔNG đoán một dấu.
+
+**Đơn vị khai trong bảng, không suy từ tên.** API trả `0.03` cho một thứ
+nghĩa là 3%; hiện thẳng `0.03` là sai ở mức người đọc không nhận ra. Suy
+đơn vị từ hậu tố `_rate` chạy được hôm nay và hỏng im lặng vào ngày có chỉ
+số đầu tiên không phải tỷ lệ — bảng khai rõ thì chỉ số lạ rơi vào nhánh mặc
+định và LỘ RA.
+
+#### Kiểm chứng
+
+Chạy thật, `nhaban2@example.com`, hai trạng thái:
+
+```text
+30 ngày   1.564 đơn · Tỷ lệ hủy đơn 0% · ngưỡng ≤ 3% · Đạt
+          "Chưa chấm được" liệt kê 5 mục, trong đó Giao đúng hạn ghi rõ
+          cần 10 đơn đã bàn giao, hiện có 0
+ 7 ngày   0 đơn · KHÔNG chấm chỉ số nào — đúng, vì chấm một gian hàng mới
+          mở là bất công. Cả hai chỉ số đo được đều xuống "chưa chấm
+          được" kèm con số, thay vì biến mất.
+```
+
+5 test đơn vị khoá quyết định chữ nghĩa; 57 xanh. 63/63 gói Go xanh.
 
 ---
 

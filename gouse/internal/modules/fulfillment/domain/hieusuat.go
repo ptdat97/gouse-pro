@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // SLAGiaoHang là thời hạn nhà bán phải bàn giao cho đơn vị vận chuyển,
 // tính từ lúc đơn thực hiện được tạo.
@@ -181,9 +184,46 @@ type ChuaDo struct {
 	LyDo string
 }
 
-// ChiSoChuaDo liệt kê những gì đặc tả khai mà chưa có dữ liệu để tính.
-func ChiSoChuaDo() []ChuaDo {
-	return []ChuaDo{
+// ChiSoChuaDo liệt kê mọi chỉ số KHÔNG có trong `metrics`, kèm lý do.
+//
+// # Hai lý do khác nhau, và trước đây chỉ một cái được nói ra
+//
+// Một chỉ số vắng mặt vì hai chuyện hoàn toàn khác nhau:
+//
+//	hệ thống chưa đo được   thiếu nguồn dữ liệu — vĩnh viễn cho tới khi
+//	                        có người xây. Bốn chỉ số ở cuối hàm này.
+//	chưa đủ MẪU             đo được, nhưng kỳ này quá ít đơn để con số có
+//	                        nghĩa. Tự hết khi gian hàng bán thêm.
+//
+// Bản trước chỉ trả loại thứ nhất. Loại thứ hai biến mất KHÔNG một lời:
+// `on_time_shipping_rate` đơn giản là không có trong `metrics`, và nhà bán
+// không có cách nào biết vì sao — đúng thứ hộp đen mà endpoint này sinh ra
+// để tránh, chỉ khác là ở phía người viết API.
+//
+// Nói "chưa đủ mẫu, cần N đơn, hiện có M" thì nhà bán biết phải làm gì và
+// biết khi nào chỉ số sẽ xuất hiện.
+func ChiSoChuaDo(s SoLieuHieuSuat, ng Nguong) []ChuaDo {
+	ra := []ChuaDo{}
+
+	// Hai chỉ số ĐO ĐƯỢC, vắng mặt vì mẫu. Điều kiện ở đây phải là PHỦ
+	// ĐỊNH của điều kiện trong `TinhChiSo` — lệch nhau thì sẽ có chỉ số
+	// vừa nằm trong `metrics` vừa nằm ở đây, hoặc tệ hơn: vắng ở cả hai.
+	if s.TongDon < ng.MauToiThieu {
+		ra = append(ra, ChuaDo{
+			Ten: "cancellation_rate",
+			LyDo: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn trong kỳ, "+
+				"hiện có %d", ng.MauToiThieu, s.TongDon),
+		})
+	}
+	if s.DonDaGiao < ng.MauToiThieu {
+		ra = append(ra, ChuaDo{
+			Ten: "on_time_shipping_rate",
+			LyDo: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn ĐÃ BÀN GIAO "+
+				"trong kỳ, hiện có %d", ng.MauToiThieu, s.DonDaGiao),
+		})
+	}
+
+	return append(ra, []ChuaDo{
 		{
 			Ten: "return_rate_description",
 			LyDo: "cần dữ liệu của module returns; đó là module ở tầng khác " +
@@ -203,5 +243,5 @@ func ChiSoChuaDo() []ChuaDo {
 			LyDo: "buy box tính tại thời điểm hỏi và không được lưu lại, " +
 				"nên không có lịch sử để tính tỷ lệ",
 		},
-	}
+	}...)
 }

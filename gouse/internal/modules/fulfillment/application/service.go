@@ -757,7 +757,7 @@ func (s *Service) TinhHieuSuat(
 		SLAGio:    ng.SLAGiaoHang.Hours(),
 		SoLieu:    so,
 		ChiSo:     chiSo,
-		ChuaDo:    domain.ChiSoChuaDo(),
+		ChuaDo:    domain.ChiSoChuaDo(so, ng),
 		ThongDiep: thongDiep(so, chiSo, ng),
 	}, nil
 }

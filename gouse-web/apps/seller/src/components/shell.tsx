@@ -28,6 +28,7 @@ const NAV = [
   { href: "/offers", label: "Hàng đang bán" },
   { href: "/returns", label: "Trả hàng" },
   { href: "/tien", label: "Tiền của tôi" },
+  { href: "/hieu-suat", label: "Hiệu suất" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {

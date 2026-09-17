@@ -821,13 +821,24 @@ performance:
                 not_measured:
                   type: array
                   description: |
-                    Những chỉ số đặc tả có khai mà hệ thống CHƯA đo được,
-                    kèm lý do.
+                    MỌI chỉ số không có trong `metrics`, kèm lý do. Hai
+                    loại lý do, và chúng khác nhau về bản chất:
 
-                    Trả một phần chỉ số rồi im lặng về phần còn lại tạo ra
-                    đúng thứ hộp đen mà endpoint này sinh ra để tránh —
-                    chỉ khác là ở phía người viết API. Nói thẳng "chưa đo,
-                    vì lý do này" trung thực hơn một con số bịa.
+                    - **thiếu nguồn dữ liệu** — vĩnh viễn cho tới khi có
+                      người xây (`average_rating`, `buy_box_win_rate`…)
+                    - **chưa đủ mẫu** — đo được, nhưng kỳ này quá ít đơn
+                      để con số có nghĩa. Tự hết khi gian hàng bán thêm.
+                      Lý do nêu rõ cần bao nhiêu và hiện có bao nhiêu.
+
+                    Loại thứ hai thêm 17/09/2026. Trước đó một chỉ số đo
+                    được mà thiếu mẫu chỉ đơn giản BIẾN MẤT khỏi `metrics`
+                    không một lời — nhà bán không có cách nào biết vì sao,
+                    tức đúng thứ hộp đen endpoint này sinh ra để tránh, chỉ
+                    khác là ở phía người viết API.
+
+                    Bất biến: mỗi chỉ số đo được nằm ở ĐÚNG MỘT trong hai
+                    danh sách, không bao giờ cả hai và không bao giờ không
+                    danh sách nào (`TestKhongChiSoNaoVuaDoVuaChuaDo`).
                   items:
                     type: object
                     properties:

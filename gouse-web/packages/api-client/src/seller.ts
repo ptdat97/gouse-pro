@@ -257,3 +257,28 @@ export function getMySettlement(
     `/api/v1/seller/settlements/${encodeURIComponent(id)}`,
   );
 }
+
+// -------------------------------------------------------------- Hiệu suất
+
+export type MyPerformance = Ok<operations["getMyPerformance"]>;
+
+/** Ba kỳ hợp lệ — backend từ chối mọi giá trị khác. */
+export type KyHieuSuat = "LAST_7_DAYS" | "LAST_30_DAYS" | "LAST_90_DAYS";
+
+/**
+ * Chỉ số hiệu suất gian hàng.
+ *
+ * Endpoint này trả CẢ những chỉ số nó KHÔNG chấm được, kèm lý do
+ * (`not_measured`). Giao diện phải hiện chúng: giấu đi là dựng lại đúng
+ * mô hình chấm điểm hộp đen mà đặc tả nói là "tạo tranh chấp không giải
+ * quyết được và cảm giác bất công".
+ */
+export function getMyPerformance(
+  api: ApiClient,
+  ky?: KyHieuSuat,
+): Promise<MyPerformance> {
+  return api.get<MyPerformance>(
+    "/api/v1/seller/performance",
+    ky ? { period: ky } : undefined,
+  );
+}

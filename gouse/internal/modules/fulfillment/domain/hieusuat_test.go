@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
@@ -115,7 +116,10 @@ func TestKhongChiaChoKhong(t *testing.T) {
 // Trả một phần chỉ số rồi im lặng về phần còn lại tạo ra đúng thứ hộp đen
 // mà đặc tả sinh ra để tránh — chỉ khác là ở phía người viết API.
 func TestChiSoChuaDoNoiRoLyDo(t *testing.T) {
-	ds := domain.ChiSoChuaDo()
+	// Mẫu ĐỦ cho cả hai chỉ số đo được, nên danh sách chỉ còn bốn chỉ số
+	// thiếu nguồn dữ liệu.
+	du := domain.SoLieuHieuSuat{TongDon: 100, DonDaGiao: 100}
+	ds := domain.ChiSoChuaDo(du, domain.NguongMacDinh())
 	if len(ds) == 0 {
 		t.Fatal("không khai chỉ số nào là chưa đo")
 	}
@@ -126,6 +130,79 @@ func TestChiSoChuaDoNoiRoLyDo(t *testing.T) {
 		if len(c.LyDo) < 20 {
 			t.Errorf("lý do của %q quá ngắn (%q) — một dòng không giải "+
 				"thích được thì không khác gì im lặng", c.Ten, c.LyDo)
+		}
+	}
+}
+
+// MỘT chỉ số vắng mặt vì MẪU cũng phải được nói ra.
+//
+// Trước 17/09/2026, `ChiSoChuaDo` chỉ liệt kê những chỉ số thiếu NGUỒN DỮ
+// LIỆU. Chỉ số đo được mà kỳ này ít đơn quá thì biến mất khỏi `metrics`
+// không một lời — nhà bán không có cách nào biết vì sao, tức đúng thứ hộp
+// đen endpoint này sinh ra để tránh.
+func TestChuaDuMauCungPhaiNoiRa(t *testing.T) {
+	ng := domain.NguongMacDinh()
+
+	// Một gian hàng mới: ít đơn, chưa bàn giao cái nào.
+	moi := domain.SoLieuHieuSuat{TongDon: 3, DonDaGiao: 0}
+
+	if got := domain.TinhChiSo(moi, ng); len(got) != 0 {
+		t.Fatalf("mẫu quá nhỏ mà vẫn chấm: %+v", got)
+	}
+
+	theoTen := map[string]string{}
+	for _, c := range domain.ChiSoChuaDo(moi, ng) {
+		theoTen[c.Ten] = c.LyDo
+	}
+
+	for _, ten := range []string{"cancellation_rate", "on_time_shipping_rate"} {
+		lyDo, co := theoTen[ten]
+		if !co {
+			t.Errorf("%q vắng khỏi metrics mà KHÔNG có trong not_measured "+
+				"— nhà bán không có cách nào biết vì sao", ten)
+			continue
+		}
+		// Lý do phải nêu CON SỐ: "chưa đủ mẫu" một mình không cho biết
+		// còn thiếu bao nhiêu, nên không ai làm gì được với nó.
+		if !strings.Contains(lyDo, "3") && !strings.Contains(lyDo, "0") {
+			t.Errorf("lý do của %q không nêu số đơn hiện có: %q", ten, lyDo)
+		}
+		if !strings.Contains(lyDo, "10") {
+			t.Errorf("lý do của %q không nêu ngưỡng mẫu tối thiểu: %q", ten, lyDo)
+		}
+	}
+}
+
+// MỘT chỉ số KHÔNG được vừa nằm trong `metrics` vừa nằm trong `not_measured`.
+//
+// Hai danh sách dùng hai điều kiện phải là phủ định của nhau. Lệch nhau thì
+// hoặc mâu thuẫn, hoặc — tệ hơn — một chỉ số vắng ở CẢ HAI.
+func TestKhongChiSoNaoVuaDoVuaChuaDo(t *testing.T) {
+	ng := domain.NguongMacDinh()
+
+	for _, so := range []domain.SoLieuHieuSuat{
+		{TongDon: 0, DonDaGiao: 0},
+		{TongDon: 9, DonDaGiao: 9},
+		{TongDon: 10, DonDaGiao: 9},
+		{TongDon: 100, DonDaGiao: 10},
+		{TongDon: 100, DonDaGiao: 100},
+	} {
+		daDo := map[string]bool{}
+		for _, c := range domain.TinhChiSo(so, ng) {
+			daDo[c.Ten] = true
+		}
+		chuaDo := map[string]bool{}
+		for _, c := range domain.ChiSoChuaDo(so, ng) {
+			chuaDo[c.Ten] = true
+		}
+
+		for _, ten := range []string{"cancellation_rate", "on_time_shipping_rate"} {
+			switch {
+			case daDo[ten] && chuaDo[ten]:
+				t.Errorf("%+v: %q vừa được chấm vừa báo chưa đo", so, ten)
+			case !daDo[ten] && !chuaDo[ten]:
+				t.Errorf("%+v: %q biến mất khỏi CẢ HAI danh sách", so, ten)
+			}
 		}
 	}
 }

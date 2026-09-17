@@ -23,12 +23,13 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     139 file · 45.005 dòng
+Tài liệu     139 file · 45.083 dòng
 Đặc tả API   12 file YAML · 98 thao tác · 0 lỗi lint
-Code Go      292 file · 82.763 dòng · 1.125 hàm test
+Code Go      292 file · 82.803 dòng · 1.127 hàm test
 Migration    56 file SQL · đảo được
-Giao diện    3 app Next.js · 12 test trình duyệt · 52 test đơn vị
-Màn hình nhà bán  4 trang (việc cần làm · hàng bán · trả hàng · tiền)
+Giao diện    3 app Next.js · 12 test trình duyệt · 57 test đơn vị
+Màn hình nhà bán  5 trang (việc cần làm · hàng bán · trả hàng · tiền ·
+                  hiệu suất)
 
 Module               19  (17 MVP + recommendation + returns)
 Module có tầng HTTP  14/19
