@@ -149,3 +149,78 @@ a { color: var(--color-info); }
 .mono { font-family: var(--font-mono); font-size: var(--text-sm); }
 
 .actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ------------------------------------------------- Khối nội dung và ghi chú
+ *
+ * Bốn lớp dưới đây được MÀN HÌNH TRẢ HÀNG dùng từ 17/09 mà chưa bao giờ
+ * được định nghĩa trong ứng dụng này — chúng được chép tên từ cửa hàng,
+ * nơi chúng có thật. Hệ quả im lặng: trang vẫn hiện, nhưng mọi dòng ghi
+ * chú `.muted` đậm ngang nội dung chính và `.panel` không có viền, nên
+ * thứ tự ưu tiên mà mã nguồn mô tả không tồn tại trên màn hình.
+ *
+ * Tên lớp không tồn tại KHÔNG gây lỗi ở đâu cả: không ở TypeScript, không
+ * ở build, không ở console. Đây là dạng lỗi chỉ MẮT bắt được — cùng họ với
+ * P3-58, nơi phép kiểm đúng nằm ở chỗ không ai chạy.
+ */
+
+.muted { color: var(--color-text-muted); }
+
+.panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  margin-bottom: var(--space-4);
+}
+
+.panel h2,
+.panel h3 { font-size: var(--text-lg); margin-top: 0; }
+
+.lines { list-style: none; margin: 0; padding: 0; }
+
+.line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.line:last-child { border-bottom: none; }
+
+/* --------------------------------------------------------------- Số dư
+ *
+ * Số tiền to hơn nhãn của nó, có chủ ý: nhà bán mở trang này để đọc một
+ * con số, không phải để đọc một bảng.
+ */
+
+.balance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.balance__card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.balance__label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.balance__amount {
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  margin: var(--space-1) 0 var(--space-2);
+}
+
+.balance__hint { font-size: var(--text-sm); }
+
+/* Phần BỊ TRỪ dùng màu cảnh báo chứ không phải màu lỗi: nhà bán đang nợ
+ * không phải là hệ thống hỏng, và tô đỏ một chuyện bình thường sẽ làm
+ * người ta thôi tin màu đỏ ở chỗ thật sự cần. */
+.deficit { color: var(--color-warning); }

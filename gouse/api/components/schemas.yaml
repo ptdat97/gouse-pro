@@ -1139,52 +1139,82 @@ SellerBalance:
       description: |
         Giữ bảo đảm theo chính sách — cơ chế bảo vệ khi seller có tỷ lệ
         hoàn hàng cao hoặc bỏ trốn với số dư âm.
-    next_settlement_date:
-      type: string
-      format: date
+    # `next_settlement_date` đã BỎ (17/09/2026).
+    #
+    # Trường này mô tả một lịch chi trả cố định. Không có lịch nào: job
+    # `taoDoiSoat` chạy MỖI GIỜ và gom mọi khoản đã rút được, nên câu trả
+    # lời đúng luôn là "trong vòng một giờ nữa" — một thông tin không đáng
+    # một trường.
+    #
+    # Không đường nào từng điền nó, tức nó thuộc đúng dạng lỗi ở backlog
+    # mục 8. Và như `buy_box_offer`, câu hỏi đầu tiên không phải "ai điền"
+    # mà "giá trị đúng của nó là gì" — ở đây là: không có.
 
 Settlement:
   type: object
   description: |
-    Đối soát một kỳ. Seller phải xem được **từng dòng** cấu thành số tiền —
-    đối soát không minh bạch là nguyên nhân tranh chấp lớn nhất.
-  required: [id, period, status, summary]
+    Một đợt đối soát: gom các khoản đã rút được của một gian hàng thành một
+    lần chi trả.
+
+    # Bản trước của schema này mô tả một thứ KHÔNG tồn tại
+
+    Nó khai `period: {from, to}` và một `summary` tám dòng — hoa hồng nền
+    tảng, phí thanh toán, phí vận hành, hoa hồng creator, hoàn hàng, điều
+    chỉnh. Mã trả về một hình dạng khác hẳn: `period_start`/`period_end`
+    phẳng và BA con số. Một giao diện viết theo schema cũ sẽ hiện trống
+    toàn bộ. Sửa 17/09/2026 theo đúng cách đã làm với `ReturnRequest`
+    (P3-57): đặc tả nói thứ mã TRẢ, không nói thứ ai đó từng định làm.
+
+    # Vì sao BA con số, không phải tám
+
+    Ba con số dưới đây trả lời đúng một câu hỏi: **tôi được chuyển bao
+    nhiêu, và vì sao không phải nhiều hơn.**
+
+    Tám dòng kia trả lời câu hỏi rộng hơn — *cấu thành* của số tiền — và
+    chúng CHƯA tính được: đợt đối soát gom theo khoản rút được ở
+    `seller_balance_entry`, không gom theo loại bút toán. Tách ra được, mà
+    đó là một tính năng chứ không phải một phép đổi tên. Xem P3-60.
+  required: [id, status, currency, period_start, period_end, gross_amount, deficit_amount, net_amount, created_at]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
-    period:
-      type: object
-      properties:
-        from:
-          type: string
-          format: date
-        to:
-          type: string
-          format: date
     status:
       type: string
-      enum: [DRAFT, PENDING_CONFIRMATION, CONFIRMED, PAID]
-    summary:
-      type: object
-      properties:
-        gross_sales:
-          $ref: './common.yaml#/schemas/Money'
-        platform_commission:
-          $ref: './common.yaml#/schemas/Money'
-        payment_fee:
-          $ref: './common.yaml#/schemas/Money'
-        fulfillment_fee:
-          $ref: './common.yaml#/schemas/Money'
-        creator_commission:
-          $ref: './common.yaml#/schemas/Money'
-        refunds:
-          $ref: './common.yaml#/schemas/Money'
-        adjustments:
-          $ref: './common.yaml#/schemas/Money'
-        net_payout:
-          allOf:
-            - $ref: './common.yaml#/schemas/Money'
-          description: Có thể **âm** khi hoàn hàng vượt doanh thu kỳ — chuyển sang kỳ sau.
+      description: |
+        BA trạng thái, không phải bốn. `PENDING_CONFIRMATION` của bản trước
+        chưa bao giờ tồn tại trong `domain.TrangThaiDoiSoat`.
+      enum: [DRAFT, CONFIRMED, PAID]
+    currency:
+      type: string
+    period_start:
+      type: string
+      format: date-time
+      description: |
+        `date-time`, không phải `date`: mã trả RFC3339. Cắt về ngày ở phía
+        hiển thị, đừng cắt ở hợp đồng.
+    period_end:
+      type: string
+      format: date-time
+    gross_amount:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Tổng khoản đã rút được, gom trong đợt.
+    deficit_amount:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: |
+        Phần nhà bán đang NỢ, trừ ra khỏi số thực chi — thường do hoàn hàng
+        vượt doanh thu kỳ trước.
+
+        Hiện ra ngoài chứ KHÔNG giấu: nhà bán thấy số thực chi nhỏ hơn tổng
+        và cần biết vì sao, nếu không mọi đợt như thế đều thành khiếu nại.
+    net_amount:
+      allOf:
+        - $ref: './common.yaml#/schemas/Money'
+      description: Số ĐEM ĐI CHI TRẢ. Không bao giờ âm — phần âm nằm ở `deficit_amount`.
+    created_at:
+      type: string
+      format: date-time
 
 LedgerLine:
   type: object
@@ -1194,16 +1224,37 @@ LedgerLine:
   properties:
     account_type:
       type: string
+      description: |
+        MƯỜI BA tài khoản, không phải chín.
+
+        Bản trước thiếu bốn cái được thêm ở migration 000035, 000045 và
+        000048 — và `ACCOUNTS_RECEIVABLE` ĐÃ có mặt trong sổ cái thật. Một
+        enum thiếu giá trị tệ hơn một chuỗi tự do: client sinh kiểu từ đặc
+        tả sẽ thu hẹp kiểu sai rồi vỡ khi gặp response thật. Sửa 17/09/2026.
+
+        Danh sách nguồn là `domain.AccountType` trong
+        `payment/domain/ledger.go`, và `CHECK` của `ledger_line` cưỡng chế
+        nó ở tầng database.
       enum:
+        # Tài sản
         - PLATFORM_CASH
+        - ACCOUNTS_RECEIVABLE
+        - INVENTORY_ASSET
+        # Doanh thu
         - PLATFORM_REVENUE
+        # Nợ phải trả
         - SELLER_PAYABLE
+        # SELLER_AVAILABLE tách khỏi SELLER_PAYABLE (migration 000035):
+        # cùng là nợ phải trả nhà bán, khác nhau ở chỗ đã RÚT ĐƯỢC hay chưa.
+        - SELLER_AVAILABLE
         - CREATOR_PAYABLE
         - CUSTOMER_REFUND_PAYABLE
         - SUPPLIER_PAYABLE
+        - CARRIER_PAYABLE
+        # Chi phí
         - COGS
         - FEE_EXPENSE
-        - INVENTORY_ASSET
+        - SHIPPING_EXPENSE
     owner_id:
       allOf:
         - $ref: './common.yaml#/schemas/Id'

@@ -38,7 +38,7 @@ Tuyến đã đăng ký                 87      (83 khớp đặc tả + 4 endpo
 Migration                        56
 Test Go                          1.125
 Test trình duyệt (Playwright)    12
-Test đơn vị TypeScript           48
+Test đơn vị TypeScript           52
 ```
 
 **Tầng HTTP KHÔNG còn là chỗ nghẽn.** Đó là tình hình của tháng 8 đầu; giờ
@@ -5711,6 +5711,111 @@ người dùng**, ở mục 2.12, từ tháng 8. Sửa thành PH-41 và PH-42.
 Mã PH và P3 được đánh bằng tay trên một tài liệu gần 6.000 dòng, nên đây là
 đúng dạng lỗi mà mục 8 nói tới, chỉ ở thang nhỏ hơn: một danh sách không ai
 giữ. Chưa đáng dựng công cụ; ghi lại để lần sau `grep` trước khi đặt số.
+
+---
+
+### P3-60 — màn hình TIỀN cho nhà bán, và bốn chỗ đặc tả nói sai về nó
+
+Backend tính số dư và đối soát đúng từ lâu; nhà bán không nhìn thấy gì. Đặc
+tả nói thẳng vì sao điều đó đắt: *"đối soát không minh bạch là nguyên nhân
+tranh chấp lớn nhất giữa nền tảng và nhà bán"*.
+
+`/tien` gộp hai câu hỏi vào một trang, vì tách ra là bắt nhà bán tự ghép
+hai con số — đúng việc màn hình này tồn tại để làm thay họ:
+
+```text
+"Tôi có bao nhiêu?"       → số dư theo trạng thái
+"Bao giờ tôi nhận được?"  → các đợt đối soát, mới nhất trước
+```
+
+#### Bốn chỗ đặc tả KHÔNG khớp mã — tầng thứ ba, lại lần nữa
+
+Định viết màn hình theo đặc tả. Đặc tả mô tả một hệ thống khác:
+
+| Chỗ | Đặc tả nói | Mã trả |
+|---|---|---|
+| `Settlement` | `period: {from,to}` và `summary` TÁM dòng (hoa hồng, phí thanh toán, phí vận hành, hoa hồng creator, hoàn hàng, điều chỉnh) | `period_start`/`period_end` phẳng và BA con số: `gross_amount`, `deficit_amount`, `net_amount` |
+| `getMySettlement` | trả thẳng đối tượng | bọc trong `{"settlement": …}` |
+| `listMySettlements` | `items: {type: object}` | mảng `Settlement` — đặc tả cũ sinh ra `Record<string, unknown>[]`, tức giao diện phải ép kiểu tay |
+| `SellerBalance.next_settlement_date` | ngày chi trả kế tiếp | **không đường nào điền** |
+
+Một giao diện viết theo schema cũ sẽ hiện TRỐNG toàn bộ mà không có lỗi nào
+ở đâu — `types:check` xanh (đặc tả khớp TypeScript sinh từ chính nó),
+`apicheck` xanh (đường dẫn và method đúng). Đây là đúng tầng thứ ba mà
+P3-57 nói chưa có phép kiểm, lần này ở đường TIỀN.
+
+Xử theo tiền lệ `ReturnRequest`: **đặc tả nói thứ mã TRẢ.**
+
+`next_settlement_date` thì BỎ hẳn, không phải nối dây. Job `taoDoiSoat`
+chạy mỗi giờ và gom mọi khoản đã rút được, nên câu trả lời đúng luôn là
+"trong vòng một giờ nữa" — không đáng một trường. Cùng cách xử `buy_box_offer`
+ở mục 8: câu hỏi đầu tiên không phải "ai điền" mà **"giá trị đúng của nó là
+gì"**.
+
+#### Chỗ thứ năm: enum `LedgerLine.account_type` thiếu BỐN giá trị
+
+Đặc tả liệt kê chín tài khoản. Mã có mười ba — bốn cái thêm ở migration
+000035, 000045, 000048 (`SELLER_AVAILABLE`, `ACCOUNTS_RECEIVABLE`,
+`CARRIER_PAYABLE`, `SHIPPING_EXPENSE`), và `ACCOUNTS_RECEIVABLE` ĐÃ có mặt
+trong sổ cái thật.
+
+Enum thiếu giá trị tệ hơn chuỗi tự do: client sinh kiểu từ đặc tả sẽ thu
+hẹp kiểu sai rồi vỡ khi gặp response thật.
+
+Dạng lỗi này máy kiểm được — so enum trong đặc tả với khối hằng số Go, đúng
+kỹ thuật `apicheck` đang dùng cho header. Chưa làm trong lượt này; ghi lại
+để không quên rằng `account_type` là cái ĐÃ lệch, không phải cái có thể
+lệch.
+
+#### Bốn lớp CSS được dùng mà chưa bao giờ được định nghĩa
+
+Màn hình trả hàng (P3-57) dùng `.panel`, `.muted`, `.lines`, `.line` —
+chép tên từ cửa hàng, nơi chúng có thật. Trong ứng dụng nhà bán thì không.
+
+Hệ quả im lặng: trang vẫn hiện, nhưng mọi dòng ghi chú `.muted` đậm ngang
+nội dung chính và `.panel` không có viền. **Thứ tự ưu tiên mà mã nguồn mô
+tả không tồn tại trên màn hình.**
+
+Một tên lớp không tồn tại không gây lỗi ở đâu cả — không TypeScript, không
+build, không console. Chỉ MẮT bắt được, cùng họ với P3-58 nơi phép kiểm
+đúng nằm ở chỗ không ai chạy.
+
+#### Kiểm chứng
+
+Chạy thật, đăng nhập trình duyệt bằng `nhaban2@example.com`:
+
+```text
+Chờ đến hạn   455.840 ₫    khớp đúng sổ cái: 353.503.920 CREDIT
+                           − 353.048.080 DEBIT trên SELLER_PAYABLE
+Rút được            0 ₫    đúng — 0 đơn COMPLETED trong dữ liệu
+Các đợt đối soát   trống   đúng — chưa khoản nào hết hạn đổi trả
+```
+
+Kiểm cả CSS bằng `getComputedStyle`, vì đó là thứ vừa hỏng: `.muted` ra
+`rgb(95,95,104)` so với `rgb(26,26,26)` của nội dung chính, `.balance__card`
+có viền 1px.
+
+Bốn bài test đơn vị khoá các quyết định chữ nghĩa. Phá thử: đổi nhãn
+`DRAFT` thành "Nháp" → 1 đỏ; khôi phục → 52 xanh.
+
+#### Phần KHÔNG kiểm được trong lượt này
+
+**Bảng đối soát chưa bao giờ hiện một dòng nào.** Dữ liệu phát triển có 0
+đợt, và tạo ra một đợt cần một khoản hết thời hạn đổi trả — `returns.window_hours`
+có `Min: 24`, nên không rút ngắn xuống dưới một ngày được.
+
+Không bịa dữ liệu vào database để chụp một màn hình đẹp. Phần đã kiểm là
+số dư và trạng thái trống; phần chưa kiểm là các dòng, và nó được ghi ở đây
+chứ không im lặng.
+
+#### Còn thiếu: tách đối soát theo LOẠI khoản
+
+Ba con số trả lời "tôi được chuyển bao nhiêu, và vì sao không phải nhiều
+hơn". Tám dòng của đặc tả cũ trả lời câu rộng hơn — *cấu thành* của số
+tiền — và chúng chưa tính được: đợt đối soát gom theo khoản đã rút được,
+không gom theo loại bút toán. Sổ cái CÓ đủ dữ liệu (`entry_type` và
+`account_type`), nên tách ra được; đó là một tính năng, không phải một phép
+đổi tên.
 
 ---
 

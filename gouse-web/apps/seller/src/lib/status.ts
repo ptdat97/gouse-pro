@@ -187,3 +187,41 @@ export function returnReasonLabel(s: string | undefined): string {
       return s ?? "—";
   }
 }
+
+/**
+ * Nhãn trạng thái đợt đối soát.
+ *
+ * BA trạng thái, không phải bốn — `PENDING_CONFIRMATION` từng nằm trong
+ * đặc tả mà chưa bao giờ có trong `domain.TrangThaiDoiSoat`.
+ *
+ * Mỗi nhãn nói TIỀN đang ở đâu, không nói bản ghi đang ở bước nào. Nhà bán
+ * mở màn hình này để biết bao giờ nhận được tiền; "Đã xác nhận" trả lời
+ * đúng câu hỏi ấy còn "Confirmed" thì không.
+ */
+export function settlementStatusLabel(s: string | undefined): string {
+  switch (s) {
+    case "DRAFT":
+      // KHÔNG gọi là "Nháp": với nhà bán, đây là tiền đã chốt số và đang
+      // chờ nền tảng duyệt, không phải một bản ghi ai đó viết dở.
+      return "Chờ duyệt chi";
+    case "CONFIRMED":
+      return "Đã duyệt, chờ chuyển";
+    case "PAID":
+      return "Đã chuyển tiền";
+    default:
+      return s ?? "—";
+  }
+}
+
+export function settlementTone(s: string | undefined): Tone {
+  switch (s) {
+    case "PAID":
+      return "success";
+    case "CONFIRMED":
+      return "info";
+    case "DRAFT":
+      return "neutral";
+    default:
+      return "info";
+  }
+}

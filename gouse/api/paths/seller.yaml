@@ -698,7 +698,6 @@ balance:
               reserve_held:
                 amount: 500000
                 currency: VND
-              next_settlement_date: '2026-08-18'
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
 
@@ -727,38 +726,28 @@ settlement_detail:
         content:
           application/json:
             schema:
-              $ref: '../components/schemas.yaml#/Settlement'
+              type: object
+              required: [settlement]
+              properties:
+                settlement:
+                  $ref: '../components/schemas.yaml#/Settlement'
             example:
-              id: stl_01J9XABC123DEF456GHJKMNPQR
-              period:
-                from: '2026-08-01'
-                to: '2026-08-07'
-              status: CONFIRMED
-              summary:
-                gross_sales:
+              settlement:
+                id: stl_01J9XABC123DEF456GHJKMNPQR
+                status: CONFIRMED
+                currency: VND
+                period_start: '2026-08-01T00:00:00Z'
+                period_end: '2026-08-07T23:59:59Z'
+                gross_amount:
                   amount: 12500000
                   currency: VND
-                platform_commission:
-                  amount: -1250000
+                deficit_amount:
+                  amount: 890000
                   currency: VND
-                payment_fee:
-                  amount: -187500
+                net_amount:
+                  amount: 11610000
                   currency: VND
-                fulfillment_fee:
-                  amount: -300000
-                  currency: VND
-                creator_commission:
-                  amount: -180000
-                  currency: VND
-                refunds:
-                  amount: -890000
-                  currency: VND
-                adjustments:
-                  amount: 0
-                  currency: VND
-                net_payout:
-                  amount: 9692500
-                  currency: VND
+                created_at: '2026-08-08T01:00:00Z'
       '403':
         $ref: '../components/common.yaml#/responses/Forbidden'
       '404':
@@ -1422,7 +1411,12 @@ settlements:
               properties:
                 data:
                   type: array
+                  # `items: {type: object}` của bản trước là đặc tả KHÔNG
+                  # đặc tả gì: `openapi-typescript` sinh ra
+                  # `Record<string, unknown>[]`, nên giao diện phải ép kiểu
+                  # bằng tay — và ép kiểu bằng tay là chỗ hợp đồng thôi
+                  # được trình biên dịch canh. Sửa 17/09/2026.
                   items:
-                    type: object
+                    $ref: '../components/schemas.yaml#/Settlement'
       '401':
         $ref: '../components/common.yaml#/responses/Unauthorized'

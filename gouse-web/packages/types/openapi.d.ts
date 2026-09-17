@@ -3279,34 +3279,61 @@ export interface components {
              *     hoàn hàng cao hoặc bỏ trốn với số dư âm.
              */
             reserve_held?: components["schemas"]["Money"];
-            /** Format: date */
-            next_settlement_date?: string;
         };
         /**
-         * @description Đối soát một kỳ. Seller phải xem được **từng dòng** cấu thành số tiền —
-         *     đối soát không minh bạch là nguyên nhân tranh chấp lớn nhất.
+         * @description Một đợt đối soát: gom các khoản đã rút được của một gian hàng thành một
+         *     lần chi trả.
+         *
+         *     # Bản trước của schema này mô tả một thứ KHÔNG tồn tại
+         *
+         *     Nó khai `period: {from, to}` và một `summary` tám dòng — hoa hồng nền
+         *     tảng, phí thanh toán, phí vận hành, hoa hồng creator, hoàn hàng, điều
+         *     chỉnh. Mã trả về một hình dạng khác hẳn: `period_start`/`period_end`
+         *     phẳng và BA con số. Một giao diện viết theo schema cũ sẽ hiện trống
+         *     toàn bộ. Sửa 17/09/2026 theo đúng cách đã làm với `ReturnRequest`
+         *     (P3-57): đặc tả nói thứ mã TRẢ, không nói thứ ai đó từng định làm.
+         *
+         *     # Vì sao BA con số, không phải tám
+         *
+         *     Ba con số dưới đây trả lời đúng một câu hỏi: **tôi được chuyển bao
+         *     nhiêu, và vì sao không phải nhiều hơn.**
+         *
+         *     Tám dòng kia trả lời câu hỏi rộng hơn — *cấu thành* của số tiền — và
+         *     chúng CHƯA tính được: đợt đối soát gom theo khoản rút được ở
+         *     `seller_balance_entry`, không gom theo loại bút toán. Tách ra được, mà
+         *     đó là một tính năng chứ không phải một phép đổi tên. Xem P3-60.
          */
         Settlement: {
             id: components["schemas"]["Id"];
-            period: {
-                /** Format: date */
-                from?: string;
-                /** Format: date */
-                to?: string;
-            };
-            /** @enum {string} */
-            status: "DRAFT" | "PENDING_CONFIRMATION" | "CONFIRMED" | "PAID";
-            summary: {
-                gross_sales?: components["schemas"]["Money"];
-                platform_commission?: components["schemas"]["Money"];
-                payment_fee?: components["schemas"]["Money"];
-                fulfillment_fee?: components["schemas"]["Money"];
-                creator_commission?: components["schemas"]["Money"];
-                refunds?: components["schemas"]["Money"];
-                adjustments?: components["schemas"]["Money"];
-                /** @description Có thể **âm** khi hoàn hàng vượt doanh thu kỳ — chuyển sang kỳ sau. */
-                net_payout?: components["schemas"]["Money"];
-            };
+            /**
+             * @description BA trạng thái, không phải bốn. `PENDING_CONFIRMATION` của bản trước
+             *     chưa bao giờ tồn tại trong `domain.TrangThaiDoiSoat`.
+             * @enum {string}
+             */
+            status: "DRAFT" | "CONFIRMED" | "PAID";
+            currency: string;
+            /**
+             * Format: date-time
+             * @description `date-time`, không phải `date`: mã trả RFC3339. Cắt về ngày ở phía
+             *     hiển thị, đừng cắt ở hợp đồng.
+             */
+            period_start: string;
+            /** Format: date-time */
+            period_end: string;
+            /** @description Tổng khoản đã rút được, gom trong đợt. */
+            gross_amount: components["schemas"]["Money"];
+            /**
+             * @description Phần nhà bán đang NỢ, trừ ra khỏi số thực chi — thường do hoàn hàng
+             *     vượt doanh thu kỳ trước.
+             *
+             *     Hiện ra ngoài chứ KHÔNG giấu: nhà bán thấy số thực chi nhỏ hơn tổng
+             *     và cần biết vì sao, nếu không mọi đợt như thế đều thành khiếu nại.
+             */
+            deficit_amount: components["schemas"]["Money"];
+            /** @description Số ĐEM ĐI CHI TRẢ. Không bao giờ âm — phần âm nằm ở `deficit_amount`. */
+            net_amount: components["schemas"]["Money"];
+            /** Format: date-time */
+            created_at: string;
         };
         AffiliateLink: {
             id: components["schemas"]["Id"];
@@ -3354,8 +3381,20 @@ export interface components {
         };
         /** @description Một dòng bút toán. Trong mỗi `LedgerEntry`, **Σ DEBIT phải = Σ CREDIT**. */
         LedgerLine: {
-            /** @enum {string} */
-            account_type: "PLATFORM_CASH" | "PLATFORM_REVENUE" | "SELLER_PAYABLE" | "CREATOR_PAYABLE" | "CUSTOMER_REFUND_PAYABLE" | "SUPPLIER_PAYABLE" | "COGS" | "FEE_EXPENSE" | "INVENTORY_ASSET";
+            /**
+             * @description MƯỜI BA tài khoản, không phải chín.
+             *
+             *     Bản trước thiếu bốn cái được thêm ở migration 000035, 000045 và
+             *     000048 — và `ACCOUNTS_RECEIVABLE` ĐÃ có mặt trong sổ cái thật. Một
+             *     enum thiếu giá trị tệ hơn một chuỗi tự do: client sinh kiểu từ đặc
+             *     tả sẽ thu hẹp kiểu sai rồi vỡ khi gặp response thật. Sửa 17/09/2026.
+             *
+             *     Danh sách nguồn là `domain.AccountType` trong
+             *     `payment/domain/ledger.go`, và `CHECK` của `ledger_line` cưỡng chế
+             *     nó ở tầng database.
+             * @enum {string}
+             */
+            account_type: "PLATFORM_CASH" | "ACCOUNTS_RECEIVABLE" | "INVENTORY_ASSET" | "PLATFORM_REVENUE" | "SELLER_PAYABLE" | "SELLER_AVAILABLE" | "CREATOR_PAYABLE" | "CUSTOMER_REFUND_PAYABLE" | "SUPPLIER_PAYABLE" | "CARRIER_PAYABLE" | "COGS" | "FEE_EXPENSE" | "SHIPPING_EXPENSE";
             /** @description Chủ tài khoản (seller, creator, nhà cung cấp) nếu có. */
             owner_id?: components["schemas"]["Id"];
             /** @enum {string} */
@@ -6938,8 +6977,7 @@ export interface operations {
                      *       "reserve_held": {
                      *         "amount": 500000,
                      *         "currency": "VND"
-                     *       },
-                     *       "next_settlement_date": "2026-08-18"
+                     *       }
                      *     }
                      */
                     "application/json": components["schemas"]["SellerBalance"];
@@ -6964,7 +7002,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: Record<string, never>[];
+                        data: components["schemas"]["Settlement"][];
                     };
                 };
             };
@@ -6990,49 +7028,31 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "id": "stl_01J9XABC123DEF456GHJKMNPQR",
-                     *       "period": {
-                     *         "from": "2026-08-01",
-                     *         "to": "2026-08-07"
-                     *       },
-                     *       "status": "CONFIRMED",
-                     *       "summary": {
-                     *         "gross_sales": {
+                     *       "settlement": {
+                     *         "id": "stl_01J9XABC123DEF456GHJKMNPQR",
+                     *         "status": "CONFIRMED",
+                     *         "currency": "VND",
+                     *         "period_start": "2026-08-01T00:00:00Z",
+                     *         "period_end": "2026-08-07T23:59:59Z",
+                     *         "gross_amount": {
                      *           "amount": 12500000,
                      *           "currency": "VND"
                      *         },
-                     *         "platform_commission": {
-                     *           "amount": -1250000,
+                     *         "deficit_amount": {
+                     *           "amount": 890000,
                      *           "currency": "VND"
                      *         },
-                     *         "payment_fee": {
-                     *           "amount": -187500,
+                     *         "net_amount": {
+                     *           "amount": 11610000,
                      *           "currency": "VND"
                      *         },
-                     *         "fulfillment_fee": {
-                     *           "amount": -300000,
-                     *           "currency": "VND"
-                     *         },
-                     *         "creator_commission": {
-                     *           "amount": -180000,
-                     *           "currency": "VND"
-                     *         },
-                     *         "refunds": {
-                     *           "amount": -890000,
-                     *           "currency": "VND"
-                     *         },
-                     *         "adjustments": {
-                     *           "amount": 0,
-                     *           "currency": "VND"
-                     *         },
-                     *         "net_payout": {
-                     *           "amount": 9692500,
-                     *           "currency": "VND"
-                     *         }
+                     *         "created_at": "2026-08-08T01:00:00Z"
                      *       }
                      *     }
                      */
-                    "application/json": components["schemas"]["Settlement"];
+                    "application/json": {
+                        settlement: components["schemas"]["Settlement"];
+                    };
                 };
             };
             403: components["responses"]["Forbidden"];

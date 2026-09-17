@@ -217,3 +217,43 @@ export function inspectReturn(
     { lines },
   );
 }
+
+// ------------------------------------------------------------ Tiền của tôi
+
+export type MyBalance = Ok<operations["getMyBalance"]>;
+export type MySettlements = Ok<operations["listMySettlements"]>;
+export type MySettlement = Ok<operations["getMySettlement"]>;
+
+/**
+ * Số dư theo NĂM trạng thái.
+ *
+ * Ba trong năm trạng thái hôm nay luôn bằng 0 — `processing`, `on_hold`,
+ * `reserve_held` chưa được mô hình hóa ở backend. Đó là con số ĐÚNG, không
+ * phải dữ liệu thiếu: chưa có luồng chi trả thì không đồng nào "đang xử
+ * lý", chưa có cơ chế giữ tiền thì không đồng nào bị giữ.
+ *
+ * Giao diện phải nói rõ điều đó thay vì hiện bốn ô 0 đ trông như hỏng.
+ */
+export function getMyBalance(api: ApiClient): Promise<MyBalance> {
+  return api.get<MyBalance>("/api/v1/seller/balance");
+}
+
+/** Các đợt đối soát của gian hàng, mới nhất trước. */
+export function listMySettlements(api: ApiClient): Promise<MySettlements> {
+  return api.get<MySettlements>("/api/v1/seller/settlements");
+}
+
+/**
+ * Chi tiết một đợt.
+ *
+ * Hôm nay nó trả đúng những gì danh sách đã trả — chưa có phần tách theo
+ * loại khoản (hoa hồng, phí, hoàn hàng). Xem P3-60.
+ */
+export function getMySettlement(
+  api: ApiClient,
+  id: string,
+): Promise<MySettlement> {
+  return api.get<MySettlement>(
+    `/api/v1/seller/settlements/${encodeURIComponent(id)}`,
+  );
+}
