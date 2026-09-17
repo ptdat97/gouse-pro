@@ -277,7 +277,29 @@ Yêu cầu:
 | Kiểm tra kiểu và định dạng | Chống chèn mã |
 | Truy vấn tham số hóa | Chống SQL injection |
 | Không lộ thông tin trong lỗi | Không stack trace, không cấu trúc nội bộ |
-| CORS chặt | Chỉ domain của mình |
+| CORS chặt | Chỉ domain của mình — và **danh sách HEADER cũng là một danh sách trắng** |
+
+**CORS có HAI danh sách trắng, và chỉ một cái được rà.** Rà soát bảo mật
+trước đây soi danh sách ORIGIN và kết luận CORS chặt. Danh sách
+`Access-Control-Allow-Headers` thì không ai soi — cho tới 17/09/2026, khi
+thiếu một dòng ở đó làm cả cửa hàng ngừng tải được dữ liệu trên mọi trình
+duyệt (P3-58).
+
+Hai danh sách hỏng theo hai hướng ngược nhau:
+
+```text
+origin   quá RỘNG là lỗ hổng          → trang lạ gọi API dưới danh nghĩa khách
+header   quá HẸP là hỏng chức năng    → giao diện của chính mình bị chặn
+header   quá RỘNG cũng là lỗ hổng     → mời trình duyệt gửi kèm header
+                                        vốn chỉ dành cho server-to-server
+```
+
+Vì hướng thứ ba mà `X-Signature` (chữ ký webhook) **cố ý** không nằm trong
+danh sách, và lý do ấy được ghi vào sổ `headerKhongQuaTrinhDuyet` của
+`cmd/apicheck` chứ không nằm trong trí nhớ ai.
+
+Từ 17/09/2026 `cmd/apicheck` đối chiếu danh sách header với mọi khai báo
+`in: header` của đặc tả OpenAPI, hai hướng, chặn ở CI.
 
 ### Thông báo lỗi — cân bằng
 

@@ -368,6 +368,33 @@ parameters:
       type: string
       default: vi-VN
 
+  VisitId:
+    name: X-Visit-Id
+    in: header
+    required: false
+    description: |
+      Mã MỘT LƯỢT TRUY CẬP, do **trình duyệt** sinh và giữ trong
+      `sessionStorage` (ADR-0020). `api-client` gửi nó kèm **mọi** request.
+
+      **Nó KHÔNG phải định danh người dùng và KHÔNG phải phiên đăng nhập.**
+      Một người mở lại trang sau khi đóng tab là một lượt MỚI; cùng người,
+      mã khác. Giỏ hàng của khách vãng lai đi bằng cookie `shopper_session`
+      (HttpOnly, 30 ngày), không bằng header này.
+
+      Chính vì hai khái niệm ấy từng dùng chung một cái tên mà
+      `conversion_rate` bằng 0 vĩnh viễn — ba module điền ba thứ khác nhau
+      vào cùng một cột `session_id`.
+
+      Server **không sinh thay client**: thiếu thì để trống. Một mã do
+      server sinh sẽ khác nhau ở mỗi request, tức mỗi lời gọi thành một
+      "lượt truy cập" riêng và mọi tỷ lệ tính trên nó đều vô nghĩa.
+
+      Dài quá `maxLength` thì **bỏ, không cắt** — mã bị cắt vẫn trông hợp lệ
+      và sẽ gộp nhầm nhiều lượt vào một.
+    schema:
+      type: string
+      maxLength: 128
+
 headers:
   X-Request-ID:
     description: Định danh request — **luôn có** trong mọi response.

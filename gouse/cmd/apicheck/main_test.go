@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,35 @@ func duAn(t *testing.T, openapi string, paths map[string]string, goSrc string) s
 		must(filepath.Join(goc, "api", "paths", ten), noiDung)
 	}
 	must(filepath.Join(goc, "internal", "app", "routes.go"), goSrc)
+
+	// Mọi dự án giả cần một cors.go, vì `run` luôn đọc nó. Bài nào muốn
+	// kiểm tầng header thì ghi đè file này.
+	must(filepath.Join(goc, "internal", "platform", "httpserver", "cors.go"),
+		corsGo("X-Thing-Id"))
 	return goc
+}
+
+// corsGo dựng một cors.go tối thiểu có đúng `var HeaderChoPhep`.
+func corsGo(header ...string) string {
+	var b strings.Builder
+	b.WriteString("package httpserver\n\nvar HeaderChoPhep = []string{\n")
+	for _, h := range header {
+		fmt.Fprintf(&b, "\t%q,\n", h)
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// ghiDe ghi đè một file trong dự án giả đã dựng.
+func ghiDe(t *testing.T, goc, duong, noiDung string) {
+	t.Helper()
+	d := filepath.Join(goc, filepath.FromSlash(duong))
+	if err := os.MkdirAll(filepath.Dir(d), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d, []byte(noiDung), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 const openapiMotTuyen = `openapi: 3.1.0
@@ -49,6 +78,11 @@ paths:
 const pathsMotTuyen = `things:
   get:
     operationId: listThings
+    parameters:
+      - name: X-Thing-Id
+        in: header
+        schema:
+          type: string
     responses:
       '200':
         description: ok
@@ -71,9 +105,11 @@ func Register(mux *http.ServeMux) {
 func chay(t *testing.T, goc string, so ...map[string]string) *checker {
 	t.Helper()
 	c := &checker{
-		root:         goc,
-		chuaCai:      map[string]string{},
-		ngoaiHopDong: map[string]string{},
+		root:                     goc,
+		chuaCai:                  map[string]string{},
+		ngoaiHopDong:             map[string]string{},
+		headerNgoaiDacTa:         map[string]string{},
+		headerKhongQuaTrinhDuyet: map[string]string{},
 	}
 	if len(so) > 0 && so[0] != nil {
 		c.chuaCai = so[0]
@@ -176,9 +212,11 @@ paths:
 		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
 
 	c := &checker{
-		root:         goc,
-		chuaCai:      map[string]string{},
-		ngoaiHopDong: map[string]string{},
+		root:                     goc,
+		chuaCai:                  map[string]string{},
+		ngoaiHopDong:             map[string]string{},
+		headerNgoaiDacTa:         map[string]string{},
+		headerKhongQuaTrinhDuyet: map[string]string{},
 	}
 	err := c.run()
 	if err == nil {
@@ -224,12 +262,172 @@ func TestBatMienTruThua(t *testing.T) {
 // chứng minh dự án đang KHỚP. Thiếu nó thì công cụ có thể đúng mà không ai
 // chạy nó lên thứ đáng chạy.
 func TestDuAnThatKhop(t *testing.T) {
-	c := &checker{root: "../..", chuaCai: chuaCai, ngoaiHopDong: ngoaiHopDong}
+	c := &checker{
+		root: "../..", chuaCai: chuaCai, ngoaiHopDong: ngoaiHopDong,
+		headerNgoaiDacTa:         headerNgoaiDacTa,
+		headerKhongQuaTrinhDuyet: headerKhongQuaTrinhDuyet,
+	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run trên repo thật: %v", err)
 	}
 	if len(c.viPham) != 0 {
 		t.Fatalf("repo có %d lệch giữa đặc tả và tuyến:\n%s",
 			len(c.viPham), strings.Join(c.viPham, "\n"))
+	}
+}
+
+// ------------------------------------------------------------- Tầng HEADER
+
+// chayHeader chạy công cụ với hai sổ header truyền vào.
+func chayHeader(
+	t *testing.T, goc string, ngoaiDacTa, khongQuaTrinhDuyet map[string]string,
+) *checker {
+	t.Helper()
+	if ngoaiDacTa == nil {
+		ngoaiDacTa = map[string]string{}
+	}
+	if khongQuaTrinhDuyet == nil {
+		khongQuaTrinhDuyet = map[string]string{}
+	}
+	c := &checker{
+		root:                     goc,
+		chuaCai:                  map[string]string{},
+		ngoaiHopDong:             map[string]string{},
+		headerNgoaiDacTa:         ngoaiDacTa,
+		headerKhongQuaTrinhDuyet: khongQuaTrinhDuyet,
+	}
+	if err := c.run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return c
+}
+
+// ĐÂY LÀ LỖI THẬT ngày 17/09/2026, dựng lại ở quy mô nhỏ.
+//
+// `X-Visit-Id` vào api-client mà không vào CORS: preflight từ chối, request
+// thật không rời máy khách, log máy chủ sạch trơn, và CẢ cửa hàng ngừng
+// tải dữ liệu. Không phép kiểm nào lúc đó nhìn vào chỗ này.
+func TestBatHeaderDacTaCoMaCORSKhongChoPhep(t *testing.T) {
+	goc := duAn(t, openapiMotTuyen,
+		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+	// CORS quên mất X-Thing-Id mà đặc tả khai.
+	ghiDe(t, goc, "internal/platform/httpserver/cors.go", corsGo("Authorization"))
+
+	c := chayHeader(t, goc, map[string]string{"Authorization": "chuẩn"}, nil)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "X-Thing-Id") {
+		t.Errorf("vi phạm không nêu đúng header: %s", c.viPham[0])
+	}
+	// Thông điệp phải nói rõ vì sao KHÔNG tìm thấy dấu vết ở máy chủ —
+	// thiếu câu đó thì người sửa đi tìm nhầm chỗ, đúng như lần đầu.
+	if !strings.Contains(c.viPham[0], "SẠCH") {
+		t.Errorf("vi phạm không cảnh báo về log máy chủ sạch: %s", c.viPham[0])
+	}
+}
+
+// Hướng ngược lại: CORS rộng hơn đặc tả.
+//
+// Không vô hại. Mỗi header thừa là một lời mời gửi kèm từ trình duyệt, và
+// không ai rà soát thứ không nằm trong hợp đồng.
+func TestBatHeaderCORSChoPhepMaDacTaKhongKhai(t *testing.T) {
+	goc := duAn(t, openapiMotTuyen,
+		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+	ghiDe(t, goc, "internal/platform/httpserver/cors.go",
+		corsGo("X-Thing-Id", "X-Khong-Ai-Khai"))
+
+	c := chayHeader(t, goc, nil, nil)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "X-Khong-Ai-Khai") {
+		t.Errorf("vi phạm không nêu đúng header: %s", c.viPham[0])
+	}
+}
+
+// Header SERVER-TO-SERVER phải khai lý do, và khai rồi thì hết vi phạm.
+//
+// `X-Signature` của webhook là ca thật: đặc tả khai nó, mà cho nó vào CORS
+// sẽ là nói với mọi trang web rằng chữ ký webhook gửi được từ trình duyệt.
+func TestHeaderServerToServerKhaiLyDoThiHetViPham(t *testing.T) {
+	goc := duAn(t, openapiMotTuyen,
+		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+	ghiDe(t, goc, "internal/platform/httpserver/cors.go", corsGo("Authorization"))
+
+	c := chayHeader(t, goc,
+		map[string]string{"Authorization": "chuẩn"},
+		map[string]string{"X-Thing-Id": "webhook, không qua trình duyệt"})
+	if len(c.viPham) != 0 {
+		t.Fatalf("khai lý do rồi mà vẫn báo: %v", c.viPham)
+	}
+}
+
+// Dòng miễn trừ CHẾT cũng phải bị bắt — ở cả hai sổ.
+func TestBatDongMienTruHeaderDaChet(t *testing.T) {
+	goc := duAn(t, openapiMotTuyen,
+		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+
+	c := chayHeader(t, goc,
+		map[string]string{"X-Da-Bo": "CORS không còn cho phép"},
+		map[string]string{"X-Cung-Da-Bo": "đặc tả không còn khai"})
+	if len(c.viPham) != 2 {
+		t.Fatalf("mong 2 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	got := strings.Join(c.viPham, "\n")
+	for _, can := range []string{"X-Da-Bo", "X-Cung-Da-Bo", "xóa dòng"} {
+		if !strings.Contains(got, can) {
+			t.Errorf("thiếu %q trong: %s", can, got)
+		}
+	}
+}
+
+// HOA THƯỜNG không được tạo cảnh báo giả.
+//
+// Chuẩn HTTP nói tên header không phân biệt hoa thường, và trình duyệt gửi
+// `x-visit-id` viết thường. Một phép so phân biệt hoa thường sẽ báo lỗi cho
+// `X-Request-ID` đấu với `X-Request-Id` — hai cách viết của MỘT header.
+// Cảnh báo giả là thứ làm người ta tắt hẳn phép kiểm.
+func TestHeaderKhongPhanBietHoaThuong(t *testing.T) {
+	goc := duAn(t, openapiMotTuyen,
+		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+	ghiDe(t, goc, "internal/platform/httpserver/cors.go", corsGo("X-THING-ID"))
+
+	if c := chayHeader(t, goc, nil, nil); len(c.viPham) != 0 {
+		t.Fatalf("khác hoa thường bị coi là khác header: %v", c.viPham)
+	}
+}
+
+// `in: header` KHÔNG tìm được tên thì BÁO LỖI, không bỏ qua.
+//
+// Cùng nguyên tắc với bộ đọc đặc tả: bỏ qua âm thầm là dựng lại đúng vấn
+// đề công cụ này sinh ra để sửa.
+func TestHeaderKhongTimDuocTenThiBaoLoi(t *testing.T) {
+	paths := `things:
+  get:
+    operationId: listThings
+    parameters:
+      - in: header
+        schema:
+          type: string
+    responses:
+      '200':
+        description: ok
+`
+	goc := duAn(t, openapiMotTuyen, map[string]string{"things.yaml": paths}, goMotTuyen)
+
+	c := &checker{
+		root:                     goc,
+		chuaCai:                  map[string]string{},
+		ngoaiHopDong:             map[string]string{},
+		headerNgoaiDacTa:         map[string]string{},
+		headerKhongQuaTrinhDuyet: map[string]string{},
+	}
+	err := c.run()
+	if err == nil {
+		t.Fatal("khối `in: header` không có tên mà công cụ vẫn báo đọc xong")
+	}
+	if !strings.Contains(err.Error(), "name:") {
+		t.Errorf("lỗi không nói rõ thiếu gì: %v", err)
 	}
 }

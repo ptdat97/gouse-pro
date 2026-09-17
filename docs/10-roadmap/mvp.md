@@ -203,11 +203,12 @@ Xem [../09-operations/deployment.md](../09-operations/deployment.md).
 
 ## 7. Tiêu chí hoàn thành MVP
 
-> **Đối chiếu thực tế 20/08/2026.** Phần CHỨC NĂNG đã đạt, trừ đối soát:
-> `getMySettlement` và `getMyBalance` mới có đặc tả, chưa có route. Phần
-> CHẤT LƯỢNG chưa đo được vì cần môi trường có tải thật — đó là một trong
-> các việc của phase Production Hardening
-> ([backlog mục 2.12](backlog.md)).
+> **Đối chiếu thực tế 17/09/2026.** Phần CHỨC NĂNG đã đạt. Phần CHẤT LƯỢNG
+> nay **đã đo**, và các dấu ✓ cũ được thay bằng số đo kèm điều kiện đo.
+>
+> Bản trước viết "chưa đo được vì cần môi trường có tải thật" — nhưng vẫn
+> để nguyên sáu dấu ✓ ở mục Chất lượng. Một danh sách toàn ✓ kèm một câu
+> nói rằng chưa ai đo thì người đọc chỉ nhớ các dấu ✓.
 >
 > Trạng thái từng phần kèm bằng chứng: [todo.md mục 12](todo.md).
 
@@ -224,14 +225,43 @@ Xem [../09-operations/deployment.md](../09-operations/deployment.md).
 
 ### Chất lượng
 
-```text
-✓ Độ lệch đối soát = 0
-✓ Bút toán không cân bằng = 0
-✓ Tồn kho âm = 0
-✓ API p95 < 300ms
-✓ LCP trang sản phẩm < 2,5s
-✓ Kiểm tra ranh giới module trong CI đều xanh
-```
+Đo ngày **17/09/2026** trên database phát triển (3.192 đơn · 6.229 bút toán
+· 12.884 event) và bản build sản xuất của cửa hàng.
+
+| Tiêu chí | Đo được | Thứ GIỮ cho nó đúng |
+|---|---|---|
+| Độ lệch đối soát = 0 | **0** đơn đã thu tiền mà trạng thái chưa theo kịp | Job `doiSoatThanhToan` chạy 5 phút/lần, đặt `gouse_payment_reconcile_mismatch`; cảnh báo `PaymentReconcileMismatch` bắn khi > 0 |
+| Bút toán không cân bằng = 0 | **0/6.229** bút toán lệch nợ-có; 0 bút toán không có dòng nào; 0 bút toán lẫn đơn vị tiền | Miền từ chối bút toán lệch, và bảng CHẶN `UPDATE`/`DELETE`. **Chưa có chỉ số nào canh dữ liệu ĐÃ LƯU** — xem bên dưới |
+| Tồn kho âm = 0 | **0** | Sáu ràng buộc `CHECK (… >= 0)` ở tầng database. Đây là thứ mang tiêu chí, không phải phép đo |
+| API p95 < 300ms | **14,3ms** ở 100 request đồng thời (phía khách); từng tuyến ≤ 25ms theo histogram máy chủ | `gouse_http_request_duration_seconds`, nhãn theo MẪU đường dẫn |
+| LCP trang sản phẩm < 2,5s | **1,40s** (4G chậm + CPU ×4, cache lạnh, bản build) · 64ms không bóp | Chưa có gì canh. Xem cảnh báo bên dưới |
+| Ranh giới module trong CI | **0 vi phạm / 470 file** | `cmd/archcheck`, chạy RIÊNG và ĐẦU TIÊN |
+
+**Ba điều kiện đo phải đọc kèm, nếu không các con số trên nói quá:**
+
+**1. p95 đo trên danh mục có BỐN SKU.** Nó chứng minh đường code không
+chậm; nó KHÔNG chứng minh hệ thống chịu được dữ liệu thật. Truy vấn quét
+danh mục sẽ có hình dạng khác ở 40.000 SKU. Sổ cái thì ngược lại — 6.229
+bút toán là khối lượng có ý nghĩa.
+
+**2. LCP đo trên trang mà ảnh sản phẩm KHÔNG tải được.** Dữ liệu mẫu trỏ
+ảnh vào `cdn.example.com`, tên miền không phân giải. Phần tử LCP đo được là
+một thẻ `<p>`, trong khi ở môi trường thật **ảnh sản phẩm mới là phần tử
+LCP** của một cửa hàng thời trang. Nên 1,40s là **SÀN**, và phần còn lại
+tới 2,5s — khoảng 1,1 giây — là ngân sách mà ảnh phải nằm vừa trong đó.
+Ngưỡng 2,5s của Web Vitals còn là p75 trên thiết bị THẬT của khách thật;
+không số đo nào ở đây thay thế được nó.
+
+**3. "Bút toán không cân bằng = 0" hôm nay đúng, mà không ai canh.** Bộ đếm
+`gouse_business_failures_total{reason="unbalanced"}` đếm những bút toán bị
+TỪ CHỐI — tức đường ghi đang làm đúng việc — chứ không đếm dữ liệu đã lưu.
+Không có cảnh báo nào trên nhãn ấy. Sổ cái bất biến làm rủi ro thấp, nhưng
+"thấp" không phải "có người canh". Xem PH-15.
+
+**Một phát hiện của chính lần đo này:** để đo LCP phải có cửa hàng chạy
+được, và cửa hàng lúc ấy **không tải được dữ liệu nào** — `X-Visit-Id`
+thiếu trong danh sách CORS nên trình duyệt chặn ở preflight. Năm phép kiểm
+đang xanh cùng lúc, và log máy chủ sạch trơn. Xem P3-58.
 
 ### Kiến trúc
 

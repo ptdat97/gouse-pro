@@ -667,7 +667,7 @@ Câu cuối quyết định thuế thuộc `order` hay `seller`; hôm nay nó n�
 | # | Việc | Trạng thái |
 |---|---|---|
 | PH-9 | **Audit authorization toàn bộ resource** | ✅ ma trận 175 cặp, xem 2.9 |
-| PH-10 | Rà: xác thực · phân quyền · kiểm tra đầu vào · rate limit · CORS · lộ dữ liệu · nhật ký kiểm toán | ✅ xem 2.9 |
+| PH-10 | Rà: xác thực · phân quyền · kiểm tra đầu vào · rate limit · CORS · lộ dữ liệu · nhật ký kiểm toán | 🟡 xem 2.9. Phần CORS rà **danh sách origin**, không rà **danh sách header** — và chính chỗ không rà là chỗ hỏng (P3-58) |
 
 ### 2.4 PH — API Contract
 
@@ -677,6 +677,8 @@ Câu cuối quyết định thuế thuộc `order` hay `seller`; hôm nay nó n�
 | PH-12 | Kiểm chuỗi: OpenAPI → TypeScript sinh ra → Go → giao diện | ✅ test hợp đồng gọi API thật, xem 2.10 |
 | PH-13 | Giao diện KHÔNG tự cài lại quy tắc nghiệp vụ | 🟢 đã sửa `is_sellable` |
 | PH-14 | Tránh N+1 khi cửa hàng cần dữ liệu seller/product/offer | 🟢 tra theo lô |
+| PH-15 | Chỉ số canh SỔ CÁI ĐÃ LƯU (nợ ≠ có), không chỉ canh lượt ghi bị từ chối | 🔴 chưa có; đo tay 17/09 ra 0/6.229 — xem mvp.md mục 7 |
+| PH-16 | Header: đặc tả ⇄ danh sách CORS | 🟢 `apicheck` chặn ở CI từ 17/09 — xem P3-58 |
 
 ### 2.4b Test tích hợp API (PH-3) `[XONG 26/08]`
 
@@ -5548,6 +5550,85 @@ gọi có kiểu thì lệch hình dạng thành lỗi biên dịch. Sáu tuyế
 
 ---
 
+### P3-58 — cửa hàng trắng trang trên MỌI trình duyệt, và năm dấu xanh
+
+**Ngày phát hiện:** 17/09/2026, trong lúc đi đo tiêu chí LCP của mvp.md
+mục 7. Để đo được LCP thì phải có cửa hàng chạy được — và nó không chạy.
+
+```text
+Access to fetch at 'http://localhost:8080/api/v1/products?limit=24'
+blocked by CORS policy: Request header field x-visit-id is not allowed
+by Access-Control-Allow-Headers in preflight response.
+```
+
+Cửa hàng hiện đúng một dòng: "Không tải được danh sách sản phẩm".
+
+#### Nguyên nhân: một dòng thiếu, ở chỗ đã có sẵn lời cảnh báo
+
+`X-Visit-Id` được thêm vào `api-client` theo ADR-0020 và gửi kèm **mọi**
+request. Nó không được thêm vào `Access-Control-Allow-Headers`. Trình duyệt
+từ chối ở bước preflight, nên **request thật không bao giờ rời máy khách**.
+
+Lời cảnh báo cho đúng tình huống này đã nằm sẵn ngay trên dòng code ấy từ
+trước:
+
+> Danh sách này phải khớp MỌI header giao diện gửi lên. Thiếu một cái thì
+> trình duyệt chặn request, và lỗi chỉ hiện ở console trình duyệt — log máy
+> chủ hoàn toàn sạch, nên rất dễ đi tìm nhầm chỗ.
+
+Một bình luận không chặn được ai. Nó chỉ chặn được người đọc nó.
+
+#### Vì sao KHÔNG phép kiểm nào bắt được
+
+| Phép kiểm | Vì sao xanh |
+|---|---|
+| `go test` | `httptest` gọi handler trực tiếp — không có preflight |
+| Playwright e2e | chạy CÙNG origin qua proxy Next.js — CORS không áp dụng |
+| `apicheck` | so ĐƯỜNG DẪN và METHOD, không so header |
+| `types:check` | đặc tả không khai header này nên không có gì để lệch |
+| log máy chủ | **sạch trơn** — request bị chặn trước khi tới |
+
+Năm dấu xanh cùng lúc cho một cửa hàng không dùng được. Đây là dạng nguy
+hiểm nhất của mục 8: không phải "trường không ai điền" mà **"phép kiểm
+không ai hướng vào chỗ đó"**.
+
+#### Hai lệch nữa lộ ra khi dựng hàng rào
+
+Viết phép kiểm xong, chạy lên repo thật, nó tìm thêm hai chỗ:
+
+| Header | Lệch | Xử lý |
+|---|---|---|
+| `X-Session-ID` | đặc tả khai ở 3 thao tác giỏ/thanh toán. **Không đường nào đọc.** Giỏ khách vãng lai đi bằng cookie `shopper_session` (HttpOnly) — mà trình duyệt còn không đặt được cookie HttpOnly bằng header | bỏ khỏi đặc tả; thay bằng `VisitId` và ghi rõ cơ chế thật |
+| `X-Signature` | đặc tả khai (webhook), CORS không cho — và **đúng là không nên cho** | khai vào sổ `headerKhongQuaTrinhDuyet` kèm lý do: cho header server-to-server vào CORS là nói với mọi trang web rằng nó gửi được từ trình duyệt |
+
+#### Hàng rào
+
+`cmd/apicheck` nay kiểm **tầng thứ ba** của hợp đồng — header — bằng cách
+đối chiếu mọi khai báo `in: header` trong `api/` với `HeaderChoPhep` đọc
+bằng AST từ `cors.go`. Hai hướng, hai sổ lý do, và cả hai sổ bị bắt khi có
+dòng chết. So không phân biệt hoa thường, vì `X-Request-ID` và
+`X-Request-Id` là MỘT header và một cảnh báo giả sẽ làm người ta tắt hẳn
+phép kiểm.
+
+`cors_test.go` cũng đổi: nó từng liệt kê tay bốn header và xanh suốt trong
+lúc cửa hàng hỏng. Nay nó đọc `HeaderChoPhep`, tức kiểm rằng mọi thứ đã
+khai đều tới được trình duyệt; còn việc danh sách ấy có ĐỦ hay không là
+việc của `apicheck`.
+
+**Kiểm chứng bằng cách phá:** bỏ lại `X-Visit-Id` khỏi `HeaderChoPhep` →
+`apicheck` đỏ kèm tên header và đường dẫn đặc tả, `cors_test` đỏ kèm câu
+"cả cửa hàng trắng trang". Khôi phục → cả hai xanh.
+
+#### Điều đáng nhớ
+
+Cả ba lệch — và cả lỗi `ReturnRequest` của P3-57 — chung một hình dạng:
+**hai bên cùng làm đúng phần của mình, không ai so hai phần với nhau.** Với
+đường dẫn thì `apicheck` so; với header thì tới hôm nay mới có người so.
+Phần chưa ai so còn lại là **hình dạng payload**, và cách rẻ nhất cho nó
+vẫn là cách P3-57 nói: mỗi endpoint phải có một bên gọi CÓ KIỂU.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
@@ -5759,6 +5840,30 @@ không tập nào giao tập nào.
 Dấu hiệu nhận ra: một trường ở response A chỉ có nghĩa khi ghép với
 response B. Cách kiểm rẻ nhất là một bài test gọi CẢ HAI rồi giao nhau
 hai tập mã — đúng những gì `TestKienGhepDuocVoiDongHang` làm.
+
+**Bước 7, thêm sau P3-58 — CHẠY QUA ĐÚNG CÁI CỔNG KHÁCH ĐI QUA.** Sáu bước
+trên đều soi phần mềm từ bên trong. Chúng mù với thứ hỏng ở tầng mà chỉ
+trình duyệt thật mới đi qua:
+
+```text
+go test         httptest gọi thẳng handler          → không có preflight
+Playwright e2e  cùng origin qua proxy Next.js       → CORS không áp dụng
+log máy chủ     request bị chặn trước khi tới nơi   → SẠCH TRƠN
+```
+
+`X-Visit-Id` thiếu trong danh sách CORS làm CẢ cửa hàng trắng trang, trong
+lúc năm phép kiểm cùng xanh và log máy chủ không có một dòng nào. Không
+bước nào từ 1 tới 6 nhìn vào chỗ ấy, vì cả sáu đều giả định request đã tới
+được máy chủ.
+
+Cách rẻ nhất: mở trang bằng trình duyệt thật, từ một **origin khác**, và
+đọc console. Ba mươi giây, và nó là ba mươi giây duy nhất bắt được dạng
+này. Hàng rào thường trực thì nằm ở `cmd/apicheck` (tầng header) — xem
+P3-58.
+
+Quy tắc chung rút ra: **một phép kiểm chỉ bảo vệ được đoạn đường nó đi
+qua.** Sáu bước đầu đi từ database ra tới handler. Khách thì đi từ trình
+duyệt vào, và đoạn đầu con đường ấy tới hôm nay mới có người đi thử.
 
 ---
 

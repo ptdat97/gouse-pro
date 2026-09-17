@@ -23,7 +23,7 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     139 file · 44.496 dòng
+Tài liệu     139 file · 44.659 dòng
 Đặc tả API   12 file YAML · 98 thao tác · 0 lỗi lint
 Code Go      291 file · 82.430 dòng · 1.113 hàm test
 Migration    55 file SQL · đảo được
@@ -53,8 +53,12 @@ Kiểm chứng lần cuối (17/09/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 469 file, không vi phạm ranh giới
-✓ apicheck     OK — 83/98 thao tác có route, 15 hoãn đều có khai lý do
+✓ archcheck    OK — 470 file, không vi phạm ranh giới
+✓ apicheck     OK — 83/98 thao tác có route, 15 hoãn đều có khai lý do;
+               8 header khớp danh sách CORS (tầng thứ ba, thêm 17/09)
+✓ chất lượng   mvp.md mục 7 nay có SỐ ĐO thay cho dấu ✓: p95 14,3ms ·
+               LCP 1,40s (bóp 4G + CPU ×4) · 0/6.229 bút toán lệch ·
+               0 tồn kho âm · 0 đơn lệch đối soát
 ✓ go test      toàn bộ package pass, CÓ database thật
 ✓ chạy thật    CẢ STACK trên Docker (postgres 18 + api + worker,
                APP_ENV=production): đăng ký → giỏ → thanh toán → đặt đơn
@@ -145,9 +149,11 @@ hai phép kiểm — test của `archcheck` và `apicheck` — là BƯỚC bên 
 - [x] `api-spec` — lint đặc tả + sinh kiểu TypeScript để xác nhận đặc tả dùng được
 - [x] `alerts` — test cho từng luật cảnh báo Prometheus
 - [x] `cmd/apicheck` (trong job `architecture`) — đối chiếu ĐẶC TẢ với TUYẾN
-      đã đăng ký. `types:check` chỉ so đặc tả với TypeScript sinh ra từ
-      chính nó, nên sáu endpoint từng sống ngoài hợp đồng mà CI vẫn xanh.
-      Xem P3-56.
+      đã đăng ký, **và với danh sách header của CORS**. `types:check` chỉ so
+      đặc tả với TypeScript sinh ra từ chính nó, nên sáu endpoint từng sống
+      ngoài hợp đồng mà CI vẫn xanh (P3-56) — và `X-Visit-Id` thiếu trong
+      CORS làm cả cửa hàng trắng trang trong lúc năm phép kiểm cùng xanh
+      (P3-58).
 
 ---
 

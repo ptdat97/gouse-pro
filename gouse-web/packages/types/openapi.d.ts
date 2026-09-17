@@ -3589,6 +3589,27 @@ export interface components {
          *     - Key hết hạn (24 giờ) → xử lý như request mới
          */
         IdempotencyKey: string;
+        /**
+         * @description Mã MỘT LƯỢT TRUY CẬP, do **trình duyệt** sinh và giữ trong
+         *     `sessionStorage` (ADR-0020). `api-client` gửi nó kèm **mọi** request.
+         *
+         *     **Nó KHÔNG phải định danh người dùng và KHÔNG phải phiên đăng nhập.**
+         *     Một người mở lại trang sau khi đóng tab là một lượt MỚI; cùng người,
+         *     mã khác. Giỏ hàng của khách vãng lai đi bằng cookie `shopper_session`
+         *     (HttpOnly, 30 ngày), không bằng header này.
+         *
+         *     Chính vì hai khái niệm ấy từng dùng chung một cái tên mà
+         *     `conversion_rate` bằng 0 vĩnh viễn — ba module điền ba thứ khác nhau
+         *     vào cùng một cột `session_id`.
+         *
+         *     Server **không sinh thay client**: thiếu thì để trống. Một mã do
+         *     server sinh sẽ khác nhau ở mỗi request, tức mỗi lời gọi thành một
+         *     "lượt truy cập" riêng và mọi tỷ lệ tính trên nó đều vô nghĩa.
+         *
+         *     Dài quá `maxLength` thì **bỏ, không cắt** — mã bị cắt vẫn trông hợp lệ
+         *     và sẽ gộp nhầm nhiều lượt vào một.
+         */
+        VisitId: string;
     };
     requestBodies: never;
     headers: {
@@ -4555,8 +4576,27 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Bắt buộc với khách vãng lai (chưa đăng nhập). */
-                "X-Session-ID"?: string;
+                /**
+                 * @description Mã MỘT LƯỢT TRUY CẬP, do **trình duyệt** sinh và giữ trong
+                 *     `sessionStorage` (ADR-0020). `api-client` gửi nó kèm **mọi** request.
+                 *
+                 *     **Nó KHÔNG phải định danh người dùng và KHÔNG phải phiên đăng nhập.**
+                 *     Một người mở lại trang sau khi đóng tab là một lượt MỚI; cùng người,
+                 *     mã khác. Giỏ hàng của khách vãng lai đi bằng cookie `shopper_session`
+                 *     (HttpOnly, 30 ngày), không bằng header này.
+                 *
+                 *     Chính vì hai khái niệm ấy từng dùng chung một cái tên mà
+                 *     `conversion_rate` bằng 0 vĩnh viễn — ba module điền ba thứ khác nhau
+                 *     vào cùng một cột `session_id`.
+                 *
+                 *     Server **không sinh thay client**: thiếu thì để trống. Một mã do
+                 *     server sinh sẽ khác nhau ở mỗi request, tức mỗi lời gọi thành một
+                 *     "lượt truy cập" riêng và mọi tỷ lệ tính trên nó đều vô nghĩa.
+                 *
+                 *     Dài quá `maxLength` thì **bỏ, không cắt** — mã bị cắt vẫn trông hợp lệ
+                 *     và sẽ gộp nhầm nhiều lượt vào một.
+                 */
+                "X-Visit-Id"?: components["parameters"]["VisitId"];
             };
             path?: never;
             cookie?: never;
@@ -4593,7 +4633,27 @@ export interface operations {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 /** @description Định danh request để truy vết. Server tự sinh nếu thiếu. */
                 "X-Request-ID"?: components["parameters"]["RequestId"];
-                "X-Session-ID"?: string;
+                /**
+                 * @description Mã MỘT LƯỢT TRUY CẬP, do **trình duyệt** sinh và giữ trong
+                 *     `sessionStorage` (ADR-0020). `api-client` gửi nó kèm **mọi** request.
+                 *
+                 *     **Nó KHÔNG phải định danh người dùng và KHÔNG phải phiên đăng nhập.**
+                 *     Một người mở lại trang sau khi đóng tab là một lượt MỚI; cùng người,
+                 *     mã khác. Giỏ hàng của khách vãng lai đi bằng cookie `shopper_session`
+                 *     (HttpOnly, 30 ngày), không bằng header này.
+                 *
+                 *     Chính vì hai khái niệm ấy từng dùng chung một cái tên mà
+                 *     `conversion_rate` bằng 0 vĩnh viễn — ba module điền ba thứ khác nhau
+                 *     vào cùng một cột `session_id`.
+                 *
+                 *     Server **không sinh thay client**: thiếu thì để trống. Một mã do
+                 *     server sinh sẽ khác nhau ở mỗi request, tức mỗi lời gọi thành một
+                 *     "lượt truy cập" riêng và mọi tỷ lệ tính trên nó đều vô nghĩa.
+                 *
+                 *     Dài quá `maxLength` thì **bỏ, không cắt** — mã bị cắt vẫn trông hợp lệ
+                 *     và sẽ gộp nhầm nhiều lượt vào một.
+                 */
+                "X-Visit-Id"?: components["parameters"]["VisitId"];
             };
             path?: never;
             cookie?: never;
@@ -4828,7 +4888,27 @@ export interface operations {
                  *     - Key hết hạn (24 giờ) → xử lý như request mới
                  */
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "X-Session-ID"?: string;
+                /**
+                 * @description Mã MỘT LƯỢT TRUY CẬP, do **trình duyệt** sinh và giữ trong
+                 *     `sessionStorage` (ADR-0020). `api-client` gửi nó kèm **mọi** request.
+                 *
+                 *     **Nó KHÔNG phải định danh người dùng và KHÔNG phải phiên đăng nhập.**
+                 *     Một người mở lại trang sau khi đóng tab là một lượt MỚI; cùng người,
+                 *     mã khác. Giỏ hàng của khách vãng lai đi bằng cookie `shopper_session`
+                 *     (HttpOnly, 30 ngày), không bằng header này.
+                 *
+                 *     Chính vì hai khái niệm ấy từng dùng chung một cái tên mà
+                 *     `conversion_rate` bằng 0 vĩnh viễn — ba module điền ba thứ khác nhau
+                 *     vào cùng một cột `session_id`.
+                 *
+                 *     Server **không sinh thay client**: thiếu thì để trống. Một mã do
+                 *     server sinh sẽ khác nhau ở mỗi request, tức mỗi lời gọi thành một
+                 *     "lượt truy cập" riêng và mọi tỷ lệ tính trên nó đều vô nghĩa.
+                 *
+                 *     Dài quá `maxLength` thì **bỏ, không cắt** — mã bị cắt vẫn trông hợp lệ
+                 *     và sẽ gộp nhầm nhiều lượt vào một.
+                 */
+                "X-Visit-Id"?: components["parameters"]["VisitId"];
             };
             path?: never;
             cookie?: never;

@@ -50,6 +50,8 @@ func main() {
 	c := &checker{
 		root: *root, verbose: *verbose,
 		chuaCai: chuaCai, ngoaiHopDong: ngoaiHopDong,
+		headerNgoaiDacTa:         headerNgoaiDacTa,
+		headerKhongQuaTrinhDuyet: headerKhongQuaTrinhDuyet,
 	}
 	if err := c.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "apicheck: %v\n", err)
@@ -82,8 +84,15 @@ type checker struct {
 	chuaCai      map[string]string
 	ngoaiHopDong map[string]string
 
+	// Hai sổ cho tầng HEADER — xem header.go.
+	headerNgoaiDacTa         map[string]string
+	headerKhongQuaTrinhDuyet map[string]string
+
 	dacTa map[thaoTac]string // thao tác -> file đặc tả khai nó
 	tuyen map[thaoTac]string // tuyến   -> file Go đăng ký nó
+
+	headerDacTa map[string]string // header -> file đặc tả khai nó
+	headerCORS  map[string]bool   // header CORS cho phép
 
 	viPham []string
 }
@@ -101,7 +110,15 @@ func (c *checker) run() error {
 			"kết luận gì; kiểm lại -root", len(c.dacTa), len(c.tuyen))
 	}
 
+	if c.headerDacTa, err = c.docHeaderDacTa(); err != nil {
+		return err
+	}
+	if c.headerCORS, err = c.docHeaderCORS(); err != nil {
+		return err
+	}
+
 	c.doiChieu()
+	c.doiChieuHeader(c.headerDacTa, c.headerCORS)
 	return nil
 }
 
@@ -362,11 +379,16 @@ func (c *checker) report() {
 		fmt.Printf("apicheck: %d thao tác đặc tả · %d tuyến · %d hoãn · "+
 			"%d ngoài hợp đồng\n",
 			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.ngoaiHopDong))
+		fmt.Printf("apicheck: %d header đặc tả · %d header CORS cho phép · "+
+			"%d ngoài đặc tả · %d không qua trình duyệt\n",
+			len(c.headerDacTa), len(c.headerCORS),
+			len(c.headerNgoaiDacTa), len(c.headerKhongQuaTrinhDuyet))
 	}
 
 	if len(c.viPham) == 0 {
 		fmt.Printf("apicheck: OK — %d thao tác đặc tả khớp %d tuyến "+
-			"(%d hoãn, đã khai)\n", len(c.dacTa), len(c.tuyen), len(c.chuaCai))
+			"(%d hoãn, đã khai) · %d header khớp danh sách CORS\n",
+			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.headerCORS))
 		return
 	}
 

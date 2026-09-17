@@ -19,11 +19,13 @@ cart:
       - bearerAuth: []
       - {}
     parameters:
-      - name: X-Session-ID
-        in: header
-        description: Bắt buộc với khách vãng lai (chưa đăng nhập).
-        schema:
-          type: string
+      # Khách VÃNG LAI đi bằng cookie `shopper_session` (HttpOnly, 30
+      # ngày), KHÔNG bằng header.
+      #
+      # Bản trước khai `X-Session-ID` ở đây. Không đường nào đọc nó, và
+      # trình duyệt không đặt được cookie HttpOnly bằng header — nên dòng
+      # ấy mô tả một cơ chế chưa từng tồn tại. Bỏ 17/09/2026.
+      - $ref: '../components/common.yaml#/parameters/VisitId'
     responses:
       '200':
         description: Giỏ hàng hiện tại
@@ -57,10 +59,13 @@ cart_items:
     parameters:
       - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
       - $ref: '../components/common.yaml#/parameters/RequestId'
-      - name: X-Session-ID
-        in: header
-        schema:
-          type: string
+      # Khách VÃNG LAI đi bằng cookie `shopper_session` (HttpOnly, 30
+      # ngày), KHÔNG bằng header.
+      #
+      # Bản trước khai `X-Session-ID` ở đây. Không đường nào đọc nó, và
+      # trình duyệt không đặt được cookie HttpOnly bằng header — nên dòng
+      # ấy mô tả một cơ chế chưa từng tồn tại. Bỏ 17/09/2026.
+      - $ref: '../components/common.yaml#/parameters/VisitId'
     requestBody:
       required: true
       content:
@@ -228,10 +233,13 @@ checkout:
       - {}
     parameters:
       - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
-      - name: X-Session-ID
-        in: header
-        schema:
-          type: string
+      # Khách VÃNG LAI đi bằng cookie `shopper_session` (HttpOnly, 30
+      # ngày), KHÔNG bằng header.
+      #
+      # Bản trước khai `X-Session-ID` ở đây. Không đường nào đọc nó, và
+      # trình duyệt không đặt được cookie HttpOnly bằng header — nên dòng
+      # ấy mô tả một cơ chế chưa từng tồn tại. Bỏ 17/09/2026.
+      - $ref: '../components/common.yaml#/parameters/VisitId'
     requestBody:
       required: true
       content:

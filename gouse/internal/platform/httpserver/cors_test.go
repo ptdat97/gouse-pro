@@ -97,15 +97,32 @@ func TestCORSPreflightDoesNotReachHandler(t *testing.T) {
 
 	// Client PHẢI gửi được các header mà API yêu cầu, nếu không mọi lệnh
 	// ghi đều bị trình duyệt chặn trước khi rời máy.
+	//
+	// # Vì sao đọc HeaderChoPhep chứ không viết lại danh sách
+	//
+	// Bản trước liệt kê tay bốn header. Nó xanh suốt ngày 17/09/2026 trong
+	// lúc `X-Visit-Id` — header `api-client` gửi kèm MỌI request — không có
+	// trong danh sách, và cả cửa hàng ngừng tải được dữ liệu.
+	//
+	// Một danh sách viết tay chỉ kiểm được thứ người viết đã nghĩ tới. Bài
+	// này nay kiểm rằng MỌI thứ đã khai đều thật sự tới được trình duyệt;
+	// việc canh danh sách ấy có ĐỦ hay không là của `cmd/apicheck`, bằng
+	// cách đối chiếu với đặc tả OpenAPI.
 	allow := rec.Header().Get("Access-Control-Allow-Headers")
-	// X-Guest-Phone nằm trong danh sách vì khách VÃNG LAI tra đơn bằng mã
-	// đơn kèm số điện thoại — thiếu nó thì cả trang tra cứu đơn không chạy.
-	for _, h := range []string{
-		"Authorization", "Idempotency-Key", "Content-Type", "X-Guest-Phone",
-	} {
+	if len(httpserver.HeaderChoPhep) == 0 {
+		t.Fatal("HeaderChoPhep rỗng — preflight sẽ chặn mọi lệnh ghi")
+	}
+	for _, h := range httpserver.HeaderChoPhep {
 		if !contains(allow, h) {
 			t.Errorf("preflight phải cho phép header %q, nhận %q", h, allow)
 		}
+	}
+
+	// X-Visit-Id có bài riêng vì nó là header DUY NHẤT đi kèm mọi request,
+	// nên thiếu nó không hỏng một tính năng mà hỏng toàn bộ giao diện.
+	if !contains(allow, "X-Visit-Id") {
+		t.Error("thiếu X-Visit-Id: api-client gửi nó kèm MỌI request, " +
+			"nên preflight hỏng nghĩa là cả cửa hàng trắng trang (ADR-0020)")
 	}
 }
 
