@@ -174,6 +174,41 @@ func (f *fakeWishlists) CountByProduct(_ context.Context, _ ids.ID) (int, error)
 	return 0, nil
 }
 
+// fakeConsents giữ bản ghi đồng ý trong bộ nhớ.
+//
+// Ghi THÊM chứ không ghi đè, y như kho thật: `customer_consent` là bằng
+// chứng pháp lý nên nó phải trả lời được "LÚC gửi lá thư đó khách có đồng
+// ý không", chứ không chỉ "bây giờ có đồng ý không".
+type fakeConsents struct {
+	byCustomer map[ids.ID][]*domain.Consent
+}
+
+func (f *fakeConsents) Record(_ context.Context, c *domain.Consent) error {
+	f.byCustomer[c.CustomerID()] = append(f.byCustomer[c.CustomerID()], c)
+	return nil
+}
+
+func (f *fakeConsents) Current(
+	_ context.Context, customerID ids.ID,
+) (map[domain.ConsentType]*domain.Consent, error) {
+	out := map[domain.ConsentType]*domain.Consent{}
+	for _, c := range f.byCustomer[customerID] {
+		out[c.Type()] = c // bản sau ghi đè bản trước → bản mới nhất
+	}
+	return out, nil
+}
+
+func (f *fakeConsents) History(
+	_ context.Context, customerID ids.ID,
+) ([]*domain.Consent, error) {
+	list := f.byCustomer[customerID]
+	out := make([]*domain.Consent, 0, len(list))
+	for i := len(list) - 1; i >= 0; i-- {
+		out = append(out, list[i])
+	}
+	return out, nil
+}
+
 // newHandler dựng handler với kho lưu trữ giả.
 func newHandler(t *testing.T) (http.Handler, *application.Service) {
 	t.Helper()
@@ -185,6 +220,7 @@ func newHandler(t *testing.T) (http.Handler, *application.Service) {
 			lists: map[ids.ID]*domain.Wishlist{},
 			items: map[ids.ID][]domain.WishlistItem{},
 		},
+		Consents: &fakeConsents{byCustomer: map[ids.ID][]*domain.Consent{}},
 	})
 
 	mux := http.NewServeMux()

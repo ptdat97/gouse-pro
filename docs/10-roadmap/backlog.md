@@ -5336,7 +5336,7 @@ Việc nhỏ gỡ được nút này: tách `marketing_consent` ra khỏi khối
 nên nó không cần chờ phần mã hóa số đo cơ thể. Hai thứ nằm chung một khối
 chỉ vì cùng là "tùy chọn của khách".
 
-#### Câu hỏi còn mở: `notification_preference` có còn lý do tồn tại?
+#### ĐÃ QUYẾT (17/09): bỏ `notification_preference`
 
 Bảng ấy đã migrate và KHÔNG dòng mã nào chạm tới. Đặc tả mục 9 khai
 `GetPreferences` / `UpdatePreference` trong interface công khai.
@@ -5348,8 +5348,33 @@ một cái là công tắc giao diện. Dựng cái thứ hai bây giờ sẽ l�
 cảm giác tính năng đã có".
 
 Tiền lệ: `buy_box_offer` bị BỎ khỏi đặc tả vì trường ở mức sản phẩm không
-có nghĩa đúng. Câu hỏi ở đây cùng dạng, và nó cần người quyết chứ không
-cần người gõ.
+có nghĩa đúng. Câu hỏi này cùng dạng, và câu trả lời cũng vậy — migration
+000055 xóa bảng, mục 8 và 9 của notification.md bỏ nó cùng hai phương thức
+`GetPreferences`/`UpdatePreference`.
+
+Cần độ mịn hơn (kênh PUSH, IN_APP, loại SOCIAL) thì MỞ RỘNG `ConsentType`,
+không dựng lại bảng thứ hai.
+
+#### ĐÃ LÀM (17/09): tách `marketing_consent` khỏi khối bị hoãn
+
+`marketing_consent` nay nằm thẳng trong `customer` của
+`GET/PATCH /api/v1/me`, không còn chờ phần mã hóa số đo cơ thể (P3-14).
+
+Hai quyết định trong bản sửa:
+
+```text
+con trỏ, không bool     trường VẮNG MẶT trong PATCH là KHÔNG ĐỔI. Dùng
+                        bool thì một lần đổi số điện thoại âm thầm RÚT
+                        đồng ý — và bản ghi rút ấy có dấu thời gian, nguồn
+                        "settings", trông y như khách tự bấm
+ghi THÊM, không ghi đè  `customer_consent` phải trả lời được "LÚC gửi lá
+                        thư đó khách có đồng ý không", không chỉ "bây giờ
+                        có đồng ý không"
+```
+
+Không có cờ `push` trong response: `customer` chỉ quản lý hai loại
+`MARKETING_EMAIL` và `MARKETING_SMS`, nên một cờ `push` luôn bằng false là
+lời hứa không ai giữ.
 
 ---
 

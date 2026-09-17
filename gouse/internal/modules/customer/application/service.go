@@ -467,6 +467,15 @@ func (s *Service) HasConsent(
 		return false, domain.ErrInvalidConsent
 	}
 
+	// Chưa nối kho đồng ý thì TRẢ LỖI, không trả false.
+	//
+	// `false` nghĩa là "khách đã từ chối", và nói vậy khi thật ra không
+	// biết sẽ khiến `notification` im lặng chặn mọi thư — đúng triệu
+	// chứng của một bộ gửi hỏng, sai nguyên nhân.
+	if s.consents == nil {
+		return false, errors.New("customer: chưa nối kho lưu trữ đồng ý")
+	}
+
 	current, err := s.consents.Current(ctx, customerID)
 	if err != nil {
 		return false, err

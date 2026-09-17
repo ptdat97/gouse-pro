@@ -64,7 +64,7 @@ Chi tiết đầy đủ từng module nằm ở [../04-modules/](../04-modules/)
 | `manufacturing` | `production_order`, `production_order_line`, `production_batch`, `bill_of_materials` |
 | `quality` | `quality_inspection`, `defect_record`, `quality_standard` |
 | `warehouse` | `warehouse`, `warehouse_zone`, `goods_receipt`, `pick_list`, `packing_record` |
-| `notification` | `notification_template`, `notification_log`, `notification_preference` |
+| `notification` | `notification_template`, `notification_log` |
 | `analytics` | `event_log`, `metric_snapshot` |
 
 **Quy tắc:** bảng nào không có trong danh sách này thì chưa được tạo. Thêm bảng mới phải cập nhật tài liệu này.

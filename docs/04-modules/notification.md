@@ -134,9 +134,22 @@ Nhầm lẫn hai loại này là vi phạm pháp luật ở nhiều thị trư�
 ```sql
 notification_template
 notification_log
-notification_preference
 notification_queue
 ```
+
+**`notification_preference` đã bị BỎ (17/09/2026).** Bảng ấy tồn tại từ
+migration 000015 và không dòng mã nào từng chạm tới. `customer_consent`
+mới là điểm cưỡng chế: `Send` từ chối mọi thư MARKETING/SOCIAL khi chưa
+tra được đồng ý.
+
+Hai bảng mô hình hóa cùng một thứ và chúng không ngang hàng —
+`customer_consent` là bản ghi **pháp lý** (có lịch sử cho/rút, trả lời
+được "lúc gửi lá thư đó khách có đồng ý không"), còn bảng kia chỉ là một
+cờ boolean hiện tại. Giữ cả hai là hai nguồn sự thật cho một câu hỏi pháp
+lý, và chúng sẽ lệch nhau ở đúng lúc cần nhất.
+
+Cần độ mịn hơn (kênh PUSH, IN_APP, loại SOCIAL) thì **mở rộng
+`ConsentType`**, không dựng lại bảng thứ hai. Xem P3-55 trong backlog.
 
 ---
 
@@ -145,13 +158,20 @@ notification_queue
 ```go
 type PublicAPI interface {
     Send(ctx, req SendNotificationRequest) error
-    GetPreferences(ctx, userID string) ([]Preference, error)
-    UpdatePreference(ctx, req UpdatePreferenceRequest) error
     GetNotificationHistory(ctx, userID string, page Pagination) (*NotificationList, error)
 }
 ```
 
 Interface này chủ yếu dùng cho các trường hợp gửi trực tiếp (ví dụ OTP). Đa số thông báo được kích hoạt qua event.
+
+`GetPreferences` và `UpdatePreference` đã bị **bỏ khỏi đặc tả** cùng bảng
+`notification_preference` — xem mục 8. Đường cho khách bật/tắt marketing
+là `PATCH /api/v1/me` với trường `marketing_consent`, do module `customer`
+sở hữu.
+
+Module này KHÔNG nhận cổng ghi đồng ý, chỉ nhận cổng ĐỌC (`KhachPort`):
+ghi đồng ý là việc của hồ sơ khách, và để hai module cùng ghi một bản ghi
+pháp lý là cách chắc chắn để lịch sử cho/rút không còn tin được.
 
 ---
 

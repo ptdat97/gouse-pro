@@ -33,6 +33,26 @@ me:
                     tier:
                       type: string
                       enum: [GUEST, REGISTERED, MEMBER, VIP]
+                    marketing_consent:
+                      type: object
+                      description: |
+                        Đồng ý nhận marketing, đọc từ `customer_consent`.
+
+                        **Bắt buộc kiểm tra** trước khi gửi nội dung
+                        marketing — `notification.Send` từ chối thư
+                        MARKETING/SOCIAL khi chưa tra được đồng ý, và từ
+                        chối theo hướng ĐÓNG (không tra được cũng là
+                        không gửi).
+
+                        KHÔNG có `push`: `customer` chỉ quản lý hai loại
+                        `MARKETING_EMAIL` và `MARKETING_SMS`. Một cờ
+                        `push` luôn bằng false là lời hứa không ai giữ.
+                      required: [email, sms]
+                      properties:
+                        email:
+                          type: boolean
+                        sms:
+                          type: boolean
                     preferences:
                       allOf:
                         - $ref: '#/CustomerPreferences'
@@ -71,6 +91,24 @@ me:
                 type: string
               phone:
                 type: string
+              marketing_consent:
+                type: object
+                description: |
+                  Bật/tắt thư khuyến mãi. Mỗi lần gửi ghi một BẢN GHI MỚI
+                  vào `customer_consent` kèm nguồn, dấu thời gian, IP đã
+                  băm và user-agent — không ghi đè, vì câu hỏi bản ghi ấy
+                  phải trả lời được là "LÚC gửi lá thư đó khách có đồng ý
+                  không".
+
+                  Trường VẮNG MẶT thì không đổi gì. Đây là PATCH: gửi
+                  `{"phone": "..."}` không được rút đồng ý nhận thư, và
+                  một bản ghi rút như vậy sẽ có dấu thời gian trông y như
+                  khách tự bấm.
+                properties:
+                  email:
+                    type: boolean
+                  sms:
+                    type: boolean
               preferences:
                 allOf:
                   - $ref: '#/CustomerPreferences'
@@ -301,15 +339,13 @@ CustomerPreferences:
       description: Chất liệu khách tránh (dị ứng hoặc không thích).
       items:
         type: string
-    marketing_consent:
-      type: object
-      description: |
-        Đồng ý nhận marketing. **Bắt buộc kiểm tra** trước khi gửi nội dung
-        marketing — thông báo giao dịch không cần đồng ý.
-      properties:
-        email:
-          type: boolean
-        sms:
-          type: boolean
-        push:
-          type: boolean
+    # `marketing_consent` ĐÃ CHUYỂN ra khỏi khối này (17/09/2026).
+    #
+    # Nó nằm thẳng trong `customer` của `GET/PATCH /api/v1/me`. Hai thứ
+    # từng nằm chung chỉ vì cùng là "tùy chọn của khách", nhưng số đo cơ
+    # thể là dữ liệu nhạy cảm cần mã hóa khi lưu (P3-14, chưa có chỗ) còn
+    # đồng ý marketing là hai cờ boolean.
+    #
+    # Gộp chúng nghĩa là hàng rào đồng ý ở `notification` đứng đó mà không
+    # ai cho đồng ý được, và tính năng marketing đầu tiên sẽ gửi đúng luật
+    # mà gửi được KHÔNG lá thư nào.

@@ -1,0 +1,27 @@
+-- Bỏ `notification_preference`: MỘT mô hình duy nhất cho sự đồng ý.
+--
+-- VÌ SAO XÓA CHỨ KHÔNG XÂY
+--
+-- Bảng này được tạo ở migration 000015 và KHÔNG dòng mã nào từng chạm tới.
+-- Từ 17/09, `customer_consent` là điểm cưỡng chế thật: `notification.Send`
+-- từ chối mọi thư MARKETING/SOCIAL khi chưa tra được đồng ý (P3-54).
+--
+-- Hai bảng mô hình hóa cùng một thứ, và chúng KHÔNG ngang hàng:
+--
+--	customer_consent           bản ghi PHÁP LÝ — có lịch sử, có mốc thời
+--	                           gian cho/rút, trả lời được "lúc gửi thư đó
+--	                           khách có đồng ý không"
+--	notification_preference    một cờ boolean hiện tại, không lịch sử
+--
+-- Giữ cả hai nghĩa là hai nguồn sự thật cho một câu hỏi pháp lý, và câu
+-- trả lời sẽ lệch nhau ở đúng lúc cần nó nhất.
+--
+-- PHẦN BẢNG NÀY THÊM ĐƯỢC mà `customer_consent` chưa có: kênh PUSH,
+-- IN_APP và loại SOCIAL. Cần tới thì MỞ RỘNG loại đồng ý
+-- (`ConsentType`), không dựng lại bảng thứ hai — cùng lý do mà
+-- `buy_box_offer` bị bỏ khỏi đặc tả thay vì được điền đại.
+--
+-- Không mất dữ liệu: bảng rỗng trên mọi môi trường vì chưa bao giờ có
+-- đường ghi.
+
+DROP TABLE IF EXISTS notification_preference;

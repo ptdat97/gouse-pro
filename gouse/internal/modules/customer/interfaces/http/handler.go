@@ -20,6 +20,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
@@ -28,6 +29,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
+	"github.com/fashion-commerce/platform/internal/platform/privacy"
 )
 
 // Handler phục vụ các endpoint tài khoản khách hàng.
@@ -63,6 +65,28 @@ type profileJSON struct {
 	// Tier là hạng khách hàng. Đặc tả gọi là `tier`, module gọi là
 	// `Status` — cùng một tập giá trị, chỉ khác tên.
 	Tier string `json:"tier"`
+
+	// MarketingConsent là hai cờ khách bật/tắt thư khuyến mãi.
+	//
+	// Nằm ở ĐÂY, không nằm trong `preferences`. Đặc tả từng gộp chúng
+	// chung khối với số đo cơ thể chỉ vì cả hai là "tùy chọn của khách",
+	// nhưng hai thứ đó khác hẳn: số đo là dữ liệu nhạy cảm cần mã hóa khi
+	// lưu (P3-14, chưa có chỗ), còn đây là hai giá trị boolean.
+	//
+	// Gộp chúng nghĩa là hàng rào đồng ý ở `notification` đứng đó mà
+	// không ai cho đồng ý được, và tính năng marketing đầu tiên sẽ gửi
+	// đúng luật mà gửi được KHÔNG lá thư nào.
+	MarketingConsent marketingConsentJSON `json:"marketing_consent"`
+}
+
+// marketingConsentJSON khớp `marketing_consent` của account.yaml.
+//
+// KHÔNG có `push`: `customer` chỉ quản lý hai loại đồng ý
+// MARKETING_EMAIL và MARKETING_SMS. Trả thêm một cờ `push` luôn bằng
+// false sẽ là lời hứa không ai giữ — khách tắt nó cũng không đổi gì.
+type marketingConsentJSON struct {
+	Email bool `json:"email"`
+	SMS   bool `json:"sms"`
 }
 
 type profileResponse struct {
@@ -93,12 +117,52 @@ func (h *Handler) getProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.ok(w, r, http.StatusOK, profileResponse{Customer: toProfile(v)})
+	out := toProfile(v)
+	dongY, err := h.dongYMarketing(r, id)
+	if err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+	out.MarketingConsent = dongY
+
+	h.ok(w, r, http.StatusOK, profileResponse{Customer: out})
+}
+
+// dongYMarketing đọc hai cờ đồng ý hiện tại của khách.
+//
+// Lỗi thì TRẢ LỖI, không trả false: false nghĩa là "khách đã từ chối", và
+// nói vậy khi thật ra không đọc được sẽ khiến khách thấy ô đã tắt rồi bật
+// lại — ghi đè một lần từ chối có thật bằng một lần đọc hỏng.
+func (h *Handler) dongYMarketing(
+	r *http.Request, id ids.ID,
+) (marketingConsentJSON, error) {
+	email, err := h.svc.HasConsent(r.Context(), id, domain.ConsentMarketingEmail)
+	if err != nil {
+		return marketingConsentJSON{}, err
+	}
+	sms, err := h.svc.HasConsent(r.Context(), id, domain.ConsentMarketingSMS)
+	if err != nil {
+		return marketingConsentJSON{}, err
+	}
+	return marketingConsentJSON{Email: email, SMS: sms}, nil
 }
 
 type updateProfileRequest struct {
 	Name  string `json:"name,omitempty"`
 	Phone string `json:"phone,omitempty"`
+
+	// MarketingConsent dùng CON TRỎ ở cả hai tầng, và đó là cả vấn đề.
+	//
+	// PATCH nghĩa là "sửa những gì tôi gửi". Dùng `bool` thì trường vắng
+	// mặt đọc ra `false`, nên một lần sửa số điện thoại sẽ âm thầm RÚT
+	// đồng ý nhận thư khuyến mãi — và bản ghi rút ấy có dấu thời gian và
+	// nguồn "settings", trông y như khách tự bấm.
+	MarketingConsent *marketingConsentPatch `json:"marketing_consent,omitempty"`
+}
+
+type marketingConsentPatch struct {
+	Email *bool `json:"email,omitempty"`
+	SMS   *bool `json:"sms,omitempty"`
 }
 
 // updateProfile phục vụ PATCH /api/v1/me (operationId: updateMyProfile).
@@ -125,7 +189,65 @@ func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.ok(w, r, http.StatusOK, profileResponse{Customer: toProfile(v)})
+	if err := h.ghiDongY(r, id, req.MarketingConsent); err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+
+	out := toProfile(v)
+	dongY, err := h.dongYMarketing(r, id)
+	if err != nil {
+		h.fail(w, r, translate(err))
+		return
+	}
+	out.MarketingConsent = dongY
+
+	h.ok(w, r, http.StatusOK, profileResponse{Customer: out})
+}
+
+// ghiDongY ghi lại hai cờ đồng ý khách vừa đổi.
+//
+// # Mỗi lần bấm là một BẢN GHI MỚI, không phải một lần ghi đè
+//
+// `customer_consent` là bằng chứng pháp lý, nên câu hỏi nó phải trả lời
+// được là "LÚC gửi lá thư đó khách có đồng ý không" — chứ không phải
+// "bây giờ khách có đồng ý không". Ghi đè một cờ boolean xóa mất câu trả
+// lời ấy.
+//
+// `source` là "settings": nơi khách bấm. Một lần đồng ý không nói được
+// bấm ở đâu thì không dùng làm bằng chứng được.
+func (h *Handler) ghiDongY(
+	r *http.Request, id ids.ID, p *marketingConsentPatch,
+) error {
+	if p == nil {
+		return nil
+	}
+
+	for _, c := range []struct {
+		loai domain.ConsentType
+		gia  *bool
+	}{
+		{domain.ConsentMarketingEmail, p.Email},
+		{domain.ConsentMarketingSMS, p.SMS},
+	} {
+		if c.gia == nil {
+			continue
+		}
+		if _, err := h.svc.RecordConsent(r.Context(), domain.NewConsentParams{
+			CustomerID: id,
+			Type:       c.loai,
+			Granted:    *c.gia,
+			Source:     "settings",
+
+			// Băm IP ngay tại biên: bên trong không bao giờ thấy địa chỉ
+			// nguyên văn, nên không có chỗ nào lỡ tay ghi nó ra nhật ký.
+			IPHash:    privacy.HashIP(diaChiIP(r)),
+			UserAgent: r.UserAgent(),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------- Địa chỉ
@@ -342,6 +464,24 @@ func (h *Handler) addWishlistItem(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- Hỗ trợ
 
 // customerID lấy định danh khách hàng của người gọi.
+// diaChiIP lấy IP của người gọi, ưu tiên header của bộ cân bằng tải.
+//
+// Header này client tự đặt được, nên nó KHÔNG dùng cho phân quyền — chỉ
+// để ghi kèm bằng chứng đồng ý. Giá trị được BĂM trước khi lưu: IP nguyên
+// văn là dữ liệu cá nhân, cần cơ sở pháp lý để giữ.
+func diaChiIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if first, _, found := strings.Cut(xff, ","); found {
+			return strings.TrimSpace(first)
+		}
+		return strings.TrimSpace(xff)
+	}
+	if rip := r.Header.Get("X-Real-IP"); rip != "" {
+		return strings.TrimSpace(rip)
+	}
+	return r.RemoteAddr
+}
+
 func (h *Handler) customerID(r *http.Request) (ids.ID, error) {
 	s, ok := httpserver.ShopperFrom(r.Context())
 	if !ok {
