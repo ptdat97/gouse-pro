@@ -7,7 +7,19 @@
 
 BrandRef:
   type: object
-  required: [id, name]
+  description: |
+    Tham chiếu thương hiệu bên trong một tài nguyên khác.
+
+    `name` KHÔNG bắt buộc, có chủ ý. Tên thương hiệu thuộc module
+    `catalog`, và module `product` không gọi catalog ở tầng trình bày —
+    làm vậy nghĩa là mỗi request sản phẩm kéo theo một request catalog.
+
+    Trả `"name": ""` tệ hơn là bỏ trường: chuỗi rỗng trông như dữ liệu
+    hợp lệ và sẽ hiển thị thành khoảng trắng trên trang, còn trường thiếu
+    thì client biết là chưa có và đi lấy từ nguồn khác.
+
+    Nguồn đúng cho tên, logo và mô tả là `GET /api/v1/brands/{brand_id}`.
+  required: [id]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
@@ -24,7 +36,9 @@ CollectionRef:
   description: |
     Bộ sưu tập — khái niệm **hạng nhất** trong thời trang, không phải nhãn phân loại.
     Có ngân sách sản xuất, mốc thời gian, và chỉ số sell-through riêng.
-  required: [id, name]
+
+    `name` KHÔNG bắt buộc, cùng lý do với `BrandRef`.
+  required: [id]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'

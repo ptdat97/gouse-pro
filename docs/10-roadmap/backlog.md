@@ -5205,6 +5205,50 @@ tích hợp nào đi qua. Nay đã đăng ký; `supplychain` vẫn còn thiếu 
 
 ---
 
+### P3-52 — `shipping_groups`: "món nào đến trước" nay trả lời được
+
+Mục còn mở của P3-50, nay đã xây. `Checkout.shipping_groups` có trong đặc
+tả từ đầu và không có trong bất kỳ file `.go` nào.
+
+Phần lớn dữ liệu ĐÃ được tính sẵn rồi bị vứt: `EstimateShipping` trả phí
+và số ngày cho từng nguồn, adapter của checkout giữ mỗi `Total`. Chú thích
+ở cổng ấy nói phần còn lại để "trang hiển thị hỏi thẳng fulfillment" —
+nhưng không có endpoint nào như vậy, cả trong mã lẫn trong đặc tả.
+
+**Thứ còn thiếu thật sự là thời gian chuẩn bị hàng.** Trong một phiên, mọi
+nhóm dùng chung phương thức giao nên chung số ngày vận chuyển; thứ DUY
+NHẤT làm các nhóm khác ngày nhau là thời gian chuẩn bị của từng nhà bán.
+Thiếu nó thì bảng kê trả lời "món nào đến trước" bằng "tất cả cùng lúc" —
+tức xây xong mà vô nghĩa.
+
+Migration 000054 đưa `handling_time_hours` đi theo món: offer → giỏ →
+phiên, đóng băng như giá và tỷ lệ hoa hồng. Qua giỏ chứ không tra thẳng
+marketplace, vì `cart` là ranh giới đọc offer còn `checkout` đóng băng thứ
+cart đưa sang.
+
+Ba quyết định trong phép tính, mỗi cái có một bài test riêng:
+
+```text
+giờ chuẩn bị của nhóm   lấy LỚN NHẤT — kiện chỉ đi khi món chậm nhất xong
+phí của nhóm            chia từ phí THỰC THU, không từ phí ƯỚC TÍNH
+phần lẻ                 chia theo phần dư lớn nhất
+```
+
+Quyết định giữa là chỗ dễ vỡ nhất: miễn phí ship đưa tổng về 0 trong khi
+ước tính từng nguồn vẫn dương, nên chia sai chỗ này cho ra bảng kê thu
+tiền nằm dưới một dòng tổng ghi 0đ.
+
+Bảng kê là trạng thái DẪN XUẤT, không lưu database: phí và dòng hàng đã ở
+trên phiên, biểu phí đọc từ cấu hình vận hành trong bộ nhớ nên ước tính
+không chạm database.
+
+**Đã đóng luôn mục vặt của P3-50:** `BrandRef` và `CollectionRef` bỏ
+`name` khỏi `required`. Quyết định của mã (không gọi catalog ở tầng trình
+bày; `GET /api/v1/brands/{id}` là nguồn đúng) là quyết định đã cân nhắc,
+nên đặc tả sửa theo mã chứ không ngược lại.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
