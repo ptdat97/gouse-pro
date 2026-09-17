@@ -180,11 +180,17 @@ hứa.
 ```text
 ✓ 1. conversion_rate báo "chưa đo được" thay vì 0
 ✓ 2. cart_conversion_rate — chỉ số phiên thanh toán → đơn
-  3. visit_id đi từ trình duyệt tới domain event      cần cửa hàng đổi
+✓ 3. visit_id đi từ trình duyệt tới domain event
 ```
 
-Bước 1 và 2 xong ngày 17/09. Chúng không cần cửa hàng đổi gì nên làm được
-ngay sau khi ADR được duyệt.
+Cả ba xong ngày 17/09. `conversion_rate` đã ra khỏi sổ `ChuaDoDuoc`, và sổ
+`noDaBiet` của phép quét không gian mã nay rỗng.
+
+**Một phát hiện khi làm bước 3:** cửa hàng CHƯA TỪNG gửi sự kiện
+`product_view` nào. Đường `POST /api/v1/events` có đặc tả, có test, có
+giới hạn tần suất — và không có bên gọi. Nên kể cả khi backend đã đúng,
+mẫu số vẫn rỗng ở production. Cùng dạng lỗi mục 8 của backlog, lần này ở
+phía client, và nó chỉ lộ ra khi đi tìm bên gọi thật của một endpoint.
 
 **Một lỗi khác lộ ra khi làm bước 2.** `order_count` — một trong ba dòng ✓ ở
 trên — đếm số DÒNG sự kiện,

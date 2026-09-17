@@ -5249,6 +5249,49 @@ nên đặc tả sửa theo mã chứ không ngược lại.
 
 ---
 
+### P3-53 — ADR-0020 xong cả ba bước: phễu chuyển đổi nối được
+
+`conversion_rate` bằng 0 vĩnh viễn vì tử số và mẫu số đếm hai không gian
+mã khác nhau. ADR-0020 quyết "một phiên là MỘT LƯỢT TRUY CẬP", và ba bước
+thực hiện xong trong ngày 17/09.
+
+```text
+1. conversion_rate báo "chưa đo được" thay vì 0
+2. cart_conversion_rate — đo được ngay, cả hai đầu ở máy chủ
+3. visit_id đi từ trình duyệt tới domain event
+```
+
+Bước 3 chạm cả hai phía: `X-Visit-Id` → giỏ → phiên thanh toán → domain
+event → `event_log.session_id`, và cửa hàng sinh mã trong `sessionStorage`
+rồi gắn vào mọi lời gọi. Hai event tăng phiên bản (`cart.item_added` v2,
+`checkout.completed` v9), tám bên nhận khai lại `MaxEventVersion`.
+
+#### Hai lỗi khác lộ ra dọc đường
+
+**`order_count` đếm số DÒNG sự kiện.** `order.placed` phát một sự kiện cho
+MỖI nhà bán, nên một đơn trộn hàng ba nhà bán được tính là ba đơn, và
+`aov` chia cho con số ấy nên nhỏ đi ba lần. Sai ở đúng loại đơn mà cái chợ
+tồn tại để tạo ra, và sai theo hướng số đơn trông ĐẸP hơn thực tế. Không
+bài test nào bắt được vì mọi bài đều dựng đơn một nhà bán.
+
+**Cửa hàng chưa từng gửi `product_view`.** Đường `POST /api/v1/events` có
+đặc tả, có test, có giới hạn tần suất, và không có bên gọi — nên mẫu số
+rỗng ở production kể cả khi backend đúng. Dạng lỗi mục 8, lần này ở phía
+client, và chỉ lộ ra khi đi tìm bên gọi THẬT của một endpoint.
+
+#### Ba bài test cũ khóa nhầm hành vi
+
+Hai bài đòi `session_id` bằng mã giỏ — đúng thứ ADR overturn. Một bài của
+`conversion_rate` tự ghi sự kiện tên `purchase` để làm tử số, nên nó xanh
+suốt trong lúc chỉ số ấy bằng 0 trên hệ thống thật.
+
+Bài thứ ba nay kiểm CƠ CHẾ, chạy trên chính nội dung sổ `ChuaDoDuoc`: sổ
+có dòng nào thì dòng ấy phải trả lý do và lý do phải trỏ tới một ADR; sổ
+rỗng thì không chỉ số nào được báo chưa đo được. Nhờ vậy nó không chết khi
+nợ được trả, và tự phủ dòng nợ tiếp theo.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
