@@ -283,11 +283,25 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 		return err
 	}
 
-	// `conversion_rate` KHÔNG được ghi chừng nào chưa đo được.
+	// TỶ LỆ CHUYỂN ĐỔI: bao nhiêu lượt XEM HÀNG dẫn tới mua.
 	//
-	// Ghi 0 là nói với người đọc rằng không ai mua, trong khi sự thật là
-	// hai đầu của phép tính không nối được. `GetMetric` trả lý do lấy từ
-	// `domain.ChuaDoDuoc` (ADR-0020 điều 4).
+	// Cả hai đầu nay đếm cùng một không gian mã — mã LƯỢT TRUY CẬP — nhờ
+	// `checkout.completed` phiên bản 9 mang `visit_id` (ADR-0020 bước 3).
+	// Trước đó tử số đếm mã phiên thanh toán còn mẫu số đếm mã lượt truy
+	// cập, nên tỷ lệ bằng 0 vĩnh viễn dù bán được bao nhiêu.
+	buySessions, err := s.events.CountDistinctSessions(
+		ctx, domain.EventOrderPlaced, r, in.SellerID)
+	if err != nil {
+		return err
+	}
+
+	convMetric := base
+	convMetric.Name = domain.MetricConversionRate
+	convMetric.Value = domain.ComputeConversionRate(buySessions, viewSessions)
+	convMetric.SampleSize = viewSessions
+	if err := s.metrics.Upsert(ctx, convMetric); err != nil {
+		return err
+	}
 
 	// TỶ LỆ PHIÊN THANH TOÁN THÀNH ĐƠN — đo được ngay, vì cả hai đầu đều
 	// ở máy chủ.

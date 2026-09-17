@@ -44,7 +44,7 @@ func (w *world) datDonVoiPhuongThuc(
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	res, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), phuongThuc)
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), phuongThuc, "")
 	if err != nil {
 		t.Fatalf("CompleteCheckout(%s): %v", phuongThuc, err)
 	}

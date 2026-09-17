@@ -142,6 +142,10 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			// BẢN 8.
 			ShippingMethod string `json:"shipping_method"`
 
+			// VisitID để analytics nối đơn này với lượt xem hàng đã dẫn
+			// tới nó. Làm payload lên PHIÊN BẢN 9 — xem ADR-0020.
+			VisitID string `json:"visit_id"`
+
 			// DiscountAllocations: mỗi bên gánh bao nhiêu đồng. Thay cho
 			// `discount_seller_id` của v5, vì mã gian hàng không diễn tả
 			// được chương trình CHIA ĐÔI. Làm payload lên PHIÊN BẢN 6.
@@ -170,6 +174,7 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			DiscountAmount:      in.DiscountAmount.Amount(),
 			CouponCode:          in.CouponCode,
 			ShippingMethod:      in.ShippingMethod,
+			VisitID:             in.VisitID,
 			DiscountAllocations: phanBoPayloadTu(in.PhanBoGiam),
 			ShippingAddress: addressPayload{
 				RecipientName: in.ShippingAddress.RecipientName,
@@ -202,11 +207,15 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 	//	v8  thêm `shipping_method` — fulfillment lưu vào đơn thực hiện và
 	//	    payment tra giá trả hãng theo nó; trước đó trường ấy rỗng trên
 	//	    MỌI đơn thực hiện vì không ai từng gán
+	//	v9  thêm `visit_id` — analytics nối đơn với lượt XEM HÀNG đã dẫn
+	//	    tới nó. Trước đó nó rơi về mã phiên thanh toán, và mã ấy không
+	//	    giao với mã lượt truy cập, nên `conversion_rate` bằng 0 vĩnh
+	//	    viễn dù bán được bao nhiêu (ADR-0020)
 	//
 	// Bên nhận nào chưa khai hiểu phiên bản 2 sẽ bị dispatcher HOÃN event
 	// thay vì nhận thiếu trường rồi mở khóa nhầm cho đơn chưa trả tiền
 	// (ADR-0016).
-	e = e.WithVersion(8)
+	e = e.WithVersion(9)
 
 	// CorrelationID là mã đơn: mọi việc xảy ra sau khi đặt hàng đều truy
 	// ngược được về một đơn cụ thể.

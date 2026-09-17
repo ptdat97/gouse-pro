@@ -295,6 +295,12 @@ const (
 	MetricConversionRate = "conversion_rate"
 
 	MetricSessionCount = "session_count"
+
+	// MetricCartConversionRate là tỷ lệ phiên thanh toán MỞ RA thành đơn.
+	//
+	// Khác `MetricConversionRate` ở MẪU SỐ: chỉ số kia đếm từ lượt xem
+	// hàng, chỉ số này đếm từ lúc khách đã bấm thanh toán.
+	MetricCartConversionRate = "cart_conversion_rate"
 )
 
 // Độ mịn khoảng thời gian.

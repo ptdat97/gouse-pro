@@ -63,7 +63,12 @@ func (h *RecordEventsFromBus) Name() string {
 // còn đoạn văn này thì không.
 func (h *RecordEventsFromBus) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 8
+		return 9
+	}
+	if eventType == eventbus.TypeCartItemAdded {
+		// v2 thêm `visit_id` — mã lượt truy cập, thay cho mã giỏ ở
+		// trường phiên (ADR-0020).
+		return 2
 	}
 	if eventType == eventbus.TypeFulfillmentProgress {
 		// v2 thêm `shipping_method`; bên nhận này không dùng, nhưng
@@ -93,6 +98,9 @@ func (h *RecordEventsFromBus) EventTypes() []string {
 // module này phụ thuộc vào nhiều thứ hơn thực tế, và khi bên phát bỏ một
 // trường thì không rõ có phá gì không.
 type checkoutCompletedPayload struct {
+	// VisitID có từ PHIÊN BẢN 9 — mã LƯỢT TRUY CẬP đã đặt đơn.
+	VisitID string `json:"visit_id"`
+
 	OrderID      string `json:"order_id"`
 	CustomerID   string `json:"customer_id"`
 	CheckoutID   string `json:"checkout_id"`
@@ -115,6 +123,9 @@ type cartItemAddedPayload struct {
 	SKUID    string `json:"sku_id"`
 	SellerID string `json:"seller_id"`
 	Quantity int    `json:"quantity"`
+
+	// VisitID có từ PHIÊN BẢN 2 của event.
+	VisitID string `json:"visit_id"`
 }
 
 // fulfillmentProgressPayload là phần dữ liệu cần từ event tiến độ.
@@ -212,9 +223,12 @@ func (h *RecordEventsFromBus) handleCheckoutCompleted(
 
 			CustomerID: p.CustomerID,
 
-			// SessionID dùng CheckoutID: nó nối các sự kiện của cùng một
-			// lượt mua, và đó chính là thứ tỷ lệ chuyển đổi cần.
-			SessionID: p.CheckoutID,
+			// SessionID là mã LƯỢT TRUY CẬP đã đặt đơn.
+			//
+			// Trước 17/09 chỗ này dùng `p.CheckoutID`. Đó là TỬ SỐ của
+			// `conversion_rate`, còn mẫu số đếm mã lượt truy cập — hai
+			// tập không bao giờ giao nhau nên tỷ lệ bằng 0 vĩnh viễn.
+			SessionID: p.VisitID,
 
 			SubjectType: "order",
 			SubjectID:   p.OrderID,
@@ -256,9 +270,13 @@ func (h *RecordEventsFromBus) handleCartItemAdded(
 		Category: CategoryBusiness,
 		EventID:  e.ID.String(),
 
-		// SessionID dùng id giỏ hàng: một giỏ là MỘT lượt mua sắm, và đó
-		// chính là đơn vị mà tỷ lệ chuyển đổi đếm.
-		SessionID: p.CartID,
+		// SessionID là mã LƯỢT TRUY CẬP, không phải mã giỏ.
+		//
+		// Trước 17/09 chỗ này dùng `p.CartID` kèm chú thích "một giỏ là
+		// MỘT lượt mua sắm". Câu đó nghe hợp lý và sai: mã giỏ không giao
+		// với mã lượt truy cập của sự kiện xem hàng, nên phễu không nối
+		// được bước nào. Rỗng thì để RỖNG — xem ADR-0020.
+		SessionID: p.VisitID,
 
 		// Đối tượng là SKU, không phải sản phẩm — xem ghi chú ở
 		// cartItemAddedPayload.
@@ -315,7 +333,10 @@ func (h *RecordEventsFromBus) handlePhien(
 		Category: CategoryBusiness,
 		EventID:  e.ID.String(),
 
-		SessionID:  p.CartID,
+		// Rỗng cho tới khi event phiên thanh toán mang mã lượt truy cập.
+		// Để TRỐNG chứ không thay bằng mã giỏ: một cột chứa hai không
+		// gian mã là thứ đã làm `conversion_rate` bằng 0 (ADR-0020).
+		SessionID:  "",
 		CustomerID: p.CustomerID,
 
 		SubjectType: "checkout",

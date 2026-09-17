@@ -46,7 +46,7 @@ func (h *GhiQuanSatSize) EventTypes() []string {
 // tới đâu — thiếu một khai báo là dispatcher HOÃN event cho TẤT CẢ.
 func (h *GhiQuanSatSize) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 8
+		return 9
 	}
 	return eventbus.DefaultMaxEventVersion
 }

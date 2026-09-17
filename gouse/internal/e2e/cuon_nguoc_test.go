@@ -37,7 +37,7 @@ func (h *benNhanHayHong) Name() string { return "e2e.ben_nhan_hay_hong" }
 // (ADR-0016), và nó áp cả cho bản giả trong test.
 func (h *benNhanHayHong) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 8
+		return 9
 	}
 	return eventbus.DefaultMaxEventVersion
 }
@@ -140,7 +140,7 @@ func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	if _, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD"); err != nil {
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD", ""); err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
 

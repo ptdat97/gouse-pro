@@ -82,7 +82,7 @@ func TestDatHangXongThiHangChuyenSangCommitted(t *testing.T) {
 	if _, err := svc.SetShippingAddress(ctx, c.ID(), testAddress()); err != nil {
 		t.Fatalf("SetShippingAddress: %v", err)
 	}
-	if _, err := svc.CompleteCheckout(ctx, c.ID(), "dat-hang-1", "COD"); err != nil {
+	if _, err := svc.CompleteCheckout(ctx, c.ID(), "dat-hang-1", "COD", ""); err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestPhatLaiEventKhongCamKetHaiLan(t *testing.T) {
 	if _, err := svc.SetShippingAddress(ctx, c.ID(), testAddress()); err != nil {
 		t.Fatalf("SetShippingAddress: %v", err)
 	}
-	if _, err := svc.CompleteCheckout(ctx, c.ID(), "dat-hang-2", "COD"); err != nil {
+	if _, err := svc.CompleteCheckout(ctx, c.ID(), "dat-hang-2", "COD", ""); err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestTaoDonThatBaiThiKhongPhatEvent(t *testing.T) {
 	})
 
 	// Thiếu địa chỉ → tạo đơn thất bại.
-	if _, err := svc.CompleteCheckout(ctx, c.ID(), "that-bai", "COD"); err == nil {
+	if _, err := svc.CompleteCheckout(ctx, c.ID(), "that-bai", "COD", ""); err == nil {
 		t.Fatal("thiếu địa chỉ phải làm việc tạo đơn thất bại")
 	}
 

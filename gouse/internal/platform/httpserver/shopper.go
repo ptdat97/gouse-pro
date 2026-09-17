@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,24 @@ type Shopper struct {
 	// Luôn có giá trị, kể cả khi đã đăng nhập — nhờ vậy lúc đăng nhập còn
 	// biết giỏ vãng lai nào cần gộp vào giỏ tài khoản.
 	SessionID string
+
+	// VisitID là mã MỘT LƯỢT TRUY CẬP, do trình duyệt sinh.
+	//
+	// # Nó KHÔNG phải SessionID, và nhầm hai cái là lỗi đã xảy ra rồi
+	//
+	//	SessionID   sống 30 ngày trong cookie HttpOnly. Nó trả lời "giỏ
+	//	            này của ai" — tức một NGƯỜI truy cập.
+	//	VisitID     sống một lượt duyệt web. Nó trả lời "những việc này
+	//	            xảy ra trong cùng một lần ghé thăm" — tức một LƯỢT.
+	//
+	// Đặt cạnh nhau có chủ ý: chính vì hai khái niệm này từng nằm chung
+	// một cái tên mà `conversion_rate` bằng 0 vĩnh viễn — ba module điền
+	// ba thứ khác nhau vào cùng một cột `session_id` và ai cũng thấy mình
+	// đúng. Xem ADR-0020.
+	//
+	// Rỗng là chuyện BÌNH THƯỜNG: client cũ không gửi, và máy chủ không
+	// bịa ra một mã thay thế. Không biết thì để trống.
+	VisitID string
 }
 
 // IsGuest cho biết đây có phải khách vãng lai không.
@@ -48,6 +67,30 @@ type CustomerResolver interface {
 
 // guestSessionCookie là tên cookie giữ phiên của khách vãng lai.
 const guestSessionCookie = "shopper_session"
+
+// visitHeader là header mang mã lượt truy cập.
+const visitHeader = "X-Visit-Id"
+
+// visitIDToiDa khớp `maxLength` của `session_id` trong đặc tả đường thu
+// sự kiện: cùng một mã đi cả hai đường nên phải cùng một giới hạn.
+const visitIDToiDa = 128
+
+// visitID đọc mã lượt truy cập từ header.
+//
+// KHÔNG sinh mã thay client. Mã lượt truy cập chỉ có nghĩa nếu trình duyệt
+// dùng CÙNG một giá trị cho cả sự kiện hành vi lẫn lời gọi giỏ hàng; máy
+// chủ tự sinh sẽ cho mỗi request một mã khác nhau, tức mỗi lượt gọi thành
+// một "lượt truy cập" riêng và mọi tỷ lệ tính trên nó đều vô nghĩa.
+//
+// Dài quá thì BỎ, không cắt: một mã bị cắt vẫn trông như mã hợp lệ và sẽ
+// gộp nhầm nhiều lượt truy cập khác nhau vào một.
+func visitID(r *http.Request) string {
+	v := strings.TrimSpace(r.Header.Get(visitHeader))
+	if v == "" || len(v) > visitIDToiDa {
+		return ""
+	}
+	return v
+}
 
 // guestSessionTTL là thời hạn phiên vãng lai.
 //
@@ -80,7 +123,7 @@ func ShopperFrom(ctx context.Context) (Shopper, bool) {
 func ResolveShopper(resolver CustomerResolver) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			s := Shopper{SessionID: guestSession(w, r)}
+			s := Shopper{SessionID: guestSession(w, r), VisitID: visitID(r)}
 
 			if ac, ok := AuthContextFrom(r.Context()); ok && resolver != nil {
 				// Không tra được hồ sơ khách KHÔNG phải lỗi chặn đường:
@@ -117,7 +160,7 @@ func ResolveShopper(resolver CustomerResolver) Middleware {
 func ResolveShopperChiDoc(resolver CustomerResolver) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var s Shopper
+			s := Shopper{VisitID: visitID(r)}
 			if c, err := r.Cookie(guestSessionCookie); err == nil {
 				s.SessionID = c.Value
 			}

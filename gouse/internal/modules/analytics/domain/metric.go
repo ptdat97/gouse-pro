@@ -121,12 +121,7 @@ const (
 //
 // Xóa một dòng ở đây là việc CUỐI CÙNG của phần nối dây tương ứng, không
 // phải việc đầu tiên.
-var ChuaDoDuoc = map[string]string{
-	MetricConversionRate: "tử số cần mã LƯỢT TRUY CẬP trên sự kiện đặt " +
-		"hàng, và sự kiện ấy sinh ở máy chủ nên chưa có. Xem ADR-0020 " +
-		"bước 3. Trong lúc chờ, dùng `cart_conversion_rate` — nó đo từ " +
-		"lúc mở phiên thanh toán chứ không từ lượt xem hàng.",
-}
+var ChuaDoDuoc = map[string]string{}
 
 // Metric là một chỉ số đã tính.
 type Metric struct {

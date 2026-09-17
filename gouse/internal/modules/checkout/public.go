@@ -70,8 +70,12 @@ type API interface {
 	// `paymentMethod` là lựa chọn của khách, ĐÓNG BĂNG vào đơn. Rỗng được
 	// chấp nhận vì đường `placeOrder` không nhận trường này; giá trị lạ thì
 	// module order từ chối.
+	//
+	// `visitID` là mã LƯỢT TRUY CẬP đã bấm nút đặt hàng. Rỗng được chấp
+	// nhận: client cũ không gửi, và đường nội bộ không có trình duyệt nào
+	// để hỏi. Máy chủ KHÔNG bịa mã thay — xem ADR-0020.
 	CompleteCheckout(
-		ctx context.Context, checkoutID, idempotencyKey, paymentMethod string,
+		ctx context.Context, checkoutID, idempotencyKey, paymentMethod, visitID string,
 	) (*CompleteResult, error)
 
 	// ExpireStale dọn các phiên quá hạn và nhả hàng.

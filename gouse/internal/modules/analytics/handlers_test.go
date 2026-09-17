@@ -425,6 +425,7 @@ func TestEventThemGioChayVaoPheu(t *testing.T) {
 			"sku_id":    skuID,
 			"seller_id": sellerID,
 			"quantity":  2,
+			"visit_id":  "vis-luot-1",
 		})
 	if err != nil {
 		t.Fatalf("NewEvent: %v", err)
@@ -444,11 +445,20 @@ func TestEventThemGioChayVaoPheu(t *testing.T) {
 		t.Fatalf("đọc sự kiện: %v", err)
 	}
 
-	// session_id phải là id giỏ hàng — đó là thứ nối các bước của MỘT lượt
-	// mua sắm, và tỷ lệ chuyển đổi đếm theo đơn vị đó.
-	if gotSession != cartID {
-		t.Fatalf("session_id = %q, mong id giỏ hàng %q", gotSession, cartID)
+	// session_id phải là mã LƯỢT TRUY CẬP, không phải mã giỏ.
+	//
+	// Bài này trước 17/09 đòi đúng mã giỏ, kèm chú thích "đó là thứ nối
+	// các bước của MỘT lượt mua sắm". Câu ấy nghe hợp lý và sai: mã giỏ
+	// không giao với mã lượt truy cập của sự kiện xem hàng, nên tử số và
+	// mẫu số của `conversion_rate` nằm ở hai không gian mã khác nhau và
+	// tỷ lệ bằng 0 vĩnh viễn. Xem ADR-0020.
+	//
+	// Mã giỏ không mất đi — nó vẫn ở `correlation_id` của event.
+	if gotSession != "vis-luot-1" {
+		t.Fatalf("session_id = %q, mong mã lượt truy cập %q",
+			gotSession, "vis-luot-1")
 	}
+	_ = cartID
 	if gotSubject != skuID {
 		t.Fatalf("subject_id = %q, mong sku_id %q", gotSubject, skuID)
 	}
@@ -558,21 +568,42 @@ func TestPhienThanhToanChayVaoPheuChuyenDoi(t *testing.T) {
 		}
 	}
 
-	// SessionID phải là mã GIỎ, cùng đơn vị với `add_to_cart`.
+	// SessionID phải TRỐNG cho tới khi event phiên thanh toán mang mã
+	// lượt truy cập.
 	//
-	// Dùng mã phiên thì bước thêm-giỏ và bước thanh toán nằm ở hai session
-	// khác nhau, và tỷ lệ chuyển đổi giữa chúng không tính được.
+	// Bài này trước 17/09 đòi đúng mã GIỎ ở đây. Điều đó nghe hợp lý
+	// (cùng đơn vị với `add_to_cart`) và chính là nguyên nhân khiến
+	// `conversion_rate` bằng 0: cột `session_id` chứa ba không gian mã,
+	// nên tử số và mẫu số không bao giờ giao nhau. ADR-0020 quyết: cột ấy
+	// mang ĐÚNG MỘT nghĩa, và không biết thì để TRỐNG.
+	//
+	// Mã giỏ không mất: nó ở `correlation_id`, và mã phiên thanh toán ở
+	// `subject_id` — nơi `cart_conversion_rate` đếm.
 	var n int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM event_log
-		 WHERE event_name = $1 AND session_id = $2`,
-		analytics.EventCheckoutStart, cartID).Scan(&n); err != nil {
+		 WHERE event_name = $1 AND session_id <> ''`,
+		analytics.EventCheckoutStart).Scan(&n); err != nil {
 		t.Fatalf("đọc event_log: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("sự kiện checkout_start gắn với mã giỏ: %d, cần 1 — "+
-			"phễu đứt giữa bước thêm giỏ và bước thanh toán", n)
+	if n != 0 {
+		t.Errorf("%d sự kiện checkout_start mang session_id — cột ấy chỉ "+
+			"được chứa mã LƯỢT TRUY CẬP, và event này chưa mang nó", n)
 	}
+
+	// Mã phiên thanh toán vẫn phải tra được, ở đúng chỗ của nó.
+	var soCoSubject int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM event_log
+		 WHERE event_name = $1 AND subject_id <> ''`,
+		analytics.EventCheckoutStart).Scan(&soCoSubject); err != nil {
+		t.Fatalf("đọc event_log: %v", err)
+	}
+	if soCoSubject != 1 {
+		t.Errorf("sự kiện checkout_start có subject_id: %d, cần 1 — "+
+			"không có nó thì `cart_conversion_rate` không đếm được", soCoSubject)
+	}
+	_ = cartID
 
 	// Giá trị phiên bỏ dở phải ghi được: bỏ 5 triệu khác bỏ 50 nghìn.
 	var tien int64

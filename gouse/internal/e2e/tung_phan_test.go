@@ -48,7 +48,7 @@ func datHaiNhaBan(
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	res, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD")
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD", "")
 	if err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	res, err := w.checkout.CompleteCheckout(ctx, c.ID(),
-		ids.MustNew(ids.PrefixRequest).String(), "COD")
+		ids.MustNew(ids.PrefixRequest).String(), "COD", "")
 	if err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
 			t.Fatalf("SetShippingMethod: %v", err)
 		}
 		res, err := w.checkout.CompleteCheckout(ctx, c.ID(),
-			ids.MustNew(ids.PrefixRequest).String(), "COD")
+			ids.MustNew(ids.PrefixRequest).String(), "COD", "")
 		if err != nil {
 			t.Fatalf("CompleteCheckout: %v", err)
 		}
@@ -476,7 +476,7 @@ func TestThueVaMienPhiShipDiVaoDon(t *testing.T) {
 			t.Fatalf("SetShippingMethod: %v", err)
 		}
 		res, err := w.checkout.CompleteCheckout(ctx, c.ID(),
-			ids.MustNew(ids.PrefixRequest).String(), "COD")
+			ids.MustNew(ids.PrefixRequest).String(), "COD", "")
 		if err != nil {
 			t.Fatalf("CompleteCheckout: %v", err)
 		}

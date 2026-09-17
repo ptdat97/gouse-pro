@@ -81,6 +81,18 @@ func (m *Module) TrackBatch(ctx context.Context, events []EventInput) (int, erro
 	return n, nil
 }
 
+// ChuaDoDuoc trả sổ chỉ số CHƯA đo được, kèm lý do.
+//
+// Phơi ra để bài test kiểm được CƠ CHẾ mà không phải biết nội dung sổ:
+// sổ rỗng hôm nay không có nghĩa là dạng nợ ấy biến mất.
+func ChuaDoDuoc() map[string]string {
+	out := make(map[string]string, len(domain.ChuaDoDuoc))
+	for k, v := range domain.ChuaDoDuoc {
+		out[k] = v
+	}
+	return out
+}
+
 func (m *Module) GetMetric(ctx context.Context, req MetricRequest) (MetricView, error) {
 	// Chỉ số CHƯA đo được thì trả lý do, KHÔNG đọc kho.
 	//

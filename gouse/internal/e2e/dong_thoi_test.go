@@ -296,7 +296,7 @@ func TestHoanTatDongThoiKhongSinhHangTuKhongKhi(t *testing.T) {
 			}
 
 			_, err = w.checkout.CompleteCheckout(ctx, c.ID(),
-				ids.MustNew(ids.PrefixRequest).String(), "COD")
+				ids.MustNew(ids.PrefixRequest).String(), "COD", "")
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -392,7 +392,7 @@ func TestVetOutboxHaiLanKhongTruKhoHaiLan(t *testing.T) {
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	if _, err := w.checkout.CompleteCheckout(ctx, c.ID(),
-		ids.MustNew(ids.PrefixRequest).String(), "COD"); err != nil {
+		ids.MustNew(ids.PrefixRequest).String(), "COD", ""); err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
 

@@ -260,6 +260,14 @@ type CheckoutCompleted struct {
 	GuestEmail string
 	GuestPhone string
 
+	// VisitID là mã LƯỢT TRUY CẬP đã đặt đơn — THÊM Ở PHIÊN BẢN 9.
+	//
+	// `analytics` BẮT BUỘC phải có nó. Trước đó nó rơi về mã phiên thanh
+	// toán, và mã ấy không giao với mã lượt truy cập của sự kiện xem hàng
+	// — nên tử số và mẫu số của `conversion_rate` nằm ở hai không gian mã
+	// khác nhau và tỷ lệ bằng 0 vĩnh viễn (ADR-0020).
+	VisitID string
+
 	// PaymentMethod là cách khách chọn trả tiền — THÊM Ở PHIÊN BẢN 2.
 	//
 	// Fulfillment BẮT BUỘC phải có nó: nó quyết định đơn thực hiện sinh ra
@@ -1339,8 +1347,12 @@ type CompleteResult struct {
 // LƯU Ý về thứ tự (mục 10 của đặc tả): KHÔNG hủy phiên khi thanh toán thất
 // bại. Cho khách thử lại phương thức khác trong thời gian TTL còn lại —
 // hủy ngay là trải nghiệm tệ và làm mất đơn hàng.
+// visitID là mã LƯỢT TRUY CẬP đã bấm nút đặt hàng — xem ADR-0020.
+//
+// Chuỗi rỗng là hợp lệ: client cũ không gửi, và đường nội bộ (test, công
+// cụ) không có trình duyệt nào để hỏi. Máy chủ KHÔNG bịa mã thay.
 func (s *Service) CompleteCheckout(
-	ctx context.Context, id ids.ID, idempotencyKey, paymentMethod string,
+	ctx context.Context, id ids.ID, idempotencyKey, paymentMethod, visitID string,
 ) (_ *CompleteResult, ketQua error) {
 	// Bọc để mọi đường THOÁT SỚM đều được đếm. Rải lời gọi ở từng nhánh
 	// `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh bị sót
@@ -1527,7 +1539,7 @@ func (s *Service) CompleteCheckout(
 		if s.events == nil {
 			return nil
 		}
-		ev, err := s.completedEvent(c, placed, paymentMethod)
+		ev, err := s.completedEvent(c, placed, paymentMethod, visitID)
 		if err != nil {
 			return err
 		}
@@ -1578,7 +1590,7 @@ func (s *Service) phanBoGiamGia(
 
 // completedEvent dựng dữ liệu event từ phiên đã hoàn tất.
 func (s *Service) completedEvent(
-	c *domain.Checkout, placed PlacedOrder, paymentMethod string,
+	c *domain.Checkout, placed PlacedOrder, paymentMethod, visitID string,
 ) (CheckoutCompleted, error) {
 	// Mã dòng của ĐƠN, tra theo offer.
 	//
@@ -1641,6 +1653,7 @@ func (s *Service) completedEvent(
 		GuestEmail:     c.GuestEmail(),
 		GuestPhone:     c.GuestPhone(),
 		PaymentMethod:  paymentMethod,
+		VisitID:        visitID,
 		ShippingFee:    c.ShippingFee(),
 		DiscountAmount: c.DiscountAmount(),
 		CouponCode:     c.CouponCode(),

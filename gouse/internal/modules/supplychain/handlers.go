@@ -59,7 +59,12 @@ func (h *RecordSignalsFromEvents) Name() string {
 // còn đoạn văn này thì không.
 func (h *RecordSignalsFromEvents) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 8
+		return 9
+	}
+	if eventType == eventbus.TypeCartItemAdded {
+		// v2 thêm `visit_id` — mã lượt truy cập, thay cho mã giỏ ở
+		// trường phiên (ADR-0020).
+		return 2
 	}
 	return eventbus.DefaultMaxEventVersion
 }

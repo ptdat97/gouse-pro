@@ -238,6 +238,9 @@ func (h *Handler) addItem(w http.ResponseWriter, r *http.Request) {
 		OfferID:  parseID(req.OfferID),
 		Quantity: req.Quantity,
 	}
+	if sh, ok := httpserver.ShopperFrom(r.Context()); ok {
+		in.VisitID = sh.VisitID
+	}
 	if req.Source != nil {
 		in.SourceContentID = parseID(req.Source.ContentID)
 		in.SourceCreatorID = parseID(req.Source.CreatorID)

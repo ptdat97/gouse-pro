@@ -579,41 +579,56 @@ func TestCoMauDiKemChiSo(t *testing.T) {
 // không nối được hai đầu của phép tính (ADR-0020).
 //
 // Hai câu đó dẫn tới hai hành động hoàn toàn khác nhau: một bên đi sửa
-// trang sản phẩm, một bên đi sửa đường đo. Một con số im lặng không cho
-// người đọc cơ hội chọn đúng.
+// trang sản phẩm, một bên đi sửa đường đo.
+//
+// # Vì sao bài này KHÔNG chết khi nợ được trả
+//
+// Sổ `ChuaDoDuoc` nay RỖNG: `conversion_rate` đã đo được từ khi bước 3
+// của ADR-0020 xong. Nhưng cơ chế thì còn, và dạng nợ ấy sẽ còn xuất hiện
+// — nên bài này kiểm CƠ CHẾ, chạy trên chính nội dung của sổ:
+//
+//	sổ có dòng nào  →  dòng ấy phải trả lý do, và lý do phải trỏ tới ADR
+//	sổ rỗng         →  không chỉ số nào được báo chưa đo được
 func TestChiSoChuaDoDuocPhaiNOIRAChuKhongTraVeKhong(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
-	got, err := m.GetMetric(ctx, analytics.MetricRequest{
-		Name:        analytics.MetricConversionRate,
-		PeriodStart: day,
-		Granularity: analytics.GranularityDay,
-	})
-	if err != nil {
-		t.Fatalf("GetMetric: %v", err)
-	}
-	if got.KhongDoDuoc == "" {
-		t.Fatalf("`conversion_rate` trả Value=%d mà KHÔNG nói vì sao — "+
-			"người đọc tưởng đã đo được và không ai mua", got.Value)
-	}
-	if !strings.Contains(got.KhongDoDuoc, "ADR-0020") {
-		t.Errorf("lý do không trỏ tới quyết định nào: %q", got.KhongDoDuoc)
+	doc := func(ten string) analytics.MetricView {
+		t.Helper()
+		got, err := m.GetMetric(ctx, analytics.MetricRequest{
+			Name: ten, PeriodStart: day, Granularity: analytics.GranularityDay,
+		})
+		if err != nil {
+			t.Fatalf("GetMetric(%s): %v", ten, err)
+		}
+		return got
 	}
 
-	// Chỉ số ĐO ĐƯỢC thì không được mang lý do, nếu không mọi chỉ số đều
-	// trông như chưa đo được.
-	ok, err := m.GetMetric(ctx, analytics.MetricRequest{
-		Name:        analytics.MetricSessionCount,
-		PeriodStart: day,
-		Granularity: analytics.GranularityDay,
-	})
-	if err != nil {
-		t.Fatalf("GetMetric: %v", err)
+	for ten, ly := range analytics.ChuaDoDuoc() {
+		got := doc(ten)
+		if got.KhongDoDuoc == "" {
+			t.Errorf("%s nằm trong sổ chưa-đo-được mà trả Value=%d không "+
+				"kèm lý do — người đọc tưởng đã đo được", ten, got.Value)
+		}
+		if !strings.Contains(ly, "ADR-") {
+			t.Errorf("lý do của %s không trỏ tới quyết định nào: %q", ten, ly)
+		}
 	}
-	if ok.KhongDoDuoc != "" {
-		t.Errorf("`session_count` đo được mà vẫn báo chưa đo được: %q",
-			ok.KhongDoDuoc)
+
+	// Chỉ số ĐO ĐƯỢC không được mang lý do, nếu không mọi chỉ số đều
+	// trông như chưa đo được.
+	for _, ten := range []string{
+		analytics.MetricSessionCount,
+		analytics.MetricConversionRate,
+		analytics.MetricCartConversionRate,
+	} {
+		if _, co := analytics.ChuaDoDuoc()[ten]; co {
+			continue
+		}
+		if got := doc(ten); got.KhongDoDuoc != "" {
+			t.Errorf("%s đo được mà vẫn báo chưa đo được: %q",
+				ten, got.KhongDoDuoc)
+		}
 	}
 }
 

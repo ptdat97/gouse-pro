@@ -55,7 +55,7 @@ func (h *NotifyOnOrderEvents) Name() string {
 // còn đoạn văn này thì không.
 func (h *NotifyOnOrderEvents) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 8
+		return 9
 	}
 	if eventType == eventbus.TypeFulfillmentProgress {
 		// v2 thêm `shipping_method`; bên nhận này không dùng, nhưng

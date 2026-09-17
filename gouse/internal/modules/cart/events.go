@@ -53,6 +53,10 @@ func (p *eventPublisher) PublishItemAdded(
 			Quantity        int    `json:"quantity"`
 			SourceContentID string `json:"source_content_id"`
 			SourceCreatorID string `json:"source_creator_id"`
+
+			// VisitID nối bước này của phễu với lượt xem hàng trước đó.
+			// Rỗng khi client chưa gửi — xem ADR-0020.
+			VisitID string `json:"visit_id"`
 		}{
 			CartID:          in.CartID.String(),
 			OfferID:         in.OfferID.String(),
@@ -61,10 +65,19 @@ func (p *eventPublisher) PublishItemAdded(
 			Quantity:        in.Quantity,
 			SourceContentID: in.SourceContentID.String(),
 			SourceCreatorID: in.SourceCreatorID.String(),
+			VisitID:         in.VisitID,
 		})
 	if err != nil {
 		return err
 	}
+
+	// PHIÊN BẢN 2 — thêm `visit_id`.
+	//
+	// Bên nhận `analytics` BẮT BUỘC phải có nó: thiếu thì nó rơi về mã
+	// giỏ, và mã giỏ không giao với mã lượt truy cập của sự kiện xem hàng
+	// nên phễu không nối được bước nào (ADR-0020). Đây là ca tăng phiên
+	// bản theo ADR-0016 phần 1.
+	e = e.WithVersion(2)
 
 	// CorrelationID là mã GIỎ: nó là gốc của chuỗi trước khi đơn ra đời.
 	//

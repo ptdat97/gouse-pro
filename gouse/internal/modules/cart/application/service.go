@@ -52,6 +52,9 @@ type ItemAdded struct {
 	// xem" — câu hỏi mà dữ liệu lượt xem một mình không trả lời được.
 	SourceContentID ids.ID
 	SourceCreatorID ids.ID
+
+	// VisitID là mã lượt truy cập đã thêm món này — xem AddItemInput.
+	VisitID string
 }
 
 // Service là tầng application của module cart.
@@ -249,6 +252,14 @@ type AddItemInput struct {
 	OfferID  ids.ID
 	Quantity int
 
+	// VisitID là mã LƯỢT TRUY CẬP, đi thẳng vào event để phễu chuyển đổi
+	// nối được bước này với lượt xem hàng trước đó (ADR-0020).
+	//
+	// KHÔNG lưu vào giỏ: một giỏ sống nhiều ngày và được sờ tới trong
+	// nhiều lượt truy cập khác nhau, nên "lượt truy cập của giỏ" không
+	// phải một khái niệm có thật.
+	VisitID string
+
 	SourceContentID ids.ID
 	SourceCreatorID ids.ID
 }
@@ -315,6 +326,7 @@ func (s *Service) AddItem(ctx context.Context, in AddItemInput) (*domain.Cart, e
 			Quantity:        in.Quantity,
 			SourceContentID: in.SourceContentID,
 			SourceCreatorID: in.SourceCreatorID,
+			VisitID:         in.VisitID,
 		})
 	})
 	if err != nil {

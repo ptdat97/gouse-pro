@@ -297,7 +297,7 @@ func (m *Module) CancelCheckout(ctx context.Context, checkoutID string) error {
 }
 
 func (m *Module) CompleteCheckout(
-	ctx context.Context, checkoutID, idempotencyKey, paymentMethod string,
+	ctx context.Context, checkoutID, idempotencyKey, paymentMethod, visitID string,
 ) (*CompleteResult, error) {
 	id, err := ids.Parse(checkoutID, ids.PrefixCheckout)
 	if err != nil {
@@ -305,7 +305,8 @@ func (m *Module) CompleteCheckout(
 	}
 
 	res, err := m.svc.CompleteCheckout(ctx, id,
-		strings.TrimSpace(idempotencyKey), strings.TrimSpace(paymentMethod))
+		strings.TrimSpace(idempotencyKey), strings.TrimSpace(paymentMethod),
+		strings.TrimSpace(visitID))
 	if err != nil {
 		return nil, translateErr(err)
 	}

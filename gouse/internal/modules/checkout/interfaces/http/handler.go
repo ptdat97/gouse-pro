@@ -415,7 +415,7 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.svc.CompleteCheckout(r.Context(),
-		ids.ID(r.PathValue("checkout_id")), key, req.PaymentMethod)
+		ids.ID(r.PathValue("checkout_id")), key, req.PaymentMethod, luotTruyCap(r))
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
@@ -471,7 +471,8 @@ func (h *Handler) placeOrder(w http.ResponseWriter, r *http.Request) {
 	// Chuỗi rỗng, không phải giá trị mặc định: đặc tả của `placeOrder` chỉ
 	// có `checkout_id`, nên đường này thật sự KHÔNG biết khách chọn gì.
 	// Bịa "COD" cho gọn sẽ khiến kho đi thu tiền một đơn đã trả trước.
-	res, err := h.svc.CompleteCheckout(r.Context(), ids.ID(req.CheckoutID), key, "")
+	res, err := h.svc.CompleteCheckout(
+		r.Context(), ids.ID(req.CheckoutID), key, "", luotTruyCap(r))
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
@@ -489,6 +490,19 @@ func (h *Handler) placeOrder(w http.ResponseWriter, r *http.Request) {
 			PlacedAt:      c.UpdatedAt().UTC().Format(time.RFC3339),
 		},
 	})
+}
+
+// luotTruyCap lấy mã lượt truy cập của request, rỗng nếu không có.
+//
+// Rỗng là chuyện bình thường: client cũ không gửi header, và máy chủ
+// KHÔNG bịa mã thay — một mã bịa ra ở đây sẽ thành một "lượt truy cập"
+// không bao giờ xem sản phẩm nào, tức làm hỏng đúng tỷ lệ nó phục vụ.
+func luotTruyCap(r *http.Request) string {
+	sh, ok := httpserver.ShopperFrom(r.Context())
+	if !ok {
+		return ""
+	}
+	return sh.VisitID
 }
 
 // ---------------------------------------------------------------- Hỗ trợ

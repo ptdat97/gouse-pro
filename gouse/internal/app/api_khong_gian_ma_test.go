@@ -142,13 +142,9 @@ var ngoaiLeDaHinh = map[string]string{
 //
 // Mỗi dòng phải trỏ tới chỗ ghi quyết định đang chờ.
 var noDaBiet = map[string]string{
-	"event_log.session_id": "ba không gian mã nằm chung một cột — " +
-		"`ses_` (lượt truy cập), `crt_` (giỏ), `chk_` (phiên thanh toán). " +
-		"Hệ quả: tử số và mẫu số của `conversion_rate` không bao giờ giao " +
-		"nhau nên chỉ số ấy bằng 0 vĩnh viễn. Câu hỏi 'một PHIÊN là gì' đã " +
-		"được trả lời ở docs/adr/0020-mot-phien-la-gi.md; dòng này xóa được " +
-		"khi bước 3 của ADR đó xong (visit_id đi từ trình duyệt tới domain " +
-		"event).",
+	// Rỗng từ 17/09: `event_log.session_id` nay chỉ chứa mã LƯỢT TRUY CẬP
+	// sau khi ADR-0020 bước 3 nối xong. Giữ sổ lại vì dạng nợ ấy sẽ còn
+	// xuất hiện, và một sổ rỗng nói rõ hơn là không có sổ.
 }
 
 // laTienTo cho biết một chuỗi có hình dạng tiền tố mã của hệ thống không.

@@ -58,7 +58,7 @@ func (h *CommitOnCheckoutCompleted) Name() string {
 // còn đoạn văn này thì không.
 func (h *CommitOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
-		return 8
+		return 9
 	}
 	return eventbus.DefaultMaxEventVersion
 }

@@ -575,7 +575,7 @@ func TestDonNhieuNhaBanDiHetChuoi(t *testing.T) {
 
 	// ---- Bước 3: hoàn tất → tạo đơn + ghi event vào outbox
 	res, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD")
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), "COD", "")
 	if err != nil {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
