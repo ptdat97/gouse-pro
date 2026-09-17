@@ -40,6 +40,32 @@ type KhachPort interface {
 	// EmailCuaKhach trả email của hồ sơ khách. Chuỗi rỗng nghĩa là không
 	// tra được, và đó KHÔNG phải lỗi cần chặn đường gửi.
 	EmailCuaKhach(ctx context.Context, customerID string) (string, error)
+
+	// CoDongY cho biết khách CÓ ĐANG đồng ý nhận loại này không.
+	//
+	// Hỏi lúc GỬI chứ không tin payload event: đồng ý có thể bị rút SAU
+	// khi event được phát, và gửi theo dữ liệu cũ nghĩa là gửi thư cho
+	// người vừa bấm hủy đăng ký.
+	CoDongY(ctx context.Context, customerID, loai string) (bool, error)
+}
+
+// dongYTu dựng cổng tra đồng ý cho tầng application.
+//
+// Trả nil khi chưa nối `Khach`, và nil ở đó nghĩa là MỌI thông báo cần
+// đồng ý đều bị từ chối — thất bại theo hướng đóng.
+func dongYTu(k KhachPort) application.DongYPort {
+	if k == nil {
+		return nil
+	}
+	return dongYAdapter{k: k}
+}
+
+type dongYAdapter struct{ k KhachPort }
+
+func (a dongYAdapter) CoDongY(
+	ctx context.Context, customerID, loai string,
+) (bool, error) {
+	return a.k.CoDongY(ctx, customerID, loai)
 }
 
 // KhachPortFunc nối dây bằng một hàm, cho phép nối TRỄ.
@@ -48,12 +74,29 @@ type KhachPort interface {
 // gửi thư xác minh email, nên nó được dựng SAU. Một closure đọc biến
 // module lúc GỌI thay vì lúc dựng gỡ được vòng đó mà không cần adapter
 // có trạng thái thay đổi được.
-type KhachPortFunc func(ctx context.Context, customerID string) (string, error)
+type KhachPortFunc struct {
+	Email func(ctx context.Context, customerID string) (string, error)
+	DongY func(ctx context.Context, customerID, loai string) (bool, error)
+}
 
 func (f KhachPortFunc) EmailCuaKhach(
 	ctx context.Context, customerID string,
 ) (string, error) {
-	return f(ctx, customerID)
+	if f.Email == nil {
+		return "", nil
+	}
+	return f.Email(ctx, customerID)
+}
+
+// CoDongY trả false khi chưa nối hàm: không chứng minh được đồng ý thì
+// không gửi.
+func (f KhachPortFunc) CoDongY(
+	ctx context.Context, customerID, loai string,
+) (bool, error) {
+	if f.DongY == nil {
+		return false, nil
+	}
+	return f.DongY(ctx, customerID, loai)
 }
 
 // Module là cài đặt của API công khai.
@@ -141,6 +184,7 @@ func New(cfg Config) (*Module, error) {
 		Senders: senders,
 		Clock:   cfg.Clock,
 		Log:     log,
+		DongY:   dongYTu(cfg.Khach),
 	})}, nil
 }
 

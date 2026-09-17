@@ -397,14 +397,21 @@ func run() error {
 
 		// Khách ĐÃ ĐĂNG KÝ không gõ email vào ô thanh toán, nên payload
 		// event không mang địa chỉ của họ — xem `notification.KhachPort`.
-		Khach: notification.KhachPortFunc(
-			func(ctx context.Context, customerID string) (string, error) {
+		Khach: notification.KhachPortFunc{
+			Email: func(ctx context.Context, customerID string) (string, error) {
 				v, err := khachModule.GetCustomer(ctx, customerID)
 				if err != nil {
 					return "", err
 				}
 				return v.Email, nil
-			}),
+			},
+
+			// Đồng ý hỏi LÚC GỬI, không tin payload event: khách rút đồng
+			// ý sau khi event được phát thì thư vẫn phải dừng lại.
+			DongY: func(ctx context.Context, customerID, loai string) (bool, error) {
+				return khachModule.HasConsent(ctx, customerID, loai)
+			},
+		},
 	})
 	if err != nil {
 		return err

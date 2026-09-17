@@ -70,6 +70,50 @@ func (c Category) RequiresConsent() bool {
 	return c == CategoryMarketing || c == CategorySocial
 }
 
+// Loại đồng ý mà `customer` quản lý.
+//
+// Chép chuỗi chứ không import: `notification` KHÔNG phụ thuộc `customer`,
+// và một hằng chung sẽ kéo cả module vào chỉ vì hai chuỗi. Cái giá là hai
+// bản có thể lệch — nên có một bài test ở tầng nối dây đối chiếu chúng.
+const (
+	DongYEmailMarketing = "MARKETING_EMAIL"
+	DongYSMSMarketing   = "MARKETING_SMS"
+)
+
+// LoaiDongYCan trả loại đồng ý PHẢI CÓ trước khi gửi thông báo này.
+//
+// # Ba kết quả, và cả ba đều phải xử lý khác nhau
+//
+//	can = false            không cần đồng ý — thư giao dịch, luôn gửi
+//	can = true, loai != "" phải hỏi `customer` về đúng loại đó
+//	can = true, loai == "" cần đồng ý nhưng KHÔNG CÓ loại nào để hỏi
+//
+// Trường hợp thứ ba là kênh chưa có loại đồng ý tương ứng (PUSH, IN_APP).
+// Nó phải thành TỪ CHỐI, không thành cho qua: không chứng minh được đồng ý
+// thì không gửi. Mục 5 của docs/04-modules/notification.md gọi việc nhầm
+// hai loại này là "vi phạm pháp luật ở nhiều thị trường", và một bản dựng
+// im lặng cho qua là cách chắc chắn để vi phạm mà không ai biết.
+//
+// # Vì sao theo KÊNH, không chỉ theo loại nội dung
+//
+// Khách đồng ý nhận email khuyến mãi KHÔNG có nghĩa là họ đồng ý nhận tin
+// nhắn khuyến mãi. `customer` quản lý hai loại đồng ý riêng cho đúng lý do
+// đó, và gộp chúng lại ở đây sẽ biến một lần tick ô email thành giấy phép
+// nhắn tin.
+func LoaiDongYCan(c Category, ch Channel) (loai string, can bool) {
+	if !c.RequiresConsent() {
+		return "", false
+	}
+	switch ch {
+	case ChannelEmail:
+		return DongYEmailMarketing, true
+	case ChannelSMS:
+		return DongYSMSMarketing, true
+	default:
+		return "", true
+	}
+}
+
 // Status là trạng thái gửi.
 type Status string
 
