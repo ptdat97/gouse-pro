@@ -5145,6 +5145,66 @@ tả vẫn ghi `required: [id, name]`. Một trong hai phải đổi — sửa �
 
 ---
 
+### P3-51 — biến phép đối chiếu hai response thành hàng rào thường trực
+
+P3-50 kết thúc bằng một kỹ thuật mới (đối chiếu HAI response với nhau) và
+hai lỗi tìm được bằng nó. Mục này biến kỹ thuật ấy thành thứ chạy mỗi lần
+`go test`, rồi dùng chính nó để quét.
+
+#### Phép quét: không gian mã
+
+`TestKhongGianMaKhongLanNhau` không mang bảng kỳ vọng viết tay. Nó đọc
+luật ra từ dữ liệu:
+
+```text
+1. tiền tố trong cột `id` của bảng T ĐỊNH NGHĨA không gian mã của T
+2. mọi cột tên `T_id` ở bất kỳ bảng nào phải nằm trong không gian đó
+```
+
+Nên bảng mới và cột mới tự động được phủ. Lỗi `order_line_id` chứa `cln_`
+— thứ cần một lượt chạy Docker thật và một phép so bằng mắt mới tìm ra —
+nay đỏ trong 0,3 giây.
+
+Hai sổ đi kèm, khác nhau có chủ ý: `ngoaiLeDaHinh` là THIẾT KẾ (cột đa
+hình, phải chỉ ra cột phân loại đi kèm), `noDaBiet` là NỢ (đang sai, chờ
+quyết định — ghi ra thay vì đỏ, vì chặn cả bộ test vì một việc chưa quyết
+được thì người ta xóa phép kiểm chứ không đi quyết).
+
+Chạy lần đầu nó tự tìm ra `event_log.session_id` — tức lỗi
+`conversion_rate` bằng 0 của P3-50, từ một hướng hoàn toàn khác.
+
+Chạy thêm phép quét ấy trên DB phát triển (3.207 đơn, 27.111 sự kiện) cho
+đúng bốn ca ngoài hai ca đã biết, và cả bốn đều KHÔNG phải lỗi:
+`audit_log.resource_id` / `demand_signal.source_id` /
+`event_outbox.aggregate_id` đa hình có cột phân loại;
+`inventory_item.inventory_owner_id` chứa hằng canh của nền tảng.
+
+#### Lỗi tìm được: khách ĐÃ ĐĂNG KÝ chưa từng nhận thư xác nhận đơn
+
+```text
+khách VÃNG LAI    → order_confirmed | SENT
+khách ĐÃ ĐĂNG KÝ  → order_confirmed | SKIPPED | "thiếu địa chỉ người nhận"
+```
+
+Ngược đúng chiều đáng lẽ phải có. `Recipient` lấy từ `guest_email` — ô mà
+chỉ khách vãng lai gõ. Một gốc hỏng hai đường: thư báo giao hàng cũng
+trống, vì fulfillment chép `notify_email` từ chính trường rỗng đó.
+
+Sửa bằng một cổng hẹp tra email hồ sơ khi ô thanh toán trống, thay vì
+nhồi email vào payload event — cùng phép tra vá được cả hai đường, và
+không phải bắt tám bên nhận khai lại `MaxEventVersion` cho một trường một
+bên dùng.
+
+#### Khoảng hở phủ test đã đóng
+
+Bộ bên nhận của lớp test tích hợp thiếu `analytics` và `notification`:
+chú thích ở `dangKyBenNhan` tự ghi nhận điều đó, và đấy chính là lý do
+lỗi trên sống sót. Hai đường ấy chỉ chạy ở worker, nơi không bài test
+tích hợp nào đi qua. Nay đã đăng ký; `supplychain` vẫn còn thiếu vì module
+đó chưa nằm trong `Modules` của internal/app.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
@@ -5276,6 +5336,7 @@ gán giá trị cho nó.**
 | `size_recommendation` | P3-50 | tham số được TRUYỀN VÀO hàm dựng response rồi không dùng — Go không báo tham số thừa |
 | `shipping_groups` | P3-50 | khai trong đặc tả, không có trong mã; dữ liệu đã tính sẵn rồi bị vứt ở adapter |
 | `purchase` (tên sự kiện) | P3-50 | được ĐỌC để tính tỷ lệ chuyển đổi, không ai GHI → chỉ số bằng 0 vĩnh viễn |
+| `recipient` của thư đơn hàng | P3-51 | lấy từ `guest_email`, nên khách ĐÃ ĐĂNG KÝ không nhận được thư nào — cả thư xác nhận đơn lẫn thư báo giao |
 
 **Hai cách kết thúc, và phải phân biệt.** Tám dòng là trường ĐÚNG mà
 chưa nối dây → nối dây. `buy_box_offer` thì khác: buy box quyết theo SKU
