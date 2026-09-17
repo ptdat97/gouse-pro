@@ -13,11 +13,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/application"
 	"github.com/fashion-commerce/platform/internal/modules/catalog/domain"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
+	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
@@ -40,6 +42,16 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/brands/{brand_id}", http.HandlerFunc(h.getBrand))
 	mux.Handle("GET /api/v1/collections/{collection_id}", http.HandlerFunc(h.getCollection))
 	mux.Handle("GET /api/v1/categories", http.HandlerFunc(h.getCategoryTree))
+}
+
+// RegisterSellerRoutes gắn route CẦN ĐĂNG NHẬP của nhà bán.
+//
+// Tách khỏi `Register` vì hai nhóm có ranh giới bảo mật khác nhau: nhóm
+// trên ai cũng gọi được, nhóm này phải qua `Auth` + `RequireRole`. Đăng ký
+// chung một mux nghĩa là route nhà bán chạy KHÔNG có AuthContext — và khi
+// ấy nó trả 401 cho cả token hợp lệ, vì không ai đặt context vào.
+func (h *Handler) RegisterSellerRoutes(mux *http.ServeMux) {
+	mux.Handle("GET /api/v1/seller/brands", http.HandlerFunc(h.thuongHieuChoBan))
 }
 
 // getBrand phục vụ GET /api/v1/brands/{brand_id} (operationId: getBrand).
@@ -187,4 +199,97 @@ func translate(err error, notFoundMsg string) error {
 		return apierror.New(apierror.CodeNotFound, notFoundMsg)
 	}
 	return apierror.From(err)
+}
+
+// ------------------------------------------------ Thương hiệu của nhà bán
+
+// thuongHieuChoBanJSON là một thương hiệu gian hàng ĐƯỢC PHÉP đăng bán.
+type thuongHieuChoBanJSON struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Slug            string `json:"slug,omitempty"`
+	LogoURL         string `json:"logo_url,omitempty"`
+	ProtectionLevel string `json:"protection_level"`
+}
+
+// thuongHieuChoBan phục vụ GET /api/v1/seller/brands
+// (operationId: listBrandsIMaySell).
+//
+// # Vì sao endpoint này phải tồn tại
+//
+// `POST /api/v1/seller/products` đòi `brand_id` và TỪ CHỐI mọi thương hiệu
+// gian hàng không được phép bán — hàng rào chống hàng giả, đúng như nó cần
+// phải thế. Nhưng cho tới 17/09/2026 không có đường nào để BIẾT mình được
+// phép bán thương hiệu nào: `GET /api/v1/brands/{brand_id}` chỉ tra từng
+// cái một, theo id.
+//
+// Hệ quả là luồng đăng sản phẩm không hoàn thành được qua giao diện —
+// không phải vì thiếu endpoint GHI, mà vì thiếu endpoint ĐỌC để điền vào
+// biểu mẫu. Nhà bán phải tự đâu đó có một ULID.
+//
+// # Lọc bằng CHÍNH quy tắc của đường ghi
+//
+// Danh sách này gọi `CanSellerSellBrand` — cùng hàm mà `CreateProduct` gọi
+// — thay vì viết lại điều kiện. Viết lại nghĩa là hai bản sao của một quy
+// tắc chống hàng giả, và chúng sẽ lệch: biểu mẫu mời chọn một thương hiệu
+// rồi đường ghi từ chối nó.
+func (h *Handler) thuongHieuChoBan(w http.ResponseWriter, r *http.Request) {
+	sellerID, err := h.sellerID(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	bs, err := h.svc.ListBrands(r.Context(), domain.BrandFilter{
+		Status: domain.StatusActive,
+		Limit:  brandLimit,
+	})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+
+	out := make([]thuongHieuChoBanJSON, 0, len(bs))
+	for _, b := range bs {
+		kq, err := h.svc.CanSellerSellBrand(r.Context(), b.ID(), sellerID)
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		if !kq.Allowed {
+			continue
+		}
+		out = append(out, thuongHieuChoBanJSON{
+			ID:              b.ID().String(),
+			Name:            b.Name(),
+			Slug:            b.Slug(),
+			LogoURL:         b.LogoURL(),
+			ProtectionLevel: string(kq.ProtectionLevel),
+		})
+	}
+
+	h.ok(w, r, map[string]any{"data": out})
+}
+
+// brandLimit chặn số thương hiệu một lần đọc trả về.
+//
+// Endpoint này kiểm quyền cho TỪNG thương hiệu, nên không có trần thì một
+// danh mục lớn biến một request thành hàng nghìn lượt tra.
+const brandLimit = 200
+
+// sellerID lấy gian hàng từ token.
+//
+// Cùng cách các module khác làm: định danh gian hàng KHÔNG nhận từ tham số,
+// vì cho client truyền vào nghĩa là bất kỳ ai cũng xem được dữ liệu gian
+// hàng khác chỉ bằng cách đổi một chuỗi.
+func (h *Handler) sellerID(r *http.Request) (ids.ID, error) {
+	ac, ok := httpserver.AuthContextFrom(r.Context())
+	if !ok {
+		return "", apierror.ErrUnauthorized
+	}
+	if len(ac.SellerIDs) == 0 {
+		return "", apierror.New(apierror.CodeForbidden,
+			"Tài khoản này không gắn với nhà bán nào")
+	}
+	return ids.ID(strings.TrimSpace(ac.SellerIDs[0])), nil
 }

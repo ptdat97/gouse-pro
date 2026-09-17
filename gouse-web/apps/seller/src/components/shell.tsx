@@ -25,6 +25,7 @@ import { LoginForm } from "./login-form";
 
 const NAV = [
   { href: "/", label: "Việc cần làm" },
+  { href: "/san-pham", label: "Sản phẩm" },
   { href: "/offers", label: "Hàng đang bán" },
   { href: "/returns", label: "Trả hàng" },
   { href: "/tien", label: "Tiền của tôi" },

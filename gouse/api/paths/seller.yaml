@@ -1399,6 +1399,64 @@ ReturnResponse:
           return:
             $ref: '../components/schemas.yaml#/ReturnRequest'
 
+brands_i_may_sell:
+  get:
+    tags: [Seller]
+    summary: Thương hiệu tôi được phép bán
+    description: |
+      Danh sách thương hiệu gian hàng ĐƯỢC PHÉP đăng sản phẩm dưới tên đó.
+
+      # Vì sao endpoint này phải tồn tại
+
+      `createMyProduct` đòi `brand_id` và TỪ CHỐI mọi thương hiệu gian hàng
+      không được phép bán — hàng rào chống hàng giả, đúng như nó cần phải
+      thế. Nhưng cho tới 17/09/2026 không có đường nào để BIẾT mình được
+      phép bán thương hiệu nào: `getBrand` chỉ tra từng cái một, theo id.
+
+      Hệ quả: luồng đăng sản phẩm không hoàn thành được qua giao diện —
+      không phải vì thiếu endpoint GHI, mà vì thiếu endpoint ĐỌC để điền
+      vào biểu mẫu.
+
+      Danh sách lọc bằng CHÍNH quy tắc của đường ghi (`CanSellerSellBrand`),
+      không phải một bản sao: hai bản sao của một quy tắc chống hàng giả sẽ
+      lệch, và khi ấy biểu mẫu mời chọn một thương hiệu rồi đường ghi từ
+      chối nó.
+    operationId: listBrandsIMaySell
+    security:
+      - bearerAuth: []
+    responses:
+      '200':
+        description: Thương hiệu được phép bán
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, name, protection_level]
+                    properties:
+                      id:
+                        $ref: '../components/common.yaml#/schemas/Id'
+                      name:
+                        type: string
+                      slug:
+                        type: string
+                      logo_url:
+                        type: string
+                      protection_level:
+                        type: string
+                        description: |
+                          Vì sao bạn được bán thương hiệu này. `OPEN` là ai
+                          cũng bán được; `RESTRICTED` nghĩa là gian hàng
+                          của bạn được chỉ định.
+                        enum: [OPEN, RESTRICTED, VERIFIED_ONLY]
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
 settlements:
   get:
     tags: [Seller]

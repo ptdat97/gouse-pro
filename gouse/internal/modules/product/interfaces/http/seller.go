@@ -389,6 +389,43 @@ func dichLoiGhi(err error) error {
 		return apierror.New(apierror.CodeValidationFailed, "Sản phẩm chưa khai thành phần chất liệu")
 	case errors.Is(err, domain.ErrMissingBrand):
 		return apierror.New(apierror.CodeValidationFailed, "Sản phẩm phải thuộc một thương hiệu")
+	case errors.Is(err, domain.ErrMissingCategory):
+		// Miền ĐÒI danh mục, tầng HTTP lại coi `category_id` là tùy chọn.
+		// Chênh lệch ấy khiến mọi lần tạo sản phẩm thiếu danh mục trả về
+		// 500 "vui lòng thử lại" — một lời khuyên không bao giờ đúng, vì
+		// thử lại y hệt sẽ hỏng y hệt. Xem P3-63.
+		return apierror.New(apierror.CodeValidationFailed,
+			"Sản phẩm phải thuộc một danh mục — thiếu category_id")
+
+	// ------------------------------------------------ Biến thể và SKU
+	case errors.Is(err, domain.ErrNoAttributes):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Biến thể phải có ít nhất một thuộc tính (ví dụ màu, size)")
+	case errors.Is(err, domain.ErrDuplicateVariant):
+		return apierror.New(apierror.CodeConflict,
+			"Sản phẩm đã có biến thể với đúng tổ hợp thuộc tính này")
+	case errors.Is(err, domain.ErrEmptySKUCode):
+		return apierror.New(apierror.CodeValidationFailed, "Mã SKU không được rỗng")
+	case errors.Is(err, domain.ErrMaMauKhongHopLe):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Mã màu không hợp lệ — cần dạng #RRGGBB")
+	case errors.Is(err, domain.ErrNegativeWeight):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Khối lượng không được âm")
+	case errors.Is(err, domain.ErrNegativeDim):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Kích thước không được âm")
+
+	// ------------------------------------------------ Trùng ở tầng lưu trữ
+	//
+	// 409 chứ không phải 400: dữ liệu ĐÚNG định dạng, chỉ là có người dùng
+	// trước. Nhà bán cần đổi giá trị, không cần sửa cách nhập.
+	case errors.Is(err, domain.ErrSlugTaken):
+		return apierror.New(apierror.CodeConflict,
+			"Slug này đã có sản phẩm khác dùng — chọn slug khác")
+	case errors.Is(err, domain.ErrSKUCodeTaken):
+		return apierror.New(apierror.CodeConflict,
+			"Mã SKU này đã thuộc về một sản phẩm khác")
 	case errors.Is(err, domain.ErrEmptyName):
 		return apierror.New(apierror.CodeValidationFailed, "Tên sản phẩm không được rỗng")
 	case errors.Is(err, domain.ErrEmptySlug):

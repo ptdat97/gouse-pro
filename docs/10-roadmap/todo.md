@@ -23,17 +23,17 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     139 file · 45.083 dòng
-Đặc tả API   12 file YAML · 98 thao tác · 0 lỗi lint
-Code Go      292 file · 82.803 dòng · 1.127 hàm test
+Tài liệu     139 file · 45.198 dòng
+Đặc tả API   12 file YAML · 99 thao tác · 0 lỗi lint
+Code Go      292 file · 82.987 dòng · 1.131 hàm test
 Migration    56 file SQL · đảo được
-Giao diện    3 app Next.js · 12 test trình duyệt · 57 test đơn vị
-Màn hình nhà bán  5 trang (việc cần làm · hàng bán · trả hàng · tiền ·
-                  hiệu suất)
+Giao diện    3 app Next.js · 12 test trình duyệt · 61 test đơn vị
+Màn hình nhà bán  6 trang (việc cần làm · sản phẩm · hàng bán ·
+                  trả hàng · tiền · hiệu suất)
 
 Module               19  (17 MVP + recommendation + returns)
 Module có tầng HTTP  14/19
-Thao tác có route    83/98
+Thao tác có route    84/99
 
 Bảy luồng nghiệm thu MVP:  7/7 chạy được
 ```
@@ -55,8 +55,8 @@ Kiểm chứng lần cuối (17/09/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 471 file, không vi phạm ranh giới
-✓ apicheck     OK — 83/98 thao tác có route, 15 hoãn đều có khai lý do;
+✓ archcheck    OK — 474 file, không vi phạm ranh giới
+✓ apicheck     OK — 84/99 thao tác có route, 15 hoãn đều có khai lý do;
                8 header khớp danh sách CORS (tầng thứ ba, thêm 17/09)
 ✓ chất lượng   mvp.md mục 7 nay có SỐ ĐO thay cho dấu ✓: p95 14,3ms ·
                LCP 1,40s (bóp 4G + CPU ×4) · 0/6.229 bút toán lệch ·

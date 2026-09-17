@@ -96,6 +96,13 @@ func (m *Module) RegisterRoutes(mux *http.ServeMux, log *slog.Logger) {
 	cataloghttp.NewHandler(m.svc, log).Register(mux)
 }
 
+// RegisterSellerRoutes gắn route của nhà bán — CẦN đăng nhập.
+//
+// Bên gọi phải bọc mux này bằng `Auth` và `RequireRole`; xem app.go.
+func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
+	cataloghttp.NewHandler(m.svc, log).RegisterSellerRoutes(mux)
+}
+
 // ---------------------------------------------------------------- API
 
 func (m *Module) GetBrand(ctx context.Context, brandID string) (*BrandView, error) {

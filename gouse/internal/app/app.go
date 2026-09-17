@@ -965,6 +965,17 @@ func RegisterRoutes(
 				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
 				httpserver.RequireIdempotencyKey(),
 			)
+			// Thương hiệu nhà bán được phép đăng bán. Cùng nhóm bảo mật
+			// với sản phẩm nhà bán, nhưng KHÔNG đòi Idempotency-Key: đây
+			// là một lượt ĐỌC.
+			sellerBrandMux := http.NewServeMux()
+			catalogModule.RegisterSellerRoutes(sellerBrandMux, log)
+			mux.Handle("GET /api/v1/seller/brands", httpserver.Chain(
+				sellerBrandMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("SELLER_OWNER", "SELLER_STAFF"),
+			))
+
 			mux.Handle("GET /api/v1/seller/products", sellerProduct)
 			mux.Handle("POST /api/v1/seller/products", sellerProduct)
 			mux.Handle("POST /api/v1/seller/products/{product_id}/variants", sellerProduct)

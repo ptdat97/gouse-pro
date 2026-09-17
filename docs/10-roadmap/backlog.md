@@ -25,20 +25,20 @@ Module có tầng HTTP              14/19   (thiếu: notification · pricing ·
                                          supplychain — cả năm phục vụ module
                                          khác qua Go, không cần đường HTTP
                                          riêng. Đó là thiết kế.)
-Thao tác trong OpenAPI           98
-Thao tác đã có route             83      (85%)
+Thao tác trong OpenAPI           99
+Thao tác đã có route             84      (85%)
 Thao tác chưa cài                15      (tất cả Phase 2/3, khai từng dòng
                                          kèm lý do trong `cmd/apicheck`)
 
-Tuyến đã đăng ký                 87      (83 khớp đặc tả + 4 endpoint vận
+Tuyến đã đăng ký                 88      (84 khớp đặc tả + 4 endpoint vận
                                          hành cố ý nằm ngoài hợp đồng:
                                          /health/live · /health/ready ·
                                          /metrics · /version)
 
 Migration                        56
-Test Go                          1.125
+Test Go                          1.131
 Test trình duyệt (Playwright)    12
-Test đơn vị TypeScript           57
+Test đơn vị TypeScript           61
 ```
 
 **Tầng HTTP KHÔNG còn là chỗ nghẽn.** Đó là tình hình của tháng 8 đầu; giờ
@@ -5975,6 +5975,121 @@ Chạy thật, `nhaban2@example.com`, hai trạng thái:
 ```
 
 5 test đơn vị khoá quyết định chữ nghĩa; 57 xanh. 63/63 gói Go xanh.
+
+---
+
+### P3-63 — màn hình SẢN PHẨM: ba lỗi 500 trên đường đi, và một endpoint thiếu
+
+Khu nhà bán còn thiếu luồng đăng sản phẩm. Bốn endpoint GHI đã có từ lâu
+(`createMyProduct` · `addMyProductVariant` · `submitMyProduct` ·
+`listMyProducts`) — nhưng luồng **không hoàn thành được**, và lý do không
+phải ở chúng.
+
+#### Thiếu một endpoint ĐỌC, không phải endpoint ghi
+
+`createMyProduct` đòi `brand_id` và TỪ CHỐI mọi thương hiệu gian hàng không
+được phép bán. Hàng rào chống hàng giả ấy đúng và cần. Nhưng không có đường
+nào để BIẾT mình được phép bán thương hiệu nào: `getBrand` chỉ tra từng cái
+một, theo id.
+
+Biểu mẫu vì thế không điền được — nhà bán phải tự đâu đó có một ULID.
+
+`GET /api/v1/seller/brands` lọc bằng **chính** `CanSellerSellBrand` mà
+đường ghi dùng, không phải một bản sao: hai bản sao của một quy tắc chống
+hàng giả sẽ lệch, và khi ấy biểu mẫu mời chọn một thương hiệu rồi đường ghi
+từ chối nó. Đo trên dữ liệu thật:
+
+```text
+nhaban2   1 thương hiệu   Basics Co (OPEN)
+nhaban    2 thương hiệu   Lumière (RESTRICTED — gian hàng này là chủ)
+                          + Basics Co (OPEN)
+```
+
+`catalog.ListBrands` đã tồn tại và chưa từng có bên gọi HTTP nào — cùng
+dạng "hàm không ai gọi" ở mục 8, chỉ khác là lần này thiếu nó chặn cả một
+luồng.
+
+#### Ba lỗi 500 trên đường đi, tìm ra bằng cách GỌI THẬT
+
+| Gửi lên | Trước | Sau |
+|---|---|---|
+| thiếu `category_id` | **500** "vui lòng thử lại" | 400 "Sản phẩm phải thuộc một danh mục" |
+| thiếu `images` | **500** | 201 DRAFT |
+| trùng `slug` | **500** | 409 "chọn slug khác" |
+
+Cả ba nói với người dùng rằng máy chủ hỏng và nên thử lại. Thử lại y hệt sẽ
+hỏng y hệt.
+
+**Thiếu danh mục** — miền ĐÒI `category_id`, tầng HTTP coi nó là tùy chọn.
+Lệch ấy rơi xuống nhánh mặc định của `dichLoiGhi`.
+
+**Thiếu ảnh** — cột `images TEXT[] NOT NULL DEFAULT '{}'`, nhưng DEFAULT
+chỉ áp dụng khi cột VẮNG khỏi câu INSERT; một slice nil gửi NULL và bị từ
+chối. Tạo nháp rồi bổ sung ảnh sau là cách làm bình thường, và miền cho
+phép: điều kiện "phải có ảnh" chỉ bật lúc GỬI DUYỆT.
+
+**Trùng slug** — bị che sau lỗi ảnh ở trên, và cũng thiếu nhánh dịch.
+
+#### Không phải một lỗi, mà CHÍN
+
+Rà cả bảng `dichLoiGhi`: **9 trong 20 lỗi miền** không có nhánh, tức chín
+cách một nhà bán nhập sai và được báo rằng máy chủ hỏng. Trong đó có
+`ErrSlugTaken` và `ErrSKUCodeTaken` — hai lỗi người dùng gặp hằng ngày.
+
+Hàng rào: `TestMoiLoiMienDeuCoDuongRaKhac500` ĐỌC AST của `product/domain`,
+tìm mọi `Err…`, rồi đòi mỗi cái có nhánh trong thân hàm `dichLoiGhi`. Cắt
+đúng thân hàm chứ không đọc cả file — tên một lỗi nằm trong bình luận không
+có nghĩa là nó được dịch. Một danh sách chép tay ở đây sẽ lệch đúng theo
+cách `dichLoiGhi` đã lệch.
+
+Phá thử: bỏ nhánh `ErrSlugTaken` → đỏ kèm tên lỗi và việc cần làm.
+
+#### Kiểu bắt được một mô hình SAI trong đầu tôi
+
+Viết màn hình xong, `tsc` từ chối:
+
+```text
+'"PENDING_REVIEW" | "ACTIVE" | "ARCHIVED" | "INACTIVE"' và '"REJECTED"'
+không có phần giao nhau
+```
+
+Không có trạng thái `REJECTED`. `Reject` đưa sản phẩm **về lại `DRAFT`** rồi
+ghi `rejection_reason` — hợp lý, vì bị từ chối nghĩa là quay lại bàn làm
+việc, không phải một ngõ cụt riêng.
+
+Nhưng với nhà bán, "nháp mới viết" và "nháp vừa bị trả về" là hai tình
+huống khác hẳn nhau, nên nhãn và màu tính từ CẢ HAI trường thay vì chỉ
+`status`.
+
+#### Một bài test xanh khi xóa dòng nó sinh ra để giữ
+
+`slugTu` bỏ dấu tiếng Việt bằng `normalize("NFD")`, cộng hai phép thay tay
+cho "đ"/"Đ" — hai chữ này KHÔNG phải "d" kèm dấu nên NFD không tách được.
+
+Bài test đầu chỉ có "Đầm dự tiệc" (Đ hoa). Xóa hẳn phép thay chữ "đ"
+THƯỜNG vẫn XANH: phép thay chữ hoa chạy trước `toLowerCase` nên nó gánh
+mất. Thêm "Áo len màu đỏ" rồi phá lại → `ao-len-mau-o`, đỏ.
+
+**Một bài test còn xanh khi xóa dòng nó sinh ra để giữ là một bài test
+không làm việc.** Đây là lý do bước "phá thử" phải nhắm đúng dòng, không
+phải nhắm đâu đó gần đó.
+
+#### Kiểm chứng
+
+Tạo một sản phẩm THẬT qua trình duyệt, `nhaban2@example.com`:
+
+```text
+slug tự sinh      "Áo len cổ lọ 863335" → ao-len-co-lo-863335
+thương hiệu       chỉ "Basics Co" — đúng, gian hàng này không sở hữu Lumière
+danh mục          cây thụt lề: Nữ › Áo · Váy · Nam …
+sau khi tạo       hiện trong danh sách ở trạng thái Nháp
+gửi duyệt         từ chối kèm "Sản phẩm chưa có biến thể nào" — đúng việc
+                  cần làm tiếp, không phải một lời từ chối trống
+```
+
+4 test đơn vị (61 xanh) · 4 test tích hợp HTTP mới · 63/63 gói Go xanh.
+`TestMoiDuongCanQuyenDeuDuocKiem` bắt đúng tuyến mới và đòi khai vào danh
+sách kiểm phân quyền — hàng rào cũ vẫn làm việc.
 
 ---
 

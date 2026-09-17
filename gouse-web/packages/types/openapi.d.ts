@@ -1354,6 +1354,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seller/brands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Thương hiệu tôi được phép bán
+         * @description Danh sách thương hiệu gian hàng ĐƯỢC PHÉP đăng sản phẩm dưới tên đó.
+         *
+         *     # Vì sao endpoint này phải tồn tại
+         *
+         *     `createMyProduct` đòi `brand_id` và TỪ CHỐI mọi thương hiệu gian hàng
+         *     không được phép bán — hàng rào chống hàng giả, đúng như nó cần phải
+         *     thế. Nhưng cho tới 17/09/2026 không có đường nào để BIẾT mình được
+         *     phép bán thương hiệu nào: `getBrand` chỉ tra từng cái một, theo id.
+         *
+         *     Hệ quả: luồng đăng sản phẩm không hoàn thành được qua giao diện —
+         *     không phải vì thiếu endpoint GHI, mà vì thiếu endpoint ĐỌC để điền
+         *     vào biểu mẫu.
+         *
+         *     Danh sách lọc bằng CHÍNH quy tắc của đường ghi (`CanSellerSellBrand`),
+         *     không phải một bản sao: hai bản sao của một quy tắc chống hàng giả sẽ
+         *     lệch, và khi ấy biểu mẫu mời chọn một thương hiệu rồi đường ghi từ
+         *     chối nó.
+         */
+        get: operations["listBrandsIMaySell"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/seller/settlements": {
         parameters: {
             query?: never;
@@ -6981,6 +7017,41 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["SellerBalance"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listBrandsIMaySell: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thương hiệu được phép bán */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            id: components["schemas"]["Id"];
+                            name: string;
+                            slug?: string;
+                            logo_url?: string;
+                            /**
+                             * @description Vì sao bạn được bán thương hiệu này. `OPEN` là ai
+                             *     cũng bán được; `RESTRICTED` nghĩa là gian hàng
+                             *     của bạn được chỉ định.
+                             * @enum {string}
+                             */
+                            protection_level: "OPEN" | "RESTRICTED" | "VERIFIED_ONLY";
+                        }[];
+                    };
                 };
             };
             403: components["responses"]["Forbidden"];

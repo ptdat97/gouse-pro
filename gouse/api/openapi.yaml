@@ -196,6 +196,8 @@ paths:
     $ref: './paths/seller.yaml#/fulfillment_order_deliver'
   /api/v1/seller/balance:
     $ref: './paths/seller.yaml#/balance'
+  /api/v1/seller/brands:
+    $ref: './paths/seller.yaml#/brands_i_may_sell'
   /api/v1/seller/settlements:
     $ref: './paths/seller.yaml#/settlements'
   /api/v1/seller/settlements/{settlement_id}:

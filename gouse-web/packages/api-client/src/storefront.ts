@@ -479,3 +479,19 @@ export async function guiSuKien(
     return false;
   }
 }
+
+// --------------------------------------------------------------- Danh mục
+
+export type CategoryTree =
+  operations["getCategoryTree"]["responses"][200]["content"]["application/json"];
+
+/**
+ * Cây danh mục — dùng cả ở cửa hàng lẫn ở biểu mẫu đăng sản phẩm.
+ *
+ * Trả về CÂY chứ không phải danh sách phẳng: quan hệ cha–con là một phần
+ * nghĩa của danh mục ("Nữ › Áo" khác "Áo"), và làm phẳng ở API thì mỗi bên
+ * gọi lại phải tự dựng lại.
+ */
+export function getCategoryTree(api: ApiClient): Promise<CategoryTree> {
+  return api.get<CategoryTree>("/api/v1/categories");
+}

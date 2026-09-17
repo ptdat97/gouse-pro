@@ -282,3 +282,73 @@ export function getMyPerformance(
     ky ? { period: ky } : undefined,
   );
 }
+
+// -------------------------------------------------------------- Sản phẩm
+
+export type MyProducts = Ok<operations["listMyProducts"]>;
+export type BrandsIMaySell = Ok<operations["listBrandsIMaySell"]>;
+export type ProductCreated = Created<operations["createMyProduct"]>;
+export type ProductSubmitted = Ok<operations["submitMyProduct"]>;
+
+/**
+ * Thương hiệu gian hàng ĐƯỢC PHÉP đăng bán.
+ *
+ * Danh sách này lọc bằng CHÍNH quy tắc mà `createProduct` dùng để từ chối,
+ * nên mọi lựa chọn trong biểu mẫu đều là lựa chọn đi qua được. Thiếu nó,
+ * nhà bán phải tự đâu đó có một ULID.
+ */
+export function listBrandsIMaySell(api: ApiClient): Promise<BrandsIMaySell> {
+  return api.get<BrandsIMaySell>("/api/v1/seller/brands");
+}
+
+/** Sản phẩm của gian hàng, gồm cả hàng NHÁP chưa ai thấy. */
+export function listMyProducts(
+  api: ApiClient,
+  status?: string,
+): Promise<MyProducts> {
+  return api.get<MyProducts>(
+    "/api/v1/seller/products",
+    status ? { status } : undefined,
+  );
+}
+
+export interface CreateProductInput {
+  brand_id: string;
+  category_id: string;
+  name: string;
+  slug: string;
+  product_type: string;
+  gender_target: string;
+  description?: string;
+  material_composition?: string;
+  care_instructions?: string;
+  origin_country?: string;
+}
+
+/**
+ * Tạo sản phẩm — luôn sinh ra ở DRAFT, chưa ai thấy.
+ *
+ * `category_id` BẮT BUỘC dù đặc tả cũ để nó tùy chọn: miền đòi danh mục,
+ * và thiếu nó từng trả 500 "vui lòng thử lại" (P3-63).
+ */
+export function createMyProduct(
+  api: ApiClient,
+  input: CreateProductInput,
+): Promise<ProductCreated> {
+  return api.post<ProductCreated>("/api/v1/seller/products", input);
+}
+
+/**
+ * Gửi duyệt — bước đưa hàng nháp vào hàng chờ của người kiểm duyệt.
+ *
+ * Đây là chỗ mọi điều kiện "đủ thông tin" mới bật: phải có mô tả, có ảnh,
+ * có biến thể, có bảng size. Tạo nháp thiếu vẫn được, gửi duyệt thì không.
+ */
+export function submitMyProduct(
+  api: ApiClient,
+  id: string,
+): Promise<ProductSubmitted> {
+  return api.post<ProductSubmitted>(
+    `/api/v1/seller/products/${encodeURIComponent(id)}/submit`,
+  );
+}
