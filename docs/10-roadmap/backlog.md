@@ -25,18 +25,18 @@ Module có tầng HTTP              14/19   (thiếu: notification · pricing ·
                                          supplychain — cả năm phục vụ module
                                          khác qua Go, không cần đường HTTP
                                          riêng. Đó là thiết kế.)
-Thao tác trong OpenAPI           99
-Thao tác đã có route             84      (85%)
+Thao tác trong OpenAPI           100
+Thao tác đã có route             85      (85%)
 Thao tác chưa cài                15      (tất cả Phase 2/3, khai từng dòng
                                          kèm lý do trong `cmd/apicheck`)
 
-Tuyến đã đăng ký                 88      (84 khớp đặc tả + 4 endpoint vận
+Tuyến đã đăng ký                 89      (85 khớp đặc tả + 4 endpoint vận
                                          hành cố ý nằm ngoài hợp đồng:
                                          /health/live · /health/ready ·
                                          /metrics · /version)
 
 Migration                        56
-Test Go                          1.131
+Test Go                          1.140
 Test trình duyệt (Playwright)    12
 Test đơn vị TypeScript           64
 ```
@@ -6169,9 +6169,9 @@ không có "sau".
 Xử tạm: biểu mẫu ĐÒI ít nhất một địa chỉ ảnh, để giao diện không mời nhà
 bán đi vào ngõ cụt. Khi có đường sửa, bỏ ràng buộc ấy.
 
-**Việc còn lại (chưa làm):** `PATCH /api/v1/seller/products/{id}` cho sản
-phẩm ở `DRAFT`, kèm quy tắc trường nào sửa được ở trạng thái nào. Đó là một
-tính năng có quyết định nghiệp vụ trong đó, không phải một lần nối dây.
+**Việc còn lại:** ~~`PATCH /api/v1/seller/products/{id}` cho sản phẩm ở
+`DRAFT`~~ — **xong ở P3-65** (19/09/2026). Ràng buộc "ảnh bắt buộc lúc tạo"
+đã bỏ theo đúng lời hẹn ở trên.
 
 #### Kiểm chứng — trọn vòng, trên trình duyệt thật
 
@@ -6188,6 +6188,123 @@ Vòng đời sản phẩm của nhà bán nay đi được từ đầu tới `PE
 không cần chạm vào API bằng tay.
 
 7 test đơn vị (64 xanh) · 63/63 gói Go xanh.
+
+---
+
+### P3-65 — sửa sản phẩm nháp, và hai lỗ hổng tìm ra trên đường đi
+
+P3-64 để lại một ngõ cụt: không có đường sửa sản phẩm, nên tạo thiếu ảnh là
+tạo một bản ghi chết, và bị kiểm duyệt trả về kèm lý do thì không sửa theo
+lý do ấy được.
+
+#### Quyết định: chỉ sửa ở DRAFT
+
+Tài liệu (`product-publishing.md`) mô tả lúc tạo và điều kiện gửi duyệt,
+**không nói gì** về sửa sau khi tạo. Chọn bản an toàn nhất:
+
+```text
+DRAFT           chỉ nhà bán thấy — sửa vô hại.        → cho sửa
+PENDING_REVIEW  người duyệt đang xem.                  → 409
+ACTIVE          khách đang thấy.                       → 409
+```
+
+Sửa hàng ĐANG BÁN là một chính sách riêng và **CHƯA quyết**: cho sửa mà
+không qua duyệt lại là cửa sau để tráo ảnh sau khi được duyệt. Bản DRAFT-only
+không khóa đường nào — nó chỉ chưa làm phần khó.
+
+"Bị trả về" cũng là DRAFT (`Reject` đưa về đó), nên sửa theo lý do rồi gửi
+lại là đường đi tự nhiên — có bài test riêng cho đúng đường ấy.
+
+#### Thương hiệu KHÔNG sửa được
+
+Thương hiệu được kiểm quyền bán ĐÚNG MỘT LẦN, lúc tạo. Cho đổi qua PATCH là
+đường vòng qua hàng rào chống hàng giả: tạo dưới thương hiệu OPEN, rồi đổi
+sang thương hiệu được bảo hộ mà gian hàng không có quyền bán.
+
+`SuaNhapParams` không có trường `BrandID` — bất khả về cấu trúc, không phải
+một câu `if`. Thân request thì CÓ `brand_id`, nhưng chỉ để từ chối KÈM LÝ
+DO: bỏ hẳn nó thì `DisallowUnknownFields` vẫn chặn, bằng một câu chung
+chung không nói gì.
+
+#### Tất cả hoặc không gì
+
+Kiểm MỌI trường rồi mới đổi. Kiểm tới đâu đổi tới đó thì một trường hỏng ở
+giữa để lại sản phẩm sửa dở — nửa ý cũ, nửa ý mới. Phá thử: cho đổi tên
+ngay lúc kiểm → `"tên đã bị đổi thành … dù cả lần sửa bị từ chối"`.
+
+#### Ảnh THAY THẾ, không nối thêm
+
+`Product.AddImage` có sẵn từ lâu — và **không ai gọi**. Nó chỉ nối thêm, và
+**không chặn trạng thái**: nối nó thẳng vào HTTP là cho thêm ảnh vào hàng
+ĐANG BÁN mà không qua duyệt. PATCH thay cả danh sách: gỡ được ảnh sai, đổi
+được thứ tự (ảnh đầu là ảnh bìa), thêm được — bằng cùng một phép, và chỉ ở
+DRAFT.
+
+#### Lỗ hổng 1 — hàng rào của chính tôi có điểm mù
+
+Hàng rào "mọi lỗi miền có đường ra khác 500" dựng ở P3-63 quét biến `Err…`
+CÓ TÊN. Nó xanh. Trong lúc đó:
+
+```text
+POST /seller/products {"product_type": "XYZ"}   → 500 "vui lòng thử lại"
+POST /seller/products {"gender_target": "ALIENS"} → 500
+```
+
+Lỗi của hai ca này tạo TẠI CHỖ: `return errors.New("…" + x)`. Không tên, nên
+bài quét không thấy và `errors.Is` không nhận ra. Rà cả thư mục: **tám chỗ**,
+ít nhất năm đi tới được HTTP. Xác nhận bằng cách chạy bài test mới trên mã
+ĐÃ COMMIT: cả hai ca nhận 500.
+
+Một hàng rào có điểm mù đúng hình dạng lỗi nó canh là hàng rào tạo cảm giác
+an toàn giả. `TestDomainKhongTaoLoiTaiCho` nay đọc AST và cấm `errors.New`
+trong thân hàm của domain, cùng `fmt.Errorf` không có `%w`.
+
+#### Lỗ hổng 2 — danh mục rác ghi được, cả lúc TẠO
+
+Viết PATCH, tôi định kiểm danh mục mới "cùng cách lúc tạo". Lúc tạo **không
+kiểm gì cả**: một mã `cat_…` đúng định dạng mà không tồn tại vẫn lưu được,
+và sản phẩm ấy không bao giờ hiện dưới danh mục nào ở cửa hàng. Không có
+khóa ngoại để chặn, vì danh mục thuộc module khác (R2).
+
+Nay `CatalogPort.CategoryExists`, gọi ở CẢ HAI đường.
+
+#### Một lần phá thử SAI, bắt được vì đọc kỹ
+
+Lần phá đầu (bỏ kiểm danh mục) in `FAIL` — tôi suýt coi là test bắt được.
+Đọc kỹ: đó là **lỗi biên dịch** (`declared and not used`), không phải test
+đỏ. Phá lại bằng `_ = coDM` để mã vẫn biên dịch → giờ mới thấy đúng: tạo trả
+**201**, sửa trả **200** với mã rác, cả hai bài đỏ đúng lý do.
+
+"Đỏ" chưa đủ; phải là đỏ ĐÚNG CHỖ.
+
+#### Dữ liệu nạp rồi vứt, lần thứ ba
+
+Biểu mẫu sửa cần giá trị hiện tại để điền sẵn. DTO nhà bán không trả mô tả,
+chất liệu, ảnh… — dù `Product` đã nạp sẵn cả. Lần thứ ba trong khu này sau
+`shipping_groups` (P3-50) và `variants` (P3-64).
+
+Không điền sẵn thì mọi lần sửa bắt đầu từ ô trống — và nhà bán chỉ muốn
+thêm một ảnh sẽ gửi ô mô tả rỗng lên, xóa mất nó.
+
+#### Giao diện gửi CHỈ phần đã đổi
+
+Điền sẵn để không phải gõ lại. Chỉ gửi phần đổi vì đó là nghĩa của PATCH:
+gửi lại mọi ô thì đúng hôm nay, và sai vào ngày có hai người cùng sửa —
+người sau ghi đè thứ người trước vừa đổi mà mình không hề chạm vào.
+
+#### Kiểm chứng — đúng kịch bản bản ghi chết, trên trình duyệt thật
+
+```text
+1. tạo "Túi tote canvas" KHÔNG ảnh → gửi duyệt → "Sản phẩm chưa có ảnh nào"
+2. "Sửa thông tin" → mô tả điền sẵn "Túi vải canvas dày"
+3. thêm một ảnh, lưu → gửi duyệt → Chờ duyệt
+```
+
+Test HTTP: bản ghi thiếu ảnh cứu được → gửi duyệt được → đang chờ duyệt thì
+409; gian hàng KHÁC sửa → 404 (không phải 403, để không lộ sự tồn tại);
+đổi thương hiệu → 400 kèm lý do; danh mục rác → 400.
+
+9 test miền · 7 test HTTP mới · `apicheck` 100/89 · 63/63 gói Go xanh.
 
 ---
 

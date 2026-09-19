@@ -520,6 +520,137 @@ func (p *Product) transition(next Status, now time.Time) error {
 	return nil
 }
 
+// SuaNhapParams là những gì nhà bán SỬA ĐƯỢC trên một sản phẩm nháp.
+//
+// Con trỏ nil = GIỮ NGUYÊN. Đó là ngữ nghĩa của PATCH: gửi một trường thì
+// chỉ đổi trường đó, không phải gửi lại toàn bộ sản phẩm.
+//
+// # Vì sao KHÔNG có BrandID
+//
+// Thương hiệu được kiểm quyền bán (`CanSellerSellBrand`) ĐÚNG MỘT LẦN, lúc
+// tạo. Cho sửa thương hiệu ở đây là mở một đường vòng qua hàng rào chống
+// hàng giả: tạo dưới một thương hiệu OPEN, rồi đổi sang thương hiệu được
+// bảo hộ mà gian hàng không có quyền bán.
+//
+// Nhầm thương hiệu thì tạo sản phẩm mới. Đắt hơn một chút cho nhà bán, rẻ
+// hơn rất nhiều so với việc hàng rào có một cửa sau.
+type SuaNhapParams struct {
+	Name                *string
+	Slug                *string
+	Description         *string
+	CareInstructions    *string
+	MaterialComposition *string
+	OriginCountry       *string
+	CategoryID          *ids.ID
+	SizeChartID         *ids.ID
+	ProductType         *ProductType
+	GenderTarget        *GenderTarget
+
+	// Images THAY THẾ toàn bộ danh sách, không nối thêm.
+	//
+	// `AddImage` có sẵn chỉ nối thêm — một ảnh sai thì không gỡ được. Thay
+	// cả danh sách cho phép gỡ, đổi thứ tự (ảnh đầu là ảnh bìa), và thêm,
+	// bằng cùng một phép.
+	Images *[]string
+}
+
+// SuaNhap sửa thông tin một sản phẩm NHÁP.
+//
+// # Chỉ ở DRAFT
+//
+//	DRAFT           chỉ nhà bán thấy — sửa vô hại.
+//	PENDING_REVIEW  người kiểm duyệt đang xem. Sửa lúc này là đổi thứ họ
+//	                đang duyệt ngay dưới tay họ.
+//	ACTIVE          khách đang thấy. Sửa mà không qua duyệt lại là cửa sau
+//	                để tráo ảnh sau khi được duyệt — một chính sách riêng,
+//	                chưa quyết.
+//
+// "Bị trả về" cũng là DRAFT (`Reject` đưa về đó), nên sửa theo lý do từ
+// chối rồi gửi lại là đường đi tự nhiên.
+//
+// # Tất cả hoặc không gì
+//
+// Kiểm MỌI trường trước, rồi mới đổi. Kiểm tới đâu đổi tới đó thì một
+// trường hỏng ở giữa để lại sản phẩm sửa dở — một nửa theo ý cũ, một nửa
+// theo ý mới, và không ai biết nửa nào.
+func (p *Product) SuaNhap(in SuaNhapParams, now time.Time) error {
+	if p.status != StatusDraft {
+		return ErrInvalidStatus
+	}
+
+	// ---- Kiểm, chưa đổi gì.
+	var ten, slug string
+	if in.Name != nil {
+		if ten = strings.TrimSpace(*in.Name); ten == "" {
+			return ErrEmptyName
+		}
+	}
+	if in.Slug != nil {
+		if slug = strings.TrimSpace(*in.Slug); slug == "" {
+			return ErrEmptySlug
+		}
+	}
+	if in.CategoryID != nil && in.CategoryID.IsZero() {
+		// Gửi danh mục RỖNG khác với không gửi: nó nghĩa là "bỏ danh mục",
+		// mà sản phẩm không tồn tại được nếu thiếu danh mục.
+		return ErrMissingCategory
+	}
+	if in.ProductType != nil && !in.ProductType.valid() {
+		return fmt.Errorf("%w: %s", ErrInvalidProductType, *in.ProductType)
+	}
+	if in.GenderTarget != nil && !in.GenderTarget.valid() {
+		return fmt.Errorf("%w: %s", ErrInvalidGender, *in.GenderTarget)
+	}
+	var anh []string
+	if in.Images != nil {
+		anh = make([]string, 0, len(*in.Images))
+		for _, u := range *in.Images {
+			u = strings.TrimSpace(u)
+			if u == "" {
+				return ErrEmptyImageURL
+			}
+			anh = append(anh, u)
+		}
+	}
+
+	// ---- Mọi thứ hợp lệ: áp dụng.
+	if in.Name != nil {
+		p.name = ten
+	}
+	if in.Slug != nil {
+		p.slug = slug
+	}
+	if in.Description != nil {
+		p.description = strings.TrimSpace(*in.Description)
+	}
+	if in.CareInstructions != nil {
+		p.careInstructions = strings.TrimSpace(*in.CareInstructions)
+	}
+	if in.MaterialComposition != nil {
+		p.materialComposition = strings.TrimSpace(*in.MaterialComposition)
+	}
+	if in.OriginCountry != nil {
+		p.originCountry = strings.TrimSpace(*in.OriginCountry)
+	}
+	if in.CategoryID != nil {
+		p.categoryID = *in.CategoryID
+	}
+	if in.SizeChartID != nil {
+		p.sizeChartID = *in.SizeChartID
+	}
+	if in.ProductType != nil {
+		p.productType = *in.ProductType
+	}
+	if in.GenderTarget != nil {
+		p.genderTarget = *in.GenderTarget
+	}
+	if in.Images != nil {
+		p.images = anh
+	}
+	p.touch(now)
+	return nil
+}
+
 // AddImage thêm ảnh sản phẩm.
 func (p *Product) AddImage(url string, now time.Time) error {
 	url = strings.TrimSpace(url)

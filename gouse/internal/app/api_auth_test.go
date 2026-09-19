@@ -40,6 +40,7 @@ func duongCanQuyen() []struct {
 		{http.MethodGet, "/api/v1/seller/products"},
 		{http.MethodPost, "/api/v1/seller/products"},
 		{http.MethodPost, "/api/v1/seller/products/prd_01J9XABC123DEF456GHJKMNPQR/variants"},
+		{http.MethodPatch, "/api/v1/seller/products/prd_01J9XABC123DEF456GHJKMNPQR"},
 		{http.MethodPost, "/api/v1/seller/products/prd_01J9XABC123DEF456GHJKMNPQR/submit"},
 
 		{http.MethodGet, "/api/v1/admin/config"},

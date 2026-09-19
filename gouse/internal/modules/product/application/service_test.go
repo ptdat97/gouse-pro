@@ -33,6 +33,8 @@ type fakeCatalog struct {
 	sizeChartOK   bool
 	sellCallCount int
 
+	danhMucKhongCo bool
+
 	chart         *application.SizeChartInfo
 	chartErr      error
 	getChartCount int
@@ -45,6 +47,14 @@ func (f *fakeCatalog) BrandExists(context.Context, ids.ID) (bool, error) {
 func (f *fakeCatalog) CanSellerSellBrand(context.Context, ids.ID, ids.ID) (bool, string, error) {
 	f.sellCallCount++
 	return f.allowSell, f.denyReason, f.sellErr
+}
+
+// CategoryExists: mặc định CÓ, trừ khi bài test đặt `danhMucKhongCo`.
+//
+// Mặc định có để mọi bài test viết trước khi có kiểm tra này vẫn đo đúng
+// thứ chúng đo.
+func (f *fakeCatalog) CategoryExists(context.Context, ids.ID) (bool, error) {
+	return !f.danhMucKhongCo, nil
 }
 
 func (f *fakeCatalog) SizeChartExistsFor(context.Context, ids.ID, string) (ids.ID, bool, error) {

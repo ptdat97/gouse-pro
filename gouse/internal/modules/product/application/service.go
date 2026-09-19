@@ -54,6 +54,14 @@ type CatalogPort interface {
 	// liệu ủy quyền); product chỉ hỏi và tuân theo.
 	CanSellerSellBrand(ctx context.Context, brandID, sellerID ids.ID) (allowed bool, reason string, err error)
 
+	// CategoryExists kiểm tra danh mục có tồn tại không.
+	//
+	// Thêm 19/09/2026. Trước đó cả TẠO lẫn SỬA đều ghi thẳng `category_id`
+	// mà không hỏi catalog — một mã `cat_…` rác vẫn lưu được, và sản phẩm
+	// ấy không bao giờ hiện dưới danh mục nào ở cửa hàng. Không có khóa
+	// ngoại để chặn, vì danh mục thuộc module khác (quy tắc R2).
+	CategoryExists(ctx context.Context, categoryID ids.ID) (bool, error)
+
 	// SizeChartExistsFor kiểm tra có bảng size cho (thương hiệu, loại sản
 	// phẩm) không.
 	SizeChartExistsFor(ctx context.Context, brandID ids.ID, productType string) (ids.ID, bool, error)
@@ -180,6 +188,18 @@ func (s *Service) CreateProduct(ctx context.Context, in CreateProductInput) (*do
 	}
 	if !ok {
 		return nil, ErrBrandNotFound
+	}
+
+	// Danh mục RỖNG để miền báo ErrMissingCategory — đó là lỗi "thiếu",
+	// khác lỗi "không tồn tại" ở đây.
+	if !in.CategoryID.IsZero() {
+		coDM, err := s.catalog.CategoryExists(ctx, in.CategoryID)
+		if err != nil {
+			return nil, fmt.Errorf("kiểm tra danh mục: %w", err)
+		}
+		if !coDM {
+			return nil, ErrCategoryNotFound
+		}
 	}
 
 	// Hàng rào chống hàng giả: chỉ kiểm tra khi có seller. Nền tảng tự tạo
@@ -335,6 +355,47 @@ func (s *Service) SubmitForReviewOwned(
 		return nil, err
 	}
 	return s.SubmitForReview(ctx, productID)
+}
+
+// SuaNhapCuaNhaBan sửa một sản phẩm nháp của gian hàng.
+//
+// Kiểm chủ sở hữu TRƯỚC khi áp dụng, và trả ErrNotFound khi khác chủ —
+// cùng lý do `kiemChuSoHuu` ghi: một lỗi riêng cho "có nhưng không phải của
+// bạn" là đủ để dò mã sản phẩm chưa phát hành của đối thủ.
+//
+// Quy tắc "chỉ ở DRAFT" và "tất cả hoặc không gì" nằm ở MIỀN
+// (`Product.SuaNhap`), không ở đây: đặt chúng ở tầng này nghĩa là một bên
+// gọi khác của miền — một lệnh vận hành, một job — đi vòng qua được.
+func (s *Service) SuaNhapCuaNhaBan(
+	ctx context.Context, sellerID, productID ids.ID, in domain.SuaNhapParams,
+) (*domain.Product, error) {
+	p, err := s.products.FindByID(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	if err := kiemChuSoHuu(p, sellerID); err != nil {
+		return nil, err
+	}
+
+	// Danh mục đổi thì phải kiểm nó TỒN TẠI — CÙNG kiểm tra với lúc tạo.
+	// Không có bước này, sửa danh mục là đường ghi một mã rác vào sản phẩm.
+	if in.CategoryID != nil && !in.CategoryID.IsZero() {
+		ok, err := s.catalog.CategoryExists(ctx, *in.CategoryID)
+		if err != nil {
+			return nil, fmt.Errorf("kiểm tra danh mục: %w", err)
+		}
+		if !ok {
+			return nil, ErrCategoryNotFound
+		}
+	}
+
+	if err := p.SuaNhap(in, s.clock.Now()); err != nil {
+		return nil, err
+	}
+	if err := s.products.Save(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // kiemChuSoHuu khẳng định sản phẩm thuộc về gian hàng này.

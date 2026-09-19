@@ -1050,6 +1050,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/seller/products/{product_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Sửa sản phẩm nháp
+         * @description Sửa thông tin một sản phẩm ở trạng thái `DRAFT` — gồm cả nháp "bị trả
+         *     về", vì từ chối đưa sản phẩm về lại DRAFT.
+         *
+         *     **Ngữ nghĩa PATCH:** trường nào VẮNG thì giữ nguyên. Trường có mặt thì
+         *     đổi — kể cả `""`, và `""` với `name`/`slug`/`category_id` là lỗi chứ
+         *     không phải "bỏ qua".
+         *
+         *     **`images` THAY THẾ cả danh sách**, không nối thêm: gỡ được ảnh sai,
+         *     đổi được thứ tự (ảnh đầu là ảnh bìa).
+         *
+         *     # Chỉ ở DRAFT
+         *
+         *     `PENDING_REVIEW` thì người kiểm duyệt đang xem; sửa lúc này là đổi thứ
+         *     họ đang duyệt ngay dưới tay họ. `ACTIVE` thì khách đang thấy; sửa mà
+         *     không qua duyệt lại là cửa sau để tráo ảnh sau khi được duyệt — một
+         *     chính sách riêng, CHƯA quyết. Cả hai trả 409.
+         *
+         *     # Không đổi được thương hiệu
+         *
+         *     Thương hiệu được kiểm quyền bán ĐÚNG MỘT LẦN, lúc tạo. Cho đổi ở đây
+         *     là mở đường vòng qua hàng rào chống hàng giả: tạo dưới thương hiệu
+         *     OPEN, rồi đổi sang thương hiệu được bảo hộ. Gửi `brand_id` trả 400
+         *     kèm lý do.
+         *
+         *     # Vì sao endpoint này tồn tại
+         *
+         *     Thêm 19/09/2026. Trước đó KHÔNG có đường nào sửa sản phẩm sau khi tạo:
+         *     tạo thiếu ảnh là tạo một bản ghi không bao giờ gửi duyệt được, và bị
+         *     trả về kèm lý do thì không sửa theo lý do ấy được. Xem P3-64.
+         */
+        patch: operations["updateMyProduct"];
+        trace?: never;
+    };
     "/api/v1/seller/products/{product_id}/variants": {
         parameters: {
             query?: never;
@@ -3152,6 +3200,20 @@ export interface components {
             rejection_reason?: string;
             brand_id?: components["schemas"]["Id"];
             product_type?: string;
+            description?: string;
+            care_instructions?: string;
+            material_composition?: string;
+            origin_country?: string;
+            category_id?: components["schemas"]["Id"];
+            gender_target?: string;
+            /**
+             * @description Ảnh HIỆN TẠI, theo thứ tự (ảnh đầu là ảnh bìa). `[]` khi chưa có.
+             *
+             *     Các trường từ `description` tới đây trả ra để biểu mẫu SỬA điền sẵn
+             *     giá trị hiện tại (19/09/2026). Không có chúng thì mọi lần sửa bắt
+             *     đầu từ ô trống — và một PATCH gửi ô trống sẽ xóa mất dữ liệu cũ.
+             */
+            images?: string[];
             /**
              * @description Biến thể ĐÃ có. Mảng rỗng nghĩa là sản phẩm chưa gửi duyệt được —
              *     `submitMyProduct` đòi ít nhất một biến thể.
@@ -6298,6 +6360,69 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             /** @description Gian hàng chưa được phép bán thương hiệu này */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateMyProduct: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                product_id: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    slug?: string;
+                    description?: string;
+                    care_instructions?: string;
+                    material_composition?: string;
+                    origin_country?: string;
+                    category_id?: components["schemas"]["Id"];
+                    size_chart_id?: components["schemas"]["Id"];
+                    /** @enum {string} */
+                    product_type?: "TOP" | "BOTTOM" | "DRESS" | "OUTERWEAR" | "SHOES" | "BAG" | "ACCESSORY";
+                    /** @enum {string} */
+                    gender_target?: "WOMEN" | "MEN" | "UNISEX" | "KIDS";
+                    /** @description THAY THẾ toàn bộ danh sách ảnh. */
+                    images?: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Sản phẩm sau khi sửa */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerProduct"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+            /** @description Sản phẩm không ở DRAFT, hoặc slug đã có sản phẩm khác dùng. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -101,6 +101,18 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 		})
 	}
 
+	// Mã danh mục đúng ĐỊNH DẠNG mà không tồn tại. Trước 19/09/2026 nó lưu
+	// được — không có khóa ngoại vì danh mục thuộc module khác — và sản
+	// phẩm ấy không bao giờ hiện dưới danh mục nào ở cửa hàng.
+	t.Run("danh mục không tồn tại là 400", func(t *testing.T) {
+		res := tao(than("dm-rac-"+duy, map[string]any{
+			"category_id": ids.MustNew(ids.PrefixCategory).String(),
+		}))
+		if res.code != http.StatusBadRequest {
+			t.Fatalf("ghi được mã danh mục rác: %d — %s", res.code, res.raw)
+		}
+	})
+
 	t.Run("KHÔNG kèm ảnh vẫn tạo được nháp", func(t *testing.T) {
 		// Tạo nháp rồi bổ sung ảnh sau là cách làm BÌNH THƯỜNG, và miền
 		// cho phép: điều kiện "phải có ảnh" chỉ bật lúc GỬI DUYỆT.

@@ -27,6 +27,7 @@ func (catalogOK) BrandExists(context.Context, ids.ID) (bool, error) { return tru
 func (catalogOK) CanSellerSellBrand(context.Context, ids.ID, ids.ID) (bool, string, error) {
 	return true, "OK", nil
 }
+func (catalogOK) CategoryExists(context.Context, ids.ID) (bool, error) { return true, nil }
 func (catalogOK) SizeChartExistsFor(context.Context, ids.ID, string) (ids.ID, bool, error) {
 	return "", false, nil
 }

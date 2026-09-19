@@ -157,6 +157,17 @@ func (a *catalogAdapter) BrandExists(ctx context.Context, brandID ids.ID) (bool,
 	return b.Status == "ACTIVE", nil
 }
 
+func (a *catalogAdapter) CategoryExists(ctx context.Context, categoryID ids.ID) (bool, error) {
+	_, err := a.api.GetCategory(ctx, categoryID.String())
+	if err != nil {
+		if errors.Is(err, catalog.ErrNotFound) || errors.Is(err, catalog.ErrInvalidID) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 func (a *catalogAdapter) CanSellerSellBrand(
 	ctx context.Context, brandID, sellerID ids.ID,
 ) (bool, string, error) {

@@ -11,6 +11,9 @@ var (
 	// ErrBrandNotFound khi thương hiệu không tồn tại hoặc không hoạt động.
 	ErrBrandNotFound = errors.New("product: thương hiệu không tồn tại")
 
+	// ErrCategoryNotFound khi `category_id` không trỏ tới danh mục nào.
+	ErrCategoryNotFound = errors.New("product: danh mục không tồn tại")
+
 	// ErrSellerRequired khi thiếu định danh seller ở nơi bắt buộc phải có.
 	//
 	// Tồn tại để một lỗi lập trình ("quên truyền sellerID") thành lỗi rõ

@@ -52,6 +52,7 @@ func (h *SellerHandler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/seller/products", http.HandlerFunc(h.tao))
 	mux.Handle("POST /api/v1/seller/products/{product_id}/variants",
 		http.HandlerFunc(h.themBienThe))
+	mux.Handle("PATCH /api/v1/seller/products/{product_id}", http.HandlerFunc(h.suaNhap))
 	mux.Handle("POST /api/v1/seller/products/{product_id}/submit",
 		http.HandlerFunc(h.guiDuyet))
 }
@@ -177,6 +178,120 @@ func (h *SellerHandler) themBienThe(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, http.StatusOK, toSanPhamNhaBan(p))
 }
 
+// suaNhapBody: mọi trường là CON TRỎ.
+//
+// JSON vắng trường → nil → GIỮ NGUYÊN. JSON có trường, kể cả `""` → con
+// trỏ tới giá trị ấy → ĐỔI (và `""` với tên hay slug là lỗi, không phải
+// "bỏ qua"). Dùng kiểu giá trị thay vì con trỏ thì hai trường hợp này
+// trông giống hệt nhau, và một PATCH chỉ đổi chất liệu sẽ xóa mất mô tả.
+type suaNhapBody struct {
+	Name                *string   `json:"name"`
+	Slug                *string   `json:"slug"`
+	Description         *string   `json:"description"`
+	CareInstructions    *string   `json:"care_instructions"`
+	MaterialComposition *string   `json:"material_composition"`
+	OriginCountry       *string   `json:"origin_country"`
+	CategoryID          *string   `json:"category_id"`
+	SizeChartID         *string   `json:"size_chart_id"`
+	ProductType         *string   `json:"product_type"`
+	GenderTarget        *string   `json:"gender_target"`
+	Images              *[]string `json:"images"`
+
+	// BrandID CÓ trong thân để TỪ CHỐI RÕ RÀNG, không phải để dùng.
+	//
+	// Bỏ hẳn nó thì `DisallowUnknownFields` vẫn chặn, nhưng bằng câu chung
+	// chung "Dữ liệu gửi lên không hợp lệ" — nhà bán không biết vì sao. Xem
+	// `domain.SuaNhapParams` cho lý do thương hiệu không sửa được.
+	BrandID *string `json:"brand_id"`
+}
+
+// suaNhap phục vụ PATCH /api/v1/seller/products/{product_id}
+// (operationId: updateMyProduct).
+//
+// # Vì sao endpoint này tồn tại
+//
+// Cho tới 19/09/2026 không có đường nào sửa một sản phẩm sau khi tạo. Tạo
+// thiếu ảnh là tạo một bản ghi KHÔNG BAO GIỜ gửi duyệt được và KHÔNG BAO
+// GIỜ sửa được; gõ sai tên cũng vậy. Và bị kiểm duyệt trả về kèm lý do thì
+// không sửa theo lý do ấy được — `Reject` đưa về DRAFT, nhưng DRAFT không
+// có cửa nào để vào. Xem P3-64.
+func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
+	var body suaNhapBody
+	if err := decodeJSON(r, &body); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if body.BrandID != nil {
+		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+			"Không đổi được thương hiệu của sản phẩm đã tạo — tạo sản phẩm "+
+				"mới dưới thương hiệu đúng. Thương hiệu được kiểm quyền bán "+
+				"lúc tạo; cho đổi ở đây là mở cửa sau qua hàng rào chống hàng giả."))
+		return
+	}
+
+	sellerID, err := h.sellerID(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	pid, err := ids.Parse(r.PathValue("product_id"), ids.PrefixProduct)
+	if err != nil {
+		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+			"Mã sản phẩm không hợp lệ"))
+		return
+	}
+
+	in := domain.SuaNhapParams{
+		Name:                body.Name,
+		Slug:                body.Slug,
+		Description:         body.Description,
+		CareInstructions:    body.CareInstructions,
+		MaterialComposition: body.MaterialComposition,
+		OriginCountry:       body.OriginCountry,
+		Images:              body.Images,
+	}
+	if body.ProductType != nil {
+		v := domain.ProductType(*body.ProductType)
+		in.ProductType = &v
+	}
+	if body.GenderTarget != nil {
+		v := domain.GenderTarget(*body.GenderTarget)
+		in.GenderTarget = &v
+	}
+	for _, t := range []struct {
+		raw    *string
+		prefix ids.Prefix
+		ten    string
+		dich   **ids.ID
+	}{
+		{body.CategoryID, ids.PrefixCategory, "category_id", &in.CategoryID},
+		{body.SizeChartID, ids.PrefixSizeChart, "size_chart_id", &in.SizeChartID},
+	} {
+		if t.raw == nil {
+			continue
+		}
+		// Chuỗi rỗng đi thẳng xuống miền dưới dạng mã RỖNG: miền phân biệt
+		// "bỏ danh mục" (lỗi) với "không nhắc tới danh mục" (giữ nguyên).
+		var id ids.ID
+		if strings.TrimSpace(*t.raw) != "" {
+			id, err = ids.Parse(*t.raw, t.prefix)
+			if err != nil {
+				h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
+					t.ten+" không đúng định dạng"))
+				return
+			}
+		}
+		*t.dich = &id
+	}
+
+	p, err := h.svc.SuaNhapCuaNhaBan(r.Context(), sellerID, pid, in)
+	if err != nil {
+		h.fail(w, r, dichLoiGhi(err))
+		return
+	}
+	h.ok(w, r, http.StatusOK, toSanPhamNhaBan(p))
+}
+
 // guiDuyet phục vụ POST /api/v1/seller/products/{product_id}/submit.
 //
 // Thiếu điều kiện thì trả lỗi NÓI RÕ thiếu gì (thiếu ảnh, thiếu chất
@@ -270,6 +385,21 @@ type sanPhamNhaBan struct {
 	ProductType string `json:"product_type,omitempty"`
 	CreatedAt   string `json:"created_at,omitempty"`
 
+	// Các trường SỬA ĐƯỢC — trả ra để biểu mẫu sửa điền sẵn giá trị hiện
+	// tại. Không có chúng thì mọi lần sửa bắt đầu từ ô trống, và một nhà
+	// bán chỉ muốn thêm một ảnh sẽ phải gõ lại toàn bộ mô tả — hoặc tệ hơn,
+	// gửi lên ô trống và xóa mất nó.
+	//
+	// Cùng dạng với `variants` ngay dưới: dữ liệu đã nạp sẵn, trước đây bị
+	// vứt ở tầng DTO.
+	Description         string   `json:"description"`
+	CareInstructions    string   `json:"care_instructions"`
+	MaterialComposition string   `json:"material_composition"`
+	OriginCountry       string   `json:"origin_country"`
+	CategoryID          string   `json:"category_id,omitempty"`
+	GenderTarget        string   `json:"gender_target,omitempty"`
+	Images              []string `json:"images"`
+
 	// Variants KHÔNG dùng omitempty: mảng rỗng và thiếu trường nói hai
 	// chuyện khác nhau. `[]` = sản phẩm chưa có biến thể nào, tức CHƯA gửi
 	// duyệt được; thiếu trường = không biết.
@@ -333,6 +463,14 @@ func toSanPhamNhaBan(p *domain.Product) sanPhamNhaBan {
 		ProductType:     string(p.Type()),
 		CreatedAt:       p.CreatedAt().UTC().Format(time.RFC3339),
 		Variants:        toBienTheNhaBan(p.Variants()),
+
+		Description:         p.Description(),
+		CareInstructions:    p.CareInstructions(),
+		MaterialComposition: p.MaterialComposition(),
+		OriginCountry:       p.OriginCountry(),
+		CategoryID:          p.CategoryID().String(),
+		GenderTarget:        string(p.GenderTarget()),
+		Images:              mangRong(p.Images()),
 	}
 }
 
@@ -426,6 +564,8 @@ func dichLoiGhi(err error) error {
 		// hành động cụ thể ("Tải lên giấy ủy quyền") thay vì báo chung.
 		return apierror.New(apierror.CodeForbidden, "Gian hàng chưa được phép bán thương hiệu này: "+err.Error())
 
+	case errors.Is(err, application.ErrCategoryNotFound):
+		return apierror.New(apierror.CodeValidationFailed, "Danh mục không tồn tại")
 	case errors.Is(err, application.ErrBrandNotFound):
 		return apierror.New(apierror.CodeValidationFailed, "Thương hiệu không tồn tại")
 
@@ -510,4 +650,16 @@ func dichLoiGhi(err error) error {
 			"Sản phẩm không ở trạng thái cho phép thao tác này")
 	}
 	return err
+}
+
+// mangRong: `[]` thay vì `null` cho danh sách rỗng.
+//
+// Giao diện đọc `images.length`; `null` làm nó nổ. Và `[]` với thiếu trường
+// nói hai chuyện khác nhau — đây là "chưa có ảnh nào", không phải "không
+// biết".
+func mangRong(xs []string) []string {
+	if xs == nil {
+		return []string{}
+	}
+	return xs
 }

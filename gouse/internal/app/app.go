@@ -979,6 +979,7 @@ func RegisterRoutes(
 			mux.Handle("GET /api/v1/seller/products", sellerProduct)
 			mux.Handle("POST /api/v1/seller/products", sellerProduct)
 			mux.Handle("POST /api/v1/seller/products/{product_id}/variants", sellerProduct)
+			mux.Handle("PATCH /api/v1/seller/products/{product_id}", sellerProduct)
 			mux.Handle("POST /api/v1/seller/products/{product_id}/submit", sellerProduct)
 
 			adminProductMux := http.NewServeMux()

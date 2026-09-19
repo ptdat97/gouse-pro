@@ -8,6 +8,7 @@ import {
   listBrandsIMaySell,
   listMyProducts,
   submitMyProduct,
+  updateMyProduct,
   type BrandsIMaySell,
   type CategoryTree,
   type MyProducts,
@@ -315,27 +316,23 @@ function TaoSanPham({
         </Field>
 
         {/*
-          ẢNH BẮT BUỘC ngay từ lúc tạo, dù backend cho phép tạo thiếu.
+          Ảnh KHÔNG bắt buộc lúc tạo.
 
-          Lý do không nằm ở miền mà ở hệ thống: KHÔNG có endpoint sửa sản
-          phẩm. Tạo xong mà thiếu ảnh thì `submit` từ chối vĩnh viễn ("Sản
-          phẩm chưa có ảnh nào") và không đường nào bổ sung — bản ghi chết
-          hẳn. Xem P3-64.
-
-          Nên biểu mẫu không mời nhà bán đi vào ngõ cụt đó. Khi có đường
-          sửa, bỏ `required` ở đây.
+          Từ 17 tới 19/09/2026 ô này có `required`, vì khi ấy KHÔNG có
+          đường sửa sản phẩm: tạo thiếu ảnh là tạo một bản ghi chết vĩnh
+          viễn. Nay có PATCH (P3-65), nên nháp thiếu ảnh bổ sung sau được —
+          đúng như miền vốn cho phép.
         */}
         <Field
           label="Ảnh sản phẩm"
           htmlFor="anh"
-          hint="Mỗi dòng một địa chỉ ảnh. BẮT BUỘC — hiện chưa có đường sửa sản phẩm sau khi tạo."
+          hint="Mỗi dòng một địa chỉ ảnh; ảnh đầu là ảnh bìa. Bổ sung sau được."
         >
           <Textarea
             id="anh"
             value={anh}
             onChange={(e) => setAnh(e.target.value)}
             rows={3}
-            required
             placeholder="https://cdn.example.com/anh-1.jpg"
           />
         </Field>
@@ -419,6 +416,8 @@ function Dong({ p, onDoi }: { p: Product; onDoi: () => void }) {
       )}
 
       {error && <Alert tone="danger">{error}</Alert>}
+
+      {p.status === "DRAFT" && <SuaNhap p={p} onDoi={onDoi} />}
 
       <BienThe p={p} onDoi={onDoi} />
 
@@ -595,5 +594,162 @@ function BienThe({ p, onDoi }: { p: Product; onDoi: () => void }) {
         </form>
       )}
     </div>
+  );
+}
+
+/**
+ * Sửa một sản phẩm NHÁP — gồm cả nháp bị trả về.
+ *
+ * # Điền sẵn giá trị hiện tại, gửi đi CHỈ những gì đã đổi
+ *
+ * Điền sẵn để nhà bán sửa một chữ không phải gõ lại cả mô tả. Chỉ gửi phần
+ * đã đổi vì đó là nghĩa của PATCH: trường vắng thì máy chủ giữ nguyên. Gửi
+ * lại mọi ô thì đúng hôm nay, và sai vào ngày có hai người cùng sửa — người
+ * sau ghi đè phần người trước vừa đổi mà mình không hề chạm vào.
+ *
+ * # Thương hiệu KHÔNG có ở đây
+ *
+ * Không phải quên: thương hiệu được kiểm quyền bán một lần lúc tạo, và cho
+ * đổi ở đây là cửa sau qua hàng rào chống hàng giả. Máy chủ từ chối; giao
+ * diện không mời.
+ */
+function SuaNhap({ p, onDoi }: { p: Product; onDoi: () => void }) {
+  const { api } = useSession();
+  const [mo, setMo] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const goc = React.useMemo(
+    () => ({
+      name: p.name ?? "",
+      description: p.description ?? "",
+      material_composition: p.material_composition ?? "",
+      care_instructions: p.care_instructions ?? "",
+      origin_country: p.origin_country ?? "",
+      images: (p.images ?? []).join("\n"),
+    }),
+    [p],
+  );
+  const [f, setF] = React.useState(goc);
+
+  // Mở lại biểu mẫu thì bắt đầu từ giá trị MỚI NHẤT, không phải giá trị
+  // của lần mở trước — danh sách đã tải lại sau mỗi lần lưu.
+  React.useEffect(() => {
+    if (!mo) setF(goc);
+  }, [goc, mo]);
+
+  function doi(k: keyof typeof goc) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setF({ ...f, [k]: e.target.value });
+  }
+
+  async function luu(e: React.FormEvent) {
+    e.preventDefault();
+
+    const than: Record<string, unknown> = {};
+    for (const k of [
+      "name",
+      "description",
+      "material_composition",
+      "care_instructions",
+      "origin_country",
+    ] as const) {
+      if (f[k].trim() !== goc[k].trim()) than[k] = f[k].trim();
+    }
+    if (f.images !== goc.images) {
+      than.images = f.images
+        .split("\n")
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+    if (Object.keys(than).length === 0) {
+      setMo(false);
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      await updateMyProduct(api, p.id!, than);
+      setMo(false);
+      onDoi();
+    } catch (err) {
+      setError(isApiError(err) ? err.message : "Không lưu được");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!mo) {
+    return (
+      <p>
+        <Button variant="secondary" onClick={() => setMo(true)}>
+          Sửa thông tin
+        </Button>
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={luu}>
+      {error && <Alert tone="danger">{error}</Alert>}
+      <Field label="Tên sản phẩm" htmlFor={`s-ten-${p.id}`}>
+        <Input id={`s-ten-${p.id}`} value={f.name} onChange={doi("name")} required />
+      </Field>
+      <Field label="Mô tả" htmlFor={`s-mota-${p.id}`}>
+        <Textarea
+          id={`s-mota-${p.id}`}
+          value={f.description}
+          onChange={doi("description")}
+          rows={3}
+        />
+      </Field>
+      <Field label="Thành phần chất liệu" htmlFor={`s-cl-${p.id}`}>
+        <Input
+          id={`s-cl-${p.id}`}
+          value={f.material_composition}
+          onChange={doi("material_composition")}
+        />
+      </Field>
+      <Field label="Hướng dẫn bảo quản" htmlFor={`s-bq-${p.id}`}>
+        <Input
+          id={`s-bq-${p.id}`}
+          value={f.care_instructions}
+          onChange={doi("care_instructions")}
+        />
+      </Field>
+      <Field label="Xuất xứ" htmlFor={`s-xx-${p.id}`}>
+        <Input
+          id={`s-xx-${p.id}`}
+          value={f.origin_country}
+          onChange={doi("origin_country")}
+        />
+      </Field>
+      <Field
+        label="Ảnh sản phẩm"
+        htmlFor={`s-anh-${p.id}`}
+        hint="Mỗi dòng một ảnh; ảnh đầu là ảnh bìa. Danh sách này THAY THẾ danh sách cũ."
+      >
+        <Textarea
+          id={`s-anh-${p.id}`}
+          value={f.images}
+          onChange={doi("images")}
+          rows={3}
+        />
+      </Field>
+      <p className="actions">
+        <Button type="submit" disabled={busy}>
+          Lưu
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={busy}
+          onClick={() => setMo(false)}
+        >
+          Hủy
+        </Button>
+      </p>
+    </form>
   );
 }

@@ -402,3 +402,30 @@ export function addMyProductVariant(
     input,
   );
 }
+
+/**
+ * Những gì sửa được trên một sản phẩm NHÁP.
+ *
+ * Mọi trường TÙY CHỌN: vắng = giữ nguyên (ngữ nghĩa PATCH). KHÔNG có
+ * `brand_id` — thương hiệu được kiểm quyền bán một lần lúc tạo, và cho đổi
+ * ở đây là mở cửa sau qua hàng rào chống hàng giả.
+ */
+export type UpdateProductInput =
+  operations["updateMyProduct"]["requestBody"]["content"]["application/json"];
+export type ProductUpdated = Ok<operations["updateMyProduct"]>;
+
+/**
+ * Sửa sản phẩm nháp — gồm cả nháp "bị trả về".
+ *
+ * `images` THAY THẾ cả danh sách, không nối thêm: gửi danh sách mới đầy đủ.
+ */
+export function updateMyProduct(
+  api: ApiClient,
+  id: string,
+  input: UpdateProductInput,
+): Promise<ProductUpdated> {
+  return api.patch<ProductUpdated>(
+    `/api/v1/seller/products/${encodeURIComponent(id)}`,
+    input,
+  );
+}

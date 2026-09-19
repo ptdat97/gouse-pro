@@ -1127,6 +1127,99 @@ seller_products:
             schema:
               $ref: '../components/common.yaml#/schemas/Error'
 
+seller_product_detail:
+  patch:
+    tags: [Seller]
+    summary: Sửa sản phẩm nháp
+    description: |
+      Sửa thông tin một sản phẩm ở trạng thái `DRAFT` — gồm cả nháp "bị trả
+      về", vì từ chối đưa sản phẩm về lại DRAFT.
+
+      **Ngữ nghĩa PATCH:** trường nào VẮNG thì giữ nguyên. Trường có mặt thì
+      đổi — kể cả `""`, và `""` với `name`/`slug`/`category_id` là lỗi chứ
+      không phải "bỏ qua".
+
+      **`images` THAY THẾ cả danh sách**, không nối thêm: gỡ được ảnh sai,
+      đổi được thứ tự (ảnh đầu là ảnh bìa).
+
+      # Chỉ ở DRAFT
+
+      `PENDING_REVIEW` thì người kiểm duyệt đang xem; sửa lúc này là đổi thứ
+      họ đang duyệt ngay dưới tay họ. `ACTIVE` thì khách đang thấy; sửa mà
+      không qua duyệt lại là cửa sau để tráo ảnh sau khi được duyệt — một
+      chính sách riêng, CHƯA quyết. Cả hai trả 409.
+
+      # Không đổi được thương hiệu
+
+      Thương hiệu được kiểm quyền bán ĐÚNG MỘT LẦN, lúc tạo. Cho đổi ở đây
+      là mở đường vòng qua hàng rào chống hàng giả: tạo dưới thương hiệu
+      OPEN, rồi đổi sang thương hiệu được bảo hộ. Gửi `brand_id` trả 400
+      kèm lý do.
+
+      # Vì sao endpoint này tồn tại
+
+      Thêm 19/09/2026. Trước đó KHÔNG có đường nào sửa sản phẩm sau khi tạo:
+      tạo thiếu ảnh là tạo một bản ghi không bao giờ gửi duyệt được, và bị
+      trả về kèm lý do thì không sửa theo lý do ấy được. Xem P3-64.
+    operationId: updateMyProduct
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - $ref: '../components/common.yaml#/parameters/ProductId'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            properties:
+              name:
+                type: string
+              slug:
+                type: string
+              description:
+                type: string
+              care_instructions:
+                type: string
+              material_composition:
+                type: string
+              origin_country:
+                type: string
+              category_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              size_chart_id:
+                $ref: '../components/common.yaml#/schemas/Id'
+              product_type:
+                type: string
+                enum: [TOP, BOTTOM, DRESS, OUTERWEAR, SHOES, BAG, ACCESSORY]
+              gender_target:
+                type: string
+                enum: [WOMEN, MEN, UNISEX, KIDS]
+              images:
+                type: array
+                description: THAY THẾ toàn bộ danh sách ảnh.
+                items:
+                  type: string
+    responses:
+      '200':
+        description: Sản phẩm sau khi sửa
+        content:
+          application/json:
+            schema:
+              $ref: '#/SellerProduct'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        description: Sản phẩm không ở DRAFT, hoặc slug đã có sản phẩm khác dùng.
+        content:
+          application/json:
+            schema:
+              $ref: '../components/common.yaml#/schemas/Error'
+
 seller_product_variants:
   post:
     tags: [Seller]
@@ -1249,6 +1342,28 @@ SellerProduct:
       $ref: '../components/common.yaml#/schemas/Id'
     product_type:
       type: string
+    description:
+      type: string
+    care_instructions:
+      type: string
+    material_composition:
+      type: string
+    origin_country:
+      type: string
+    category_id:
+      $ref: '../components/common.yaml#/schemas/Id'
+    gender_target:
+      type: string
+    images:
+      type: array
+      description: |
+        Ảnh HIỆN TẠI, theo thứ tự (ảnh đầu là ảnh bìa). `[]` khi chưa có.
+
+        Các trường từ `description` tới đây trả ra để biểu mẫu SỬA điền sẵn
+        giá trị hiện tại (19/09/2026). Không có chúng thì mọi lần sửa bắt
+        đầu từ ô trống — và một PATCH gửi ô trống sẽ xóa mất dữ liệu cũ.
+      items:
+        type: string
     variants:
       type: array
       description: |
