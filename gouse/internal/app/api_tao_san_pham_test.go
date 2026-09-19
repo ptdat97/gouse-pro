@@ -83,6 +83,24 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 		}
 	})
 
+	// Hai ca dưới đây nằm trong ĐIỂM MÙ của hàng rào 17/09: lỗi của chúng
+	// được tạo tại chỗ bằng `errors.New`, không có tên, nên bài quét `Err…`
+	// không thấy và tầng HTTP không nhận ra. Cả hai từng trả 500 trong lúc
+	// hàng rào báo xanh. Xem TestDomainKhongTaoLoiTaiCho.
+	for _, ca := range []struct {
+		ten, truong, giaTri string
+	}{
+		{"loại sản phẩm lạ", "product_type", "XYZ"},
+		{"đối tượng khách lạ", "gender_target", "ALIENS"},
+	} {
+		t.Run(ca.ten+" là 400, không phải 500", func(t *testing.T) {
+			res := tao(than("la-"+ca.truong+"-"+duy, map[string]any{ca.truong: ca.giaTri}))
+			if res.code != http.StatusBadRequest {
+				t.Fatalf("mong 400, nhận %d: %s", res.code, res.raw)
+			}
+		})
+	}
+
 	t.Run("KHÔNG kèm ảnh vẫn tạo được nháp", func(t *testing.T) {
 		// Tạo nháp rồi bổ sung ảnh sau là cách làm BÌNH THƯỜNG, và miền
 		// cho phép: điều kiện "phải có ảnh" chỉ bật lúc GỬI DUYỆT.

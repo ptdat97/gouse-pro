@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -65,7 +66,14 @@ func TestMoiLoiMienDeuCoDuongRaKhac500(t *testing.T) {
 //
 // Sổ này phải rỗng hoặc gần rỗng. Mỗi dòng ở đây là một lời hứa rằng lỗi
 // ấy không bao giờ đi qua tầng HTTP của nhà bán.
-var loiKhongQuaDichLoiGhi = map[string]string{}
+var loiKhongQuaDichLoiGhi = map[string]string{
+	// Hai lỗi LẬP TRÌNH, không phải lỗi người dùng: chỉ xảy ra khi mã gọi
+	// truyền con trỏ nil. Không đầu vào HTTP nào sinh ra được chúng — tầng
+	// HTTP luôn dựng biến thể và SKU từ thân request trước khi gọi miền.
+	// 500 là ĐÚNG ở đây: nếu một ngày chúng lọt ra thì đó là lỗi của ta.
+	"ErrNilVariant": "lỗi lập trình — biến thể nil, không đến từ đầu vào",
+	"ErrNilSKU":     "lỗi lập trình — SKU nil, không đến từ đầu vào",
+}
 
 // Sổ miễn trừ CHẾT cũng phải bị bắt: một dòng cho một lỗi không còn tồn
 // tại làm người đọc tin rằng có người đã cân nhắc nó.
@@ -149,4 +157,99 @@ func docThanDichLoiGhi(t *testing.T, tenFile string) string {
 	t.Fatalf("%s không có hàm `dichLoiGhi` — đổi tên thì phải sửa cả bài "+
 		"test này", tenFile)
 	return ""
+}
+
+// Domain KHÔNG được tạo lỗi TẠI CHỖ trong thân hàm.
+//
+// # Điểm mù của bài test ở trên
+//
+// `TestMoiLoiMienDeuCoDuongRaKhac500` quét các biến `Err…` CÓ TÊN. Một lỗi
+// viết thẳng `return errors.New("...")` trong thân hàm không có tên, nên
+// nó không thấy — và tầng HTTP cũng không `errors.Is` được, nên lỗi ấy rơi
+// xuống 500.
+//
+// Ngày 19/09/2026 điểm mù ấy chứa TÁM chỗ, trong đó ít nhất năm đi tới
+// được HTTP. Gửi `product_type: "XYZ"` trả 500 "vui lòng thử lại" trong
+// lúc bài test ở trên báo xanh. Một hàng rào có điểm mù đúng hình dạng lỗi
+// nó canh là một hàng rào tạo cảm giác an toàn giả.
+//
+// # Luật
+//
+// `errors.New` chỉ được xuất hiện ở khai báo cấp gói (`var ErrX = …`).
+// Trong thân hàm thì dùng lỗi có tên, hoặc `fmt.Errorf("%w: …", ErrX, …)`
+// để kèm chi tiết mà `errors.Is` vẫn nhận ra.
+//
+// `fmt.Errorf` KHÔNG có `%w` cũng bị cấm, cùng lý do: nó tạo lỗi mới không
+// ai nhận ra được.
+func TestDomainKhongTaoLoiTaiCho(t *testing.T) {
+	thuMuc := "../../domain"
+	vao, err := os.ReadDir(thuMuc)
+	if err != nil {
+		t.Fatalf("đọc %s: %v", thuMuc, err)
+	}
+
+	fset := token.NewFileSet()
+	var viPham []string
+	for _, e := range vao {
+		ten := e.Name()
+		if e.IsDir() || !strings.HasSuffix(ten, ".go") ||
+			strings.HasSuffix(ten, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(thuMuc, ten), nil, 0)
+		if err != nil {
+			t.Fatalf("phân tích %s: %v", ten, err)
+		}
+
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				goi, ok := sel.X.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				vt := fset.Position(call.Pos())
+				switch {
+				case goi.Name == "errors" && sel.Sel.Name == "New":
+					viPham = append(viPham, fmt.Sprintf(
+						"%s:%d trong %s: `errors.New` tại chỗ", ten, vt.Line, fn.Name.Name))
+				case goi.Name == "fmt" && sel.Sel.Name == "Errorf" && !coBocLoi(call):
+					viPham = append(viPham, fmt.Sprintf(
+						"%s:%d trong %s: `fmt.Errorf` không có %%w", ten, vt.Line, fn.Name.Name))
+				}
+				return true
+			})
+		}
+	}
+
+	for _, v := range viPham {
+		t.Errorf("%s — tầng HTTP không nhận ra được lỗi này, nên nó sẽ ra "+
+			"500. Khai một `var ErrX = errors.New(...)` cấp gói rồi trả "+
+			"ErrX, hoặc bọc bằng `fmt.Errorf(\"%%w: ...\", ErrX, ...)`.", v)
+	}
+}
+
+// coBocLoi cho biết chuỗi định dạng của `fmt.Errorf` có `%w` không.
+func coBocLoi(call *ast.CallExpr) bool {
+	if len(call.Args) == 0 {
+		return false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		// Chuỗi định dạng không phải hằng: không kết luận được, nên KHÔNG
+		// báo — cảnh báo giả làm người ta tắt phép kiểm.
+		return true
+	}
+	return strings.Contains(lit.Value, "%w")
 }

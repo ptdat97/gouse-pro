@@ -449,7 +449,25 @@ func dichLoiGhi(err error) error {
 		return apierror.New(apierror.CodeValidationFailed,
 			"Sản phẩm phải thuộc một danh mục — thiếu category_id")
 
+	// Hai lỗi dưới đây TỪNG là `errors.New` tại chỗ — xem product.go.
+	case errors.Is(err, domain.ErrInvalidProductType):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Loại sản phẩm không hợp lệ — cần một trong TOP, BOTTOM, DRESS, "+
+				"OUTERWEAR, SHOES, BAG, ACCESSORY")
+	case errors.Is(err, domain.ErrInvalidGender):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Đối tượng khách không hợp lệ — cần một trong WOMEN, MEN, UNISEX, KIDS")
+	case errors.Is(err, domain.ErrEmptyImageURL):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Có một đường dẫn ảnh bị rỗng")
+	case errors.Is(err, domain.ErrEmptyRejectReason):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Phải nêu lý do từ chối")
+
 	// ------------------------------------------------ Biến thể và SKU
+	case errors.Is(err, domain.ErrEmptyAttribute):
+		return apierror.New(apierror.CodeValidationFailed,
+			"Thuộc tính biến thể không được để trống (ví dụ màu rỗng)")
 	case errors.Is(err, domain.ErrNoAttributes):
 		return apierror.New(apierror.CodeValidationFailed,
 			"Biến thể phải có ít nhất một thuộc tính (ví dụ màu, size)")

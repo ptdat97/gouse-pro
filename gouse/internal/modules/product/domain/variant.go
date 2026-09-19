@@ -78,7 +78,7 @@ func NewVariant(p NewVariantParams) (*Variant, error) {
 		key := strings.ToLower(strings.TrimSpace(k))
 		val := strings.TrimSpace(v)
 		if key == "" || val == "" {
-			return nil, errors.New("product: thuộc tính có khóa hoặc giá trị rỗng")
+			return nil, ErrEmptyAttribute
 		}
 		attrs[key] = val
 	}
@@ -256,7 +256,7 @@ func (v *Variant) SameAttributesAs(other *Variant) bool {
 // tra qua repository và do ràng buộc UNIQUE ở database bảo đảm.
 func (v *Variant) AddSKU(s *SKU, now time.Time) error {
 	if s == nil {
-		return errors.New("product: SKU rỗng")
+		return ErrNilSKU
 	}
 	for _, existing := range v.skus {
 		if strings.EqualFold(existing.Code(), s.Code()) {
@@ -283,7 +283,7 @@ func (v *Variant) SKUByCode(code string) (*SKU, bool) {
 func (v *Variant) AddImage(url string, now time.Time) error {
 	url = strings.TrimSpace(url)
 	if url == "" {
-		return errors.New("product: đường dẫn ảnh rỗng")
+		return ErrEmptyImageURL
 	}
 	v.images = append(v.images, url)
 	v.touch(now)

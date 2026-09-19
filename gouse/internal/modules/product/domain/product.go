@@ -7,6 +7,7 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -24,6 +25,25 @@ var (
 	ErrMissingDescription = errors.New("product: thiếu mô tả")
 	ErrNoImages           = errors.New("product: sản phẩm phải có ít nhất một ảnh")
 	ErrNoVariants         = errors.New("product: sản phẩm phải có ít nhất một biến thể")
+
+	// Bảy lỗi dưới đây TỪNG được tạo tại chỗ bằng `errors.New(...)` bên
+	// trong thân hàm — tám chỗ, vì "đường dẫn ảnh rỗng" lặp ở hai nơi.
+	// Chúng không có tên, nên:
+	//
+	//	- tầng HTTP không `errors.Is` được → rơi xuống nhánh mặc định → 500
+	//	- `TestMoiLoiMienDeuCoDuongRaKhac500` quét biến `Err…` có tên, nên
+	//	  KHÔNG thấy chúng — hàng rào có một điểm mù đúng hình dạng lỗi
+	//
+	// Gửi `product_type: "XYZ"` từng trả 500 "vui lòng thử lại" dù hàng rào
+	// báo xanh. Sửa 19/09/2026; hàng rào nay cấm `errors.New` trong thân
+	// hàm của domain — xem `TestDomainKhongTaoLoiTaiCho`.
+	ErrInvalidProductType = errors.New("product: loại sản phẩm không hợp lệ")
+	ErrInvalidGender      = errors.New("product: đối tượng khách không hợp lệ")
+	ErrNilVariant         = errors.New("product: biến thể rỗng")
+	ErrEmptyRejectReason  = errors.New("product: phải nêu lý do từ chối")
+	ErrEmptyImageURL      = errors.New("product: đường dẫn ảnh rỗng")
+	ErrEmptyAttribute     = errors.New("product: thuộc tính có khóa hoặc giá trị rỗng")
+	ErrNilSKU             = errors.New("product: SKU rỗng")
 )
 
 // ProductType phân loại sản phẩm.
@@ -209,7 +229,7 @@ func NewProduct(p NewProductParams) (*Product, error) {
 		return nil, ErrMissingCategory
 	}
 	if !p.ProductType.valid() {
-		return nil, errors.New("product: loại sản phẩm không hợp lệ: " + string(p.ProductType))
+		return nil, fmt.Errorf("%w: %s", ErrInvalidProductType, p.ProductType)
 	}
 
 	gender := p.GenderTarget
@@ -217,7 +237,7 @@ func NewProduct(p NewProductParams) (*Product, error) {
 		gender = GenderUnisex
 	}
 	if !gender.valid() {
-		return nil, errors.New("product: đối tượng không hợp lệ: " + string(gender))
+		return nil, fmt.Errorf("%w: %s", ErrInvalidGender, gender)
 	}
 
 	id, err := ids.New(ids.PrefixProduct)
@@ -391,7 +411,7 @@ func (p *Product) SKUs() []*SKU {
 // niệm nghiệp vụ — ràng buộc UNIQUE trên map thuộc tính rất khó biểu diễn.
 func (p *Product) AddVariant(v *Variant, now time.Time) error {
 	if v == nil {
-		return errors.New("product: biến thể rỗng")
+		return ErrNilVariant
 	}
 	for _, existing := range p.variants {
 		if existing.SameAttributesAs(v) {
@@ -464,7 +484,7 @@ func (p *Product) Approve(now time.Time) error {
 func (p *Product) Reject(reason string, now time.Time) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
-		return errors.New("product: phải nêu lý do từ chối")
+		return ErrEmptyRejectReason
 	}
 	if err := p.transition(StatusDraft, now); err != nil {
 		return err
@@ -504,7 +524,7 @@ func (p *Product) transition(next Status, now time.Time) error {
 func (p *Product) AddImage(url string, now time.Time) error {
 	url = strings.TrimSpace(url)
 	if url == "" {
-		return errors.New("product: đường dẫn ảnh rỗng")
+		return ErrEmptyImageURL
 	}
 	p.images = append(p.images, url)
 	p.touch(now)
