@@ -372,6 +372,81 @@ func NewSellerReleaseEntry(p SellerReleaseParams) (*LedgerEntry, error) {
 	})
 }
 
+// ThuHoiNoParams là dữ liệu bút toán THU HỒI khoản nhà bán đang nợ.
+type ThuHoiNoParams struct {
+	// SettlementID là đợt đối soát đã thu hồi khoản này.
+	//
+	// Bút toán trỏ về đợt chứ không về đơn nào: khoản nợ gộp từ nhiều lần
+	// hoàn hàng, và đợt là chỗ nhà bán nhìn thấy nó bị trừ.
+	SettlementID ids.ID
+	SellerID     ids.ID
+
+	// Amount là phần THỰC SỰ thu được ở kỳ này, luôn dương.
+	//
+	// Có thể NHỎ HƠN tổng nợ: đợt chỉ thu được tới mức tổng của nó, phần
+	// còn lại nằm tiếp ở số âm và kỳ sau thu.
+	Amount money.Money
+
+	IdempotencyKey string
+	CreatedBy      string
+	Now            time.Time
+}
+
+// NewThuHoiNoEntry dựng bút toán thu khoản nhà bán nợ, khi lập đợt đối soát.
+//
+//	DEBIT   SELLER_AVAILABLE  (giảm phần được chi)
+//	CREDIT  SELLER_PAYABLE    (đưa số âm đang chờ về gần 0)
+//
+// # Vì sao PHẢI có bút toán này
+//
+// Hoàn hàng ghi nợ SELLER_PAYABLE. Nếu tiền của đơn ấy đã chuyển sang rút
+// được, tài khoản đang chờ thành ÂM. Đợt đối soát trừ phần âm ấy ra khỏi
+// số thực chi — nhưng nếu chỉ trừ trên giấy, số âm vẫn nguyên.
+//
+// Job tạo đợt chạy MỖI GIỜ. Một khoản nợ 50.000 không được xóa sẽ bị trừ
+// lại ở đợt sau, và đợt sau nữa — nhà bán mất 50.000 mỗi giờ cho cùng một
+// lần hoàn hàng. Đó là lỗi đã có trong mã tới 23/09/2026.
+//
+// Bút toán này làm việc trừ ấy THẬT: sổ cái là nguồn sự thật, nên thu hồi
+// phải là một bút toán như mọi dòng tiền khác, không phải một phép tính
+// trong bộ nhớ.
+func NewThuHoiNoEntry(p ThuHoiNoParams) (*LedgerEntry, error) {
+	if !p.Amount.IsPositive() {
+		return nil, fmt.Errorf(
+			"payment: số tiền thu hồi phải lớn hơn 0, nhận %s", p.Amount)
+	}
+	if p.SellerID.IsZero() {
+		return nil, fmt.Errorf("payment: thiếu định danh nhà bán")
+	}
+	if p.SettlementID.IsZero() {
+		return nil, fmt.Errorf("payment: thiếu định danh đợt đối soát")
+	}
+
+	return NewLedgerEntry(NewEntryParams{
+		Type:          EntryAdjustment,
+		ReferenceType: "SETTLEMENT",
+		ReferenceID:   p.SettlementID,
+		Description:   "Thu hồi khoản nhà bán nợ từ hoàn hàng sau khi đã chuyển rút được",
+		Lines: []Line{
+			{
+				Account:     Account{Type: AccountSellerAvailable, OwnerID: p.SellerID},
+				Direction:   Debit,
+				Amount:      p.Amount,
+				Description: "Giảm phần được chi",
+			},
+			{
+				Account:     Account{Type: AccountSellerPayable, OwnerID: p.SellerID},
+				Direction:   Credit,
+				Amount:      p.Amount,
+				Description: "Bù phần âm đang chờ",
+			},
+		},
+		IdempotencyKey: p.IdempotencyKey,
+		CreatedBy:      p.CreatedBy,
+		Now:            p.Now,
+	})
+}
+
 // ---------------------------------------------------- Thu tiền và đảo
 
 // PaymentReceivedParams là dữ liệu bút toán THU ĐƯỢC TIỀN.

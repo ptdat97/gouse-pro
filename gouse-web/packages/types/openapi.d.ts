@@ -3507,14 +3507,29 @@ export interface components {
             /** @description Tổng khoản đã rút được, gom trong đợt. */
             gross_amount: components["schemas"]["Money"];
             /**
-             * @description Phần nhà bán đang NỢ, trừ ra khỏi số thực chi — thường do hoàn hàng
-             *     vượt doanh thu kỳ trước.
+             * @description Phần nhà bán đang NỢ, THU ĐƯỢC ở đợt này — thường do hoàn hàng vượt
+             *     doanh thu kỳ trước.
              *
              *     Hiện ra ngoài chứ KHÔNG giấu: nhà bán thấy số thực chi nhỏ hơn tổng
              *     và cần biết vì sao, nếu không mọi đợt như thế đều thành khiếu nại.
+             *
+             *     Nhỏ hơn hoặc bằng `gross_amount`: đợt chỉ thu được tới mức tổng của
+             *     nó. Nợ còn lại nằm tiếp ở số dư đang chờ (âm) và kỳ sau thu tiếp.
+             *
+             *     Mỗi đồng ở đây có một BÚT TOÁN thật (`ADJUSTMENT`, tham chiếu
+             *     `SETTLEMENT`) ghi cùng giao dịch tạo đợt. Tới 23/09/2026 phép trừ
+             *     này chỉ nằm trên giấy, nên số âm còn nguyên và đợt kế tiếp trừ LẠI
+             *     cùng khoản ấy — mỗi giờ một lần. Xem P3-71.
              */
             deficit_amount: components["schemas"]["Money"];
-            /** @description Số ĐEM ĐI CHI TRẢ. Không bao giờ âm — phần âm nằm ở `deficit_amount`. */
+            /**
+             * @description Số ĐEM ĐI CHI TRẢ. Không bao giờ âm — nền tảng không đòi tiền mặt
+             *     ngược từ nhà bán.
+             *
+             *     `net = gross − deficit`, và `deficit` đã kẹp ở mức `gross`. Câu
+             *     "không bao giờ âm" có trong đặc tả từ trước mà mã KHÔNG giữ: nó chỉ
+             *     thành thật từ 23/09/2026.
+             */
             net_amount: components["schemas"]["Money"];
             /** Format: date-time */
             created_at: string;

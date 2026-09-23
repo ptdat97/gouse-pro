@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -26,18 +27,88 @@ const stlCols = `
 	gross_amount, deficit_amount, net_amount, currency,
 	created_at, confirmed_at, paid_at, version, updated_at`
 
-// Luu ghi đợt đối soát VÀ các dòng của nó trong MỘT giao dịch.
+// TaoChoNhaBan lập đợt đối soát cho MỘT nhà bán, trong một giao dịch.
 //
-// Ràng buộc UNIQUE trên `ledger_entry_id` là thứ chặn một bút toán lọt vào
-// hai đợt. Hai lượt chạy job chồng nhau đều thấy "chưa gom" nếu chỉ kiểm ở
-// tầng ứng dụng — và khi đó nhà bán được trả tiền hai lần cho cùng một đơn.
-func (s *SettlementStore) Luu(ctx context.Context, d *domain.DoiSoat) error {
+// # Ba việc phải nằm CÙNG một giao dịch
+//
+//  1. khóa nhà bán      không hai lượt job nào cùng lập đợt cho họ
+//  2. đọc phần nợ       đọc SAU khóa, nếu không số đọc được đã cũ
+//  3. ghi đợt + thu hồi  đợt trừ trên giấy mà bút toán không ghi nghĩa là
+//     khoản nợ còn nguyên và kỳ sau trừ lại
+//
+// Tách bất kỳ bước nào ra là mở lại đúng lỗi đang sửa.
+//
+// # Vì sao KHÓA THEO PHIÊN GIAO DỊCH
+//
+// Ràng buộc UNIQUE trên `settlement_line.ledger_entry_id` chặn được một
+// bút toán lọt vào hai đợt, nhưng KHÔNG chặn được hai đợt khác nhau cùng
+// thu một khoản nợ: hai lượt chạy chồng nhau đọc cùng số âm 50.000, mỗi
+// lượt gom những dòng khác nhau, và nhà bán bị trừ 100.000.
+//
+// `pg_advisory_xact_lock` tự nhả khi giao dịch kết thúc — không có đường
+// nào quên nhả, kể cả khi tiến trình chết giữa chừng.
+//
+// `dung` nhận phần nợ đọc được và trả về đợt cùng bút toán thu hồi; trả
+// nil cho bút toán nghĩa là kỳ này không thu gì.
+func (s *SettlementStore) TaoChoNhaBan(
+	ctx context.Context, sellerID ids.ID,
+	dung func(noDangCho money.Money) (*domain.DoiSoat, *domain.LedgerEntry, error),
+) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("payment: mở giao dịch: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// hashtext cho ra int4; va chạm chỉ làm hai nhà bán chờ nhau một
+	// nhịp, không làm sai tiền.
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext($1))`, sellerID.String()); err != nil {
+		return fmt.Errorf("payment: khóa nhà bán: %w", err)
+	}
+
+	sd, err := BalanceForTx(tx).Balance(ctx, domain.Account{
+		Type: domain.AccountSellerPayable, OwnerID: sellerID,
+	})
+	if err != nil {
+		return err
+	}
+	no, err := money.New(0, sd.Amount.Currency())
+	if err != nil {
+		return err
+	}
+	if sd.Amount.Amount() < 0 {
+		if no, err = money.New(-sd.Amount.Amount(), sd.Amount.Currency()); err != nil {
+			return err
+		}
+	}
+
+	d, thuHoi, err := dung(no)
+	if err != nil {
+		return err
+	}
+
+	if err := s.ghi(ctx, tx, d); err != nil {
+		return err
+	}
+	if thuHoi != nil {
+		if err := LedgerForTx(tx).Append(ctx, thuHoi); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("payment: xác nhận giao dịch: %w", err)
+	}
+	return nil
+}
+
+// ghi ghi đợt đối soát VÀ các dòng của nó bằng giao dịch bên gọi đã mở.
+//
+// Ràng buộc UNIQUE trên `ledger_entry_id` là thứ chặn một bút toán lọt vào
+// hai đợt. Hai lượt chạy job chồng nhau đều thấy "chưa gom" nếu chỉ kiểm ở
+// tầng ứng dụng — và khi đó nhà bán được trả tiền hai lần cho cùng một đơn.
+func (s *SettlementStore) ghi(ctx context.Context, tx pgx.Tx, d *domain.DoiSoat) error {
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO settlement (`+stlCols+`)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
@@ -82,9 +153,6 @@ func (s *SettlementStore) Luu(ctx context.Context, d *domain.DoiSoat) error {
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("payment: xác nhận giao dịch: %w", err)
-	}
 	return nil
 }
 

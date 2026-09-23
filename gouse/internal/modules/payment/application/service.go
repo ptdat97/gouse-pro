@@ -612,7 +612,19 @@ func (s *Service) CheckIntegrity(ctx context.Context, from, to time.Time) (Integ
 
 // SettlementRepository là PORT cho kho lưu trữ đợt đối soát.
 type SettlementRepository interface {
-	Luu(ctx context.Context, d *domain.DoiSoat) error
+	// TaoChoNhaBan lập đợt cho MỘT nhà bán trong một giao dịch có khóa.
+	//
+	// `dung` nhận phần đang NỢ (dương; 0 nếu không nợ) đọc được SAU khi đã
+	// khóa nhà bán, rồi trả về đợt và bút toán thu hồi. Trả nil cho bút
+	// toán nghĩa là kỳ này không thu gì.
+	//
+	// Đọc nợ, dựng đợt và ghi sổ phải nằm cùng một giao dịch — xem chú
+	// thích ở `postgres.SettlementStore.TaoChoNhaBan`.
+	TaoChoNhaBan(
+		ctx context.Context, sellerID ids.ID,
+		dung func(noDangCho money.Money) (*domain.DoiSoat, *domain.LedgerEntry, error),
+	) error
+
 	TimTheoID(ctx context.Context, id ids.ID) (*domain.DoiSoat, error)
 	TimTheoNhaBan(ctx context.Context, sellerID ids.ID, limit int) ([]*domain.DoiSoat, error)
 
@@ -657,20 +669,38 @@ func (s *Service) TaoDoiSoatChoKy(
 			continue
 		}
 
-		thieu, err := s.phanAmDangCho(ctx, sellerID, dong[0].Amount.Currency())
-		if err != nil {
-			return daTao, err
-		}
+		err := s.settlements.TaoChoNhaBan(ctx, sellerID,
+			func(no money.Money) (*domain.DoiSoat, *domain.LedgerEntry, error) {
+				d, err := domain.TaoDoiSoat(domain.TaoDoiSoatParams{
+					SellerID: sellerID, PeriodStart: tuNgay, PeriodEnd: denNgay,
+					Dong: dong, Deficit: no, Now: s.clock.Now(),
+				})
+				if err != nil {
+					return nil, nil, err
+				}
 
-		d, err := domain.TaoDoiSoat(domain.TaoDoiSoatParams{
-			SellerID: sellerID, PeriodStart: tuNgay, PeriodEnd: denNgay,
-			Dong: dong, Deficit: thieu, Now: s.clock.Now(),
-		})
-		if err != nil {
-			return daTao, err
-		}
+				// `TaoDoiSoat` KẸP phần bị trừ về không quá tổng đợt, nên
+				// `d.Deficit()` là phần THỰC SỰ thu được — không phải `no`.
+				// Ghi theo `no` sẽ thu nhiều hơn số đã trừ, và chênh lệch
+				// ấy là tiền biến mất khỏi tài khoản nhà bán mà không dòng
+				// nào giải thích.
+				if d.Deficit().IsZero() {
+					return d, nil, nil
+				}
 
-		if err := s.settlements.Luu(ctx, d); err != nil {
+				thuHoi, err := domain.NewThuHoiNoEntry(domain.ThuHoiNoParams{
+					SettlementID: d.ID(), SellerID: sellerID,
+					Amount:         d.Deficit(),
+					IdempotencyKey: "settlement-recovery:" + d.ID().String(),
+					CreatedBy:      "worker:tao-doi-soat",
+					Now:            s.clock.Now(),
+				})
+				if err != nil {
+					return nil, nil, err
+				}
+				return d, thuHoi, nil
+			})
+		if err != nil {
 			// Bút toán đã bị lượt khác gom mất: bỏ qua nhà bán này, lượt
 			// sau nhặt phần còn lại. KHÔNG phải lỗi cần dừng cả job.
 			if errors.Is(err, domain.ErrDuplicateEntry) {
@@ -681,24 +711,6 @@ func (s *Service) TaoDoiSoatChoKy(
 		daTao++
 	}
 	return daTao, nil
-}
-
-// phanAmDangCho trả phần ÂM của tài khoản đang chờ, dưới dạng số DƯƠNG.
-//
-// Số 0 khi tài khoản không âm.
-func (s *Service) phanAmDangCho(
-	ctx context.Context, sellerID ids.ID, cur money.Currency,
-) (money.Money, error) {
-	b, err := s.balances.Balance(ctx, domain.Account{
-		Type: domain.AccountSellerPayable, OwnerID: sellerID,
-	})
-	if err != nil {
-		return money.Money{}, err
-	}
-	if b.Amount.Amount() >= 0 {
-		return money.New(0, cur)
-	}
-	return money.New(-b.Amount.Amount(), cur)
 }
 
 // LayDoiSoat đọc một đợt đối soát, KÈM kiểm chủ sở hữu.

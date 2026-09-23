@@ -6593,6 +6593,10 @@ chính bút toán ấy là hoa hồng của riêng họ (kiểm trên dữ liệ
 
 Đó mới là chỗ tám con số của đặc tả cũ thuộc về.
 
+**Rà tiếp phần tiền sau mục này** thì gặp một lỗi mất tiền thật ở cùng
+khu: khoản nợ bị trừ lại ở mọi đợt vì phép trừ không có bút toán đằng
+sau. Xem P3-71.
+
 ---
 
 ### P3-70 — enum: hàng rào thứ ba của `apicheck`, và một bộ lọc màu chưa từng dựng nổi
@@ -6712,6 +6716,108 @@ Phép phá đầu tiên dùng `sed -i '' 's/^\(\s*\)- GREY$/\1- GRAY/'`.
 không thay một chữ nào. **Một phép phá không phá được gì trông hệt như
 một phép kiểm bị thủng.** Luôn xác nhận bản phá ĐÃ đổi thật trước khi đọc
 kết quả.
+
+---
+
+### P3-71 — khoản nợ bị trừ LẠI mỗi giờ: đợt đối soát trừ trên giấy, không ghi sổ
+
+Đi rà tiếp phần tiền sau P3-69 thì gặp một lỗi mất tiền thật, và nó sống
+được vì cùng một lý do với `SELLER_RELEASE` ở P3-60: **một phép tính không
+có bút toán đằng sau.**
+
+#### Chuỗi sự việc
+
+```text
+khách đặt          CREDIT SELLER_PAYABLE   100.000   (đang chờ)
+hết hạn đổi trả    PAYABLE → AVAILABLE     100.000   (rút được)
+khách trả hàng     DEBIT  SELLER_PAYABLE    50.000   → đang chờ = −50.000
+```
+
+Số âm ấy đúng: nhà bán đang nợ 50.000 vì tiền đã chuyển đi rồi mới hoàn.
+`TaoDoiSoatChoKy` đọc nó và trừ ra khỏi số thực chi. Tới đây vẫn đúng.
+
+Nhưng việc trừ ấy **chỉ nằm trong bộ nhớ**. Tạo đợt không ghi bút toán
+nào, nên sau khi trừ xong, `SELLER_PAYABLE` vẫn là −50.000.
+
+`phanAmDangCho()` đọc số dư HIỆN TẠI. Job tạo đợt chạy **mỗi giờ**
+(`taoDoiSoatInterval = time.Hour`). Nên:
+
+```text
+đợt 1   tổng 100.000   trừ 50.000   thực nhận  50.000
+đợt 2   tổng  80.000   trừ 50.000   thực nhận  30.000   ← cùng khoản nợ
+đợt 3   tổng  60.000   trừ 50.000   thực nhận  10.000   ← lại nữa
+```
+
+Nhà bán mất 50.000 mỗi giờ cho MỘT lần hoàn hàng, không giới hạn, và không
+màn hình nào nói cho họ biết vì sao.
+
+#### Sửa: đợt đối soát GHI SỔ
+
+Thu hồi nợ nay là một bút toán như mọi dòng tiền khác:
+
+```text
+ADJUSTMENT, tham chiếu SETTLEMENT
+  DEBIT   SELLER_AVAILABLE   giảm phần được chi
+  CREDIT  SELLER_PAYABLE     đưa số âm về 0
+```
+
+Sổ cái là nguồn sự thật, nên một phép trừ chỉ có thật khi nó là bút toán.
+Đây đúng là bài học của P3-59 (hàng rào cân bằng ở tầng database) nhìn từ
+phía ngược lại: cái gì ảnh hưởng tới tiền thì phải đi qua sổ cái.
+
+#### Ba việc phải nằm CÙNG một giao dịch
+
+```text
+1. khóa nhà bán       pg_advisory_xact_lock — không hai lượt job nào cùng
+                      lập đợt cho một nhà bán
+2. đọc phần nợ        SAU khóa; đọc trước thì số đọc được đã cũ
+3. ghi đợt + thu hồi  tách ra là mở lại đúng lỗi đang sửa
+```
+
+Ràng buộc UNIQUE trên `settlement_line.ledger_entry_id` chặn được một bút
+toán lọt vào hai đợt, nhưng KHÔNG chặn hai đợt cùng thu một khoản nợ: hai
+lượt chạy chồng nhau đọc cùng −50.000, gom những dòng khác nhau, và nhà
+bán bị trừ 100.000. Khóa theo phiên giao dịch tự nhả khi giao dịch kết
+thúc — không có đường nào quên nhả, kể cả khi tiến trình chết giữa chừng.
+
+Kéo theo: `BalanceStore` nay đọc qua `q` như `LedgerStore`, nên có
+`BalanceForTx`. Ba truy vấn của nó đều chuyển, không chỉ cái đang cần —
+một kho bám giao dịch mà còn hai hàm gọi `pool` là một nil-panic để dành.
+
+#### Thực nhận không bao giờ âm
+
+Nợ có thể lớn hơn tổng kỳ này. `TaoDoiSoat` KẸP phần bị trừ về mức
+`gross`, nên `net ≥ 0`. Phần chưa thu hết không mất đi: nó vẫn là số âm
+trên tài khoản đang chờ và kỳ sau thu tiếp.
+
+Đặc tả đã viết *"Không bao giờ âm"* từ trước — một lời hứa mã **không
+giữ**. Nó chỉ thành thật từ 23/09/2026.
+
+#### Kiểm chứng bằng cách phá
+
+Bốn bài mới dựng sổ cái bằng chính các use case thật (doanh thu → chuyển
+rút được → hoàn hàng), rồi tạo hai đợt liên tiếp cho CÙNG một nhà bán.
+
+```text
+bỏ bút toán thu hồi     "thu hồi xong đang chờ phải về 0, nhận −50000"
+  (hành vi cũ)          và khi tắt phép kiểm ấy đi, bài đi tiếp tới:
+                        "đợt 2 KHÔNG được trừ gì, nhận 50000"
+bỏ phép kẹp             "thực nhận phải KẸP về 0, nhận −60000"
+```
+
+Dòng thứ hai là tác hại thật, hiện nguyên hình bằng con số: cùng 50.000 bị
+trừ ở đợt thứ hai.
+
+#### Và hai hàm chưa ai gọi
+
+`DoiSoat.XacNhan` và `DoiSoat.DanhDauDaTra` khai ra mà **không lời gọi
+nào** — mọi đợt nằm `DRAFT` vĩnh viễn. Cùng dạng với `SELLER_RELEASE`,
+`AddImage`, `ListBrands`, `getBrand`, `FindExpiringAuthorizations`. Để
+riêng, vì khép vòng đời cần quyết định ai được ký chi và một màn hình
+admin — không phải việc gộp vào một bản sửa lỗi tiền.
+
+`phanAmDangCho` thì xóa hẳn: việc của nó chuyển vào trong giao dịch, và
+một hàm còn lại mà không ai gọi chính là cách dạng lỗi trên sinh ra.
 
 ---
 

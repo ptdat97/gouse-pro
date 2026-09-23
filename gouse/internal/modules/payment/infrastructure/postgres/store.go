@@ -314,10 +314,21 @@ func (s *LedgerStore) findMany(
 // BalanceStore tính số dư bằng truy vấn gom nhóm.
 type BalanceStore struct {
 	pool *pgxpool.Pool
+	q    querier
 }
 
 func NewBalanceStore(pool *pgxpool.Pool) *BalanceStore {
-	return &BalanceStore{pool: pool}
+	return &BalanceStore{pool: pool, q: pool}
+}
+
+// BalanceForTx trả kho số dư ĐỌC BẰNG GIAO DỊCH CỦA BÊN GỌI.
+//
+// Cùng khuôn với LedgerForTx, nhưng lý do khác: ở đây cái cần không phải
+// ghi chung một giao dịch mà là ĐỌC SAU KHI ĐÃ KHÓA. Đọc số dư ngoài giao
+// dịch rồi mới ghi là chỗ hai lượt job chồng nhau cùng thấy "nợ 50.000" và
+// cùng thu — nhà bán bị trừ hai lần cho một khoản.
+func BalanceForTx(tx pgx.Tx) *BalanceStore {
+	return &BalanceStore{q: tx}
 }
 
 // Balance tính số dư của một tài khoản TỪ BÚT TOÁN.
@@ -331,7 +342,7 @@ func (s *BalanceStore) Balance(ctx context.Context, account domain.Account) (dom
 		currency      *string
 		entryCount    int
 	)
-	err := s.pool.QueryRow(ctx, `
+	err := s.q.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN direction = 'DEBIT'  THEN amount ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE 0 END), 0),
@@ -369,7 +380,7 @@ func (s *BalanceStore) Balance(ctx context.Context, account domain.Account) (dom
 func (s *BalanceStore) BalancesByOwner(
 	ctx context.Context, ownerID ids.ID,
 ) (map[string]domain.Balance, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.q.Query(ctx, `
 		SELECT account_type,
 			COALESCE(SUM(CASE WHEN direction = 'DEBIT'  THEN amount ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE 0 END), 0),
@@ -425,7 +436,7 @@ func (s *BalanceStore) BalancesByOwner(
 // lọt vào database — sự cố nghiêm trọng, không phải "sai số chấp nhận được".
 func (s *BalanceStore) TotalDebitCredit(ctx context.Context) (int64, int64, error) {
 	var debit, credit int64
-	err := s.pool.QueryRow(ctx, `
+	err := s.q.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN direction = 'DEBIT'  THEN amount ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN direction = 'CREDIT' THEN amount ELSE 0 END), 0)

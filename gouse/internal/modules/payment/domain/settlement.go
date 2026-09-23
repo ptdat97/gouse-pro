@@ -118,6 +118,20 @@ func TaoDoiSoat(p TaoDoiSoatParams) (*DoiSoat, error) {
 		}
 	}
 
+	// KẸP phần bị trừ về không quá tổng của đợt.
+	//
+	// Khoản nợ có thể lớn hơn tổng kỳ này — một nhà bán bán ít trong kỳ mà
+	// hoàn nhiều từ kỳ trước. Không kẹp thì `net` âm, và "thực nhận
+	// −50.000 ₫" là một dòng không ai biết phải làm gì với nó: nền tảng
+	// không đòi tiền mặt ngược từ nhà bán.
+	//
+	// Phần chưa trừ hết KHÔNG mất đi: nó vẫn là số âm trên tài khoản đang
+	// chờ, và kỳ sau lại được tính vào. Đây chính là cơ chế "nợ chuyển kỳ
+	// sau" mà màn hình tiền của nhà bán đang hứa.
+	if deficit.Amount() > gross.Amount() {
+		deficit = gross
+	}
+
 	net, err := gross.Sub(deficit)
 	if err != nil {
 		return nil, err
