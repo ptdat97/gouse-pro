@@ -135,20 +135,33 @@ sequenceDiagram
 ## 5. Yêu cầu bắt buộc cho sản phẩm thời trang
 
 ```text
-Bắt buộc:
-    ✓ Ít nhất 3 ảnh (mặt trước, mặt sau, chi tiết)
-    ✓ Chất liệu (material_composition, tổng = 100%)
-    ✓ Bảng size (size_chart_id)
-    ✓ Hướng dẫn bảo quản
-    ✓ Xuất xứ
+Bắt buộc — CheckReadyForReview cưỡng chế, gửi duyệt sẽ bị từ chối nếu thiếu:
+    ✓ Ít nhất MỘT ảnh
+    ✓ Mô tả
+    ✓ Chất liệu (material_composition)
+    ✓ Bảng size (size_chart_id) — chỉ với loại sản phẩm CẦN bảng size;
+      túi và phụ kiện thì không
     ✓ Ít nhất một variant với ít nhất một SKU
 
-Khuyến khích mạnh:
+Khuyến khích mạnh — KHÔNG chặn gửi duyệt:
+    - Ba ảnh trở lên: mặt trước, mặt sau, chi tiết
+    - Hướng dẫn bảo quản
+    - Xuất xứ
     - Ảnh trên người mẫu có nêu số đo
     - Ảnh chi tiết chất liệu
 ```
 
-**Vì sao bắt buộc:** ba trường đầu ảnh hưởng **trực tiếp** tới tỷ lệ hoàn hàng — vấn đề kinh tế lớn nhất của thương mại thời trang.
+**Bản trước của mục này đòi ≥3 ảnh, hướng dẫn bảo quản và xuất xứ ở nhóm
+BẮT BUỘC. Mã chưa bao giờ cưỡng chế ba thứ đó** — `CheckReadyForReview`
+kiểm một ảnh và không nhắc tới hai trường kia. Nới tài liệu theo mã
+(23/09/2026), không siết mã theo tài liệu.
+
+Lý do: con số 3 chưa ai đo xem có đúng không, và một tài liệu nói "bắt
+buộc" về thứ không ai cưỡng chế sẽ dẫn người đọc sau viết mã theo nó rồi
+phát hiện hệ thống nói khác. Khi có số liệu hoàn hàng thật, siết lại là một
+quyết định có bằng chứng — xem mục "Điểm cần giám sát".
+
+**Vì sao những thứ này bắt buộc:** chúng ảnh hưởng **trực tiếp** tới tỷ lệ hoàn hàng — vấn đề kinh tế lớn nhất của thương mại thời trang.
 
 ```text
 Thiếu bảng size    → khách chọn sai size → hoàn hàng
@@ -234,7 +247,8 @@ Xem [../02-domain/bounded-contexts.md](../02-domain/bounded-contexts.md) mục 5
 | Tỷ lệ sản phẩm bị từ chối | Theo dõi theo seller |
 | Tỷ lệ trùng lặp phát hiện được | Theo dõi xu hướng |
 | Offer bị chặn do thương hiệu bảo vệ | Theo dõi (dấu hiệu hàng giả) |
-| Sản phẩm thiếu bảng size | 0 (bắt buộc) |
+| Sản phẩm thiếu bảng size | 0 với loại CẦN bảng size (bắt buộc) |
+| Tỷ lệ hoàn hàng theo SỐ ẢNH của sản phẩm | chưa đo — đây là số liệu quyết định có siết ≥3 ảnh hay không |
 
 ---
 

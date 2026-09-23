@@ -36,7 +36,7 @@ Tuyến đã đăng ký                 89      (85 khớp đặc tả + 4 endpo
                                          /metrics · /version)
 
 Migration                        56
-Test Go                          1.140
+Test Go                          1.144
 Test trình duyệt (Playwright)    12
 Test đơn vị TypeScript           64
 ```
@@ -6208,9 +6208,8 @@ PENDING_REVIEW  người duyệt đang xem.                  → 409
 ACTIVE          khách đang thấy.                       → 409
 ```
 
-Sửa hàng ĐANG BÁN là một chính sách riêng và **CHƯA quyết**: cho sửa mà
-không qua duyệt lại là cửa sau để tráo ảnh sau khi được duyệt. Bản DRAFT-only
-không khóa đường nào — nó chỉ chưa làm phần khó.
+Sửa hàng ĐANG BÁN là một chính sách riêng — **đã quyết ngày 23/09/2026**,
+xem P3-66. Bản DRAFT-only không khóa đường nào; nó chỉ chưa làm phần khó.
 
 "Bị trả về" cũng là DRAFT (`Reject` đưa về đó), nên sửa theo lý do rồi gửi
 lại là đường đi tự nhiên — có bài test riêng cho đúng đường ấy.
@@ -6305,6 +6304,108 @@ Test HTTP: bản ghi thiếu ảnh cứu được → gửi duyệt được →
 đổi thương hiệu → 400 kèm lý do; danh mục rác → 400.
 
 9 test miền · 7 test HTTP mới · `apicheck` 100/89 · 63/63 gói Go xanh.
+
+---
+
+### P3-66 — sửa hàng ĐANG BÁN: được, nhưng đi lại hàng chờ duyệt
+
+Quyết định ngày 23/09/2026, trả lời câu P3-65 để ngỏ.
+
+#### Ba lựa chọn, và vì sao chọn cái ở giữa
+
+```text
+cấm hẳn        một lỗi chính tả cũng buộc đăng lại sản phẩm mới — và nhà
+               bán sẽ làm thế, để lại danh mục đầy bản trùng
+sửa tự do      đăng một trang sạch, chờ duyệt xong, rồi tráo ảnh và tên
+duyệt lại      ← CHỌN. Trả đúng giá của việc sửa: nội dung mới phải qua
+               mắt người như nội dung cũ đã qua
+```
+
+Sửa sản phẩm `ACTIVE` đưa nó về `PENDING_REVIEW`, tức **tạm ẩn khỏi cửa
+hàng** (chỉ `ACTIVE` mới hiện với khách). Giá phải trả đã biết và chấp
+nhận: sửa một dấu phẩy cũng tốn một lượt duyệt, và hàng biến mất trong lúc
+chờ.
+
+`PENDING_REVIEW` và `INACTIVE` vẫn không sửa được. Cái thứ nhất vì người
+duyệt đang xem; cái thứ hai vì bật lại được mà **không cần duyệt** — nội
+dung không đổi — và cho sửa sẽ phá đúng giả định ấy.
+
+#### Chốt: sửa xong vẫn phải ĐỦ điều kiện duyệt
+
+Một sản phẩm `ACTIVE` đã từng đủ. Nhưng lượt sửa có thể gỡ hết ảnh, và khi
+ấy nó rơi vào hàng chờ duyệt ở trạng thái **không bao giờ duyệt được** —
+nhà bán mất hàng đang bán mà không hiểu vì sao. Cả lượt sửa bị từ chối.
+
+#### Test của chính tôi bắt lỗi của chính tôi
+
+Bản đầu kiểm điều kiện **sau** khi áp dụng, với lập luận "bên gọi không lưu
+thì không sao". Bài `TestSuaHangDangBanLamThieuDieuKienThiTuChoi` đỏ ở dòng
+cuối: trạng thái giữ đúng `ACTIVE`, nhưng **ảnh đã bị gỡ trong bộ nhớ**.
+
+Lập luận ấy đúng về database và sai về đối tượng: "tất cả hoặc không gì"
+nói về con trỏ mà bên gọi đang cầm, không chỉ về hàng trong bảng.
+
+Sửa bằng cách tách luật thành `kiemDuDieuKien(dieuKienDuyet)` — nhận GIÁ
+TRỊ thay vì đọc `p` — để kiểm được trạng thái **sắp có** trước khi chạm vào
+sản phẩm. `CheckReadyForReview` gọi cùng hàm ấy, nên luật vẫn ở một chỗ.
+
+#### Lý do từ chối cũ phải xóa
+
+Sửa xong tự nguyện gửi lại thì `rejection_reason` của lượt duyệt TRƯỚC
+không còn nghĩa. Để lại thì màn hình nhà bán hiện "Bị trả về" cho một sản
+phẩm họ vừa tự gửi đi.
+
+#### Giao diện nói TRƯỚC hậu quả, ba chỗ
+
+```text
+cạnh nút        "Sửa hàng đang bán sẽ đưa nó về hàng chờ duyệt."
+trong biểu mẫu  cảnh báo vàng, ngay trên các ô — người ta đọc trước khi
+                gõ, không đọc trước khi bấm
+nhãn nút        "Lưu và gửi duyệt lại", không phải "Lưu"
+```
+
+Một nhà bán sửa một dấu phẩy rồi thấy hàng biến mất mà không được báo
+trước sẽ nghĩ hệ thống hỏng — và lần sau không dám sửa gì nữa.
+
+#### Đổi tên
+
+`SuaNhap` → `Sua`. Tên cũ nói "sửa nháp" và nay sai; một cái tên sai ở tầng
+miền sẽ dẫn người đọc sau tới giả định sai về trạng thái nào chạm được.
+
+#### Kiểm chứng
+
+Phá thử hai bất biến: bỏ `transition(PENDING_REVIEW)` → *"khách VẪN thấy
+nội dung chưa ai duyệt"*; kiểm sau khi đổi → *"ảnh đã bị gỡ dù lượt sửa bị
+từ chối"*.
+
+Trên trình duyệt thật: hàng "Đang bán" → sửa chất liệu → "Chờ duyệt".
+
+5 test miền mới · 1 test HTTP mới · 63/63 gói Go xanh.
+
+---
+
+### P3-67 — điều kiện gửi duyệt: nới TÀI LIỆU theo mã, không siết mã theo tài liệu
+
+`product-publishing.md` mục 5 xếp vào nhóm **bắt buộc**: ≥3 ảnh, hướng dẫn
+bảo quản, xuất xứ. `CheckReadyForReview` chưa bao giờ cưỡng chế ba thứ đó —
+nó đòi ≥1 ảnh và không nhắc tới hai trường kia.
+
+Quyết định 23/09/2026: **nới tài liệu**, không siết mã.
+
+Lý do: con số 3 chưa ai đo xem có đúng không. Siết mã theo một con số chưa
+kiểm chứng là bắt mọi nhà bán trả giá cho một giả định — trong khi cái giá
+của việc sai theo hướng ngược lại (một ảnh là đủ) đo được sau, từ tỷ lệ
+hoàn hàng.
+
+Và một tài liệu nói "bắt buộc" về thứ không ai cưỡng chế thì tệ hơn im
+lặng: người đọc sau viết mã theo nó rồi phát hiện hệ thống nói khác.
+
+Thêm một chỉ báo vào mục 8 để quyết định lần sau có bằng chứng: **tỷ lệ
+hoàn hàng theo SỐ ẢNH của sản phẩm** — chưa đo.
+
+Cũng sửa luôn hai chỗ tài liệu nói quá: bảng size chỉ bắt buộc với loại sản
+phẩm CẦN bảng size (túi và phụ kiện thì không), và mô tả vốn là điều kiện
+bắt buộc mà mục 5 không nhắc.
 
 ---
 

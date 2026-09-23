@@ -131,7 +131,14 @@ func (s Status) canTransitionTo(next Status) bool {
 		// lý do từ chối lưu ở rejectionReason.
 		return next == StatusActive || next == StatusDraft || next == StatusArchived
 	case StatusActive:
-		return next == StatusInactive || next == StatusArchived
+		// PENDING_REVIEW: sửa NỘI DUNG của hàng đang bán đưa nó về hàng
+		// chờ duyệt (quyết định 23/09/2026). Không có nhánh này thì hoặc
+		// không sửa được gì, hoặc sửa xong khách thấy ngay nội dung chưa
+		// ai duyệt — tức cửa sau để tráo ảnh sau khi đã được duyệt.
+		//
+		// KHÁC với bật lại từ INACTIVE: ở đó nội dung KHÔNG đổi.
+		return next == StatusInactive || next == StatusArchived ||
+			next == StatusPendingReview
 	case StatusInactive:
 		// Bật lại được, không cần duyệt lại: nội dung không đổi.
 		return next == StatusActive || next == StatusArchived
@@ -441,23 +448,50 @@ func (p *Product) SubmitForReview(now time.Time) error {
 // "còn thiếu gì" TRƯỚC khi người dùng bấm gửi — báo lỗi sau khi bấm là
 // trải nghiệm tệ và làm seller bỏ dở việc đăng bán.
 func (p *Product) CheckReadyForReview() error {
-	if p.description == "" {
+	return kiemDuDieuKien(dieuKienDuyet{
+		moTa:      p.description,
+		anh:       p.images,
+		soBienThe: len(p.variants),
+		bangSize:  p.sizeChartID,
+		loai:      p.productType,
+		chatLieu:  p.materialComposition,
+	})
+}
+
+// dieuKienDuyet là ảnh chụp những trường mà điều kiện gửi duyệt nhìn vào.
+type dieuKienDuyet struct {
+	moTa      string
+	anh       []string
+	soBienThe int
+	bangSize  ids.ID
+	loai      ProductType
+	chatLieu  string
+}
+
+// kiemDuDieuKien giữ LUẬT ở một chỗ duy nhất.
+//
+// Nhận giá trị thay vì đọc `p`, để `Sua` kiểm được trạng thái SẮP CÓ trước
+// khi chạm vào sản phẩm. Bản trước kiểm sau khi đổi: trạng thái giữ đúng
+// nhưng các trường đã bị ghi đè trong bộ nhớ, và một bài test của chính
+// luật "tất cả hoặc không gì" bắt được — ảnh bị gỡ dù lượt sửa bị từ chối.
+func kiemDuDieuKien(d dieuKienDuyet) error {
+	if d.moTa == "" {
 		return ErrMissingDescription
 	}
-	if len(p.images) == 0 {
+	if len(d.anh) == 0 {
 		return ErrNoImages
 	}
-	if len(p.variants) == 0 {
+	if d.soBienThe == 0 {
 		return ErrNoVariants
 	}
 	// Quy tắc 4: sản phẩm thời trang phải có bảng size — nhưng túi và phụ
 	// kiện không có size.
-	if p.productType.NeedsSizeChart() && p.sizeChartID.IsZero() {
+	if d.loai.NeedsSizeChart() && d.bangSize.IsZero() {
 		return ErrMissingSizeChart
 	}
 	// Chất liệu ảnh hưởng trực tiếp tỷ lệ hoàn hàng, nên là điều kiện bắt
 	// buộc chứ không phải khuyến nghị.
-	if p.materialComposition == "" {
+	if d.chatLieu == "" {
 		return ErrMissingMaterial
 	}
 	return nil
@@ -520,7 +554,7 @@ func (p *Product) transition(next Status, now time.Time) error {
 	return nil
 }
 
-// SuaNhapParams là những gì nhà bán SỬA ĐƯỢC trên một sản phẩm nháp.
+// SuaParams là những gì nhà bán SỬA ĐƯỢC trên một sản phẩm nháp.
 //
 // Con trỏ nil = GIỮ NGUYÊN. Đó là ngữ nghĩa của PATCH: gửi một trường thì
 // chỉ đổi trường đó, không phải gửi lại toàn bộ sản phẩm.
@@ -534,7 +568,7 @@ func (p *Product) transition(next Status, now time.Time) error {
 //
 // Nhầm thương hiệu thì tạo sản phẩm mới. Đắt hơn một chút cho nhà bán, rẻ
 // hơn rất nhiều so với việc hàng rào có một cửa sau.
-type SuaNhapParams struct {
+type SuaParams struct {
 	Name                *string
 	Slug                *string
 	Description         *string
@@ -554,16 +588,27 @@ type SuaNhapParams struct {
 	Images *[]string
 }
 
-// SuaNhap sửa thông tin một sản phẩm NHÁP.
+// Sua sửa thông tin sản phẩm.
 //
-// # Chỉ ở DRAFT
+// # Hai trạng thái sửa được, và chúng KẾT THÚC khác nhau
 //
-//	DRAFT           chỉ nhà bán thấy — sửa vô hại.
-//	PENDING_REVIEW  người kiểm duyệt đang xem. Sửa lúc này là đổi thứ họ
+//	DRAFT   chỉ nhà bán thấy → sửa xong vẫn là DRAFT.
+//	ACTIVE  khách đang thấy  → sửa xong về PENDING_REVIEW, tức TẠM ẨN
+//	        khỏi cửa hàng cho tới khi có người duyệt lại.
+//
+// Vế thứ hai là quyết định ngày 23/09/2026. Cho sửa hàng đang bán mà KHÔNG
+// duyệt lại là mở cửa sau: đăng một trang sạch, chờ duyệt xong, rồi tráo
+// ảnh và tên. Cấm hẳn thì một lỗi chính tả cũng buộc nhà bán đăng lại sản
+// phẩm mới — và họ sẽ làm thế, để lại danh mục đầy bản trùng.
+//
+// Đưa về hàng chờ duyệt trả đúng giá của việc sửa: nội dung mới phải qua
+// mắt người như nội dung cũ đã qua.
+//
+//	PENDING_REVIEW  người kiểm duyệt ĐANG xem. Sửa lúc này là đổi thứ họ
 //	                đang duyệt ngay dưới tay họ.
-//	ACTIVE          khách đang thấy. Sửa mà không qua duyệt lại là cửa sau
-//	                để tráo ảnh sau khi được duyệt — một chính sách riêng,
-//	                chưa quyết.
+//	INACTIVE        tạm ngừng bán — bật lại KHÔNG cần duyệt vì nội dung
+//	                không đổi. Cho sửa ở đây sẽ phá giả định ấy.
+//	ARCHIVED        ngừng vĩnh viễn, không có đường ra.
 //
 // "Bị trả về" cũng là DRAFT (`Reject` đưa về đó), nên sửa theo lý do từ
 // chối rồi gửi lại là đường đi tự nhiên.
@@ -573,10 +618,11 @@ type SuaNhapParams struct {
 // Kiểm MỌI trường trước, rồi mới đổi. Kiểm tới đâu đổi tới đó thì một
 // trường hỏng ở giữa để lại sản phẩm sửa dở — một nửa theo ý cũ, một nửa
 // theo ý mới, và không ai biết nửa nào.
-func (p *Product) SuaNhap(in SuaNhapParams, now time.Time) error {
-	if p.status != StatusDraft {
+func (p *Product) Sua(in SuaParams, now time.Time) error {
+	if p.status != StatusDraft && p.status != StatusActive {
 		return ErrInvalidStatus
 	}
+	dangBan := p.status == StatusActive
 
 	// ---- Kiểm, chưa đổi gì.
 	var ten, slug string
@@ -610,6 +656,40 @@ func (p *Product) SuaNhap(in SuaNhapParams, now time.Time) error {
 				return ErrEmptyImageURL
 			}
 			anh = append(anh, u)
+		}
+	}
+
+	// Hàng ĐANG BÁN: kiểm trạng thái SẮP CÓ, TRƯỚC khi đổi gì.
+	//
+	// Một sản phẩm ACTIVE đã từng đủ điều kiện. Nhưng lượt sửa có thể gỡ
+	// hết ảnh, và khi ấy nó rơi vào hàng chờ duyệt ở trạng thái KHÔNG BAO
+	// GIỜ duyệt được — nhà bán mất hàng đang bán mà không hiểu vì sao.
+	if dangBan {
+		sapCo := dieuKienDuyet{
+			moTa:      p.description,
+			anh:       p.images,
+			soBienThe: len(p.variants),
+			bangSize:  p.sizeChartID,
+			loai:      p.productType,
+			chatLieu:  p.materialComposition,
+		}
+		if in.Description != nil {
+			sapCo.moTa = strings.TrimSpace(*in.Description)
+		}
+		if in.Images != nil {
+			sapCo.anh = anh
+		}
+		if in.SizeChartID != nil {
+			sapCo.bangSize = *in.SizeChartID
+		}
+		if in.ProductType != nil {
+			sapCo.loai = *in.ProductType
+		}
+		if in.MaterialComposition != nil {
+			sapCo.chatLieu = strings.TrimSpace(*in.MaterialComposition)
+		}
+		if err := kiemDuDieuKien(sapCo); err != nil {
+			return err
 		}
 	}
 
@@ -647,6 +727,17 @@ func (p *Product) SuaNhap(in SuaNhapParams, now time.Time) error {
 	if in.Images != nil {
 		p.images = anh
 	}
+
+	if dangBan {
+		if err := p.transition(StatusPendingReview, now); err != nil {
+			return err
+		}
+		// Lý do từ chối CŨ phải xóa: nó nói về lượt duyệt trước. Để lại thì
+		// màn hình nhà bán hiện "Bị trả về" cho một sản phẩm vừa tự nguyện
+		// gửi đi duyệt lại.
+		p.rejectionReason = ""
+	}
+
 	p.touch(now)
 	return nil
 }

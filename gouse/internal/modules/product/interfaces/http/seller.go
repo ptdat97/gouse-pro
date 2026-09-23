@@ -201,7 +201,7 @@ type suaNhapBody struct {
 	//
 	// Bỏ hẳn nó thì `DisallowUnknownFields` vẫn chặn, nhưng bằng câu chung
 	// chung "Dữ liệu gửi lên không hợp lệ" — nhà bán không biết vì sao. Xem
-	// `domain.SuaNhapParams` cho lý do thương hiệu không sửa được.
+	// `domain.SuaParams` cho lý do thương hiệu không sửa được.
 	BrandID *string `json:"brand_id"`
 }
 
@@ -215,6 +215,12 @@ type suaNhapBody struct {
 // GIỜ sửa được; gõ sai tên cũng vậy. Và bị kiểm duyệt trả về kèm lý do thì
 // không sửa theo lý do ấy được — `Reject` đưa về DRAFT, nhưng DRAFT không
 // có cửa nào để vào. Xem P3-64.
+//
+// # Sửa hàng ĐANG BÁN: được, nhưng đi lại hàng chờ duyệt
+//
+// Từ 23/09/2026 sản phẩm `ACTIVE` sửa được, và lượt sửa đưa nó về
+// `PENDING_REVIEW` — tức tạm ẩn khỏi cửa hàng. Response trả `status` mới,
+// nên giao diện thấy ngay hậu quả thay vì phải đoán.
 func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
 	var body suaNhapBody
 	if err := decodeJSON(r, &body); err != nil {
@@ -241,7 +247,7 @@ func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	in := domain.SuaNhapParams{
+	in := domain.SuaParams{
 		Name:                body.Name,
 		Slug:                body.Slug,
 		Description:         body.Description,
@@ -284,7 +290,7 @@ func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
 		*t.dich = &id
 	}
 
-	p, err := h.svc.SuaNhapCuaNhaBan(r.Context(), sellerID, pid, in)
+	p, err := h.svc.SuaCuaNhaBan(r.Context(), sellerID, pid, in)
 	if err != nil {
 		h.fail(w, r, dichLoiGhi(err))
 		return

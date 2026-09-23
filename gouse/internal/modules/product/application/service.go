@@ -357,17 +357,18 @@ func (s *Service) SubmitForReviewOwned(
 	return s.SubmitForReview(ctx, productID)
 }
 
-// SuaNhapCuaNhaBan sửa một sản phẩm nháp của gian hàng.
+// SuaCuaNhaBan sửa một sản phẩm của gian hàng.
 //
 // Kiểm chủ sở hữu TRƯỚC khi áp dụng, và trả ErrNotFound khi khác chủ —
 // cùng lý do `kiemChuSoHuu` ghi: một lỗi riêng cho "có nhưng không phải của
 // bạn" là đủ để dò mã sản phẩm chưa phát hành của đối thủ.
 //
-// Quy tắc "chỉ ở DRAFT" và "tất cả hoặc không gì" nằm ở MIỀN
-// (`Product.SuaNhap`), không ở đây: đặt chúng ở tầng này nghĩa là một bên
+// Quy tắc "trạng thái nào sửa được", "sửa hàng đang bán thì phải duyệt
+// lại" và "tất cả hoặc không gì" nằm ở MIỀN
+// (`Product.Sua`), không ở đây: đặt chúng ở tầng này nghĩa là một bên
 // gọi khác của miền — một lệnh vận hành, một job — đi vòng qua được.
-func (s *Service) SuaNhapCuaNhaBan(
-	ctx context.Context, sellerID, productID ids.ID, in domain.SuaNhapParams,
+func (s *Service) SuaCuaNhaBan(
+	ctx context.Context, sellerID, productID ids.ID, in domain.SuaParams,
 ) (*domain.Product, error) {
 	p, err := s.products.FindByID(ctx, productID)
 	if err != nil {
@@ -389,7 +390,7 @@ func (s *Service) SuaNhapCuaNhaBan(
 		}
 	}
 
-	if err := p.SuaNhap(in, s.clock.Now()); err != nil {
+	if err := p.Sua(in, s.clock.Now()); err != nil {
 		return nil, err
 	}
 	if err := s.products.Save(ctx, p); err != nil {

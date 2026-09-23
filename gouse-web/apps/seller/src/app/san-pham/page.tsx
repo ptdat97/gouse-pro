@@ -417,7 +417,9 @@ function Dong({ p, onDoi }: { p: Product; onDoi: () => void }) {
 
       {error && <Alert tone="danger">{error}</Alert>}
 
-      {p.status === "DRAFT" && <SuaNhap p={p} onDoi={onDoi} />}
+      {(p.status === "DRAFT" || p.status === "ACTIVE") && (
+        <SuaNhap p={p} onDoi={onDoi} />
+      )}
 
       <BienThe p={p} onDoi={onDoi} />
 
@@ -598,7 +600,7 @@ function BienThe({ p, onDoi }: { p: Product; onDoi: () => void }) {
 }
 
 /**
- * Sửa một sản phẩm NHÁP — gồm cả nháp bị trả về.
+ * Sửa sản phẩm — nháp, hoặc hàng ĐANG BÁN.
  *
  * # Điền sẵn giá trị hiện tại, gửi đi CHỈ những gì đã đổi
  *
@@ -606,6 +608,12 @@ function BienThe({ p, onDoi }: { p: Product; onDoi: () => void }) {
  * đã đổi vì đó là nghĩa của PATCH: trường vắng thì máy chủ giữ nguyên. Gửi
  * lại mọi ô thì đúng hôm nay, và sai vào ngày có hai người cùng sửa — người
  * sau ghi đè phần người trước vừa đổi mà mình không hề chạm vào.
+ *
+ * # Hàng đang bán: nói TRƯỚC hậu quả, không để họ phát hiện sau
+ *
+ * Sửa hàng đang bán đưa nó về hàng chờ duyệt, tức TẠM ẨN khỏi cửa hàng.
+ * Một nhà bán sửa một dấu phẩy rồi thấy hàng biến mất mà không được báo
+ * trước sẽ nghĩ hệ thống hỏng — và lần sau họ không dám sửa gì nữa.
  *
  * # Thương hiệu KHÔNG có ở đây
  *
@@ -680,12 +688,20 @@ function SuaNhap({ p, onDoi }: { p: Product; onDoi: () => void }) {
     }
   }
 
+  const dangBan = p.status === "ACTIVE";
+
   if (!mo) {
     return (
       <p>
         <Button variant="secondary" onClick={() => setMo(true)}>
           Sửa thông tin
         </Button>
+        {dangBan && (
+          <span className="muted">
+            {" "}
+            Sửa hàng đang bán sẽ đưa nó về hàng chờ duyệt.
+          </span>
+        )}
       </p>
     );
   }
@@ -693,6 +709,19 @@ function SuaNhap({ p, onDoi }: { p: Product; onDoi: () => void }) {
   return (
     <form onSubmit={luu}>
       {error && <Alert tone="danger">{error}</Alert>}
+
+      {/*
+        Cảnh báo đặt TRONG biểu mẫu, ngay trên các ô — không phải ở hộp
+        xác nhận sau khi bấm Lưu. Người ta đọc trước khi gõ, không đọc
+        trước khi bấm.
+      */}
+      {dangBan && (
+        <Alert tone="warning">
+          Sản phẩm này <strong>đang bán</strong>. Lưu thay đổi sẽ đưa nó về
+          hàng chờ duyệt và <strong>tạm ẩn khỏi cửa hàng</strong> cho tới
+          khi được duyệt lại.
+        </Alert>
+      )}
       <Field label="Tên sản phẩm" htmlFor={`s-ten-${p.id}`}>
         <Input id={`s-ten-${p.id}`} value={f.name} onChange={doi("name")} required />
       </Field>
@@ -739,7 +768,7 @@ function SuaNhap({ p, onDoi }: { p: Product; onDoi: () => void }) {
       </Field>
       <p className="actions">
         <Button type="submit" disabled={busy}>
-          Lưu
+          {dangBan ? "Lưu và gửi duyệt lại" : "Lưu"}
         </Button>
         <Button
           type="button"

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/modules/identity"
 )
 
 // Sửa sản phẩm nháp, đi qua HTTP thật.
@@ -79,6 +80,78 @@ func TestSanPhamTaoThieuAnhGioCuuDuoc(t *testing.T) {
 
 	t.Run("đang CHỜ DUYỆT thì không sửa được nữa", func(t *testing.T) {
 		res := goi(http.MethodPatch, duong, map[string]any{"name": "Đổi sau khi gửi"})
+		if res.code != http.StatusConflict {
+			t.Fatalf("sửa được sản phẩm đang chờ duyệt: %d — %s", res.code, res.raw)
+		}
+	})
+}
+
+// Sửa hàng ĐANG BÁN đưa nó về hàng chờ duyệt — quyết định 23/09/2026.
+//
+// Đi qua HTTP thật vì hậu quả nằm ở `status` của RESPONSE: giao diện phải
+// thấy ngay là hàng vừa bị tạm ẩn, không phải đoán.
+func TestSuaHangDangBanQuayLaiHangChoDuyet(t *testing.T) {
+	a := newAPITest(t)
+	nb := dungNhaBan(t, a, "sdb"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	duy := ids.MustNew(ids.PrefixRequest).String()[20:]
+
+	goi := func(method, duong string, than map[string]any) reply {
+		h := khoaIdem()
+		h["Authorization"] = "Bearer " + nb.token
+		return a.call(method, duong, than, h)
+	}
+
+	res := goi(http.MethodPost, "/api/v1/seller/products", map[string]any{
+		"brand_id":             a.thuongHieuMo(t),
+		"category_id":          a.mauDanhMuc(t),
+		"name":                 "Khăn lụa " + duy,
+		"slug":                 "khan-lua-" + duy,
+		"product_type":         "ACCESSORY",
+		"gender_target":        "WOMEN",
+		"description":          "Khăn lụa tơ tằm",
+		"material_composition": "100% lụa",
+		"images":               []string{"https://cdn.example.com/khan-1.jpg"},
+	})
+	if res.code != http.StatusCreated {
+		t.Fatalf("tạo: %d — %s", res.code, res.raw)
+	}
+	pid, _ := res.body["id"].(string)
+	duong := "/api/v1/seller/products/" + pid
+
+	if res := goi(http.MethodPost, duong+"/variants", map[string]any{
+		"attributes": map[string]string{"color": "Xanh"},
+		"skus":       []map[string]any{{"sku_code": "KHAN-XANH-" + duy}},
+	}); res.code != http.StatusOK {
+		t.Fatalf("thêm biến thể: %d — %s", res.code, res.raw)
+	}
+	if res := goi(http.MethodPost, duong+"/submit", nil); res.code != http.StatusOK {
+		t.Fatalf("gửi duyệt: %d — %s", res.code, res.raw)
+	}
+	// Duyệt bằng ĐÚNG endpoint admin — bài này cần một sản phẩm ACTIVE
+	// thật, và đường tắt qua service sẽ bỏ qua mọi thứ tầng HTTP làm.
+	tokAdmin := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	hAdmin := khoaIdem()
+	hAdmin["Authorization"] = "Bearer " + tokAdmin
+	if res := a.call(http.MethodPost,
+		"/api/v1/admin/products/"+pid+"/approve", nil, hAdmin); res.code != http.StatusOK {
+		t.Fatalf("duyệt: %d — %s", res.code, res.raw)
+	}
+
+	t.Run("sửa xong thì về CHỜ DUYỆT, không còn ACTIVE", func(t *testing.T) {
+		res := goi(http.MethodPatch, duong, map[string]any{
+			"description": "Khăn lụa tơ tằm, dệt thủ công",
+		})
+		if res.code != http.StatusOK {
+			t.Fatalf("sửa hàng đang bán: %d — %s", res.code, res.raw)
+		}
+		if got, _ := res.body["status"].(string); got != "PENDING_REVIEW" {
+			t.Errorf("status sau khi sửa = %q, mong PENDING_REVIEW — khách "+
+				"sẽ thấy nội dung chưa ai duyệt", got)
+		}
+	})
+
+	t.Run("và giờ KHÔNG sửa tiếp được nữa", func(t *testing.T) {
+		res := goi(http.MethodPatch, duong, map[string]any{"name": "Đổi tiếp"})
 		if res.code != http.StatusConflict {
 			t.Fatalf("sửa được sản phẩm đang chờ duyệt: %d — %s", res.code, res.raw)
 		}
