@@ -1215,6 +1215,41 @@ Settlement:
     created_at:
       type: string
       format: date-time
+    lines:
+      type: array
+      description: |
+        TỪNG KHOẢN làm nên đợt này.
+
+        Đặc tả nói thẳng ở `getMySettlement`: nhà bán phải xem được "từng
+        dòng cấu thành số tiền", vì đối soát không minh bạch là nguyên nhân
+        tranh chấp lớn nhất giữa nền tảng và nhà bán.
+
+        Dữ liệu này đã nằm trong `settlement_line` từ đầu và được nạp sẵn
+        mỗi lần đọc đợt; tới 23/09/2026 nó bị vứt ở tầng DTO.
+
+        **`reference_id` là thứ làm dòng này đối chiếu được**: nó trỏ tới
+        ĐƠN THỰC HIỆN mà nhà bán đã giao — chính là đơn họ thấy ở màn hình
+        "Việc cần làm". Không có nó, một đợt chỉ là một con số tổng.
+
+        Mảng rỗng và thiếu trường nói hai chuyện khác nhau, nên `[]` được
+        trả về chứ không bỏ trường.
+      items:
+        type: object
+        required: [id, amount]
+        properties:
+          id:
+            $ref: './common.yaml#/schemas/Id'
+          amount:
+            $ref: './common.yaml#/schemas/Money'
+          reference_type:
+            type: string
+            description: Với khoản rút được thì luôn là `FULFILLMENT_ORDER`.
+          reference_id:
+            $ref: './common.yaml#/schemas/Id'
+          released_at:
+            type: string
+            format: date-time
+            description: Lúc khoản này chuyển sang rút được.
 
 LedgerLine:
   type: object

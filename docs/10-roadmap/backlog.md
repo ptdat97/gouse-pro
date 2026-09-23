@@ -36,7 +36,7 @@ Tuyến đã đăng ký                 89      (85 khớp đặc tả + 4 endpo
                                          /metrics · /version)
 
 Migration                        56
-Test Go                          1.144
+Test Go                          1.145
 Test trình duyệt (Playwright)    12
 Test đơn vị TypeScript           64
 ```
@@ -5813,9 +5813,11 @@ chứ không im lặng.
 Ba con số trả lời "tôi được chuyển bao nhiêu, và vì sao không phải nhiều
 hơn". Tám dòng của đặc tả cũ trả lời câu rộng hơn — *cấu thành* của số
 tiền — và chúng chưa tính được: đợt đối soát gom theo khoản đã rút được,
-không gom theo loại bút toán. Sổ cái CÓ đủ dữ liệu (`entry_type` và
-`account_type`), nên tách ra được; đó là một tính năng, không phải một phép
-đổi tên.
+không gom theo loại bút toán.
+
+**Làm ở P3-69 (23/09/2026), và kết luận khác dự đoán ở đây:** trong một đợt
+KHÔNG có loại nào để tách — mọi dòng đều là một khoản rút được. Thứ tách
+được là TỪNG KHOẢN, và nó đã có sẵn trong `settlement_line`.
 
 ---
 
@@ -6488,6 +6490,108 @@ thật và không gì báo. Lần này thêm vào `globals.css` trước.
 gửi duyệt → duyệt → lên kệ, và nhánh trả về → sửa → gửi lại.
 
 63/63 gói Go xanh · 64 test đơn vị xanh.
+
+---
+
+### P3-69 — "tách đối soát theo loại khoản": câu hỏi sai, và câu trả lời đúng hơn
+
+P3-60 để lại việc này với giả định: sổ cái có `entry_type`, nên tách một
+đợt đối soát theo loại khoản (doanh thu / hoa hồng / phí / hoàn hàng) là
+làm được.
+
+Đọc kỹ mô hình thì **giả định ấy sai**, và biết được vì sao còn có ích hơn
+việc làm ra tám con số.
+
+#### Trong một đợt KHÔNG có loại nào để tách
+
+```text
+ORDER_REVENUE    ghi lúc khách đặt → CREDIT vào SELLER_PAYABLE (đang chờ)
+REVERSAL/REFUND  hoàn hàng          → DEBIT  SELLER_PAYABLE
+SELLER_RELEASE   hết hạn đổi trả    → PAYABLE → AVAILABLE
+settlement       gom các SELLER_RELEASE
+```
+
+Hoa hồng, phí, hoàn hàng đều đã bị trừ **trước** khi tiền chạm tới
+`SELLER_PAYABLE`. Tới lúc vào đợt đối soát thì mọi dòng đều cùng một loại:
+một khoản đã rút được. Tách "theo loại" ở tầng này là tách một tập chỉ có
+một phần tử.
+
+Câu hỏi "vì sao số tiền là thế này" có hai nghĩa, và chúng ở hai chỗ khác
+nhau:
+
+```text
+"đợt này gồm những gì"      → từng khoản rút được    ← LÀM ở đây
+"số dư của tôi hình thành
+ thế nào"                   → sổ chi tiết tài khoản  ← việc riêng
+```
+
+#### Dữ liệu đã nạp rồi vứt — LẦN THỨ TƯ
+
+`settlement_line` có từ migration 000041, và `doc()` nạp nó vào
+`DoiSoat.Dong()` mỗi lần đọc một đợt. Tầng DTO vứt đi.
+
+Cùng hình dạng với `shipping_groups` (P3-50), `variants` (P3-64) và các
+trường sửa được của sản phẩm (P3-65) — bốn lần trong cùng một khu, đều
+"dữ liệu đã có trong tay, mất ở bước cuối". Sửa không tốn thêm truy vấn
+nào.
+
+Thêm `reference_type`/`reference_id` vào dòng bằng một `JOIN` sang
+`ledger_entry`: đó là thứ làm một dòng ĐỐI CHIẾU ĐƯỢC. `reference_id` trỏ
+tới ĐƠN THỰC HIỆN — chính là đơn nhà bán thấy ở màn hình "Việc cần làm".
+Không có nó, một đợt chỉ là một con số tổng.
+
+#### Kiểm chứng: dựng một đợt đối soát THẬT trên môi trường phát triển
+
+Chưa đợt nào từng tồn tại — `settlement` có 0 dòng, vì chưa đơn nào hết
+hạn đổi trả. Không bịa dữ liệu; đi đúng đường:
+
+```text
+1. hạ `returns.window_hours` 168 → 24 qua API admin (min cho phép là 24)
+2. worker chạy  → đơn giao ngày 17/09 quá hạn → COMPLETED
+                → sinh bút toán SELLER_RELEASE
+                → số dư rút được 469.000 đ
+3. worker chạy LẠI → tạo đợt đối soát
+4. trả `returns.window_hours` về 168
+```
+
+Bước 3 cần chạy lại vì job tạo đợt và job hoàn tất đơn chạy trong cùng một
+nhịp khởi động, và job tạo đợt chạy TRƯỚC — nó tìm bút toán chưa có. Nhịp
+một giờ nên nó tự đúng ở lần sau; đây là chuyện của thứ tự khởi động, không
+phải lỗi.
+
+Trên trình duyệt: bấm vào một đợt → `ful_01M1YB…` · 469.000 đ · "Chuyển
+sang rút được 18:26 23/9/26" · "1 khoản · cộng lại bằng cột Tổng".
+
+#### Hai điều lộ ra nhờ chạy thật
+
+**Số dư chờ ÂM.** Sau khi giải phóng, `SELLER_PAYABLE` của gian hàng ấy
+xuống −469.000 đ, và đợt đối soát trừ đúng khoản đó nên thực nhận bằng 0.
+Cơ chế `deficit` đã làm đúng việc nó sinh ra để làm: **từ chối chi ra khoản
+không có gì bảo chứng**.
+
+Nhưng màn hình hiện một số âm trần trụi. Số dư âm là trạng thái THẬT — hoàn
+hàng của đơn đã giải phóng sẽ trừ vào phần đang chờ — nên nay nó được giải
+thích tại chỗ thay vì để nhà bán đoán là hệ thống hỏng.
+
+**Giải phóng KHÔNG kiểm số dư đang chờ.** `ChuyenSangRutDuoc` nhận số tiền
+từ bên gọi và không đối chiếu với `SELLER_PAYABLE` hiện có, nên nó đẩy số
+dư xuống âm mà không một tiếng động. Ở luồng đúng thì không xảy ra — tiền
+được ghi có vào payable lúc đặt đơn. Nhưng không gì cưỡng chế điều đó.
+
+CHƯA sửa: sửa cần một quyết định — từ chối, kẹp về 0, hay cho qua và cảnh
+báo? Mỗi lựa chọn có hậu quả khác nhau với tiền thật. Ghi vào đây thay vì
+chọn bừa.
+
+#### Việc còn lại: SỔ CHI TIẾT TÀI KHOẢN nhà bán
+
+Câu "số dư của tôi hình thành thế nào" cần một trang khác: mọi chuyển động
+trên `SELLER_PAYABLE`/`SELLER_AVAILABLE` của gian hàng, nhóm theo
+`entry_type`. Dữ liệu có đủ và tính được CHÍNH XÁC — mỗi bút toán
+`ORDER_REVENUE` là một phần đơn của MỘT nhà bán, nên hoa hồng nền tảng trên
+chính bút toán ấy là hoa hồng của riêng họ (kiểm trên dữ liệu thật:
+259.000 khách trả = 227.920 nhà bán + 31.080 hoa hồng).
+
+Đó mới là chỗ tám con số của đặc tả cũ thuộc về.
 
 ---
 

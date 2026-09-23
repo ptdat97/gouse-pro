@@ -198,19 +198,29 @@ func (s *SettlementStore) doc(
 		return nil, nil
 	}
 
+	// JOIN sang `ledger_entry` để lấy NGUỒN của khoản rút được.
+	//
+	// Một dòng đối soát chỉ có số tiền là một dòng nhà bán không đối chiếu
+	// được với sổ của họ. `reference_id` cho biết đơn thực hiện nào —
+	// chính là số họ nhìn thấy ở màn hình "Việc cần làm".
 	lrows, err := s.pool.Query(ctx, `
-		SELECT settlement_id, id, ledger_entry_id, amount, currency
-		  FROM settlement_line WHERE settlement_id = ANY($1)
-		 ORDER BY created_at, id`, ma)
+		SELECT sl.settlement_id, sl.id, sl.ledger_entry_id, sl.amount,
+		       sl.currency, e.reference_type, e.reference_id, e.created_at
+		  FROM settlement_line sl
+		  JOIN ledger_entry e ON e.id = sl.ledger_entry_id
+		 WHERE sl.settlement_id = ANY($1)
+		 ORDER BY sl.created_at, sl.id`, ma)
 	if err != nil {
 		return nil, fmt.Errorf("payment: đọc dòng đối soát: %w", err)
 	}
 	defer lrows.Close()
 
 	for lrows.Next() {
-		var stlID, id, entryID, tienTe string
+		var stlID, id, entryID, tienTe, refType, refID string
 		var soTien int64
-		if err := lrows.Scan(&stlID, &id, &entryID, &soTien, &tienTe); err != nil {
+		var taoLuc time.Time
+		if err := lrows.Scan(&stlID, &id, &entryID, &soTien, &tienTe,
+			&refType, &refID, &taoLuc); err != nil {
 			return nil, err
 		}
 		m, err := money.New(soTien, money.Currency(tienTe))
@@ -220,6 +230,8 @@ func (s *SettlementStore) doc(
 		if p := theoID[ids.ID(stlID)]; p != nil {
 			p.Dong = append(p.Dong, domain.DongDoiSoat{
 				ID: ids.ID(id), LedgerEntryID: ids.ID(entryID), Amount: m,
+				ReferenceType: refType, ReferenceID: ids.ID(refID),
+				CreatedAt: taoLuc,
 			})
 		}
 	}

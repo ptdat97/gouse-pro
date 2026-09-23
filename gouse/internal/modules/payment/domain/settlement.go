@@ -37,6 +37,21 @@ type DongDoiSoat struct {
 	ID            ids.ID
 	LedgerEntryID ids.ID
 	Amount        money.Money
+
+	// ReferenceType và ReferenceID: bút toán rút được này đến từ ĐÂU.
+	//
+	// Với `SELLER_RELEASE` thì đó là `FULFILLMENT_ORDER` — đơn thực hiện
+	// mà nhà bán đã giao và đã hết hạn đổi trả.
+	//
+	// Thêm 23/09/2026. Không có hai trường này, một đợt đối soát chỉ là
+	// một con số tổng: nhà bán không đối chiếu được với sổ sách của chính
+	// họ, và đặc tả gọi đối soát không minh bạch là nguyên nhân tranh chấp
+	// lớn nhất giữa nền tảng và nhà bán.
+	ReferenceType string
+	ReferenceID   ids.ID
+
+	// CreatedAt là lúc khoản này chuyển sang rút được.
+	CreatedAt time.Time
 }
 
 // DoiSoat là một đợt đối soát của một nhà bán.

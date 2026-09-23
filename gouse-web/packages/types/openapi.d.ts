@@ -3485,6 +3485,35 @@ export interface components {
             net_amount: components["schemas"]["Money"];
             /** Format: date-time */
             created_at: string;
+            /**
+             * @description TỪNG KHOẢN làm nên đợt này.
+             *
+             *     Đặc tả nói thẳng ở `getMySettlement`: nhà bán phải xem được "từng
+             *     dòng cấu thành số tiền", vì đối soát không minh bạch là nguyên nhân
+             *     tranh chấp lớn nhất giữa nền tảng và nhà bán.
+             *
+             *     Dữ liệu này đã nằm trong `settlement_line` từ đầu và được nạp sẵn
+             *     mỗi lần đọc đợt; tới 23/09/2026 nó bị vứt ở tầng DTO.
+             *
+             *     **`reference_id` là thứ làm dòng này đối chiếu được**: nó trỏ tới
+             *     ĐƠN THỰC HIỆN mà nhà bán đã giao — chính là đơn họ thấy ở màn hình
+             *     "Việc cần làm". Không có nó, một đợt chỉ là một con số tổng.
+             *
+             *     Mảng rỗng và thiếu trường nói hai chuyện khác nhau, nên `[]` được
+             *     trả về chứ không bỏ trường.
+             */
+            lines?: {
+                id: components["schemas"]["Id"];
+                amount: components["schemas"]["Money"];
+                /** @description Với khoản rút được thì luôn là `FULFILLMENT_ORDER`. */
+                reference_type?: string;
+                reference_id?: components["schemas"]["Id"];
+                /**
+                 * Format: date-time
+                 * @description Lúc khoản này chuyển sang rút được.
+                 */
+                released_at?: string;
+            }[];
         };
         AffiliateLink: {
             id: components["schemas"]["Id"];

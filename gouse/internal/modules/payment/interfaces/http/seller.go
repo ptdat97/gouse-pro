@@ -139,6 +139,33 @@ type settlementJSON struct {
 	Net moneyJSON `json:"net_amount"`
 
 	CreatedAt string `json:"created_at"`
+
+	// Lines là TỪNG KHOẢN làm nên đợt này.
+	//
+	// Đặc tả nói thẳng: nhà bán phải xem được "từng dòng cấu thành số
+	// tiền", vì đối soát không minh bạch là nguyên nhân tranh chấp lớn
+	// nhất giữa nền tảng và nhà bán.
+	//
+	// Dữ liệu này ĐÃ được nạp từ 000041 — `settlement_line` có sẵn và
+	// `doc()` đọc nó vào `DoiSoat.Dong()`. Tới 23/09/2026 nó bị vứt ở đúng
+	// đây. Lần thứ tư trong cùng một khu vực: `shipping_groups` (P3-50),
+	// `variants` (P3-64), trường sửa được của sản phẩm (P3-65).
+	//
+	// KHÔNG dùng omitempty: `[]` và thiếu trường nói hai chuyện khác nhau.
+	Lines []settlementLineJSON `json:"lines"`
+}
+
+// settlementLineJSON là một khoản rút được trong đợt.
+//
+// `reference_id` là thứ làm dòng này ĐỐI CHIẾU ĐƯỢC: nó trỏ tới đơn thực
+// hiện mà nhà bán đã giao — chính là đơn họ nhìn thấy ở màn hình "Việc cần
+// làm". Không có nó, một đợt đối soát chỉ là một con số tổng.
+type settlementLineJSON struct {
+	ID            string    `json:"id"`
+	Amount        moneyJSON `json:"amount"`
+	ReferenceType string    `json:"reference_type,omitempty"`
+	ReferenceID   string    `json:"reference_id,omitempty"`
+	ReleasedAt    string    `json:"released_at,omitempty"`
 }
 
 func toSettlementJSON(d *domain.DoiSoat) settlementJSON {
@@ -153,7 +180,29 @@ func toSettlementJSON(d *domain.DoiSoat) settlementJSON {
 		Gross:       m(d.Gross()), Deficit: m(d.Deficit()), Net: m(d.Net()),
 		CreatedAt: d.CreatedAt().Format(time.RFC3339),
 	}
+
+	out.Lines = make([]settlementLineJSON, 0, len(d.Dong()))
+	for _, dg := range d.Dong() {
+		out.Lines = append(out.Lines, settlementLineJSON{
+			ID:            dg.ID.String(),
+			Amount:        m(dg.Amount),
+			ReferenceType: dg.ReferenceType,
+			ReferenceID:   dg.ReferenceID.String(),
+			ReleasedAt:    thoiDiem(dg.CreatedAt),
+		})
+	}
 	return out
+}
+
+// thoiDiem trả chuỗi RFC3339, hoặc rỗng khi chưa có mốc.
+//
+// Mốc rỗng định dạng thẳng sẽ ra "0001-01-01T00:00:00Z" — một ngày trông
+// như dữ liệu thật và sẽ được hiển thị như dữ liệu thật.
+func thoiDiem(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 func (h *SellerHandler) danhSachDoiSoat(w http.ResponseWriter, r *http.Request) {

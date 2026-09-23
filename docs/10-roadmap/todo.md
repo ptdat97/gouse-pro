@@ -23,9 +23,9 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     139 file · 45.612 dòng
+Tài liệu     139 file · 45.716 dòng
 Đặc tả API   12 file YAML · 100 thao tác · 0 lỗi lint
-Code Go      292 file · 83.534 dòng · 1.144 hàm test
+Code Go      292 file · 83.619 dòng · 1.145 hàm test
 Migration    56 file SQL · đảo được
 Giao diện    3 app Next.js · 12 test trình duyệt · 64 test đơn vị
 Màn hình nhà bán  6 trang (việc cần làm · sản phẩm · hàng bán ·
@@ -57,7 +57,7 @@ Kiểm chứng lần cuối (17/09/2026):
 ```text
 ✓ gofmt        không có file cần định dạng lại
 ✓ go vet       không có cảnh báo
-✓ archcheck    OK — 475 file, không vi phạm ranh giới
+✓ archcheck    OK — 476 file, không vi phạm ranh giới
 ✓ apicheck     OK — 85/100 thao tác có route, 15 hoãn đều có khai lý do;
                8 header khớp danh sách CORS (tầng thứ ba, thêm 17/09)
 ✓ chất lượng   mvp.md mục 7 nay có SỐ ĐO thay cho dấu ✓: p95 14,3ms ·

@@ -2,12 +2,14 @@
 
 import {
   getMyBalance,
+  getMySettlement,
   isApiError,
   listMySettlements,
   type MyBalance,
+  type MySettlement,
   type MySettlements,
 } from "@fc/api-client";
-import { Alert, Badge, Table, type Column } from "@fc/ui";
+import { Alert, Badge, Button, Table, type Column } from "@fc/ui";
 import * as React from "react";
 
 import { Shell } from "@/components/shell";
@@ -103,13 +105,23 @@ function Money() {
  * NÓI RA ba cái còn lại, trả lời được cả hai.
  */
 function BalanceCards({ b }: { b: MyBalance }) {
+  // Số dư chờ ÂM là trạng thái THẬT, không phải lỗi hiển thị: hoàn hàng
+  // của những đơn đã chuyển sang rút được sẽ trừ vào phần đang chờ. Hiện
+  // một số âm trần trụi thì nhà bán nghĩ hệ thống hỏng; giấu đi thì họ
+  // không hiểu vì sao đợt đối soát kế tiếp bị trừ.
+  const dangNo = (b.pending?.amount ?? 0) < 0;
+
   return (
     <section className="panel">
       <div className="balance">
         <Card
           nhan="Chờ đến hạn"
           tien={money(b.pending)}
-          giaiThich="Đơn đã giao, còn trong thời hạn đổi trả. Chuyển sang rút được khi hết hạn."
+          giaiThich={
+            dangNo
+              ? "Đang ÂM: phần hoàn hàng lớn hơn phần bán mới trong kỳ. Khoản âm này sẽ trừ vào đợt đối soát kế tiếp, không thu lại bằng tiền mặt."
+              : "Đơn đã giao, còn trong thời hạn đổi trả. Chuyển sang rút được khi hết hạn."
+          }
         />
         <Card
           nhan="Rút được"
@@ -156,6 +168,7 @@ function Card({
  * số 0 ở các kỳ bình thường.
  */
 function Settlements({ rows }: { rows: Settlement[] }) {
+  const [mo, setMo] = React.useState<string | null>(null);
   const coTru = rows.some((r) => (r.deficit_amount?.amount ?? 0) > 0);
 
   const columns: Column<Settlement>[] = [
@@ -208,6 +221,7 @@ function Settlements({ rows }: { rows: Settlement[] }) {
         columns={columns}
         rows={rows}
         rowKey={(r) => r.id}
+        onRowClick={(r) => setMo(mo === r.id ? null : r.id!)}
         empty={
           <>
             Chưa có đợt đối soát nào. Đợt đầu tiên được tạo khi có khoản
@@ -215,6 +229,8 @@ function Settlements({ rows }: { rows: Settlement[] }) {
           </>
         }
       />
+      {mo && <ChiTiet id={mo} onDong={() => setMo(null)} />}
+
       {coTru && (
         <p className="muted">
           <strong>Bị trừ</strong> là phần còn nợ từ kỳ trước — thường do
@@ -222,6 +238,98 @@ function Settlements({ rows }: { rows: Settlement[] }) {
           không bao giờ chuyển tiền âm.
         </p>
       )}
+    </section>
+  );
+}
+
+/**
+ * Chi tiết một đợt — TỪNG KHOẢN làm nên số tiền.
+ *
+ * # Vì sao trang này cần tồn tại
+ *
+ * Đặc tả viết thẳng: nhà bán phải xem được *"từng dòng cấu thành số tiền —
+ * đối soát không minh bạch là nguyên nhân tranh chấp lớn nhất giữa nền
+ * tảng và nhà bán"*.
+ *
+ * Một con số tổng không đối chiếu được với bất cứ thứ gì nhà bán tự ghi.
+ * Mỗi dòng ở đây trỏ tới một ĐƠN THỰC HIỆN — chính là đơn họ thấy ở màn
+ * hình "Việc cần làm" — nên họ đối chiếu được từng đơn một.
+ *
+ * # Tải khi MỞ, không tải sẵn
+ *
+ * Một đợt có thể gồm hàng trăm đơn. Nhồi hết vào danh sách thì trang tiền
+ * — thứ nhà bán mở hằng ngày chỉ để xem số dư — kéo theo dữ liệu của mọi
+ * đợt trong lịch sử.
+ */
+function ChiTiet({ id, onDong }: { id: string; onDong: () => void }) {
+  const { api } = useSession();
+  const [d, setD] = React.useState<MySettlement["settlement"] | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let huy = false;
+    setLoading(true);
+    setError(null);
+    setD(null);
+    getMySettlement(api, id)
+      .then((r) => {
+        if (!huy) setD(r.settlement);
+      })
+      .catch((e) => {
+        if (!huy) setError(isApiError(e) ? e.message : "Không tải được chi tiết");
+      })
+      .finally(() => {
+        if (!huy) setLoading(false);
+      });
+    return () => {
+      huy = true;
+    };
+  }, [api, id]);
+
+  const dong = d?.lines ?? [];
+
+  return (
+    <section className="panel">
+      <h3>Đợt {shortId(id)} gồm những gì</h3>
+      {loading && <p>Đang tải…</p>}
+      {error && <Alert tone="danger">{error}</Alert>}
+
+      {!loading && !error && dong.length === 0 && (
+        <p className="muted">Đợt này không có khoản nào.</p>
+      )}
+
+      {dong.length > 0 && (
+        <>
+          <ul className="lines">
+            {dong.map((l) => (
+              <li key={l.id} className="line">
+                <div>
+                  {/*
+                    Mã đơn thực hiện là thứ nhà bán ĐỐI CHIẾU ĐƯỢC — họ
+                    thấy đúng mã ấy ở màn hình "Việc cần làm".
+                  */}
+                  <span className="mono">{shortId(l.reference_id)}</span>
+                  <div className="muted">
+                    Chuyển sang rút được {dateTime(l.released_at)}
+                  </div>
+                </div>
+                <div>{money(l.amount)}</div>
+              </li>
+            ))}
+          </ul>
+          <p className="muted">
+            {dong.length} khoản · cộng lại bằng cột <strong>Tổng</strong> ở
+            bảng trên.
+          </p>
+        </>
+      )}
+
+      <p>
+        <Button variant="secondary" onClick={onDong}>
+          Đóng
+        </Button>
+      </p>
     </section>
   );
 }
