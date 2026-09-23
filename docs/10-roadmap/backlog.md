@@ -6595,6 +6595,126 @@ chính bút toán ấy là hoa hồng của riêng họ (kiểm trên dữ liệ
 
 ---
 
+### P3-70 — enum: hàng rào thứ ba của `apicheck`, và một bộ lọc màu chưa từng dựng nổi
+
+P3-60 và P3-61 mỗi cái tìm ra một enum lệch, bằng tay. Hai lần là ngẫu
+nhiên; lần thứ ba thì phải có máy tìm.
+
+#### Ba tầng của cùng một hợp đồng
+
+`cmd/apicheck` từ nay kiểm ba thứ, không phải một:
+
+```text
+tuyến ⇄ đặc tả    P3-46   endpoint sống ngoài hợp đồng
+header ⇄ CORS     P3-58   header đặc tả khai mà preflight chặn
+enum ⇄ hằng Go    P3-70   giá trị hợp lệ hai bên không khớp
+```
+
+Ba tầng vì ba dạng lỗi ấy đều đã xảy ra thật, và cả ba đều đi qua được
+`types:check` — thứ chỉ so file sinh ra với chính nó.
+
+#### Vì sao sổ ghép phải ghi TAY
+
+Phép rà đầu tiên thử ghép theo tên và cho hai cảnh báo giả trên ba kết
+quả: hàng chục module đều có kiểu tên `Status`, và có HAI kiểu `LyDo`
+khác nhau. Cảnh báo giả là thứ làm người ta tắt hẳn phép kiểm.
+
+Một cặp đúng tên vẫn có thể sai: `CartItem.availability` trông ghép được
+với `cart/domain.ItemAvailability` — cùng khái niệm, cùng bốn giá trị —
+nhưng tầng HTTP DỊCH ở biên (`QUANTITY_REDUCED` → `LOW_STOCK`). Ghép nó
+sẽ báo bốn lệch không có thật. Quy tắc: **chỉ ghép khi giá trị miền đi
+thẳng ra JSON.**
+
+Nên `capEnumDaKiem` là 15 cặp ghi tay, mỗi cặp một lý do. Hai enum cố ý
+KHÔNG ghép nằm ở `enumKhongGhep`, cũng kèm lý do — để "không ghép" là một
+quyết định có người ký, không phải một chỗ bị bỏ quên.
+
+63 enum còn lại (phần lớn thuộc module Phase 2 chưa tồn tại) được canh
+bằng một CHỐT MỘT CHIỀU: thêm enum mới mà không quyết thì CI đỏ. Chốt chỉ
+được giảm — một chốt cao hơn thực tế là chỗ trống để lặng lẽ nới hàng rào.
+
+#### Hai chiều KHÔNG đối xứng
+
+```text
+đặc tả có, Go không   → KHÔNG BAO GIỜ hợp lệ: client viết một nhánh không
+                        bao giờ chạy tới, hoặc mời người dùng chọn một giá
+                        trị luôn trả về rỗng
+Go có, đặc tả không   → hợp lệ KHI cặp khai `ChoPhepTapCon`. Có thật:
+                        `tier` của `/me` không bao giờ trả `ANONYMIZED`,
+                        vì khách đã ẩn danh thì không đăng nhập được
+```
+
+#### Lệch tìm được: `GRAY` ↔ `GREY`
+
+```text
+GRAY → GREY    máy chủ lưu GREY. Truy vấn so `upper(color_family) =
+               'GRAY'` và KHÔNG khớp gì — bộ lọc im lặng trả rỗng
++ SILVER       máy chủ sinh ra được, đặc tả không khai
++ OTHER
+− MULTI        đặc tả khai mà máy chủ không bao giờ sinh ra
+```
+
+#### Nhưng lỗi THẬT nằm sâu hơn một tầng
+
+Sửa xong bốn giá trị rồi mới thấy: enum ấy nằm trong schema `Color`, và
+**không `$ref` nào trỏ tới `Color` cả.** Nó chưa từng vào `openapi.d.ts`.
+
+Cùng lúc, chỗ client thật sự dựng bộ lọc màu — tham số `color` của
+`GET /products` — khai `type: string` trơn, không enum.
+
+```text
+mười bốn nhóm màu   mô tả rất kỹ, ở một nơi không sinh ra kiểu nào
+tham số color       nơi cần chúng, không có gì để dựng bộ lọc từ đó
+```
+
+Bộ lọc màu chưa từng được viết ở bất kỳ ứng dụng nào. Đây là lý do: không
+phải ai quên, mà là **không có gì để viết từ đó.**
+
+Sửa: tách thành schema có tên `ColorFamily`, cho cả `Color.color_family`
+lẫn tham số `color` cùng `$ref` vào đó. Tham số khai thành mảng
+(`style: form, explode: false`) để khớp cách máy chủ tách theo dấu phẩy.
+Kết quả trong `openapi.d.ts`:
+
+```ts
+ColorFamily: "WHITE" | "BLACK" | "GREY" | "SILVER" | ... | "OTHER";
+color?: components["schemas"]["ColorFamily"][];
+```
+
+Bài học lặp lại từ P3-61: **một giá trị được mô tả kỹ ở chỗ không ai đọc
+thì bằng không.** Câu hỏi phải hỏi cho mỗi enum là "client sinh kiểu ra
+CÓ nhìn thấy nó không", không phải "đặc tả có khai không".
+
+#### Kiểm chứng bằng cách phá
+
+```text
+đổi GREY → GRAY trong đặc tả       2 vi phạm, gọi đúng tên CẢ HAI giá trị
+                                    và đúng đường dẫn
+thêm một enum mới không gác        "64 enum chưa gác, vượt chốt 63"
+tách ColorFamily ra schema riêng    công cụ bắt chính tôi: "sổ ghép trỏ
+                                    tới … mà đặc tả KHÔNG có enum ở đường
+                                    dẫn đó"
+```
+
+Cái thứ ba đáng kể nhất: hàng rào bắt được người đang dựng chính nó, ở
+đúng thứ nó sinh ra để bắt — sổ trỏ tới một đường dẫn đã chết.
+
+Thêm 9 bài test dựng dự án GIẢ có đúng một lỗi mỗi bài, gồm hai bài cho
+thứ dễ hỏng nhất: hai cách viết YAML (`enum: [A, B]` và dạng danh sách)
+phải cho CÙNG một đường dẫn, và giá trị nằm trong bình luận hay chuỗi lỗi
+KHÔNG được tính là giá trị hợp lệ (đọc AST, không grep).
+
+#### Một sed không làm gì cả
+
+Phép phá đầu tiên dùng `sed -i '' 's/^\(\s*\)- GREY$/\1- GRAY/'`.
+`apicheck` báo OK — suýt nữa thì ghi vào đây là "hàng rào không bắt được".
+
+`\s` không tồn tại trong sed của macOS; lệnh chạy xong, trả về 0, và
+không thay một chữ nào. **Một phép phá không phá được gì trông hệt như
+một phép kiểm bị thủng.** Luôn xác nhận bản phá ĐÃ đổi thật trước khi đọc
+kết quả.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

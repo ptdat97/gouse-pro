@@ -2429,6 +2429,39 @@ export interface components {
             request_id: string;
         };
         /**
+         * @description Nhóm màu để LỌC. Khách lọc "màu xanh", không lọc "Xanh navy đậm".
+         *
+         *     Máy chủ SUY RA nhóm này từ tên màu nhà bán nhập (`SuyRaNhomMau`), nên
+         *     đây là tập ĐÓNG — client dựng bộ lọc từ đúng danh sách này.
+         *
+         *     # Vì sao là một schema có TÊN
+         *
+         *     Trước 23/09/2026 enum này nằm thẳng trong `Color.color_family`, mà
+         *     `Color` KHÔNG được `$ref` từ đâu cả — nên nó không sinh ra kiểu nào
+         *     cho client. Cùng lúc, tham số `color` của `GET /products` — chỗ DUY
+         *     NHẤT client thật sự dựng bộ lọc màu — khai `type: string` trơn.
+         *
+         *     Kết quả: mười bốn nhóm màu được mô tả kỹ ở một nơi không ai đọc, và
+         *     chỗ cần chúng thì không có gì. Bộ lọc màu chưa từng được viết, và đây
+         *     là lý do.
+         *
+         *     Sửa cùng ngày, ba chỗ lệch với `domain.NhomMau`:
+         *
+         *     ```text
+         *     GRAY → GREY    máy chủ lưu GREY. Client theo đặc tả gửi GRAY thì
+         *                    truy vấn so `upper(color_family) = 'GRAY'` và KHÔNG
+         *                    khớp gì — bộ lọc im lặng trả rỗng.
+         *     + SILVER       máy chủ sinh ra được, đặc tả không khai, nên bộ lọc
+         *     + OTHER        dựng từ đặc tả không bao giờ mời chọn chúng
+         *     − MULTI        đặc tả khai mà máy chủ không bao giờ sinh ra — một
+         *                    lựa chọn luôn trả về rỗng
+         *     ```
+         *
+         *     `cmd/apicheck` gác cặp này từ P3-70: lệch một chữ là CI đỏ.
+         * @enum {string}
+         */
+        ColorFamily: "WHITE" | "BLACK" | "GREY" | "SILVER" | "BEIGE" | "BROWN" | "RED" | "PINK" | "ORANGE" | "YELLOW" | "GREEN" | "BLUE" | "PURPLE" | "OTHER";
+        /**
          * @description Tham chiếu thương hiệu bên trong một tài nguyên khác.
          *
          *     `name` KHÔNG bắt buộc, có chủ ý. Tên thương hiệu thuộc module
@@ -4027,9 +4060,17 @@ export interface operations {
                 size?: string;
                 /**
                  * @description Lọc theo **nhóm màu**, không theo tên màu cụ thể.
-                 * @example BLACK,WHITE
+                 *
+                 *     Tập đóng: máy chủ suy nhóm ra từ tên màu, nên gửi một giá trị
+                 *     ngoài danh sách chỉ nhận về rỗng. Khai thành mảng để client sinh
+                 *     kiểu ra đúng mười bốn lựa chọn dựng được bộ lọc — trước đây chỗ
+                 *     này là `type: string` trơn và bộ lọc màu chưa từng viết nổi.
+                 * @example [
+                 *       "BLACK",
+                 *       "WHITE"
+                 *     ]
                  */
-                color?: string;
+                color?: components["schemas"]["ColorFamily"][];
                 price_min?: number;
                 price_max?: number;
                 in_stock?: boolean;

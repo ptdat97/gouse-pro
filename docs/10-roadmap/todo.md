@@ -152,12 +152,14 @@ hai phép kiểm — test của `archcheck` và `apicheck` — là BƯỚC bên 
 - [x] `build` — kiểm chứng tiến trình **thật sự khởi động** và trả lời health check, không chỉ biên dịch
 - [x] `api-spec` — lint đặc tả + sinh kiểu TypeScript để xác nhận đặc tả dùng được
 - [x] `alerts` — test cho từng luật cảnh báo Prometheus
-- [x] `cmd/apicheck` (trong job `architecture`) — đối chiếu ĐẶC TẢ với TUYẾN
-      đã đăng ký, **và với danh sách header của CORS**. `types:check` chỉ so
-      đặc tả với TypeScript sinh ra từ chính nó, nên sáu endpoint từng sống
-      ngoài hợp đồng mà CI vẫn xanh (P3-56) — và `X-Visit-Id` thiếu trong
-      CORS làm cả cửa hàng trắng trang trong lúc năm phép kiểm cùng xanh
-      (P3-58).
+- [x] `cmd/apicheck` (trong job `architecture`) — BA tầng của cùng một hợp
+      đồng: ĐẶC TẢ ⇄ TUYẾN đã đăng ký, **danh sách header ⇄ CORS**, và
+      **enum ⇄ hằng số Go**. `types:check` chỉ so đặc tả với TypeScript sinh
+      ra từ chính nó, nên sáu endpoint từng sống ngoài hợp đồng mà CI vẫn
+      xanh (P3-56) — `X-Visit-Id` thiếu trong CORS làm cả cửa hàng trắng
+      trang trong lúc năm phép kiểm cùng xanh (P3-58) — và `color_family`
+      lệch một chữ (`GRAY` ↔ `GREY`) làm bộ lọc màu im lặng trả rỗng
+      (P3-70).
 
 ---
 

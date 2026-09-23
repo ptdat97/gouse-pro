@@ -63,10 +63,20 @@ products:
         example: 'M,L'
       - name: color
         in: query
-        description: Lọc theo **nhóm màu**, không theo tên màu cụ thể.
+        description: |
+          Lọc theo **nhóm màu**, không theo tên màu cụ thể.
+
+          Tập đóng: máy chủ suy nhóm ra từ tên màu, nên gửi một giá trị
+          ngoài danh sách chỉ nhận về rỗng. Khai thành mảng để client sinh
+          kiểu ra đúng mười bốn lựa chọn dựng được bộ lọc — trước đây chỗ
+          này là `type: string` trơn và bộ lọc màu chưa từng viết nổi.
+        style: form
+        explode: false
         schema:
-          type: string
-        example: 'BLACK,WHITE'
+          type: array
+          items:
+            $ref: '../components/common.yaml#/schemas/ColorFamily'
+        example: [BLACK, WHITE]
       - name: price_min
         in: query
         schema:

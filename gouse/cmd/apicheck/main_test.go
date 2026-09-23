@@ -266,6 +266,9 @@ func TestDuAnThatKhop(t *testing.T) {
 		root: "../..", chuaCai: chuaCai, ngoaiHopDong: ngoaiHopDong,
 		headerNgoaiDacTa:         headerNgoaiDacTa,
 		headerKhongQuaTrinhDuyet: headerKhongQuaTrinhDuyet,
+		capEnum:                  capEnumDaKiem,
+		enumKhongGhep:            enumKhongGhep,
+		nguongEnumChuaGac:        soEnumChuaGac,
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run trên repo thật: %v", err)
@@ -429,5 +432,250 @@ func TestHeaderKhongTimDuocTenThiBaoLoi(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "name:") {
 		t.Errorf("lỗi không nói rõ thiếu gì: %v", err)
+	}
+}
+
+// --------------------------------------------------------------- Tầng ENUM
+
+// chayEnum chạy công cụ với sổ ghép enum truyền vào.
+//
+// `nguong` phải truyền tay từng bài: chốt của dự án thật (63) sẽ biến mọi
+// bài ở đây thành "thiếu 63 enum chưa gác" và không bài nào đo được thứ nó
+// muốn đo.
+func chayEnum(
+	t *testing.T, goc string, cap []capEnum, khongGhep map[string]string, nguong int,
+) *checker {
+	t.Helper()
+	if khongGhep == nil {
+		khongGhep = map[string]string{}
+	}
+	c := &checker{
+		root:                     goc,
+		chuaCai:                  map[string]string{},
+		ngoaiHopDong:             map[string]string{},
+		headerNgoaiDacTa:         map[string]string{},
+		headerKhongQuaTrinhDuyet: map[string]string{},
+		capEnum:                  cap,
+		enumKhongGhep:            khongGhep,
+		nguongEnumChuaGac:        nguong,
+	}
+	if err := c.run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return c
+}
+
+// duongMau là đường dẫn mà cả hai cách viết YAML dưới đây phải cho ra.
+const duongMau = "components/mau.yaml#/schemas/Color/properties/color_family"
+
+// enumNhieuDong là dạng danh sách — cách đặc tả thật viết.
+const enumNhieuDong = `schemas:
+  Color:
+    properties:
+      color_family:
+        type: string
+        enum:
+          - WHITE
+          - GREY
+`
+
+// enumMotDong là dạng gọn `[A, B]` — YAML hợp lệ như nhau.
+const enumMotDong = `schemas:
+  Color:
+    properties:
+      color_family:
+        type: string
+        enum: [WHITE, GREY]
+`
+
+const goMau = `package domain
+
+type NhomMau string
+
+const (
+	MauTrang NhomMau = "WHITE"
+	MauXam   NhomMau = "GREY"
+)
+`
+
+// capMau là sổ ghép trỏ đúng vào cặp trên.
+func capMau(tapCon bool) []capEnum {
+	return []capEnum{{duongMau, "thing/domain", "NhomMau", tapCon, "nhóm màu"}}
+}
+
+// duAnMau dựng dự án giả có một enum trong đặc tả và một kiểu trong Go.
+func duAnMau(t *testing.T, yaml, goSrc string) string {
+	t.Helper()
+	goc := duAn(t, openapiMotTuyen,
+		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+	ghiDe(t, goc, "api/components/mau.yaml", yaml)
+	ghiDe(t, goc, "internal/thing/domain/mau.go", goSrc)
+	return goc
+}
+
+func TestEnumKhopThiKhongBaoViPham(t *testing.T) {
+	goc := duAnMau(t, enumNhieuDong, goMau)
+
+	if c := chayEnum(t, goc, capMau(false), nil, 0); len(c.viPham) != 0 {
+		t.Fatalf("mong 0 vi phạm, nhận: %v", c.viPham)
+	}
+}
+
+// HAI cách viết YAML của cùng một thứ phải cho CÙNG một đường dẫn.
+//
+// Nếu không, sổ ghép phải biết đặc tả viết kiểu nào — một chi tiết không ai
+// nhớ, và đổi cách viết sẽ lặng lẽ tháo hàng rào ra khỏi enum đó.
+func TestEnumVietMotDongCungDuongDanVoiNhieuDong(t *testing.T) {
+	goc := duAnMau(t, enumMotDong, goMau)
+
+	if c := chayEnum(t, goc, capMau(false), nil, 0); len(c.viPham) != 0 {
+		t.Fatalf("dạng một dòng phải khớp cùng sổ, nhận: %v", c.viPham)
+	}
+}
+
+// ĐÂY LÀ LỖI THẬT: đặc tả nói `GRAY`, máy chủ lưu `GREY`.
+//
+// Bộ lọc theo màu im lặng trả rỗng — không lỗi, không log, không ai biết.
+// Một chữ cái, và cả hai chiều đều sai cùng lúc.
+func TestBatLechMotChuCai(t *testing.T) {
+	goc := duAnMau(t, strings.Replace(enumNhieuDong, "GREY", "GRAY", 1), goMau)
+
+	c := chayEnum(t, goc, capMau(false), nil, 0)
+	if len(c.viPham) != 2 {
+		t.Fatalf("mong 2 vi phạm (mỗi chiều một), nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	gop := strings.Join(c.viPham, "\n")
+	if !strings.Contains(gop, "GRAY") || !strings.Contains(gop, "GREY") {
+		t.Fatalf("phải gọi tên CẢ HAI giá trị lệch: %v", c.viPham)
+	}
+}
+
+// Đặc tả khai giá trị Go không sinh ra: client viết một nhánh không bao giờ
+// chạy tới. KHÔNG BAO GIỜ hợp lệ — kể cả khi cặp cho phép tập con.
+func TestBatDacTaKhaiGiaTriGoKhongCo(t *testing.T) {
+	yaml := strings.Replace(enumNhieuDong, "          - GREY",
+		"          - GREY\n          - MULTI", 1)
+	goc := duAnMau(t, yaml, goMau)
+
+	for _, tapCon := range []bool{false, true} {
+		c := chayEnum(t, goc, capMau(tapCon), nil, 0)
+		if len(c.viPham) != 1 {
+			t.Fatalf("tậpCon=%v: mong 1 vi phạm, nhận %d: %v",
+				tapCon, len(c.viPham), c.viPham)
+		}
+		if !strings.Contains(c.viPham[0], "MULTI") {
+			t.Fatalf("tậpCon=%v: phải gọi tên MULTI: %v", tapCon, c.viPham[0])
+		}
+	}
+}
+
+// ĐÂY LÀ LỖI THẬT: `account_type` khai 9 tài khoản, Go có 13.
+//
+// Client sinh kiểu từ đặc tả thu hẹp kiểu sai, rồi vỡ khi gặp response thật.
+func TestBatGoCoMaDacTaThieu(t *testing.T) {
+	goSrc := strings.Replace(goMau, `	MauXam   NhomMau = "GREY"`,
+		`	MauXam   NhomMau = "GREY"`+"\n"+`	MauBac   NhomMau = "SILVER"`, 1)
+	goc := duAnMau(t, enumNhieuDong, goSrc)
+
+	c := chayEnum(t, goc, capMau(false), nil, 0)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "SILVER") {
+		t.Fatalf("phải gọi tên SILVER: %v", c.viPham[0])
+	}
+
+	// …trừ khi cặp KHAI rằng đặc tả hẹp hơn là đúng — như `tier` của `/me`
+	// không bao giờ trả `ANONYMIZED`.
+	if c := chayEnum(t, goc, capMau(true), nil, 0); len(c.viPham) != 0 {
+		t.Fatalf("khai ChoPhepTapCon rồi thì phải im: %v", c.viPham)
+	}
+}
+
+// Đọc AST chứ không grep.
+//
+// Một giá trị nằm trong bình luận hay trong thông điệp lỗi KHÔNG phải một
+// giá trị hợp lệ của kiểu. Nếu công cụ grep, nó sẽ đòi đặc tả khai thêm
+// `BLACK` — một cảnh báo giả, và cảnh báo giả làm người ta tắt phép kiểm.
+func TestGiaTriTrongBinhLuanVaChuoiKhongTinh(t *testing.T) {
+	goSrc := goMau + `
+// MauDen NhomMau = "BLACK" — bỏ đi vì kho không còn phân loại theo đen.
+
+const ThongBaoLoi = "nhóm màu hợp lệ: WHITE, GREY, BLACK"
+`
+	goc := duAnMau(t, enumNhieuDong, goSrc)
+
+	if c := chayEnum(t, goc, capMau(false), nil, 0); len(c.viPham) != 0 {
+		t.Fatalf("BLACK trong bình luận/chuỗi không phải giá trị: %v", c.viPham)
+	}
+}
+
+// Sổ ghép trỏ tới đường dẫn KHÔNG CÒN là một dòng nói dối.
+//
+// Nó im lặng ngừng gác enum ấy trong khi vẫn trông như đang gác — đúng kiểu
+// hỏng mà `types:check` đã mắc.
+func TestBatSoGhepTroToiDuongDanChet(t *testing.T) {
+	goc := duAnMau(t, enumNhieuDong, goMau)
+	chet := []capEnum{{
+		"components/mau.yaml#/schemas/ColorInfo/properties/color_family",
+		"thing/domain", "NhomMau", false, "nhóm màu",
+	}}
+
+	// Enum thật lúc này KHÔNG được gác, nên chốt để 1 để đo đúng một thứ.
+	c := chayEnum(t, goc, chet, nil, 1)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "ColorInfo") {
+		t.Fatalf("phải gọi tên đường dẫn chết: %v", c.viPham[0])
+	}
+}
+
+// Sổ miễn trừ cũng phải chết theo enum nó miễn trừ.
+func TestBatDongKhongGhepDaChet(t *testing.T) {
+	goc := duAnMau(t, enumNhieuDong, goMau)
+	c := chayEnum(t, goc, capMau(false),
+		map[string]string{"components/mau.yaml#/schemas/DaXoa/properties/x": "lý do cũ"}, 0)
+
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "DaXoa") {
+		t.Fatalf("phải gọi tên dòng chết: %v", c.viPham[0])
+	}
+}
+
+// Chốt CHỈ ĐƯỢC GIẢM.
+//
+// Một chốt cao hơn thực tế là chỗ trống để lặng lẽ thêm enum không ai gác —
+// nó không đỏ, nên không ai biết hàng rào đã nới ra.
+func TestChotEnumChuaGacChiDuocGiam(t *testing.T) {
+	goc := duAnMau(t, enumNhieuDong, goMau)
+
+	c := chayEnum(t, goc, capMau(false), nil, 5)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "Hạ chốt") {
+		t.Fatalf("phải bảo hạ chốt: %v", c.viPham[0])
+	}
+
+	// Thêm enum không gác mà chốt vẫn thấp thì cũng đỏ, ở chiều kia.
+	if c := chayEnum(t, goc, nil, nil, 0); len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm ở chiều vượt chốt, nhận %d: %v",
+			len(c.viPham), c.viPham)
+	}
+}
+
+// Đổi tên kiểu Go mà quên sửa sổ: công cụ phải KÊU, không được im.
+func TestBatKieuGoDoiTen(t *testing.T) {
+	goc := duAnMau(t, enumNhieuDong, strings.ReplaceAll(goMau, "NhomMau", "HoMau"))
+
+	c := chayEnum(t, goc, capMau(false), nil, 0)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "NhomMau") {
+		t.Fatalf("phải gọi tên kiểu không tìm thấy: %v", c.viPham[0])
 	}
 }

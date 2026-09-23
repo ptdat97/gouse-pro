@@ -44,14 +44,44 @@ func main() {
 	var (
 		root    = flag.String("root", ".", "thư mục gốc dự án")
 		verbose = flag.Bool("v", false, "in chi tiết quá trình kiểm tra")
+
+		// lietKeEnum in đường dẫn của MỌI enum trong đặc tả.
+		//
+		// Sổ `capEnumDaKiem` khóa theo đường dẫn, và đường dẫn là thứ không
+		// đoán được — nó do bộ đọc dựng ra từ thụt lề. Không có cờ này thì
+		// mỗi lần thêm một cặp là một vòng đoán rồi chạy rồi sửa.
+		lietKeEnum = flag.Bool("liet-ke-enum", false,
+			"in đường dẫn và giá trị của mọi enum trong đặc tả, rồi thoát")
 	)
 	flag.Parse()
+
+	if *lietKeEnum {
+		c := &checker{root: *root}
+		ds, err := c.docEnumDacTa()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "apicheck: %v\n", err)
+			os.Exit(2)
+		}
+		duong := make([]string, 0, len(ds))
+		for d := range ds {
+			duong = append(duong, d)
+		}
+		sort.Strings(duong)
+		for _, d := range duong {
+			fmt.Printf("%-78s %s\n", d, strings.Join(ds[d], ", "))
+		}
+		fmt.Printf("\n%d enum\n", len(ds))
+		return
+	}
 
 	c := &checker{
 		root: *root, verbose: *verbose,
 		chuaCai: chuaCai, ngoaiHopDong: ngoaiHopDong,
 		headerNgoaiDacTa:         headerNgoaiDacTa,
 		headerKhongQuaTrinhDuyet: headerKhongQuaTrinhDuyet,
+		capEnum:                  capEnumDaKiem,
+		enumKhongGhep:            enumKhongGhep,
+		nguongEnumChuaGac:        soEnumChuaGac,
 	}
 	if err := c.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "apicheck: %v\n", err)
@@ -88,6 +118,12 @@ type checker struct {
 	headerNgoaiDacTa         map[string]string
 	headerKhongQuaTrinhDuyet map[string]string
 
+	// Hai sổ + một chốt cho tầng ENUM — xem enum.go.
+	capEnum           []capEnum
+	enumKhongGhep     map[string]string
+	nguongEnumChuaGac int
+	soEnumChuaGac     int
+
 	dacTa map[thaoTac]string // thao tác -> file đặc tả khai nó
 	tuyen map[thaoTac]string // tuyến   -> file Go đăng ký nó
 
@@ -117,8 +153,14 @@ func (c *checker) run() error {
 		return err
 	}
 
+	enumDacTa, err := c.docEnumDacTa()
+	if err != nil {
+		return err
+	}
+
 	c.doiChieu()
 	c.doiChieuHeader(c.headerDacTa, c.headerCORS)
+	c.doiChieuEnum(enumDacTa)
 	return nil
 }
 
@@ -379,6 +421,10 @@ func (c *checker) report() {
 		fmt.Printf("apicheck: %d thao tác đặc tả · %d tuyến · %d hoãn · "+
 			"%d ngoài hợp đồng\n",
 			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.ngoaiHopDong))
+		fmt.Printf("apicheck: %d cặp enum đã kiểm · %d enum khai không ghép · "+
+			"%d enum CHƯA GÁC (chốt %d)\n",
+			len(c.capEnum), len(c.enumKhongGhep), c.soEnumChuaGac,
+			c.nguongEnumChuaGac)
 		fmt.Printf("apicheck: %d header đặc tả · %d header CORS cho phép · "+
 			"%d ngoài đặc tả · %d không qua trình duyệt\n",
 			len(c.headerDacTa), len(c.headerCORS),
@@ -387,8 +433,10 @@ func (c *checker) report() {
 
 	if len(c.viPham) == 0 {
 		fmt.Printf("apicheck: OK — %d thao tác đặc tả khớp %d tuyến "+
-			"(%d hoãn, đã khai) · %d header khớp danh sách CORS\n",
-			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.headerCORS))
+			"(%d hoãn, đã khai) · %d header khớp danh sách CORS · "+
+			"%d cặp enum khớp\n",
+			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.headerCORS),
+			len(c.capEnum))
 		return
 	}
 

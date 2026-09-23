@@ -5,3 +5,13 @@
 
 # Binary Linux dựng tạm để chạy stack trong Docker — không thuộc mã nguồn.
 .docker-bin/
+
+# Binary dựng tại chỗ bằng `go build ./cmd/<x>` — Go đặt nó ngay tại thư
+# mục chạy lệnh, trùng tên với thư mục lệnh. Dễ lỡ tay commit một file
+# Mach-O 3MB vào repo.
+/gouse/apicheck
+/gouse/archcheck
+
+# Thư mục nháp để hỏi database lúc điều tra. Go bỏ qua thư mục bắt đầu
+# bằng `_`, nên nó không vào build — nhưng git thì vẫn thấy.
+/gouse/_q/

@@ -76,6 +76,54 @@ schemas:
         type: string
         description: Nhãn hiển thị cho khách.
 
+  ColorFamily:
+    type: string
+    description: |
+      Nhóm màu để LỌC. Khách lọc "màu xanh", không lọc "Xanh navy đậm".
+
+      Máy chủ SUY RA nhóm này từ tên màu nhà bán nhập (`SuyRaNhomMau`), nên
+      đây là tập ĐÓNG — client dựng bộ lọc từ đúng danh sách này.
+
+      # Vì sao là một schema có TÊN
+
+      Trước 23/09/2026 enum này nằm thẳng trong `Color.color_family`, mà
+      `Color` KHÔNG được `$ref` từ đâu cả — nên nó không sinh ra kiểu nào
+      cho client. Cùng lúc, tham số `color` của `GET /products` — chỗ DUY
+      NHẤT client thật sự dựng bộ lọc màu — khai `type: string` trơn.
+
+      Kết quả: mười bốn nhóm màu được mô tả kỹ ở một nơi không ai đọc, và
+      chỗ cần chúng thì không có gì. Bộ lọc màu chưa từng được viết, và đây
+      là lý do.
+
+      Sửa cùng ngày, ba chỗ lệch với `domain.NhomMau`:
+
+      ```text
+      GRAY → GREY    máy chủ lưu GREY. Client theo đặc tả gửi GRAY thì
+                     truy vấn so `upper(color_family) = 'GRAY'` và KHÔNG
+                     khớp gì — bộ lọc im lặng trả rỗng.
+      + SILVER       máy chủ sinh ra được, đặc tả không khai, nên bộ lọc
+      + OTHER        dựng từ đặc tả không bao giờ mời chọn chúng
+      − MULTI        đặc tả khai mà máy chủ không bao giờ sinh ra — một
+                     lựa chọn luôn trả về rỗng
+      ```
+
+      `cmd/apicheck` gác cặp này từ P3-70: lệch một chữ là CI đỏ.
+    enum:
+      - WHITE
+      - BLACK
+      - GREY
+      - SILVER
+      - BEIGE
+      - BROWN
+      - RED
+      - PINK
+      - ORANGE
+      - YELLOW
+      - GREEN
+      - BLUE
+      - PURPLE
+      - OTHER
+
   Color:
     type: object
     required: [name, color_family]
@@ -89,9 +137,7 @@ schemas:
         description: Để hiển thị ô màu thật — khách chọn theo màu nhìn thấy, không theo tên.
         examples: ['#F5F5DC']
       color_family:
-        type: string
-        description: Nhóm màu để lọc. Khách lọc "màu xanh", không lọc "Xanh navy đậm".
-        enum: [WHITE, BLACK, GRAY, BEIGE, BROWN, RED, PINK, ORANGE, YELLOW, GREEN, BLUE, PURPLE, MULTI]
+        $ref: '#/schemas/ColorFamily'
 
   MaterialComposition:
     type: array
