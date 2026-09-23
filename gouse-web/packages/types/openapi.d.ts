@@ -1064,9 +1064,9 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Sửa sản phẩm nháp
-         * @description Sửa thông tin một sản phẩm ở trạng thái `DRAFT` — gồm cả nháp "bị trả
-         *     về", vì từ chối đưa sản phẩm về lại DRAFT.
+         * Sửa sản phẩm
+         * @description Sửa thông tin một sản phẩm ở `DRAFT` (gồm cả nháp "bị trả về", vì từ
+         *     chối đưa sản phẩm về lại DRAFT) hoặc `ACTIVE`.
          *
          *     **Ngữ nghĩa PATCH:** trường nào VẮNG thì giữ nguyên. Trường có mặt thì
          *     đổi — kể cả `""`, và `""` với `name`/`slug`/`category_id` là lỗi chứ
@@ -1075,12 +1075,28 @@ export interface paths {
          *     **`images` THAY THẾ cả danh sách**, không nối thêm: gỡ được ảnh sai,
          *     đổi được thứ tự (ảnh đầu là ảnh bìa).
          *
-         *     # Chỉ ở DRAFT
+         *     # Hai trạng thái sửa được, và chúng KẾT THÚC khác nhau
          *
-         *     `PENDING_REVIEW` thì người kiểm duyệt đang xem; sửa lúc này là đổi thứ
-         *     họ đang duyệt ngay dưới tay họ. `ACTIVE` thì khách đang thấy; sửa mà
-         *     không qua duyệt lại là cửa sau để tráo ảnh sau khi được duyệt — một
-         *     chính sách riêng, CHƯA quyết. Cả hai trả 409.
+         *     ```text
+         *     DRAFT   chỉ nhà bán thấy → sửa xong vẫn DRAFT
+         *     ACTIVE  khách đang thấy  → sửa xong về PENDING_REVIEW, TẠM ẨN khỏi
+         *                                cửa hàng cho tới khi duyệt lại
+         *     ```
+         *
+         *     Vế thứ hai là quyết định 23/09/2026. Cho sửa hàng đang bán mà KHÔNG
+         *     duyệt lại là mở cửa sau: đăng một trang sạch, chờ duyệt xong, rồi
+         *     tráo ảnh và tên. Cấm hẳn thì một lỗi chính tả cũng buộc nhà bán đăng
+         *     lại sản phẩm mới — và họ sẽ làm thế, để lại danh mục đầy bản trùng.
+         *
+         *     Response trả `status` MỚI, nên bên gọi thấy ngay hậu quả.
+         *
+         *     Sửa hàng đang bán mà làm nó THIẾU điều kiện duyệt (ví dụ gỡ hết ảnh)
+         *     thì cả lượt sửa bị từ chối 400 — không để sản phẩm rơi vào hàng chờ
+         *     duyệt ở trạng thái không bao giờ duyệt được.
+         *
+         *     `PENDING_REVIEW` và `INACTIVE` thì KHÔNG sửa được (409). Người kiểm
+         *     duyệt đang xem cái thứ nhất; cái thứ hai bật lại được mà không cần
+         *     duyệt vì nội dung không đổi — cho sửa sẽ phá đúng giả định ấy.
          *
          *     # Không đổi được thương hiệu
          *
@@ -6421,7 +6437,10 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
-            /** @description Sản phẩm không ở DRAFT, hoặc slug đã có sản phẩm khác dùng. */
+            /**
+             * @description Sản phẩm ở `PENDING_REVIEW` hoặc `INACTIVE`, hoặc slug đã có sản
+             *     phẩm khác dùng.
+             */
             409: {
                 headers: {
                     [name: string]: unknown;
