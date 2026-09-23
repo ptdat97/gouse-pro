@@ -6409,6 +6409,88 @@ bắt buộc mà mục 5 không nhắc.
 
 ---
 
+### P3-68 — màn hình DUYỆT sản phẩm: vòng đời cuối cùng cũng khép kín
+
+Ba endpoint duyệt có từ lâu và **không màn hình nào gọi chúng**. Nhà bán
+gửi duyệt xong thì sản phẩm nằm ở `PENDING_REVIEW` vĩnh viễn — cả luồng
+đăng bán mà P3-63…P3-66 dựng lên kết thúc ở một ngõ cụt.
+
+Từ P3-66, hàng chờ có **hai nguồn**, và người duyệt cần phân biệt:
+
+```text
+sản phẩm MỚI    chưa ai từng thấy
+hàng ĐANG BÁN   vừa bị sửa nên phải duyệt lại — nó đang TẠM ẨN khỏi cửa
+                hàng, nên để lâu là mất doanh số THẬT
+```
+
+#### Người duyệt cần thấy ĐỦ để quyết, ngay tại đây
+
+Duyệt một trang sản phẩm là trả lời: ảnh có đúng hàng không, mô tả có nói
+quá không, chất liệu có khai không, và quan trọng nhất — **gian hàng này có
+tư cách bán thương hiệu đó không**.
+
+Một danh sách chỉ có tên sản phẩm và hai cái nút sẽ biến việc duyệt thành
+bấm cho xong, và khi ấy nó **tệ hơn không duyệt**: nó tạo ra một lớp bảo vệ
+chỉ có trên giấy, để rồi cả hệ thống tin rằng đã có người nhìn.
+
+Nên trang hiện ảnh THẬT (không phải "3 ảnh"), mô tả đầy đủ, biến thể, và
+hai cái tên quyết định việc duyệt: **gian hàng** và **thương hiệu**.
+
+#### Hai lượt gọi để đổi ULID thành tên người đọc được
+
+```text
+gian hàng    lookupSellers(ids=…) — MỘT lượt cho cả trang
+thương hiệu  getBrand(id) — một lượt cho mỗi thương hiệu KHÁC NHAU
+```
+
+`created_by_seller_id` phải thêm vào DTO: nó thừa với chính nhà bán (họ chỉ
+thấy hàng của mình) và cần cho người duyệt. `getBrand` thì đã có endpoint từ
+lâu mà **chưa từng có bên gọi có kiểu nào** — nên `BrandRef` ở khắp nơi chỉ
+mang `id`, và mọi màn hình hiện một ULID.
+
+Thương hiệu tra không ra thì hiện mã thô chứ KHÔNG làm hỏng cả trang: người
+duyệt vẫn phải xử lý được những sản phẩm còn lại.
+
+#### Lý do từ chối lần TRƯỚC hiện ngay trên thẻ
+
+Sản phẩm bị trả về rồi gửi lại mang theo `rejection_reason` cũ. Người duyệt
+cần biết lần trước trả về vì gì, để kiểm đúng chỗ đó đã sửa chưa — thay vì
+đọc lại từ đầu.
+
+#### Hộp thoại từ chối: nút KHÔNG mờ đi, có chủ ý
+
+`ReasonDialog` dùng chung đòi lý do ≥20 ký tự. Nó giữ nút BẬT rồi chặn lúc
+gửi kèm lỗi cụ thể — chú thích trong mã nói rõ vì sao: *"nút mờ không giải
+thích vì sao"*.
+
+Tôi suýt ghi đây là lỗi. Kiểm đúng hành vi thay vì đúng trạng thái nút:
+lý do "sai" → **0 lượt gọi mạng**, lỗi *"Cần tối thiểu 20 ký tự, hiện có
+3"*, hộp thoại còn mở và giữ nguyên chữ đã gõ.
+
+#### CSS: lần này định nghĩa TRƯỚC khi dùng
+
+`.panel` và `.muted` chưa bao giờ tồn tại trong ứng dụng admin — đúng lỗi
+đã mắc ở ứng dụng nhà bán (P3-60), nơi trang trả hàng dùng bốn lớp không có
+thật và không gì báo. Lần này thêm vào `globals.css` trước.
+
+#### Kiểm chứng — vòng đời khép kín, trên trình duyệt thật
+
+```text
+1. hàng chờ hiện 2 sản phẩm, kèm "Xưởng May Bảy" và "Basics Co"
+2. trả về một cái, lý do 3 ký tự → 0 lượt gọi, hiện lỗi đếm ký tự
+3. lý do đủ dài  → hàng chờ còn 1
+4. duyệt cái còn lại → "Không có sản phẩm nào chờ duyệt"
+5. phía NHÀ BÁN:  Áo blazer → DRAFT, kèm nguyên văn lý do
+                  Túi tote  → ACTIVE
+```
+
+Đây là lần đầu một sản phẩm đi trọn vòng qua giao diện: tạo → biến thể →
+gửi duyệt → duyệt → lên kệ, và nhánh trả về → sửa → gửi lại.
+
+63/63 gói Go xanh · 64 test đơn vị xanh.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

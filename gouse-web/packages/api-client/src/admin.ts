@@ -205,3 +205,49 @@ export function setOpsConfig(
     reason,
   });
 }
+
+// ------------------------------------------------- Duyệt sản phẩm
+
+export type PendingProducts = Ok<operations["listPendingProducts"]>;
+export type ProductReviewed = Ok<operations["approveProduct"]>;
+
+/**
+ * Sản phẩm đang chờ duyệt của MỌI gian hàng.
+ *
+ * Hàng chờ có HAI nguồn, và người duyệt cần phân biệt được:
+ *
+ *	sản phẩm MỚI      chưa ai từng thấy
+ *	hàng ĐANG BÁN     vừa bị sửa nên phải duyệt lại (23/09/2026) — nó đang
+ *	                  TẠM ẨN khỏi cửa hàng, nên để lâu là mất doanh số thật
+ */
+export function listPendingProducts(api: ApiClient): Promise<PendingProducts> {
+  return api.get<PendingProducts>("/api/v1/admin/products/pending");
+}
+
+/** Duyệt: sản phẩm ra cửa hàng ngay. */
+export function approveProduct(
+  api: ApiClient,
+  id: string,
+): Promise<ProductReviewed> {
+  return api.post<ProductReviewed>(
+    `/api/v1/admin/products/${encodeURIComponent(id)}/approve`,
+  );
+}
+
+/**
+ * Từ chối — LÝ DO bắt buộc, và nhà bán đọc được nguyên văn.
+ *
+ * Backend từ chối `reason` rỗng. Một lần từ chối không nói lý do là một
+ * gian hàng đứng im không hiểu vì sao, rồi gửi lại đúng sản phẩm đó —
+ * tốn công cả hai bên.
+ */
+export function rejectProduct(
+  api: ApiClient,
+  id: string,
+  reason: string,
+): Promise<ProductReviewed> {
+  return api.post<ProductReviewed>(
+    `/api/v1/admin/products/${encodeURIComponent(id)}/reject`,
+    { reason },
+  );
+}

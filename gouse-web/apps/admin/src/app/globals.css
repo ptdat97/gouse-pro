@@ -149,3 +149,44 @@ a { color: var(--color-info); }
 .mono { font-family: var(--font-mono); font-size: var(--text-sm); }
 
 .actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ---------------------------------------------- Khối nội dung và ghi chú
+ *
+ * Cùng bốn lớp đã thiếu ở ứng dụng nhà bán (P3-60): chúng được chép tên từ
+ * cửa hàng và chưa bao giờ được định nghĩa ở đây. Tên lớp không tồn tại
+ * KHÔNG gây lỗi ở đâu cả — không TypeScript, không build, không console —
+ * nên lần này định nghĩa TRƯỚC khi dùng.
+ */
+
+.muted { color: var(--color-text-muted); }
+
+.panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  margin-bottom: var(--space-4);
+}
+
+.panel h2,
+.panel h3 { font-size: var(--text-lg); margin-top: 0; }
+
+/* Ảnh sản phẩm trong màn hình duyệt.
+ *
+ * Kích thước cố định và `object-fit: contain`: người duyệt cần thấy TOÀN
+ * BỘ khung hình để biết ảnh có bị cắt cụt hay không. `cover` sẽ cắt bớt
+ * đúng phần có thể đang sai. */
+.anh-duyet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.anh-duyet img {
+  width: 160px;
+  height: 160px;
+  object-fit: contain;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}

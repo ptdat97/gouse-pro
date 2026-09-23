@@ -36,6 +36,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/sellers", label: "Nhà bán", roles: ["OPS_MERCHANDISING"] },
+  { href: "/products", label: "Duyệt sản phẩm", roles: ["OPS_MERCHANDISING"] },
   { href: "/orders", label: "Đơn hàng", roles: ["OPS_SUPPORT"] },
   { href: "/audit-log", label: "Nhật ký thao tác", roles: [] },
 

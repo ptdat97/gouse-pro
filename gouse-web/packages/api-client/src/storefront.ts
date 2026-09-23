@@ -495,3 +495,22 @@ export type CategoryTree =
 export function getCategoryTree(api: ApiClient): Promise<CategoryTree> {
   return api.get<CategoryTree>("/api/v1/categories");
 }
+
+// ------------------------------------------------------------ Thương hiệu
+
+export type BrandDetail =
+  operations["getBrand"]["responses"][200]["content"]["application/json"];
+
+/**
+ * Một thương hiệu theo mã.
+ *
+ * Endpoint có từ lâu và tới 23/09/2026 KHÔNG bên gọi có kiểu nào — nên
+ * `BrandRef` ở khắp nơi chỉ mang `id`, và mọi màn hình hiện một ULID.
+ *
+ * KHÔNG có bản tra theo LÔ. Bên gọi cần nhiều thương hiệu thì gọi song
+ * song cho từng mã KHÁC NHAU; số thương hiệu trên một trang thường rất
+ * nhỏ. Khi nào nó không còn nhỏ, thêm `?ids=` như `lookupSellers` đã làm.
+ */
+export function getBrand(api: ApiClient, id: string): Promise<BrandDetail> {
+  return api.get<BrandDetail>(`/api/v1/brands/${encodeURIComponent(id)}`);
+}

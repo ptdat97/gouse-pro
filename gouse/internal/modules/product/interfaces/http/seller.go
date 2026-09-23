@@ -389,7 +389,15 @@ type sanPhamNhaBan struct {
 
 	BrandID     string `json:"brand_id,omitempty"`
 	ProductType string `json:"product_type,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
+
+	// CreatedBySellerID: gian hàng đã tạo sản phẩm. RỖNG với danh mục
+	// chuẩn do nền tảng tự tạo.
+	//
+	// Thừa với chính nhà bán — họ chỉ thấy hàng của mình. Cần cho MÀN HÌNH
+	// DUYỆT: người duyệt phải biết AI gửi, vì cùng một trang sản phẩm dưới
+	// một thương hiệu được bảo hộ có nghĩa khác hẳn tùy gian hàng nào gửi.
+	CreatedBySellerID string `json:"created_by_seller_id,omitempty"`
+	CreatedAt         string `json:"created_at,omitempty"`
 
 	// Các trường SỬA ĐƯỢC — trả ra để biểu mẫu sửa điền sẵn giá trị hiện
 	// tại. Không có chúng thì mọi lần sửa bắt đầu từ ô trống, và một nhà
@@ -460,15 +468,16 @@ func toBienTheNhaBan(vs []*domain.Variant) []bienTheNhaBan {
 
 func toSanPhamNhaBan(p *domain.Product) sanPhamNhaBan {
 	return sanPhamNhaBan{
-		ID:              p.ID().String(),
-		Name:            p.Name(),
-		Slug:            p.Slug(),
-		Status:          string(p.Status()),
-		RejectionReason: p.RejectionReason(),
-		BrandID:         p.BrandID().String(),
-		ProductType:     string(p.Type()),
-		CreatedAt:       p.CreatedAt().UTC().Format(time.RFC3339),
-		Variants:        toBienTheNhaBan(p.Variants()),
+		ID:                p.ID().String(),
+		Name:              p.Name(),
+		Slug:              p.Slug(),
+		Status:            string(p.Status()),
+		RejectionReason:   p.RejectionReason(),
+		BrandID:           p.BrandID().String(),
+		ProductType:       string(p.Type()),
+		CreatedAt:         p.CreatedAt().UTC().Format(time.RFC3339),
+		CreatedBySellerID: p.CreatedBySellerID().String(),
+		Variants:          toBienTheNhaBan(p.Variants()),
 
 		Description:         p.Description(),
 		CareInstructions:    p.CareInstructions(),

@@ -3216,6 +3216,16 @@ export interface components {
             rejection_reason?: string;
             brand_id?: components["schemas"]["Id"];
             product_type?: string;
+            /**
+             * @description Gian hàng đã tạo sản phẩm. RỖNG với danh mục chuẩn do nền tảng tự
+             *     tạo.
+             *
+             *     Thừa với chính nhà bán — họ chỉ thấy hàng của mình. Cần cho màn
+             *     hình DUYỆT: người duyệt phải biết AI gửi, vì cùng một trang sản
+             *     phẩm dưới một thương hiệu được bảo hộ có nghĩa khác hẳn tùy gian
+             *     hàng nào gửi.
+             */
+            created_by_seller_id?: components["schemas"]["Id"];
             description?: string;
             care_instructions?: string;
             material_composition?: string;

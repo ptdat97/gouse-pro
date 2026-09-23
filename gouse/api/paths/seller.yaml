@@ -1360,6 +1360,17 @@ SellerProduct:
       $ref: '../components/common.yaml#/schemas/Id'
     product_type:
       type: string
+    created_by_seller_id:
+      allOf:
+        - $ref: '../components/common.yaml#/schemas/Id'
+      description: |
+        Gian hàng đã tạo sản phẩm. RỖNG với danh mục chuẩn do nền tảng tự
+        tạo.
+
+        Thừa với chính nhà bán — họ chỉ thấy hàng của mình. Cần cho màn
+        hình DUYỆT: người duyệt phải biết AI gửi, vì cùng một trang sản
+        phẩm dưới một thương hiệu được bảo hộ có nghĩa khác hẳn tùy gian
+        hàng nào gửi.
     description:
       type: string
     care_instructions:
