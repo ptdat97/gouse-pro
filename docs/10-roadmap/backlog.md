@@ -7097,6 +7097,80 @@ nguyên sẽ dạy một cái tên vừa bị xóa — đổi sang `order.paid`,
 
 ---
 
+### P3-77 — rà idempotency: DÒ máy chủ thật thay vì đọc mã
+
+`RequireIdempotencyKey` được bọc THEO TỪNG NHÓM TUYẾN, mỗi nhóm một quyết
+định riêng kèm lý do trong chú thích. Không gì đối chiếu những quyết định
+ấy với đặc tả, và hai chiều lệch đều hỏng im lặng:
+
+```text
+máy chủ BẮT · đặc tả không khai   client sinh từ đặc tả không gửi header
+                                  → 400 ở MỌI lệnh ghi
+đặc tả khai · máy chủ KHÔNG bắt   client tưởng mình được bảo vệ. Một lần
+                                  thử lại sau timeout tạo bản ghi THỨ HAI
+```
+
+Chiều thứ hai nguy hiểm hơn: nó không có triệu chứng cho tới lúc mạng
+chập, và lúc ấy triệu chứng là đặt đơn hai lần hoặc ghi tiền hai lần.
+
+#### Vì sao DÒ chứ không đọc mã
+
+Middleware bọc quanh một `*http.ServeMux` CON, còn tuyến thì do module tự
+đăng ký vào mux ấy. Suy từ mã xem tuyến nào nằm trong chuỗi nào là một
+phép xấp xỉ — và một hàng rào xấp xỉ sẽ sai ở đúng chỗ khó thấy.
+
+Gửi thật một lệnh ghi THIẾU header rồi đọc câu trả lời thì không phải suy
+gì cả. Bài rà dựng bốn danh tính (vãng lai · khách · nhà bán · quản trị)
+và thử lần lượt cho tới khi qua được lớp xác thực.
+
+#### Ba cái bẫy của phép dò
+
+```text
+thao tác CHƯA CÓ ROUTE     trả 404, và bài rà kết luận "không bắt khóa" —
+                           cảnh báo GIẢ cho sáu thao tác Phase 2
+401 của HANDLER            `login` với thân rỗng trả 401, không phân biệt
+                           được với 401 của lớp xác thực
+chặn ở lớp KHÁC            webhook chặn ở kiểm CHỮ KÝ trước idempotency
+```
+
+Cái thứ nhất xử lý bằng cách **đọc chính file `cmd/apicheck/chua_cai.go`**
+thay vì chép danh sách sang. Sổ ấy nằm trong `package main` nên không
+import được, nhưng chép lại sẽ tạo nguồn sự thật THỨ HAI — và hai danh
+sách cùng nội dung sớm muộn sẽ lệch, đúng thứ dự án này đã gặp với
+`GRAY`/`GREY`. Đổi chỗ file ấy thì bài test đỏ ngay chứ không im lặng bỏ
+gác.
+
+Hai cái sau: một thân request riêng cho `login`, và hai webhook khai vào
+sổ `chuaDoDuoc` kèm lý do — dò được chúng thì phải ký giả một webhook,
+tức chép lại thuật toán ký.
+
+#### Kết quả
+
+Tám thao tác ghi CỐ Ý không bắt khóa, mỗi cái một lý do trong sổ
+`khongBatKhoa`: năm đường `auth` (trình duyệt gửi, token vốn dùng một
+lần), `POST /events` (tín hiệu hành vi bắn-và-quên) và hai webhook (bên
+gửi không biết quy ước của ta; chống trùng bằng định danh sự kiện CỦA
+HỌ).
+
+Mọi thao tác ghi còn lại: máy chủ bắt ⇔ đặc tả khai.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+bỏ RequireIdempotencyKey ở nhóm giỏ   3 thao tác đỏ: "đặc tả KHAI khóa mà
+                                      máy chủ KHÔNG bắt"
+xóa một khai IdempotencyKey            "máy chủ BẮT khóa mà đặc tả KHÔNG
+khỏi đặc tả                            khai"
+```
+
+Bài rà còn bắt được **sổ của chính tôi**: bốn dòng trong `khongBatKhoa`
+ghi sai đường dẫn (`auth/resend-verification` thay vì
+`auth/verify-email/resend`, `events/behavior` thay vì `events`, hai
+webhook thiếu `{provider}`). Một dòng miễn trừ trỏ sai chỗ là một dòng
+không gác gì mà vẫn trông như đang gác.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
