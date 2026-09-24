@@ -6946,6 +6946,76 @@ làm được.
 
 ---
 
+### P3-75 — bộ test thỉnh thoảng đỏ vì hạ tầng, và ba giả thuyết sai
+
+`go test ./...` thỉnh thoảng đỏ một gói bất kỳ với:
+
+```text
+mở database test "gouse_test_modules_analytics":
+  database: không kết nối được: context deadline exceeded
+```
+
+Chạy lại thì xanh. Hai lần trong một buổi, hai gói khác nhau.
+
+**Một bộ test thỉnh thoảng đỏ nguy hiểm hơn một bộ test đỏ hẳn**: nó dạy
+người ta bấm chạy lại thay vì đọc, và lần đỏ THẬT cũng bị bấm chạy lại
+theo.
+
+#### Ba giả thuyết, hai cái sai
+
+```text
+1. chạm trần kết nối       SAI. Đo trong lúc chạy cả bộ: đỉnh 22 trên
+                           `max_connections = 100`
+2. CREATE DATABASE nghẽn   SAI theo nghĩa "chưa được xử lý": vòng thử lại
+                           20 lần cho `CREATE ... TEMPLATE` đã có sẵn
+3. bắt tay kết nối quá hạn ĐÚNG hướng — và chỗ duy nhất KHÔNG có thử lại
+```
+
+Đo là thứ loại được giả thuyết 1. Không đo thì rất dễ đi nâng
+`max_connections` rồi tưởng đã xong.
+
+#### Vì sao 5 giây không đủ
+
+Lúc `go test ./...` khởi động, **hai mươi ba gói** cùng chạy
+`DROP DATABASE` rồi `CREATE DATABASE ... TEMPLATE` — mỗi lệnh sau là một
+lần CHÉP FILE của cả khuôn. Cùng lúc Go biên dịch và chạy test trên mọi
+lõi.
+
+Năm giây là con số chỉnh cho một **máy chủ đang ấm phục vụ khách**. Đem
+nguyên nó vào một máy đang chép hai mươi ba database là dùng sai chỗ.
+
+#### Sửa
+
+Hạn kết nối RIÊNG cho test: 30 giây. Cộng một vòng **thử lại ba lần**,
+cùng khuôn với vòng thử lại của `CREATE DATABASE` ngay bên dưới nó.
+
+Chỉ thử lại khi lỗi là HẾT HẠN. Postgres không chạy, DSN sai, sai mật
+khẩu — lần sau vẫn thế, và thử lại chỉ làm mỗi gói treo thêm vài giây
+trước khi đỏ, nhân với hai mươi ba gói.
+
+#### Vì sao KHÔNG dùng chung một pool cho cả gói
+
+Đó là cách bỏ được hàng trăm lần dựng pool — `internal/app` gọi
+`testdb.Open` **165 lần**, mỗi lần một pool mới.
+
+Nhưng có test CỐ Ý đóng pool để giả lập "database sập"
+(`analytics.TestGhiNhanKhongChanLuongChinh`). Một pool dùng chung bị đóng
+giữa chừng sẽ làm mọi test sau trong gói đỏ theo — đỏ vì hạ tầng test,
+không vì mã. Đúng dạng lỗi đang sửa, chỉ tệ hơn.
+
+#### Kiểm chứng
+
+Vòng thử lại tách khỏi lời gọi thật để kiểm được, ba bài cho ba nhánh:
+thử lại khi hết hạn · KHÔNG thử lại lỗi cấu hình · chịu thua sau ba lần.
+Phá từng nhánh đều đỏ đúng bài.
+
+**Nhưng chưa chứng minh được là hết.** Lỗi gốc chập chờn và tôi không tái
+hiện được theo ý muốn. Bằng chứng hiện có chỉ là: sáu lượt `go test ./...`
+liên tiếp không lượt nào đỏ, so với khoảng hai trên sáu trước đó. Nếu nó
+xuất hiện lại, chỗ cần nhìn là `testdb.timeoutKetNoiTest` và số lần thử.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

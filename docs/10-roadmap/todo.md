@@ -114,18 +114,15 @@ Kiểm chứng gần nhất (24/09/2026), trên Postgres thật ở máy phát t
 ✓ chạy thật    lọc màu ở cửa hàng qua trình duyệt thật, trên API +
                Postgres thật — xem P3-72
 
-✗ e2e          78/84. SÁU bài đỏ, KHÔNG phải hồi quy:
-               · 5 bài `nha-ban.spec.ts` — app nhà bán (:3002) không chạy
-                 ở lượt kiểm này
-               · 1 bài `dat-hang.spec.ts:149` ("đơn trộn hàng của hai nhà
-                 bán tách thành hai đơn thực hiện") — ĐỎ SẴN. Xác nhận
-                 bằng `git stash`: đỏ y hệt trên mã gốc, kể cả sau khi
-                 khởi động lại worker. Chưa điều tra.
+✓ e2e          84/84, năm lượt liên tiếp (43s → 10s sau khi bỏ được
+               những bài đốt hết 30 giây chờ). Sáu bài từng đỏ ở lượt
+               kiểm trước đã sửa: một lỗi THẬT ở giao diện thanh toán
+               (P3-73) và ba lỗi trong chính bài test.
 ```
 
-Dòng cuối ở lại đây cho tới khi có người sửa. Một bài đỏ không ghi ra là
-một bài sẽ được coi là "vẫn thế" ở mọi lượt kiểm sau — và khi nó thành đỏ
-vì lý do MỚI thì không ai nhận ra.
+Không còn bài nào đỏ sẵn. Nếu lượt sau có, hãy ghi thẳng vào đây — một
+bài đỏ không ghi ra là một bài sẽ được coi là "vẫn thế" ở mọi lượt kiểm
+sau, và khi nó thành đỏ vì lý do MỚI thì không ai nhận ra.
 
 **Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
 **phá code sản xuất rồi chạy lại test** — nếu test vẫn xanh sau khi bất

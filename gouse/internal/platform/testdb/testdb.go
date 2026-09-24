@@ -39,6 +39,7 @@ package testdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -74,15 +75,91 @@ var (
 // có PostgreSQL, và test đơn vị thuần vẫn phải chạy được.
 //
 // Kết nối tự đóng khi test kết thúc.
+//
+// # Vì sao MỘT pool cho MỖI test, không dùng chung cả gói
+//
+// Dùng chung sẽ bớt được hàng trăm lần dựng pool — `internal/app` gọi hàm
+// này 165 lần. Nhưng có test CỐ Ý đóng pool để giả lập "database sập"
+// (`analytics.TestGhiNhanKhongChanLuongChinh`), và một pool dùng chung bị
+// đóng giữa chừng sẽ làm mọi test sau trong gói đỏ theo — đỏ vì hạ tầng
+// test, không vì mã.
 func Open(t *testing.T) *database.DB {
 	t.Helper()
+	return OpenVoiCauHinh(t, database.Config{})
+}
 
-	db, err := database.Open(context.Background(), database.Config{DSN: DSN(t)})
+// OpenVoiCauHinh như Open nhưng cho phép chỉnh pool.
+//
+// `DSN` luôn bị ghi đè bằng database riêng của gói: một test trỏ nhầm sang
+// database phát triển là mất dữ liệu thật.
+func OpenVoiCauHinh(t *testing.T, cfg database.Config) *database.DB {
+	t.Helper()
+
+	cfg.DSN = DSN(t)
+	if cfg.ConnectTimeout == 0 {
+		cfg.ConnectTimeout = timeoutKetNoiTest
+	}
+
+	db, err := moLaiVaiLan(cfg)
 	if err != nil {
 		t.Fatalf("mở database test %q: %v", provOnce, err)
 	}
 	t.Cleanup(db.Close)
 	return db
+}
+
+// timeoutKetNoiTest RỘNG hơn nhiều so với production (5 giây).
+//
+// Lúc `go test ./...` khởi động, hai mươi ba gói cùng chạy
+// `DROP DATABASE` rồi `CREATE DATABASE ... TEMPLATE` — mỗi lệnh sau là một
+// lần CHÉP FILE của cả khuôn. Cùng lúc đó Go đang biên dịch và chạy test
+// trên mọi lõi.
+//
+// Năm giây là con số chỉnh cho một máy chủ ĐANG ẤM phục vụ khách. Đem nó
+// vào một máy đang chép hai mươi ba database thì thỉnh thoảng hết hạn —
+// và một bộ test thỉnh thoảng đỏ dạy người ta bấm chạy lại thay vì đọc.
+const timeoutKetNoiTest = 30 * time.Second
+
+// moLaiVaiLan thử lại khi kết nối hết hạn.
+//
+// Cùng lý do và cùng khuôn với vòng thử lại của `CREATE DATABASE` bên
+// dưới: chỗ nghẽn là ĐĨA và CPU lúc khởi động, không phải database hỏng.
+// Thử lại ba lần rồi mới chịu thua.
+//
+// KHÔNG thử lại vô hạn: nếu Postgres thật sự không chạy thì phải đỏ NGAY,
+// chứ không treo test suite ba mươi giây một lần cho mỗi gói.
+func moLaiVaiLan(cfg database.Config) (*database.DB, error) {
+	return thuLai(func() (*database.DB, error) {
+		return database.Open(context.Background(), cfg)
+	})
+}
+
+// soLanThu và nhipThuLai là biến để TEST rút ngắn được.
+//
+// Hằng số thì bài test phải ngủ ba giây thật, và một bài test chậm là một
+// bài test người ta bỏ qua.
+var (
+	soLanThu   = 3
+	nhipThuLai = time.Second
+)
+
+// thuLai gọi `mo` tới `soLanThu` lần, chỉ thử lại khi lỗi là HẾT HẠN.
+func thuLai(mo func() (*database.DB, error)) (*database.DB, error) {
+	var err error
+	for lan := 0; lan < soLanThu; lan++ {
+		var db *database.DB
+		if db, err = mo(); err == nil {
+			return db, nil
+		}
+		// Không thử lại với lỗi cấu hình: DSN sai, sai mật khẩu, hay
+		// Postgres không chạy đều cho cùng kết quả ở lần sau — thử lại chỉ
+		// làm mỗi gói treo thêm vài giây trước khi đỏ.
+		if !errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		time.Sleep(time.Duration(lan+1) * nhipThuLai)
+	}
+	return nil, fmt.Errorf("thử %d lần vẫn hết hạn kết nối: %w", soLanThu, err)
 }
 
 // DSN trả chuỗi kết nối tới database riêng của gói, dựng nó nếu chưa có.
