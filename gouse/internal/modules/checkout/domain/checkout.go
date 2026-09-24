@@ -416,7 +416,7 @@ func (c *Checkout) Subtotal() money.Money {
 
 // Total là tổng tiền khách phải trả.
 //
-//	subtotal + phí ship + thuế − giảm giá
+//	subtotal + phí ship − giảm giá        (KHÔNG cộng thuế — xem dưới)
 //
 // Đây là CON SỐ KHÁCH NHÌN THẤY, và nó phải bằng đúng con số vào đơn hàng.
 // Total là số tiền khách THỰC TRẢ.

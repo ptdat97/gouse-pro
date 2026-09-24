@@ -2972,6 +2972,20 @@ export interface components {
             expires_at: components["schemas"]["Timestamp"];
             lines: components["schemas"]["CheckoutLine"][];
             shipping_address?: components["schemas"]["Address"];
+            /**
+             * @description Cách giao khách ĐÃ CHỌN. Vắng mặt nghĩa là chưa chọn.
+             *
+             *     Giao diện cần trường này để biết bước "chọn cách giao" đã xong hay
+             *     chưa. Thiếu nó, cách suy duy nhất còn lại là `shipping_fee > 0` —
+             *     và cách ấy SAI ở đúng chỗ đắt nhất: đơn đạt ngưỡng miễn phí ship
+             *     có phí bằng 0, nên giao diện đọc thành "chưa chọn" rồi khóa nút
+             *     đặt hàng. Khách mua càng nhiều càng không đặt được. Xem P3-73.
+             *
+             *     Một con số TIỀN không bao giờ là một lá cờ boolean: 0 là giá trị
+             *     hợp lệ của tiền, không phải "không có".
+             * @enum {string}
+             */
+            shipping_method?: "STANDARD" | "EXPRESS";
             /** @description Thời gian giao hiển thị **riêng cho từng nhóm**, không gộp một con số. */
             shipping_groups?: {
                 seller?: components["schemas"]["SellerRef"];

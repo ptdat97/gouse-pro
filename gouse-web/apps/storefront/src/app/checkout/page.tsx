@@ -246,7 +246,16 @@ export default function CheckoutPage() {
   }
 
   const hasAddress = Boolean(checkout.shipping_address?.recipient_name);
-  const hasShipping = (checkout.shipping_fee?.amount ?? 0) > 0;
+  // Đã chọn cách giao hay chưa — hỏi TRƯỜNG ấy, không suy từ tiền.
+  //
+  // Bản trước viết `(checkout.shipping_fee?.amount ?? 0) > 0`, và nó sai ở
+  // đúng chỗ đắt nhất: đơn đạt ngưỡng miễn phí ship (499.000đ) có phí bằng
+  // 0, nên giao diện đọc thành "chưa chọn" rồi khóa nút Đặt hàng vĩnh
+  // viễn. Khách mua càng nhiều càng không đặt được hàng. Xem P3-73.
+  //
+  // Một con số TIỀN không bao giờ là một lá cờ boolean: 0 là giá trị hợp
+  // lệ của tiền, không phải "không có".
+  const hasShipping = Boolean(checkout.shipping_method);
 
   return (
     <div>

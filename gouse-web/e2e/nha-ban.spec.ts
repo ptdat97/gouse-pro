@@ -82,37 +82,124 @@ async function datMotDonMoi(page: import("@playwright/test").Page) {
   const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
   const khoa = () => ({ "Idempotency-Key": `req_${Date.now()}${Math.random()}` });
 
-  const ds = await page.request.get(`${api}/api/v1/products?limit=1`);
-  const productID = ((await ds.json()).data ?? [])[0]?.id;
-  if (!productID) throw new Error("danh mục trống");
+  /**
+   * Gọi API và ĐÒI nó thành công.
+   *
+   * # Vì sao từng bước phải kiểm
+   *
+   * Bản trước không kiểm bước nào. Nó đọc mã phiên bằng
+   * `(await phien.json()).checkout?.id` trong khi `POST /checkout` trả
+   * object ở CẤP CAO NHẤT, nên `checkoutID` là `undefined` — và ba lời gọi
+   * sau đó đi tới `/api/v1/checkout/undefined/...`, nhận 404, rồi bị bỏ
+   * qua im lặng.
+   *
+   * Không đơn nào được đặt. Ba mươi giây sau bài test đỏ với thông báo
+   * *"worker chưa tách đơn thực hiện sau khi đặt hàng"* — đổ lỗi cho
+   * worker, trong khi worker chạy đúng và chưa bao giờ có đơn để tách.
+   *
+   * Một bài test dựng dữ liệu mà không kiểm việc dựng sẽ đổ lỗi sai chỗ,
+   * và người đọc đi sửa nhầm hệ thống.
+   */
+  async function goi(
+    ten: string,
+    f: () => Promise<import("@playwright/test").APIResponse>,
+  ) {
+    const res = await f();
+    if (!res.ok()) {
+      throw new Error(
+        `${ten}: HTTP ${res.status()} — ${(await res.text()).slice(0, 300)}`,
+      );
+    }
+    return res.json();
+  }
 
-  const offers = await page.request.get(
-    `${api}/api/v1/products/${productID}/offers`,
+  // Đặt hàng của CHÍNH nhà bán đang đăng nhập.
+  //
+  // # Vì sao không lấy offer bán được đầu tiên
+  //
+  // Bản trước lấy `products?limit=1` rồi chọn offer bán được ĐẦU TIÊN.
+  // Sản phẩm đầu danh mục có nhiều nhà bán, nên offer ấy thường thuộc nhà
+  // bán KHÁC — và đơn thực hiện sinh ra cho họ, không cho ta.
+  //
+  // Bài test rồi chờ 30 giây, không thấy phiếu nào, và đỏ với thông báo
+  // "worker chưa tách đơn thực hiện" — đổ lỗi cho worker trong khi worker
+  // làm đúng. Tệ hơn: offer nào "bán được đầu tiên" phụ thuộc tồn kho mà
+  // các bài trước để lại, nên bài này ĐỎ CHẬP CHỜN, khoảng hai trên ba
+  // lượt chạy cả bộ.
+  //
+  // Một bài chập chờn còn tệ hơn một bài đỏ hẳn: nó dạy người ta bấm chạy
+  // lại thay vì đọc.
+  //
+  // Mỏ neo là trang "Hàng đang bán" — nó chỉ liệt kê SKU của nhà bán đang
+  // đăng nhập, nên một mã lấy từ đó chắc chắn là của ta.
+  await page.goto("/offers");
+  const skuText = await page
+    .getByText(/^SKU sku_/)
+    .first()
+    .innerText({ timeout: 15_000 });
+  const skuID = skuText.replace(/^SKU\s+/, "").trim();
+  if (!skuID.startsWith("sku_")) {
+    throw new Error(`không đọc được SKU của nhà bán: ${skuText}`);
+  }
+
+  // Tìm sản phẩm chứa SKU ấy, rồi offer của ta trên chính SKU ấy.
+  const ds = await goi("đọc danh mục", () =>
+    page.request.get(`${api}/api/v1/products?limit=50`),
   );
-  const offer = ((await offers.json()).data ?? []).find(
-    (o: { is_sellable?: boolean }) => o.is_sellable,
+  const products = ds.data ?? [];
+  if (products.length === 0) throw new Error("danh mục trống");
+
+  let offer: { id: string } | undefined;
+  const daThu: string[] = [];
+  for (const p of products) {
+    const offers = await goi(`đọc offer của ${p.name}`, () =>
+      page.request.get(`${api}/api/v1/products/${p.id}/offers`),
+    );
+    const khop = (offers.data ?? []).filter(
+      (o: { sku_id?: string }) => o.sku_id === skuID,
+    );
+    if (khop.length === 0) continue;
+
+    offer = khop.find((o: { is_sellable?: boolean }) => o.is_sellable);
+    if (offer) break;
+    daThu.push(`${p.name}: có SKU nhưng hết hàng`);
+  }
+  if (!offer) {
+    throw new Error(
+      `không tìm được offer BÁN ĐƯỢC cho SKU ${skuID} của nhà bán đang ` +
+        `đăng nhập. Đã thử: ${daThu.join(" · ") || "(không sản phẩm nào chứa SKU này)"}`,
+    );
+  }
+
+  const gio = await goi("thêm vào giỏ", () =>
+    page.request.post(`${api}/api/v1/cart/items`, {
+      headers: khoa(),
+      data: { offer_id: offer.id, quantity: 1 },
+    }),
   );
-  if (!offer) throw new Error("không có offer nào bán được");
+  const cartID = gio.cart?.id;
+  if (!cartID) throw new Error(`không đọc được mã giỏ: ${JSON.stringify(gio)}`);
 
-  const gio = await page.request.post(`${api}/api/v1/cart/items`, {
-    headers: khoa(),
-    data: { offer_id: offer.id, quantity: 1 },
-  });
-  const cartID = (await gio.json()).cart?.id;
+  // `POST /checkout` trả phiên ở CẤP CAO NHẤT, khác `POST /cart/items`
+  // vốn bọc trong `{ cart }`. Hai hình dạng khác nhau là chỗ rất dễ đọc
+  // nhầm — và đọc nhầm ở đây không nổ ngay, nó nổ ở một bài test khác.
+  const phien = await goi("mở phiên thanh toán", () =>
+    page.request.post(`${api}/api/v1/checkout`, {
+      headers: khoa(),
+      data: {
+        cart_id: cartID,
+        guest_email: "nhaban-e2e@example.com",
+        guest_phone: "0900999888",
+      },
+    }),
+  );
+  const checkoutID = phien.id;
+  if (!checkoutID) {
+    throw new Error(`không đọc được mã phiên: ${JSON.stringify(phien)}`);
+  }
 
-  const phien = await page.request.post(`${api}/api/v1/checkout`, {
-    headers: khoa(),
-    data: {
-      cart_id: cartID,
-      guest_email: "nhaban-e2e@example.com",
-      guest_phone: "0900999888",
-    },
-  });
-  const checkoutID = (await phien.json()).checkout?.id;
-
-  await page.request.patch(
-    `${api}/api/v1/checkout/${checkoutID}/shipping-address`,
-    {
+  await goi("ghi địa chỉ giao", () =>
+    page.request.patch(`${api}/api/v1/checkout/${checkoutID}/shipping-address`, {
       headers: khoa(),
       data: {
         recipient_name: "Người Nhận E2E",
@@ -123,16 +210,20 @@ async function datMotDonMoi(page: import("@playwright/test").Page) {
         province: "TP.HCM",
         country_code: "VN",
       },
-    },
+    }),
   );
-  await page.request.patch(
-    `${api}/api/v1/checkout/${checkoutID}/shipping-method`,
-    { headers: khoa(), data: { shipping_method: "STANDARD" } },
+  await goi("chọn cách giao", () =>
+    page.request.patch(`${api}/api/v1/checkout/${checkoutID}/shipping-method`, {
+      headers: khoa(),
+      data: { shipping_method: "STANDARD" },
+    }),
   );
-  await page.request.post(`${api}/api/v1/checkout/${checkoutID}/complete`, {
-    headers: khoa(),
-    data: { payment_method: "COD" },
-  });
+  await goi("hoàn tất phiên", () =>
+    page.request.post(`${api}/api/v1/checkout/${checkoutID}/complete`, {
+      headers: khoa(),
+      data: { payment_method: "COD" },
+    }),
+  );
 }
 
 test.describe("Trung tâm người bán", () => {
@@ -215,10 +306,30 @@ test.describe("Trung tâm người bán", () => {
     //
     // KHÔNG dùng test.skip khi chưa thấy: một bài test bị bỏ qua trông y
     // hệt một bài test đã chạy, và đó là cách hỏng tệ nhất của bộ test.
+    //
+    // # Đếm SAU khi danh sách nạp xong, không phải sau `goto`
+    //
+    // `page.goto` trả về khi tài liệu tải xong; danh sách đơn thì do React
+    // gọi API SAU đó. Đếm ngay sau `goto` là đếm một trang còn trống, và
+    // mỗi vòng poll lại `goto` một lần nữa nên nó không bao giờ kịp
+    // nguội — bài test đỏ khoảng hai trên ba lượt chạy cả bộ, với thông
+    // báo đổ lỗi cho worker.
+    //
+    // Chờ đúng lượt gọi mình đang đợi thì xác định. Cùng lỗi, cùng cách
+    // sửa với bài lọc màu (P3-72).
     await expect
       .poll(
         async () => {
-          await page.goto("/");
+          await Promise.all([
+            page.waitForResponse(
+              (r) =>
+                r.url().includes("/api/v1/seller/fulfillment-orders") &&
+                r.request().method() === "GET",
+            ),
+            page.goto("/"),
+          ]);
+          // `loading` còn true thì trang chỉ có chữ "Đang tải…".
+          await expect(page.getByText("Đang tải…")).toHaveCount(0);
           return phieu.count();
         },
         {

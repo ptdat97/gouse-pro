@@ -157,38 +157,67 @@ test("đơn trộn hàng của hai nhà bán tách thành hai đơn thực hiệ
   const products = (await ds.json()).data ?? [];
   expect(products.length, "cần ít nhất hai sản phẩm").toBeGreaterThanOrEqual(2);
 
-  const nhaBanDaThay = new Set<string>();
+  // Gom ĐÚNG MỘT món của mỗi nhà bán, dừng khi đủ hai.
+  //
+  // # Vì sao phải bỏ qua được sản phẩm
+  //
+  // Bản trước đòi MỌI sản phẩm trong danh mục phải có nhà bán. Nó đỏ ngay
+  // khi ai đó duyệt một sản phẩm mà chưa nhà bán nào chào giá — một trạng
+  // thái hoàn toàn hợp lệ, và cửa hàng hiện nó với giá "—" đúng như thiết
+  // kế. Bài test đo việc TÁCH ĐƠN, không đo việc mọi sản phẩm đều bán được.
+  //
+  // Bỏ qua thì bỏ qua, nhưng phải GHI LẠI vì sao: nếu cuối cùng không đủ
+  // hai nhà bán, thông báo lỗi phải nói được nó đã thử những gì.
+  const nhaBanDaThay = new Map<string, string>();
+  const boQua: string[] = [];
+
+  const nhom = page.getByRole("radiogroup", { name: "Nhà bán" });
+  const chuaAiBan = page.getByText("Chưa có nhà bán nào chào bán");
+  const chuaCoBienThe = page.getByText("chưa có phiên bản nào để bán");
+
   for (const p of products) {
+    if (nhaBanDaThay.size >= 2) break;
     await page.goto(`/products/${p.id}`);
 
-    // CHỜ offer nạp xong.
+    // CHỜ trang đi tới MỘT trong ba kết luận.
     //
     // Danh sách nhà bán được tra bằng lời gọi RIÊNG sau khi hiện sản
     // phẩm, nên kiểm ngay sau `goto` là kiểm một trang chưa có gì — và
     // bài test sẽ bỏ qua sản phẩm một cách im lặng.
-    const nhom = page.getByRole("radiogroup", { name: "Nhà bán" });
-    await expect(nhom).toBeVisible({ timeout: 10_000 });
+    await expect(nhom.or(chuaAiBan).or(chuaCoBienThe)).toBeVisible({
+      timeout: 10_000,
+    });
+    if (!(await nhom.isVisible())) {
+      boQua.push(`${p.name}: chưa có nhà bán nào chào bán`);
+      continue;
+    }
 
-    await page.locator('input[name="offer"]').first().check();
-
-    // Tên nhà bán là dòng có chữ, KHÔNG phải dòng tình trạng hàng.
+    // Tên nhà bán là dòng THỨ HAI, không phải dòng đầu.
     //
     // Một offer có ba dòng cùng lớp `.offer__seller`: tình trạng hàng
     // ("Hàng mới"), TÊN nhà bán, và tình trạng kho. Lấy `.first()` sẽ
     // trúng dòng đầu và gom nhầm "Hàng mới" thành tên nhà bán.
-    const ten = await page
-      .locator(".offer--selected .offer__seller, .offer .offer__seller")
-      .nth(1)
-      .innerText();
-    nhaBanDaThay.add(ten.split("·")[0]!.trim());
+    const oDau = page.locator(".offer").first();
+    const ten = (await oDau.locator(".offer__seller").nth(1).innerText())
+      .split("·")[0]!
+      .trim();
 
+    if (nhaBanDaThay.has(ten)) {
+      boQua.push(`${p.name}: cùng nhà bán ${ten}, đã có rồi`);
+      continue;
+    }
+
+    await oDau.locator('input[name="offer"]').check();
     await page.getByRole("button", { name: "Thêm vào giỏ" }).click();
     await page.waitForURL("**/cart");
+    nhaBanDaThay.set(ten, p.name);
   }
 
   expect(
     nhaBanDaThay.size,
-    `giỏ chỉ có hàng của ${[...nhaBanDaThay]} — cần hai nhà bán khác nhau`,
+    `cần hàng của HAI nhà bán khác nhau; mới gom được ` +
+      `${[...nhaBanDaThay.keys()].join(", ") || "(không có)"}. ` +
+      `Đã bỏ qua: ${boQua.join(" · ") || "(không có)"}`,
   ).toBeGreaterThanOrEqual(2);
 
   // Giỏ NHÓM THEO NHÀ BÁN: khách phải thấy hàng đến từ đâu.

@@ -100,6 +100,21 @@ type checkoutJSON struct {
 
 	ShippingAddress *addressJSON `json:"shipping_address,omitempty"`
 
+	// ShippingMethod là cách giao khách ĐÃ CHỌN, rỗng nghĩa là chưa chọn.
+	//
+	// # Vì sao trường này phải có mặt
+	//
+	// Thiếu nó, giao diện không có cách nào biết khách đã chọn hay chưa,
+	// nên nó suy ra từ `shipping_fee > 0`. Suy như thế sai ở đúng chỗ
+	// đắt nhất: đơn đạt NGƯỠNG MIỄN PHÍ SHIP có phí bằng 0, và giao diện
+	// đọc thành "chưa chọn cách giao" rồi khóa nút Đặt hàng vĩnh viễn.
+	//
+	// Khách mua càng nhiều càng không đặt được hàng. Xem P3-73.
+	//
+	// Một con số tiền KHÔNG BAO GIỜ là một lá cờ boolean: 0 là một giá
+	// trị hợp lệ của tiền, không phải "không có".
+	ShippingMethod string `json:"shipping_method,omitempty"`
+
 	// ShippingGroups là bảng kê theo TỪNG kiện hàng.
 	//
 	// Đặc tả (schemas.yaml#/Checkout) và docs/04-modules/checkout.md mục 7
@@ -612,13 +627,14 @@ func toJSON(c *domain.Checkout) checkoutJSON {
 		Status: string(c.Status()),
 		// Khởi tạo rỗng chứ không để nil: `lines` là trường BẮT BUỘC của
 		// đặc tả, và `null` không phải một mảng.
-		Lines:       make([]lineJSON, 0, len(lines)),
-		Subtotal:    toMoney(c.Subtotal()),
-		ShippingFee: toMoney(c.ShippingFee()),
-		Discount:    toMoney(c.DiscountAmount()),
-		Tax:         toMoney(c.TaxAmount()),
-		Total:       toMoney(c.Total()),
-		ExpiresAt:   c.ExpiresAt().UTC().Format(time.RFC3339),
+		Lines:          make([]lineJSON, 0, len(lines)),
+		ShippingMethod: c.ShippingMethod(),
+		Subtotal:       toMoney(c.Subtotal()),
+		ShippingFee:    toMoney(c.ShippingFee()),
+		Discount:       toMoney(c.DiscountAmount()),
+		Tax:            toMoney(c.TaxAmount()),
+		Total:          toMoney(c.Total()),
+		ExpiresAt:      c.ExpiresAt().UTC().Format(time.RFC3339),
 	}
 
 	for _, l := range lines {
