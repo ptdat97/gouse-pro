@@ -12,12 +12,16 @@ Bộ test này chạy trên **stack đang chạy**, không tự dựng:
 ```bash
 cd ../gouse
 export DATABASE_URL="postgres://postgres@127.0.0.1:5432/gouse?sslmode=disable"
-MODULES_STORAGE=postgres go run ./cmd/api      # API      :8080
-MODULES_STORAGE=postgres go run ./cmd/worker   # worker — BẮT BUỘC, xem dưới
+go run ./cmd/api                               # API      :8080
+go run ./cmd/worker                            # worker — BẮT BUỘC, xem dưới
 cd ../gouse-web
 npm run dev:storefront                         # cửa hàng :3001
 npm run dev:seller                             # nhà bán  :3002
 ```
+
+Từ 24/09/2026 kho mặc định là `postgres`, nên không cần `MODULES_STORAGE`
+nữa — và thiếu `DATABASE_URL` là lỗi khởi động chứ không còn im lặng rơi
+về kho in-memory (P3-74).
 
 `DATABASE_URL` phải đặt tay: `make run` không đặt nó và backend không có
 `.env`, nên thiếu là API chết ngay với `api: database: thiếu DSN`.

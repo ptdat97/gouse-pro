@@ -284,3 +284,67 @@ func TestKhongNoThiKhongGhiButToanThuHoi(t *testing.T) {
 		t.Fatalf("thực nhận phải là 100.000, nhận %d", d.Net().Amount())
 	}
 }
+
+// ------------------------------------------- Hàng rào tiền bị bỏ quên
+
+// Bài dưới đây KHÔNG phải bài duy nhất gác bất biến ấy.
+//
+// `TestPhatLaiEventKhongDemHaiLuot` (internal/app) đã gác nó ở tầng
+// EVENT: phát lại `order.placed` không sinh bút toán thứ hai.
+//
+// Bài này gác ở tầng USE CASE và đo thêm một điều khác: lần gọi thứ hai
+// phải trả về CHÍNH bút toán cũ. Bên gọi coi một mã khác là một khoản
+// mới, và coi một lỗi là thất bại cần thử lại — hai cách hỏng mà bài ở
+// tầng event không nhìn thấy.
+
+// Ghi doanh thu IDEMPOTENT theo đơn.
+//
+// Outbox giao ít nhất một lần, nên cùng một `order.placed` tới hai lần là
+// chuyện thường. Ghi hai lần nghĩa là nhân đôi số phải trả nhà bán.
+//
+// Ràng buộc UNIQUE ở database chặn được bút toán thứ hai, nhưng bài này
+// đo thêm một điều khác: lần gọi thứ hai phải trả về CHÍNH bút toán cũ,
+// không phải một lỗi. Bên gọi coi lỗi là thất bại và sẽ thử lại mãi.
+func TestGhiDoanhThuIdempotentTheoDon(t *testing.T) {
+	svc, _, pool := dungDichVuDoiSoat(t)
+	seller := ids.MustNew(ids.PrefixSeller)
+	orderID := ids.MustNew(ids.PrefixOrder)
+
+	ghi := func() *domain.LedgerEntry {
+		t.Helper()
+		e, err := svc.RecordOrderRevenue(context.Background(),
+			application.RecordOrderRevenueInput{
+				OrderID: orderID, SellerID: seller,
+				GrossAmount: tien(t, 100_000), SellerPayable: tien(t, 90_000),
+				PlatformRevenue: tien(t, 10_000), PaymentFee: tien(t, 0),
+				COGS: tien(t, 0), CreatedBy: "test",
+			})
+		if err != nil {
+			t.Fatalf("ghi doanh thu: %v", err)
+		}
+		return e
+	}
+
+	dau := ghi()
+	lai := ghi()
+
+	if dau.ID() != lai.ID() {
+		t.Errorf("gọi lại phải trả CHÍNH bút toán cũ: %s ≠ %s — bên gọi "+
+			"coi khác biệt này là một khoản mới", dau.ID(), lai.ID())
+	}
+
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM ledger_entry WHERE reference_id = $1`,
+		orderID.String()).Scan(&n); err != nil {
+		t.Fatalf("đếm bút toán: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("một đơn ra %d bút toán doanh thu — số phải trả nhà bán "+
+			"bị nhân lên", n)
+	}
+
+	if got := soDuDangCho(t, svc, seller); got != 90_000 {
+		t.Fatalf("số dư đang chờ phải là 90.000, nhận %d", got)
+	}
+}

@@ -319,9 +319,10 @@ func matches(p domain.RestoreProductParams, f domain.Filter) bool {
 	// PostgreSQL làm việc này bằng hai mệnh đề EXISTS, và hai cài đặt song
 	// song của cùng một quy tắc là hai cài đặt sẽ lệch nhau.
 	//
-	// Tới 24/09/2026 hàm này BỎ QUA cả hai bộ lọc. Vì `MODULES_STORAGE`
-	// mặc định là `memory` khi phát triển, bộ lọc màu ở cửa hàng trả về
-	// toàn bộ danh mục — không lỗi, không log, không ai biết.
+	// Tới 24/09/2026 hàm này BỎ QUA cả hai bộ lọc. Khi ấy `MODULES_STORAGE`
+	// mặc định là `memory`, nên bộ lọc màu ở cửa hàng trả về toàn bộ danh
+	// mục — không lỗi, không log, không ai biết. Mặc định nay là
+	// `postgres` (P3-74), nhưng kho này vẫn phải khớp bản SQL.
 	return f.KhopBienThe(p.Variants)
 }
 

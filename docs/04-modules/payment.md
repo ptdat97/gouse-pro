@@ -496,6 +496,44 @@ Yêu cầu bắt buộc:
 | 8 | Mọi bút toán có tham chiếu tới nghiệp vụ gốc | Truy vết |
 | 9 | Đối chiếu định kỳ với PSP và ngân hàng | Phát hiện chênh lệch |
 
+### 12.1 Bất biến TIỀN và người gác chúng
+
+Rà ngày 24/09/2026 bằng cách **xóa từng chốt rồi chạy test**. Một chốt
+không ai gác là một chốt sẽ bị "dọn dẹp" đi trong một lần tái cấu trúc, và
+với tiền thì phát hiện muộn không cứu được gì.
+
+| Bất biến | Chốt trong mã | Test gác |
+|---|---|---|
+| Σ DEBIT = Σ CREDIT mỗi bút toán | `domain.ErrUnbalanced` | `TestButToanKhongCanBangBiChan` |
+| …và ở tầng DATABASE, kể cả khi ghi bằng SQL thô | trigger `ledger_entry_phai_can_bang` (migration 000056) | `hang_rao_can_bang_test.go` |
+| Chi trả ≤ số dư phải trả nhà bán | `ErrInsufficientBalance` | `TestKhongChiTraVuotSoDu` |
+| Ghi doanh thu idempotent theo đơn | khóa `revenue:<order>` | `TestPhatLaiEventKhongDemHaiLuot` (tầng event) · `TestGhiDoanhThuIdempotentTheoDon` (tầng use case) |
+| Tổng tiền KHÔNG cộng thuế (giá đã gồm VAT) | `Checkout.Total()` | `TestThueTinhTrenCaPhiVanChuyen` · `TestTongKhongCongThue` |
+| Số lượng trả ≤ số đã mua | `ErrQuantityExceeded` | `TestSoLuongVuotThiTuChoi` |
+| Giảm giá chưa phân bổ → từ chối hoàn tự động | `ErrGiamGiaChuaPhanBo` | `TestGiamGiaChuaPhanBoThiTuChoiHoan` |
+| Một dòng hàng không xin trả hai lần | `ErrDuplicateLine` | `TestMotDongKhongXinTraHaiLan` ← **thêm 24/09**, trước đó KHÔNG ai gác |
+| Thực nhận của đợt đối soát không âm | kẹp trong `TaoDoiSoat` | `TestNoLonHonTongThiThucNhanBangKhong` · `TestPhanNoChuaThuHetChuyenSangKySau` |
+| Khoản nợ chỉ bị thu MỘT lần | bút toán `ADJUSTMENT` cùng giao dịch | `TestKhoanNoChiBiTruMotLan` |
+| Miễn phí ship vẫn đặt được hàng | `shipping_method` trong phản hồi | `TestMienPhiShipVanBietDaChonCachGiao` |
+
+**Cách lặp lại phép rà này.** Xóa một chốt, chạy test của gói chứa nó VÀ
+`./internal/app/`, xem có bài nào đỏ. Hai cái bẫy đã mắc phải:
+
+```text
+lệnh không CHẠY được   `go test $GOI` với $GOI chứa nhiều gói: zsh KHÔNG
+                       tự tách từ, nên `go test` nhận một chuỗi không hợp
+                       lệ, lỗi ra, và script không thấy chữ "FAIL". Năm
+                       trong sáu "chỗ trống" đầu tiên là ảo vì lỗi này.
+chạy hai phép SONG SONG  chúng dùng chung database test và giẫm lên nhau;
+                       nếu script còn dùng chung một file sao lưu thì bản
+                       khôi phục của phép này đè lên file của phép kia —
+                       đã làm hỏng thật một file nguồn, phải `git checkout`
+```
+
+Cùng một bài học với `sed` của macOS ở P3-70: **một phép phá không phá
+được gì trông hệt như một phép kiểm bị thủng.** Luôn xác nhận phép phá đã
+CHẠY và đã ĐỔI thật trước khi đọc kết quả.
+
 ---
 
 ## 13. Giám sát cần có

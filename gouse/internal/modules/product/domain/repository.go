@@ -120,8 +120,9 @@ type Filter struct {
 // hành vi mà production không có.
 //
 // Đó không phải lo xa: tới 24/09/2026 bản in-memory BỎ QUA hẳn hai bộ lọc
-// này, nên mọi lượt chạy ở môi trường phát triển (`MODULES_STORAGE` mặc
-// định là `memory`) đều trả về toàn bộ danh mục bất kể lọc màu nào.
+// này, nên mọi lượt chạy ở môi trường phát triển đều trả về toàn bộ danh
+// mục bất kể lọc màu nào — lúc ấy `MODULES_STORAGE` mặc định là `memory`.
+// Mặc định nay là `postgres`, nhưng phép so khớp vẫn phải ở một chỗ.
 //
 // Size về CHỮ THƯỜNG: người bán gõ "m", "M", "Free size" tùy ý.
 // Nhóm màu về CHỮ HOA: nhóm là hằng số hệ thống, không phải chuỗi người

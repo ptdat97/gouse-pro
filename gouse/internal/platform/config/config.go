@@ -111,8 +111,12 @@ type AuthConfig struct {
 type ModulesConfig struct {
 	// Storage chọn kho lưu trữ: "memory" hoặc "postgres".
 	//
+	// MẶC ĐỊNH là "postgres" ở MỌI môi trường — xem `defaultStorage`.
+	//
 	// "memory" cho phép chạy và kiểm chứng mô hình domain khi chưa dựng
 	// database. Dữ liệu MẤT khi tiến trình dừng, nên bị cấm ở production.
+	// Nó cũng là một CÀI ĐẶT KHÁC, không chỉ dữ liệu khác: dùng nó để
+	// kiểm một tính năng là kiểm một hệ thống không phải hệ thống thật.
 	Storage string
 }
 
@@ -198,11 +202,6 @@ func Load() (*Config, error) {
 	collect(err)
 
 	dsn := os.Getenv("DATABASE_URL")
-	// Ở production, thiếu DSN là lỗi khởi động — thà không khởi động còn hơn
-	// chạy rồi thất bại ở request đầu tiên của khách.
-	if dsn == "" && env.IsProduction() {
-		collect(errors.New("DATABASE_URL bắt buộc ở môi trường production"))
-	}
 
 	storage := strings.ToLower(getEnvDefault("MODULES_STORAGE", defaultStorage(env)))
 	switch storage {
@@ -214,6 +213,19 @@ func Load() (*Config, error) {
 			collect(errors.New("MODULES_STORAGE=memory bị cấm ở production: dữ liệu sẽ mất khi khởi động lại"))
 		}
 	case "postgres":
+		// Thiếu DSN là lỗi KHỞI ĐỘNG, không phải lỗi ở request đầu tiên.
+		//
+		// Thông báo nêu CẢ HAI đường ra, vì người gặp nó thường chỉ muốn
+		// chạy thử nhanh và không biết mình vừa mất gì khi chọn `memory`.
+		if dsn == "" {
+			collect(errors.New(
+				"thiếu DATABASE_URL. Kho lưu trữ mặc định là `postgres` để " +
+					"môi trường phát triển giống production — xem " +
+					"config.defaultStorage.\n" +
+					"  · nối database:  DATABASE_URL=postgres://…\n" +
+					"  · hoặc chấp nhận kho in-memory (DỮ LIỆU VÀ HÀNH VI " +
+					"khác production): MODULES_STORAGE=memory"))
+		}
 	default:
 		collect(fmt.Errorf("MODULES_STORAGE không hợp lệ: %q (phải là memory|postgres)", storage))
 	}
@@ -333,12 +345,25 @@ func defaultLogLevel(env Environment) string {
 
 // defaultStorage: khi phát triển, chạy được ngay không cần dựng database;
 // ngoài ra luôn mặc định PostgreSQL để không vô tình chạy bằng bộ nhớ.
-func defaultStorage(env Environment) string {
-	if env.IsDevelopment() {
-		return "memory"
-	}
-	return "postgres"
-}
+// defaultStorage: POSTGRES ở mọi môi trường.
+//
+// # Vì sao `memory` không còn là mặc định khi phát triển
+//
+// Nó từng là, và cái giá cao hơn nhiều so với tiện lợi nó mang lại.
+//
+// Kho in-memory không chỉ có DỮ LIỆU khác — nó là một CÀI ĐẶT KHÁC, và
+// nó có thể thiếu thứ bản SQL có. Tới 24/09/2026 nó bỏ qua hẳn bộ lọc
+// size và nhóm màu, nên `?color=GREEN` trả về cả danh mục ở máy lập trình
+// viên trong khi bản SQL trả rỗng đúng. Không lỗi, không log — và người
+// đang dựng bộ lọc màu thấy trang "chạy được".
+//
+// Trước đó nó còn làm mọi id lấy từ database trả 404, trông y hệt một lỗi
+// trong mã đang sửa.
+//
+// Mặc định phải là thứ giống production nhất. Ai cần kho in-memory thì
+// khai `MODULES_STORAGE=memory` — một lựa chọn CÓ Ý THỨC, và khi ấy kết
+// quả lạ có một chỗ rõ ràng để nghi ngờ.
+func defaultStorage(Environment) string { return "postgres" }
 
 // defaultLogFormat: text dễ đọc khi phát triển, JSON để truy vấn khi vận hành.
 func defaultLogFormat(env Environment) string {

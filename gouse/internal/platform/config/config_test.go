@@ -9,10 +9,13 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	// Không đặt biến môi trường nào → giá trị mặc định hợp lý cho development.
+	// Kho mặc định là `postgres` nên phải khai database ở đâu — xem
+	// TestMacDinhLaPostgres ngay dưới.
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+
 	cfg, err := config.Load()
 	if err != nil {
-		t.Fatalf("Load với môi trường rỗng phải thành công: %v", err)
+		t.Fatalf("Load với môi trường tối thiểu phải thành công: %v", err)
 	}
 
 	if cfg.Env != config.EnvDevelopment {
@@ -28,6 +31,7 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestDevelopmentDefaultsFavorReadability(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load lỗi: %v", err)
@@ -97,6 +101,7 @@ func TestProductionRequiresJWTSecret(t *testing.T) {
 // kỳ ai cũng tự phát hành được token vai trò ADMIN.
 func TestShortJWTSecretRejected(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("AUTH_JWT_SECRET", "qua-ngan")
 
 	_, err := config.Load()
@@ -111,6 +116,7 @@ func TestShortJWTSecretRejected(t *testing.T) {
 // thiếu — kiểm chứng ở TestProductionRequiresJWTSecret.
 func TestDevelopmentUsesDefaultJWTSecret(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("AUTH_JWT_SECRET", "")
 
 	cfg, err := config.Load()
@@ -126,6 +132,7 @@ func TestDevelopmentUsesDefaultJWTSecret(t *testing.T) {
 // qua HTTP, nên bật nó ở localhost sẽ làm đăng nhập không chạy được.
 func TestSecureCookieOffOnlyInDevelopment(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load lỗi: %v", err)
@@ -147,13 +154,71 @@ func TestSecureCookieOffOnlyInDevelopment(t *testing.T) {
 	}
 }
 
-func TestDevelopmentAllowsMissingDatabaseURL(t *testing.T) {
-	// Cho phép chạy phần không cần database khi phát triển cục bộ.
+// Kho lưu trữ mặc định là POSTGRES ở mọi môi trường.
+//
+// # Vì sao đổi, và vì sao có bài test riêng cho nó
+//
+// `memory` từng là mặc định khi phát triển. Nó không chỉ có DỮ LIỆU khác
+// — nó là một CÀI ĐẶT KHÁC, và có thể thiếu thứ bản SQL có. Tới
+// 24/09/2026 nó bỏ qua hẳn bộ lọc size và nhóm màu, nên `?color=GREEN`
+// trả về cả danh mục ở máy lập trình viên trong khi bản SQL trả rỗng
+// đúng — không lỗi, không log.
+//
+// Bài này khóa lựa chọn ấy lại. Đổi mặc định về `memory` cho "tiện" sẽ
+// làm nó đỏ, và người đổi phải đọc đoạn trên trước khi quyết.
+func TestMacDinhLaPostgres(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Modules.Storage != "postgres" {
+		t.Errorf("kho mặc định phải là postgres, nhận %q — môi trường phát "+
+			"triển khác production là chỗ lỗi ẩn vào", cfg.Modules.Storage)
+	}
+}
+
+// Thiếu DATABASE_URL là lỗi KHỞI ĐỘNG, kể cả khi phát triển.
+//
+// Trước 24/09/2026 nó im lặng rơi về kho in-memory. Thà không khởi động
+// còn hơn khởi động thành một hệ thống KHÁC.
+func TestThieuDatabaseURLLaLoiKhoiDong(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("DATABASE_URL", "")
 
-	if _, err := config.Load(); err != nil {
-		t.Fatalf("development không cần DATABASE_URL: %v", err)
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("thiếu DATABASE_URL phải là lỗi khởi động")
+	}
+
+	// Thông báo phải nêu CẢ HAI đường ra: người gặp nó thường chỉ muốn
+	// chạy thử nhanh và không biết mình mất gì khi chọn `memory`.
+	msg := err.Error()
+	for _, can := range []string{"DATABASE_URL", "MODULES_STORAGE=memory"} {
+		if !strings.Contains(msg, can) {
+			t.Errorf("thông báo thiếu %q — người gặp lỗi phải tự đi tìm "+
+				"cách chạy:\n%v", can, err)
+		}
+	}
+}
+
+// Ai CẦN kho in-memory vẫn dùng được — nhưng phải khai ra.
+//
+// Đó là điểm của thay đổi: không cấm, chỉ bắt nói thành lời, để kết quả
+// lạ có một chỗ rõ ràng để nghi ngờ.
+func TestKhaiMemoryThiKhongCanDatabaseURL(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("MODULES_STORAGE", "memory")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("khai memory rồi thì không cần DSN: %v", err)
+	}
+	if cfg.Modules.Storage != "memory" {
+		t.Errorf("khai memory mà nhận %q", cfg.Modules.Storage)
 	}
 }
 
@@ -179,6 +244,7 @@ func TestReportsAllErrorsAtOnce(t *testing.T) {
 }
 
 func TestParsesDurations(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("HTTP_READ_TIMEOUT", "5s")
 	t.Setenv("HTTP_SHUTDOWN_TIMEOUT", "30s")
 	t.Setenv("DB_CONN_MAX_LIFETIME", "1h")
@@ -230,6 +296,7 @@ func TestEnvironmentHelpers(t *testing.T) {
 // không có gì trong log máy chủ, nên rất dễ đi tìm nhầm chỗ.
 func TestOriginMacDinhChoPhepCaHaiGiaoDien(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("AUTH_ALLOWED_ORIGINS", "")
 
 	cfg, err := config.Load()
@@ -295,6 +362,7 @@ func TestThieuKhoaMaHoaOProductionLaLoiKhoiDong(t *testing.T) {
 // TestKhoaMaHoaSaiDinhDangBiTuChoi — khóa 16 byte trông "có vẻ đúng".
 func TestKhoaMaHoaSaiDinhDangBiTuChoi(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
 	t.Setenv("ENCRYPTION_KEY", "c2hvcnQta2V5LTE2Ynl0")
 

@@ -180,3 +180,46 @@ func TestLamTronNuaLen(t *testing.T) {
 			"cho 7555 — đúng quy tắc của hoa hồng, sai quy tắc của thuế", got)
 	}
 }
+
+// Tổng KHÔNG cộng thuế — giá niêm yết ĐÃ GỒM VAT.
+//
+// Cộng thuế vào tổng là thu thuế HAI LẦN: một lần đã nằm trong giá, một
+// lần cộng thêm. Mọi khách bị thu thừa 8%, và chú thích của `Total()` đã
+// cảnh báo *"tổng vẫn trông hợp lý nên không ai thấy"* — không con số nào
+// trên màn hình trông sai cả.
+//
+// # Vì sao có bài này khi TestThueTinhTrenCaPhiVanChuyen đã gác
+//
+// Bài ấy khẳng định `Total() == 130_000` — một con số CỨNG gắn với đúng
+// bộ dữ liệu của nó. Đổi tiền hàng hay phí ship trong fixture là phải sửa
+// con số ấy, và người sửa rất dễ chép luôn số mới mà máy in ra; khi đó
+// bất biến biến mất trong một lần "cập nhật test".
+//
+// Bài này khẳng định CÔNG THỨC, nên nó không có số nào để chép.
+//
+// `taxAmount` là phần VAT TÁCH RA để ghi hóa đơn, không phải một khoản
+// cộng thêm. Xem checkout.md mục 7b.
+func TestTongKhongCongThue(t *testing.T) {
+	c := phienCoHang(t, 100_000)
+
+	// Phí ship 30.000, thuế 8%, ngưỡng CAO để không rơi vào miễn phí ship
+	// — cùng chính sách với các bài trên.
+	if err := c.ApDungPhiVaThue(
+		money.MustNew(30_000, money.VND), chinhSach(800, 10_000_000), testNow,
+	); err != nil {
+		t.Fatalf("ApDungPhiVaThue: %v", err)
+	}
+
+	// Bài này chỉ có nghĩa khi thuế KHÁC 0.
+	if c.TaxAmount().IsZero() {
+		t.Fatal("dựng sai tình huống: thuế bằng 0 thì không phân biệt được " +
+			"cộng hay không cộng")
+	}
+
+	muon := c.Subtotal().Amount() + 30_000 - c.DiscountAmount().Amount()
+	if got := c.Total().Amount(); got != muon {
+		t.Fatalf("tổng = tiền hàng + phí ship − giảm giá = %d, nhận %d "+
+			"(chênh %d — đúng bằng thuế %d nếu bị cộng hai lần)",
+			muon, got, got-muon, c.TaxAmount().Amount())
+	}
+}

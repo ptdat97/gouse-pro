@@ -205,40 +205,39 @@ Biến môi trường: xem [internal/platform/config/config.go](internal/platfor
 | `MODULES_STORAGE` | Kho lưu trữ — `postgres` hay `memory` |
 | `TEST_DATABASE_URL` | Database KHUÔN cho test |
 
-### `MODULES_STORAGE=memory` là mặc định khi phát triển — và nó KHÔNG vô hại
-
-`APP_ENV=development` mặc định `MODULES_STORAGE=memory`
-(`config.defaultStorage`). API vẫn khởi động bình thường, vẫn trả JSON
-đúng hình dạng, và **phục vụ dữ liệu mẫu trong bộ nhớ** thay vì database.
-
-Hai hậu quả, cả hai đều im lặng:
-
-```text
-dữ liệu khác    mọi id lấy từ database đều trả 404 "Không tìm thấy" —
-                trông y hệt một lỗi trong mã đang sửa
-HÀNH VI khác    kho in-memory là một cài đặt RIÊNG, và nó có thể thiếu
-                thứ bản SQL có
-```
-
-Cái thứ hai đã xảy ra thật: tới 24/09/2026 kho in-memory bỏ qua hẳn bộ lọc
-size và nhóm màu, nên `?color=GREEN` trả về cả danh mục trong khi bản SQL
-trả rỗng đúng. Sửa ở P3-72, và nay có
-`TestHaiKhoLocBienTheGiongNhau` bắt hai kho phải trả lời giống nhau.
-
-**Khi một tính năng cư xử lạ ở môi trường phát triển, kiểm `MODULES_STORAGE`
-TRƯỚC khi nghi ngờ mã.** Dấu hiệu nằm ở log lúc khởi động:
-
-```text
-bỏ qua inventory, seller, marketplace, ...: cần MODULES_STORAGE=postgres
-đã nạp dữ liệu mẫu ... storage=memory
-```
-
-Chạy đối chiếu với dữ liệu thật thì luôn truyền tay:
+### Kho mặc định là PostgreSQL — kể cả khi phát triển
 
 ```bash
 DATABASE_URL="postgres://postgres@localhost:5432/gouse?sslmode=disable" \
-  MODULES_STORAGE=postgres go run ./cmd/api
+  go run ./cmd/api
 ```
+
+Thiếu `DATABASE_URL` là **lỗi khởi động**, không phải một cú rơi im lặng
+về kho khác.
+
+Tới 24/09/2026 mặc định khi phát triển là `memory`, và cái giá cao hơn
+nhiều so với tiện lợi nó mang lại. Kho in-memory không chỉ có DỮ LIỆU
+khác — nó là một **cài đặt khác**, và có thể thiếu thứ bản SQL có:
+
+```text
+mọi id lấy từ database   404 "Không tìm thấy" — trông y hệt một lỗi
+                         trong mã đang sửa
+?color=GREEN             trả về CẢ danh mục, vì bản in-memory bỏ qua hẳn
+                         bộ lọc size và nhóm màu (P3-72)
+```
+
+Không lỗi, không log. Người đang dựng bộ lọc màu thấy trang "chạy được".
+
+Ai vẫn cần kho in-memory — chạy thử mô hình domain khi chưa có database —
+thì **khai ra**:
+
+```bash
+MODULES_STORAGE=memory go run ./cmd/api
+```
+
+Không cấm; chỉ bắt nói thành lời, để kết quả lạ có một chỗ rõ ràng để
+nghi ngờ. `TestMacDinhLaPostgres` và `TestThieuDatabaseURLLaLoiKhoiDong`
+khóa lựa chọn này lại.
 
 Hai biến này **không được trỏ cùng một database**: test dọn dữ liệu bằng
 `TRUNCATE`, nên dùng chung là một lần `go test ./...` mất sạch dữ liệu phát
