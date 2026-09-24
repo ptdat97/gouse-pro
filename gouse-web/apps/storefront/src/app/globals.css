@@ -93,6 +93,109 @@ a:hover { text-decoration: underline; }
   font-weight: var(--weight-bold);
 }
 
+/* ------------------------------------------------------------ Bộ lọc */
+
+.loc {
+  margin: 0 0 var(--space-6);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.loc__dau {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.loc__tieu-de {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+}
+
+.loc__xoa,
+.lien-ket {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.loc__xoa:hover,
+.lien-ket:hover {
+  color: var(--color-text);
+}
+
+.mau-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/*
+ * Nút màu: CAO tối thiểu 44px.
+ *
+ * Cửa hàng dùng trên điện thoại là chính, và 44px là ngưỡng chạm mà ngón
+ * tay không bấm nhầm sang màu bên cạnh.
+ */
+.mau {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.mau:hover { border-color: var(--color-border-strong); }
+
+/*
+ * Đang chọn: viền ĐẬM và nền đảo, không chỉ đổi sắc viền.
+ *
+ * Phân biệt bằng một sắc viền nhạt hơn/đậm hơn là thứ người mù màu và
+ * người ngồi ngoài nắng đều không thấy.
+ */
+.mau--chon {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.mau:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/*
+ * Ô màu luôn có VIỀN, kể cả ô trắng.
+ *
+ * Không viền thì "Trắng" biến mất trên nền trắng và nút trông như thiếu
+ * mất một nửa.
+ */
+.mau__o {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+}
+
+/* Trên nền đậm lúc đang chọn, viền xám nhạt lại biến mất. */
+.mau--chon .mau__o { border-color: var(--color-primary-contrast); }
+
 /* ------------------------------------------------------- Lưới sản phẩm */
 
 .grid {

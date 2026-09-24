@@ -523,7 +523,7 @@ func (s *ProductStore) List(ctx context.Context, f domain.Filter) ([]*domain.Pro
 		// thường. Không xếp hạng liên quan, không xử lý dấu — chỉ mục tìm
 		// kiếm riêng là hạ tầng thêm KHI ĐO ĐƯỢC nhu cầu, không phải bây giờ.
 		f.Query,
-		chuanHoaSize(f.Sizes), chuanHoaNhomMau(f.ColorFamilies),
+		f.SizeDaChuan(), f.NhomMauDaChuan(),
 	}
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT $%d", len(args)+1)
@@ -599,35 +599,4 @@ func timeOrZero(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
-}
-
-// chuanHoaSize đưa danh sách size về chữ thường để so khớp.
-//
-// Trả nil khi rỗng: điều kiện SQL dùng `IS NULL` để bỏ qua bộ lọc, và một
-// mảng rỗng KHÔNG phải là "không lọc" — nó là "không khớp gì cả".
-func chuanHoaSize(v []string) []string {
-	return chuanHoa(v, strings.ToLower)
-}
-
-// chuanHoaNhomMau đưa nhóm màu về CHỮ HOA: nhóm là hằng số, không phải
-// chuỗi người dùng nhập.
-func chuanHoaNhomMau(v []string) []string {
-	return chuanHoa(v, strings.ToUpper)
-}
-
-func chuanHoa(v []string, f func(string) string) []string {
-	if len(v) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(v))
-	for _, x := range v {
-		x = strings.TrimSpace(x)
-		if x != "" {
-			out = append(out, f(x))
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

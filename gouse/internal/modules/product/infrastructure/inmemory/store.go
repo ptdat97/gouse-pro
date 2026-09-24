@@ -312,7 +312,17 @@ func matches(p domain.RestoreProductParams, f domain.Filter) bool {
 	if f.OnlyVisible && p.Status != domain.StatusActive {
 		return false
 	}
-	return true
+
+	// Lọc theo thuộc tính BIẾN THỂ — size và nhóm màu.
+	//
+	// Gọi `domain.Filter.KhopBienThe` chứ không tự viết vòng lặp: bản
+	// PostgreSQL làm việc này bằng hai mệnh đề EXISTS, và hai cài đặt song
+	// song của cùng một quy tắc là hai cài đặt sẽ lệch nhau.
+	//
+	// Tới 24/09/2026 hàm này BỎ QUA cả hai bộ lọc. Vì `MODULES_STORAGE`
+	// mặc định là `memory` khi phát triển, bộ lọc màu ở cửa hàng trả về
+	// toàn bộ danh mục — không lỗi, không log, không ai biết.
+	return f.KhopBienThe(p.Variants)
 }
 
 // sortProducts sắp xếp theo id để kết quả ỔN ĐỊNH.

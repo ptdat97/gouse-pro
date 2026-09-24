@@ -1,4 +1,4 @@
-import type { operations } from "@fc/types/openapi";
+import type { components, operations } from "@fc/types/openapi";
 import { maLuotTruyCap } from "./luot-truy-cap";
 import type { ApiClient } from "./client";
 
@@ -31,16 +31,51 @@ export type ProductDetail = Ok<operations["getProduct"]>;
 export type ProductOffers = Ok<operations["listProductOffers"]>;
 export type SearchResult = Ok<operations["search"]>;
 
+/**
+ * NHÓM màu để lọc — mười bốn giá trị, SUY TỪ đặc tả.
+ *
+ * Không chép lại thành union viết tay: một bản sao thứ hai của danh sách
+ * này sẽ lệch, và lệch một chữ thì bộ lọc im lặng trả rỗng (P3-70).
+ */
+export type NhomMau = components["schemas"]["ColorFamily"];
+
 export interface ProductQuery {
   limit?: number;
   cursor?: string;
   category_id?: string;
   brand_id?: string;
-  [param: string]: string | number | undefined;
+
+  /** Lọc theo NHÓM màu, không theo tên màu cụ thể. */
+  color?: NhomMau[];
+
+  /** Lọc theo size của biến thể. Size là chuỗi tự do, không phải tập đóng. */
+  size?: string[];
+
+  [param: string]: string | number | readonly string[] | undefined;
 }
 
+/**
+ * Liệt kê sản phẩm.
+ *
+ * # Mảng gửi đi bằng DẤU PHẨY
+ *
+ * Đặc tả khai `style: form, explode: false`, tức `?color=BLACK,WHITE` chứ
+ * không phải `?color=BLACK&color=WHITE`. Máy chủ tách bằng `tachDanhSach`.
+ *
+ * Mảng RỖNG không được gửi: `color=` rỗng bị client bỏ qua, nhưng để nó
+ * thành chuỗi rỗng rồi trông chờ vào đó là dựa vào một chi tiết ở tầng
+ * khác. Bỏ hẳn khóa là ý định rõ ràng.
+ */
 export function listProducts(api: ApiClient, q: ProductQuery = {}): Promise<ProductList> {
-  return api.get<ProductList>("/api/v1/products", q);
+  const params: Record<string, string | number | undefined> = {};
+  for (const [k, v] of Object.entries(q)) {
+    if (Array.isArray(v)) {
+      if (v.length > 0) params[k] = v.join(",");
+      continue;
+    }
+    params[k] = v as string | number | undefined;
+  }
+  return api.get<ProductList>("/api/v1/products", params);
 }
 
 /**

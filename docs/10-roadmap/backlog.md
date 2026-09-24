@@ -6821,6 +6821,126 @@ một hàm còn lại mà không ai gọi chính là cách dạng lỗi trên si
 
 ---
 
+### P3-72 — bộ lọc màu: dựng được rồi, và một kho im lặng không lọc gì
+
+P3-70 tách `ColorFamily` thành schema có tên để client có kiểu mà dựng bộ
+lọc. Đây là việc dùng nó.
+
+#### Trước khi viết giao diện: máy chủ có lọc thật không
+
+Chạy API thật trên dữ liệu thật, và lần đầu kết quả là:
+
+```text
+color=BLACK   1 sản phẩm    ← đúng
+color=GREEN   1 sản phẩm    ← SAI, không có biến thể xanh lá nào
+```
+
+Mọi màu trả về cùng một sản phẩm. Nhưng nguyên nhân KHÔNG phải bộ lọc
+hỏng: `MODULES_STORAGE` mặc định là `memory` khi `APP_ENV=development`,
+nên API đang chạy kho in-memory với dữ liệu seed riêng, không phải
+Postgres. Suýt kết luận ngược.
+
+Chạy lại với `MODULES_STORAGE=postgres` thì bản SQL đúng hết: một màu,
+nhiều màu, màu không có hàng, chữ thường.
+
+#### Nhưng cái suýt-kết-luận-sai ấy lại là một lỗi thật
+
+Bản in-memory BỎ QUA hẳn `Sizes` và `ColorFamilies`. Và vì nó là mặc định
+khi phát triển, mọi lượt chạy ở máy lập trình viên đều trả về TOÀN BỘ danh
+mục bất kể lọc gì:
+
+```text
+color=GREEN   →  4 sản phẩm   (in-memory, sai)
+color=GREEN   →  0 sản phẩm   (postgres, đúng)
+```
+
+Không lỗi, không log. Người dựng bộ lọc màu sẽ thấy trang "chạy được" — có
+sản phẩm hiện ra — và không bao giờ biết bộ lọc không làm gì.
+
+Trớ trêu: chính hàm `matches` của bản in-memory mở đầu bằng lời cảnh báo
+rằng nó phải GIỐNG bản PostgreSQL, *"nếu không test in-memory sẽ xanh cho
+hành vi mà production không có"*. Hai bộ lọc ngay dưới lời cảnh báo ấy là
+chỗ nó bị vi phạm.
+
+#### Sửa: một phép so khớp, hai kho dùng chung
+
+Chuẩn hóa hoa-thường và phép "tồn tại một biến thể khớp" chuyển về
+`domain.Filter` (`SizeDaChuan`, `NhomMauDaChuan`, `KhopBienThe`). Bản SQL
+dùng chung phép chuẩn hóa; bản in-memory dùng chung cả hai.
+
+Đó là QUY TẮC của bộ lọc, không phải chi tiết của PostgreSQL. Mỗi kho tự
+viết nghĩa là hai kho có thể lệch — và lệch ở đây không kêu.
+
+Ba hàm `chuanHoa*` bên postgres thành không ai gọi, nên xóa hẳn.
+
+#### Hàng rào: bắt HAI KHO trả lời giống nhau
+
+`TestHaiKhoLocBienTheGiongNhau` nạp cùng một danh mục vào cả hai kho rồi
+so 12 bộ lọc. Hai bài test riêng cho hai kho vẫn xanh khi một kho quên mất
+một bộ lọc — bài của nó chỉ đơn giản là không có. Bài này hỏi câu khác:
+hai cài đặt có trả lời GIỐNG NHAU không.
+
+#### Giao diện
+
+Bộ lọc ở URL (`?color=BLACK,WHITE`), không ở `useState`. Ba thứ chỉ có khi
+trạng thái nằm ở URL: gửi link kèm đúng bộ lọc, bấm Back quay lại lựa chọn
+trước, tải lại không mất gì.
+
+Nhãn màu khai là `Record<NhomMau, …>` với `NhomMau` suy từ đặc tả, nên
+thêm một nhóm màu vào đặc tả mà quên nhãn là `typecheck` ĐỎ — không phải
+một ô trống khách nhìn thấy trước. Đây là lý do KHÔNG viết bài test kiểu
+"mọi nhóm đều có nhãn": nó sẽ là một danh sách chép tay thứ hai, đúng thứ
+vừa gây ra lệch GRAY/GREY.
+
+Giá trị lạ trong URL (`?color=CAM_VANG`) bị lọc ở client. Gửi thẳng lên
+thì máy chủ trả rỗng và khách thấy "không có sản phẩm nào" mà không hiểu
+vì sao.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+in-memory bỏ lọc lại        "hai kho trả khác nhau
+                             postgres : [Áo sơ mi linen]
+                             in-memory: [cả bốn sản phẩm]"
+listProducts không gửi mảng  "bấm đủ 14 màu mà danh mục không đổi —
+                             bộ lọc không tới máy chủ"
+bỏ ranh giới Suspense        `next build` vỡ: "useSearchParams() should be
+                             wrapped in a suspense boundary"
+```
+
+Cái thứ ba đáng kể: `next dev` chạy ngon với lỗi ấy, chỉ `next build` mới
+kêu — đúng thứ cấu hình e2e đã ghi là chỉ trình duyệt/bản dựng mới thấy.
+
+#### Một bài test tự BỎ QUA chính nó
+
+Bản đầu của bài e2e dùng `waitForLoadState("networkidle")` sau mỗi cú bấm.
+Nó trả về NGAY — lượt gọi mới chưa kịp bắt đầu — nên mỗi lần đọc danh sách
+đều là dữ liệu cũ, vòng lặp không bao giờ thấy danh mục thu hẹp, và
+`test.skip` nuốt luôn thất bại.
+
+Khi tôi phá `listProducts`, bài ấy BỎ QUA thay vì đỏ. Bộ chạy in
+*"2 passed, 1 skipped"* — trông hệt như đã xanh.
+
+```text
+skip  ≠  pass
+```
+
+Sửa hai chỗ: chờ đúng `waitForResponse` của lượt gọi danh mục (vừa xác
+định, vừa đọc được tham số ĐÃ RỜI trình duyệt), và bỏ `test.skip` cho
+trường hợp "không màu nào đổi được kết quả" — mười bốn màu mà danh mục
+không đổi chính là lỗi bài này sinh ra để bắt.
+
+#### Ghi nhận, chưa làm
+
+`v.status <> 'ARCHIVED'` trong truy vấn đang canh một trạng thái CHƯA TỚI
+ĐƯỢC: `NewVariant` luôn tạo `ACTIVE` và không hàm nào chuyển biến thể sang
+lưu trữ. Bài test cố ý KHÔNG dựng ca ấy bằng `RestoreVariant` — một bài
+test cho tình huống ứng dụng không tạo ra nổi là một bài nói dối về phạm
+vi đang được bảo vệ. Bản in-memory đã sẵn sàng cho ngày lưu trữ biến thể
+làm được.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

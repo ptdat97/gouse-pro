@@ -46,6 +46,42 @@
    * Đổi màu thì phải kiểm tra lại — đây là lý do màu nằm một chỗ.
    */
 
+  /*
+   * Ô MÀU của bộ lọc — DỮ LIỆU sản phẩm, không phải màu giao diện.
+   *
+   * Chúng nằm đây vì quy tắc "không mã màu viết trực tiếp trong
+   * component" không có ngoại lệ, và vì đổi sắc một ô là sửa một dòng.
+   *
+   * Nhưng chúng KHÁC mọi token phía trên ở một điểm quan trọng: đổi
+   * `--color-primary` là đổi thương hiệu, còn đổi `--swatch-red` là nói
+   * dối khách về màu món hàng. Chúng chỉ nên xê dịch để dễ nhìn hơn, và
+   * KHÔNG được đem dùng cho trạng thái hay trang trí.
+   *
+   * Mười bốn ô, khớp `ColorFamily` trong đặc tả. Thiếu một ô thì
+   * `Record<NhomMau, …>` bên TypeScript đỏ trước khi ai kịp thấy ô trắng.
+   */
+  --swatch-white: #ffffff;
+  --swatch-black: #1a1a1a;
+  --swatch-grey: #9c9ca3;
+  --swatch-silver: #c9ccd1;
+  --swatch-beige: #e4d5b7;
+  --swatch-brown: #8b5e3c;
+  --swatch-red: #cc2b2b;
+  --swatch-pink: #e8739f;
+  --swatch-orange: #e8802b;
+  --swatch-yellow: #f2c53d;
+  --swatch-green: #3f8f4f;
+  --swatch-blue: #2b5fcc;
+  --swatch-purple: #7d4bb3;
+
+  /*
+   * OTHER là "không xếp được vào nhóm nào" — một ô màu đơn sắc sẽ NÓI DỐI
+   * rằng nó là một màu cụ thể. Dùng vạch chéo để mắt đọc ra "hỗn hợp".
+   */
+  --swatch-other: repeating-linear-gradient(
+    45deg, #d8d8dd, #d8d8dd 3px, #ffffff 3px, #ffffff 6px
+  );
+
   /* ---------------------------------------------------- Khoảng cách */
 
   /* Thang đo nhất quán. Không dùng giá trị ngoài thang này. */
@@ -83,6 +119,9 @@
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
+
+  /* Viên thuốc — nút lọc, thẻ. Số đủ lớn để bo hết mọi chiều cao. */
+  --radius-full: 999px;
 
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.1);

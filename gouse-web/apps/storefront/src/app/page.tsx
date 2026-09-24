@@ -5,13 +5,17 @@ import {
   listBuyBoxPrices,
   listProducts,
   type BuyBoxPrice,
+  type NhomMau,
   type ProductList,
 } from "@fc/api-client";
 import { Alert } from "@fc/ui";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 
+import { BoLocMau } from "@/components/bo-loc-mau";
 import { money } from "@/lib/format";
+import { docMauTuURL, NHOM_MAU } from "@/lib/mau";
 import { useShop } from "@/lib/shop";
 
 /**
@@ -38,10 +42,53 @@ import { useShop } from "@/lib/shop";
  * Đặc tả khai `price_from` là bắt buộc trên `ProductSummary` trong khi API
  * chưa bao giờ trả nó. TypeScript tin đặc tả nên không báo gì, và cửa hàng
  * liệt kê sản phẩm không có giá suốt nhiều tuần.
+ *
+ * # Bộ lọc nằm ở URL
+ *
+ * `?color=BLACK,WHITE` chứ không phải `useState`. Ba thứ chỉ có khi trạng
+ * thái ở URL: gửi link cho bạn bè kèm đúng bộ lọc, bấm Back quay về lựa
+ * chọn trước, và tải lại trang không mất gì.
+ *
+ * `useSearchParams` buộc phải nằm trong một ranh giới `<Suspense>`, nếu
+ * không cả cây component phía trên nó mất khả năng render sẵn — xem
+ * `node_modules/next/dist/docs/01-app/.../use-search-params.md`.
  */
 export default function HomePage() {
+  return (
+    <React.Suspense fallback={<p className="muted">Đang tải…</p>}>
+      <DanhMuc />
+    </React.Suspense>
+  );
+}
+
+function DanhMuc() {
   const { api } = useShop();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [data, setData] = React.useState<ProductList | null>(null);
+
+  const mau = React.useMemo(
+    () => docMauTuURL(searchParams.get("color")),
+    [searchParams],
+  );
+
+  // Ghép lại thành chuỗi để làm dependency: `mau` là mảng mới mỗi lần
+  // render, nên dùng thẳng nó sẽ gọi lại API vô hạn.
+  const khoaMau = mau.join(",");
+
+  function doiMau(moi: NhomMau[]) {
+    const q = new URLSearchParams(searchParams.toString());
+    if (moi.length > 0) q.set("color", moi.join(","));
+    else q.delete("color");
+
+    // `replace` chứ không `push`: bật tắt năm màu liên tiếp sẽ nhồi năm
+    // mục vào lịch sử, và khách bấm Back năm lần mới rời được trang.
+    //
+    // `scroll: false`: danh sách đổi ngay dưới bộ lọc, nhảy lên đầu trang
+    // làm mất chỗ khách đang nhìn.
+    router.replace(q.size > 0 ? `${pathname}?${q}` : pathname, { scroll: false });
+  }
 
   // Giá tra RIÊNG: danh mục cố ý không chứa giá.
   //
@@ -55,7 +102,10 @@ export default function HomePage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await listProducts(api, { limit: 24 });
+        const res = await listProducts(api, {
+          limit: 24,
+          color: khoaMau === "" ? [] : (khoaMau.split(",") as NhomMau[]),
+        });
         if (cancelled) return;
         setData(res);
 
@@ -72,24 +122,41 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [api, khoaMau]);
 
   if (error) return <Alert tone="danger">{error}</Alert>;
-  if (!data) return <p className="muted">Đang tải…</p>;
 
-  const products = data.data ?? [];
-  if (products.length === 0) {
-    return (
-      <div>
-        <h1>Sản phẩm</h1>
-        <p className="muted">Chưa có sản phẩm nào được đăng bán.</p>
-      </div>
-    );
-  }
+  const products = data?.data ?? [];
 
   return (
     <div>
       <h1>Sản phẩm</h1>
+
+      <BoLocMau dangChon={mau} onDoi={doiMau} />
+
+      {/*
+        Trạng thái rỗng phải nói ĐÚNG lý do.
+        "Chưa có sản phẩm nào được đăng bán" trong lúc khách vừa lọc màu
+        tím là một câu sai — và nó khiến họ nghĩ cửa hàng trống, chứ không
+        nghĩ tới việc bỏ bộ lọc.
+      */}
+      {!data && <p className="muted">Đang tải…</p>}
+
+      {data && products.length === 0 && (
+        <p className="muted">
+          {mau.length > 0 ? (
+            <>
+              Không có sản phẩm nào màu{" "}
+              <strong>{mau.map((m) => NHOM_MAU[m].nhan).join(", ")}</strong>.{" "}
+              <button type="button" className="lien-ket" onClick={() => doiMau([])}>
+                Bỏ lọc màu
+              </button>
+            </>
+          ) : (
+            "Chưa có sản phẩm nào được đăng bán."
+          )}
+        </p>
+      )}
 
       <ul className="grid">
         {products.map((p) => (

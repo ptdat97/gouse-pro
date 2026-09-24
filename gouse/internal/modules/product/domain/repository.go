@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
@@ -107,4 +108,76 @@ type Filter struct {
 
 	Limit  int
 	Offset int
+}
+
+// SizeDaChuan và NhomMauDaChuan trả danh sách lọc ĐÃ CHUẨN HÓA.
+//
+// # Vì sao nằm ở MIỀN chứ không ở từng kho
+//
+// So sánh không phân biệt hoa thường là một QUY TẮC của bộ lọc, không
+// phải chi tiết của PostgreSQL. Mỗi kho tự chuẩn hóa nghĩa là hai kho có
+// thể chuẩn hóa khác nhau — và bản in-memory chạy trong test sẽ xanh cho
+// hành vi mà production không có.
+//
+// Đó không phải lo xa: tới 24/09/2026 bản in-memory BỎ QUA hẳn hai bộ lọc
+// này, nên mọi lượt chạy ở môi trường phát triển (`MODULES_STORAGE` mặc
+// định là `memory`) đều trả về toàn bộ danh mục bất kể lọc màu nào.
+//
+// Size về CHỮ THƯỜNG: người bán gõ "m", "M", "Free size" tùy ý.
+// Nhóm màu về CHỮ HOA: nhóm là hằng số hệ thống, không phải chuỗi người
+// dùng nhập — xem NhomMau.
+func (f Filter) SizeDaChuan() []string { return chuanHoaLoc(f.Sizes, strings.ToLower) }
+
+func (f Filter) NhomMauDaChuan() []string {
+	return chuanHoaLoc(f.ColorFamilies, strings.ToUpper)
+}
+
+// KhopBienThe trả true nếu bộ lọc biến thể KHÔNG loại sản phẩm này.
+//
+// Tương đương hai mệnh đề EXISTS của bản PostgreSQL: mỗi bộ lọc cần ÍT
+// NHẤT MỘT biến thể chưa lưu trữ khớp; danh sách rỗng thì không lọc.
+func (f Filter) KhopBienThe(bienThe []*Variant) bool {
+	return khopThuocTinh(bienThe, AttrSize, f.SizeDaChuan(), strings.ToLower) &&
+		khopThuocTinh(bienThe, AttrColorFamily, f.NhomMauDaChuan(), strings.ToUpper)
+}
+
+func khopThuocTinh(
+	bienThe []*Variant, khoa string, can []string, chuan func(string) string,
+) bool {
+	if len(can) == 0 {
+		return true
+	}
+	for _, v := range bienThe {
+		if v == nil || v.Status() == StatusArchived {
+			continue
+		}
+		giaTri := chuan(v.Attributes()[khoa])
+		for _, x := range can {
+			if giaTri == x {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// chuanHoaLoc trả NIL khi không có gì để lọc, không phải mảng rỗng.
+//
+// Điều kiện SQL bên PostgreSQL dùng `$n::text[] IS NULL` để bỏ qua bộ lọc.
+// Một mảng rỗng KHÔNG phải "không lọc" — nó là "không khớp gì cả", và khi
+// ấy danh mục trả về trắng trơn.
+func chuanHoaLoc(v []string, f func(string) string) []string {
+	if len(v) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(v))
+	for _, x := range v {
+		if x = strings.TrimSpace(x); x != "" {
+			out = append(out, f(x))
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
