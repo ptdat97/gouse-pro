@@ -23,8 +23,11 @@ import (
 //	checkout.completed            → xác nhận đơn hàng
 //	fulfillment.progress_changed  → đã gửi / đã giao / đã hủy
 //
-// Không nghe `order.placed`: payload của nó không mang email và tên sản
-// phẩm. `checkout.completed` mang đủ cả hai.
+// KHÔNG có event `order.placed` để nghe: đơn hàng chỉ ra đời từ một phiên
+// thanh toán hoàn tất, nên `checkout.completed` CHÍNH LÀ nó — và nó mang
+// đủ email lẫn tên sản phẩm, thứ một event riêng cho đơn sẽ phải gọi ngược
+// lại mới có. Hằng số `TypeOrderPlaced` từng tồn tại mà không ai phát; xóa
+// 25/09/2026, xem P3-76.
 type NotifyOnOrderEvents struct {
 	module *Module
 	log    *slog.Logger

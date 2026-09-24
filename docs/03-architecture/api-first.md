@@ -254,6 +254,21 @@ chốt cao hơn thực tế là chỗ trống để lặng lẽ nới hàng rào
 
 Chi tiết từng lần hỏng: backlog P3-46 · P3-58 · P3-70.
 
+### 7.3 Hợp đồng thứ ba: EVENT giữa các module
+
+`apicheck` gác hợp đồng với thế giới BÊN NGOÀI. Giữa các module với nhau
+có một hợp đồng nữa, và `cmd/eventcheck` gác nó:
+
+```text
+R1  khai mà KHÔNG AI PHÁT   một cái tên không có sự kiện đằng sau
+R2  khai mà KHÔNG AI NGHE   một sự thật không ai hành động
+R3  NGHE mà không ai phát   bên nhận chết, chờ một event không tới
+```
+
+Đã tìm ra bốn loại event khai mà không ai phát, trong đó `order.placed`
+được nhắc tên trong chú thích của hai module như thể nó đang chạy — xem
+P3-76.
+
 ---
 
 ## 8. Frontend không bao giờ truy cập database

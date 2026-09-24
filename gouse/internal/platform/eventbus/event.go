@@ -47,11 +47,11 @@ var (
 //
 // Tên đặt ở THÌ QUÁ KHỨ và mô tả sự thật, không phải mệnh lệnh:
 //
-//	Đúng:  order.placed · payment.captured · quality.approved
+//	Đúng:  order.paid · checkout.completed · returns.requested
 //	Sai:   send.email  · update.inventory  · process.order
 //
 // Khác biệt này quyết định: `send.email` là mệnh lệnh trá hình — bên phát
-// phải biết bên nhận làm gì. `order.placed` là sự thật — thêm bên nhận mới
+// phải biết bên nhận làm gì. `order.paid` là sự thật — thêm bên nhận mới
 // (gửi SMS, ghi thống kê, tính hoa hồng) không cần sửa module đơn hàng.
 type Event struct {
 	// ID là định danh của LẦN XẢY RA này.
@@ -59,7 +59,7 @@ type Event struct {
 	// Bên nhận dùng nó để bỏ qua event trùng — nền tảng của idempotency.
 	ID ids.ID
 
-	// Type dạng "order.placed".
+	// Type dạng "order.paid".
 	Type string
 
 	// Version cho phép tiến hóa schema mà không phá bên nhận cũ.
@@ -164,7 +164,7 @@ func (e Event) Unmarshal(dst any) error {
 // lần thứ hai — tiền bị nhân đôi.
 type Handler interface {
 	// Name là định danh của bên nhận, ví dụ
-	// "inventory.commit_on_order_placed".
+	// "inventory.commit_on_checkout_completed".
 	//
 	// Dùng làm khóa idempotency: mỗi bên nhận xử lý độc lập, nên
 	// notification đã xử lý không có nghĩa payment cũng đã xử lý.
@@ -232,9 +232,22 @@ func MaxVersionOf(h Handler, eventType string) int {
 // Khai báo tập trung để bên phát và bên nghe không tự gõ chuỗi — một lỗi
 // đánh máy ở đây tạo ra event không ai nghe, và không có gì báo lỗi.
 const (
-	TypeOrderPlaced    = "order.placed"
 	TypeOrderPaid      = "order.paid"
 	TypeOrderCancelled = "order.cancelled"
+
+	// KHÔNG có `order.placed`.
+	//
+	// Nó từng được khai ở đây và KHÔNG chỗ nào phát, KHÔNG ai nghe, suốt
+	// nhiều tháng — trong khi chú thích của hai module bàn về việc "không
+	// nghe order.placed" như thể nó đang chạy. Người tin vào cái tên ấy mà
+	// viết một bên nhận sẽ có mã không bao giờ chạy.
+	//
+	// Đơn hàng CHỈ ra đời từ một phiên thanh toán hoàn tất, nên
+	// `checkout.completed` chính là event ấy — nó mang cả mã đơn, số đơn,
+	// dòng hàng và phương thức thanh toán. Thêm một event thứ hai cho cùng
+	// một sự thật là hai nguồn để lệch nhau.
+	//
+	// Xóa 25/09/2026, và `cmd/eventcheck` gác để không tái diễn (P3-76).
 
 	// TypeFulfillmentCancelled: một đơn thực hiện bị hủy.
 	//
@@ -303,9 +316,16 @@ const (
 	// và sửa bảng size rẻ hơn nhiều so với chịu tỷ lệ hoàn cao mãi.
 	TypeReturnRequested = "returns.requested"
 
-	TypeInventoryReserved  = "inventory.reserved"
-	TypeInventoryCommitted = "inventory.committed"
-	TypeInventoryReleased  = "inventory.reservation_released"
+	// KHÔNG có `inventory.reserved`, `inventory.committed`,
+	// `inventory.reservation_released`.
+	//
+	// Ba cái tên ấy khai ở đây mà không chỗ nào phát và không ai nghe. Giữ
+	// hàng, ghi nhận và nhả hàng đều đi qua LỜI GỌI THẲNG trong cùng một
+	// giao dịch với việc gây ra chúng — đó là chủ ý: một lần giữ hàng
+	// thành công mà event thất bại sẽ để tồn kho lệch, và tồn kho lệch là
+	// bán mất hàng không có.
+	//
+	// Xóa 25/09/2026 cùng lý do với `order.placed`.
 
 	// TypeInventoryDepleted là SKU vừa hết sạch hàng khả dụng.
 	//

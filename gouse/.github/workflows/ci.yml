@@ -42,6 +42,17 @@ jobs:
       - name: Test chính công cụ apicheck
         run: go test ./cmd/apicheck/
 
+      - name: Đối chiếu hợp đồng EVENT với cài đặt
+        # Event là cách các module nói chuyện với nhau, và nó vô hình với
+        # cả archcheck lẫn apicheck. Một loại event khai ra rồi không ai
+        # phát trông y hệt một loại đang chạy — người sau viết bên nhận
+        # cho nó và bên nhận ấy không bao giờ chạy. Đã xảy ra với BỐN
+        # loại, trong đó có `order.placed` (P3-76).
+        run: go run ./cmd/eventcheck -v
+
+      - name: Test chính công cụ eventcheck
+        run: go test ./cmd/eventcheck/
+
   quality:
     name: Định dạng và phân tích tĩnh
     runs-on: ubuntu-latest

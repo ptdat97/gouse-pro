@@ -36,7 +36,7 @@ func NewDispatcher(pool *pgxpool.Pool, log *slog.Logger) *Dispatcher {
 // Subscribe đăng ký một bên nhận.
 //
 // Nhiều bên nhận cho cùng một loại event là bình thường và là mục đích của
-// kiến trúc này: `order.placed` có thể có notification, analytics,
+// kiến trúc này: `order.paid` có thể có notification, analytics,
 // inventory và attribution cùng nghe.
 func (d *Dispatcher) Subscribe(h Handler) {
 	for _, t := range h.EventTypes() {

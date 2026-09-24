@@ -7016,6 +7016,87 @@ xuất hiện lại, chỗ cần nhìn là `testdb.timeoutKetNoiTest` và số l
 
 ---
 
+### P3-76 — `cmd/eventcheck`: hàng rào thứ ba, và bốn event không tồn tại
+
+`archcheck` gác ranh giới module. `apicheck` gác hợp đồng với thế giới bên
+ngoài. Giữa hai cái đó có một hợp đồng thứ ba KHÔNG ai gác: **event là
+cách các module nói chuyện với nhau**, và nó vô hình với cả hai.
+
+#### Bốn cái tên không có sự kiện đằng sau
+
+```text
+order.placed                     khai · 0 nơi phát · 0 bên nghe
+inventory.reserved               khai · 0 nơi phát · 0 bên nghe
+inventory.committed              khai · 0 nơi phát · 0 bên nghe
+inventory.reservation_released   khai · 0 nơi phát · 0 bên nghe
+```
+
+`order.placed` là event trung tâm nhất mà một người đọc mã sẽ nghĩ tới —
+và **chú thích của HAI module bàn về nó như thể nó đang chạy**:
+
+```text
+notification/handlers.go   "Không nghe `order.placed`: payload của nó
+                            không mang email và tên sản phẩm."
+fulfillment/events.go      "Nghe `order.placed` sẽ phải gọi ngược module
+                            order để lấy chi tiết."
+```
+
+Ai tin vào cái tên ấy mà viết một bên nhận sẽ có mã **không bao giờ
+chạy** — không lỗi, không log, không có gì để lần theo. Cùng dạng với
+`SELLER_RELEASE`, `AddImage`, `ListBrands`, `getBrand`,
+`FindExpiringAuthorizations`, `XacNhan`/`DanhDauDaTra`, và ba hàm
+`chuanHoa*`. Dạng lỗi hay gặp NHẤT của dự án này, nay lan sang event.
+
+Bốn hằng số đã xóa. Sự thật mà `order.placed` định mang đã nằm trong
+`checkout.completed`: đơn hàng chỉ ra đời từ một phiên thanh toán hoàn
+tất, và payload ấy mang cả mã đơn, dòng hàng lẫn phương thức thanh toán.
+Hai event cho cùng một sự thật là hai nguồn để lệch nhau.
+
+Ba event inventory thì đi bằng LỜI GỌI THẲNG trong cùng giao dịch với
+việc gây ra chúng — chủ ý, vì một lần giữ hàng thành công mà event thất
+bại sẽ để tồn kho lệch.
+
+#### Ba quy tắc
+
+```text
+R1  khai mà KHÔNG AI PHÁT   một cái tên không có sự kiện đằng sau
+R2  khai mà KHÔNG AI NGHE   một sự thật không ai hành động
+R3  NGHE mà không ai phát   bên nhận chết, chờ một event không tới
+```
+
+R1 và R2 có sổ miễn trừ kèm lý do — cùng khuôn với `chuaCai`,
+`ngoaiHopDong`, `headerNgoaiDacTa`, `capEnumDaKiem` của apicheck. Cả hai
+sổ hiện **trống**, và đó là trạng thái đúng: event chưa dùng thì XÓA hằng
+số đi, thêm lại khi thật sự phát.
+
+**R3 không có sổ miễn trừ.** Một bên nhận không bao giờ chạy không có lý
+do hợp lệ nào, và `TestR3KhongTatDuocBangSoMienTru` khóa điều đó lại:
+khai lý do "cố ý chưa phát" vẫn không tắt được R3.
+
+#### Đọc AST, không grep
+
+Chuỗi `"order.placed"` trong chú thích không phải một khai báo. Grep sẽ
+biến mọi đoạn tài liệu bàn về một event thành một khai báo — và cảnh báo
+giả là thứ làm người ta tắt hẳn phép kiểm (cùng lý do với tầng enum của
+apicheck, P3-70).
+
+File `_test.go` KHÔNG tính là nơi phát: một loại event chỉ phát trong test
+là một loại event production không bao giờ phát, đúng thứ công cụ này tìm.
+
+#### Kiểm chứng
+
+Tám bài dựng dự án GIẢ có đúng một lỗi mỗi bài, cộng một bài chạy trên
+repo thật. Phá mã thật bằng cách thêm một hằng event mới → R1 và R2 kêu
+ngay.
+
+#### Dọn theo
+
+Ba ví dụ đặt tên trong chính `eventbus` dùng `order.placed` làm mẫu. Giữ
+nguyên sẽ dạy một cái tên vừa bị xóa — đổi sang `order.paid`,
+`checkout.completed`, `returns.requested`, những tên có thật.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

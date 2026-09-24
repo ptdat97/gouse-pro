@@ -128,8 +128,9 @@ func (p *eventPublisher) PublishProgress(
 // # Vì sao nghe checkout.completed
 //
 // Payload của event này chứa đủ dữ liệu để tách: SKU, seller, số lượng và
-// tiền của từng dòng. Nghe `order.placed` sẽ phải gọi ngược module order
-// để lấy chi tiết — đúng thứ kiến trúc event sinh ra để tránh.
+// tiền của từng dòng. Một event riêng cho "đơn đã đặt" sẽ phải gọi ngược
+// module order để lấy chi tiết — đúng thứ kiến trúc event sinh ra để
+// tránh, và đó là lý do `order.placed` không tồn tại (P3-76).
 type SplitOnCheckoutCompleted struct {
 	module *Module
 	log    *slog.Logger
