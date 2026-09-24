@@ -207,7 +207,52 @@ Từ file này sinh ra:
 
 **Quy tắc:** đặc tả phải được cập nhật **cùng pull request** với thay đổi code. Không chấp nhận "cập nhật tài liệu sau".
 
-**Kiểm tra tự động:** CI so sánh đặc tả với cài đặt thật, thất bại nếu lệch.
+### 7.1 `types:check` KHÔNG kiểm hợp đồng
+
+Cách kiểm hiển nhiên nhất — sinh kiểu TypeScript từ đặc tả rồi bắt CI đỏ
+nếu file sinh ra khác file đã commit — **không kiểm được gì về cài đặt**.
+Nó so đặc tả với TypeScript sinh ra từ chính đặc tả ấy. Hai bên luôn khớp,
+kể cả khi máy chủ làm một việc hoàn toàn khác.
+
+Ba lần hỏng thật đã đi qua phép kiểm này mà CI vẫn xanh:
+
+```text
+P3-56   sáu TUYẾN sống ngoài hợp đồng — có route, không có trong đặc tả
+P3-58   `X-Visit-Id` thiếu trong danh sách CORS. Preflight từ chối, request
+        thật không rời máy khách, log máy chủ SẠCH TRƠN, và cả cửa hàng
+        ngừng tải dữ liệu
+P3-70   `color_family` khai `GRAY`, máy chủ lưu `GREY`. Bộ lọc màu im lặng
+        trả rỗng
+```
+
+### 7.2 `cmd/apicheck` — ba tầng của cùng một hợp đồng
+
+```text
+tuyến ⇄ đặc tả     mọi `mux.Handle` phải có trong đặc tả, và mọi thao tác
+                   đặc tả phải có tuyến — hoặc khai lý do hoãn
+header ⇄ CORS      mọi `in: header` của đặc tả phải nằm trong danh sách
+                   CORS, và ngược lại
+enum ⇄ hằng Go     giá trị hợp lệ hai bên phải khớp
+```
+
+Ba tầng vì ba dạng lỗi trên đều đã xảy ra THẬT, và không phép kiểm nào lúc
+ấy nhìn vào chỗ chúng xảy ra.
+
+Mỗi tầng có một **sổ miễn trừ ghi tay kèm lý do** — `chuaCai`,
+`ngoaiHopDong`, `headerNgoaiDacTa`, `headerKhongQuaTrinhDuyet`,
+`capEnumDaKiem`, `enumKhongGhep`. Miễn trừ phải là một quyết định có người
+ký, không phải một chỗ bị bỏ quên.
+
+Tầng enum ghép cặp TAY chứ không theo tên: phép rà tự động đầu tiên cho
+hai cảnh báo GIẢ trên ba kết quả (hàng chục module đều có kiểu tên
+`Status`; có HAI kiểu `LyDo` khác nhau). Cảnh báo giả là thứ làm người ta
+tắt hẳn phép kiểm.
+
+Phần enum chưa ghép cặp được canh bằng một **chốt một chiều**: thêm enum
+mới vào đặc tả mà không quyết định thì CI đỏ. Chốt chỉ được GIẢM — một
+chốt cao hơn thực tế là chỗ trống để lặng lẽ nới hàng rào.
+
+Chi tiết từng lần hỏng: backlog P3-46 · P3-58 · P3-70.
 
 ---
 

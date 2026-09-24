@@ -55,6 +55,46 @@ Bốn loại lỗi mà **chỉ** chỗ này bắt được — cả bốn đều
 Điểm chung của cả bốn: **log máy chủ hoàn toàn sạch**. Backend xanh,
 TypeScript xanh, và ứng dụng hỏng.
 
+## `skip` không phải `pass`
+
+Một bài `test.skip(...)` in ra dấu `-`, không làm tổng số đỏ, và dòng tổng
+kết vẫn đọc như đã xanh:
+
+```text
+2 passed, 1 skipped
+```
+
+Ngày 24/09/2026 bài lọc màu tự bỏ qua chính nó vì một lý do rất dễ mắc:
+nó dùng `waitForLoadState("networkidle")` sau mỗi cú bấm, mà hàm ấy trả về
+NGAY — lượt gọi mới chưa kịp bắt đầu. Mỗi lần đọc danh sách đều là dữ liệu
+cũ, nên điều kiện "danh mục đã thu hẹp" không bao giờ đúng và `test.skip`
+nuốt luôn thất bại. Khi cố tình phá mã để kiểm, bài ấy BỎ QUA thay vì đỏ.
+
+Hai quy tắc rút ra:
+
+**Chờ đúng cái mình đang đợi, không chờ theo thời gian.** Dùng
+`waitForResponse` cho lượt gọi mà hành động vừa gây ra, rồi `toHaveCount`
+để chờ React vẽ xong — cả hai đều xác định, và `waitForResponse` còn cho
+đọc luôn tham số ĐÃ RỜI trình duyệt.
+
+**`test.skip` chỉ dành cho điều kiện môi trường**, ví dụ danh mục rỗng thì
+không bộ lọc nào chứng minh được gì. Nó KHÔNG được dùng cho "không tìm
+thấy dữ liệu phù hợp" khi việc không tìm thấy chính là triệu chứng của lỗi
+đang cần bắt.
+
+## Bài đang ĐỎ, chưa sửa
+
+```text
+dat-hang.spec.ts:149   "đơn trộn hàng của hai nhà bán tách thành hai đơn
+                       thực hiện" — đỏ từ 24/09/2026, KHÔNG phải hồi quy
+                       (xác nhận bằng `git stash`: đỏ y hệt trên mã gốc,
+                       kể cả sau khi khởi động lại worker). Chưa điều tra.
+```
+
+Ghi ra đây thay vì để người chạy tự đoán. Một bài đỏ không ai ghi lại sẽ
+được coi là "vẫn thế" ở mọi lượt sau — và khi nó đỏ vì lý do MỚI thì không
+ai nhận ra.
+
 ## Vì sao không khẳng định "console không có lỗi nào"
 
 Bản đầu tiên làm vậy và đỏ ngay vì ảnh mẫu trỏ tới `cdn.example.com` không

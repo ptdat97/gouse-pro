@@ -168,6 +168,11 @@ có giá trị rỗng — `Version` của đơn mới bằng 0 — nên có thê
 `color` (nhóm màu), `gender_target`, `product_type` — tất cả đều là dữ
 liệu của module `product`, nên lọc được bằng một truy vấn.
 
+> **Đính chính 24/09/2026:** "đã cài" chỉ đúng với kho PostgreSQL. Kho
+> in-memory — thứ mặc định khi `APP_ENV=development` — bỏ qua hẳn `size`
+> và `color` suốt một tháng, nên ở máy lập trình viên hai bộ lọc ấy trả về
+> toàn bộ danh mục. Sửa và gác ở P3-72.
+
 Hai cái còn lại KHÔNG cài được như vậy:
 
 ```text

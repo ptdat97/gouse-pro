@@ -247,18 +247,69 @@ Xử lý:
 
 ## 7. Đối soát và chi trả
 
+### 7.1 Đã dựng tới 24/09/2026
+
 ```text
-Chu kỳ đối soát (ví dụ hàng tuần)
+job `taoDoiSoat` chạy MỖI GIỜ (nhịp đổi được ở cấu hình nghiệp vụ)
     ↓
-Tổng hợp mọi khoản trong kỳ cho từng seller:
-    + doanh thu bán hàng (đơn đã COMPLETED)
-    − hoa hồng
-    − phí dịch vụ
-    − hoàn tiền phát sinh
-    ± điều chỉnh
+gom các bút toán SELLER_RELEASE chưa thuộc đợt nào, theo từng nhà bán
     ↓
-Tạo Settlement
+khóa nhà bán · đọc phần NỢ · tạo đợt · ghi bút toán thu hồi
+                            — CÙNG một giao dịch
     ↓
+đợt ở trạng thái DRAFT
+```
+
+**Một đợt chỉ gồm MỘT loại khoản.** Hoa hồng, phí thanh toán và COGS đã
+được trừ TỪ LÚC ghi doanh thu (`RecordOrderRevenue` tách `SellerPayable`
+khỏi `PlatformRevenue`/`PaymentFee`/`COGS`), nên tiền vào `SELLER_PAYABLE`
+đã là phần của nhà bán. Đợt đối soát chỉ gom những khoản đã hết hạn đổi
+trả — `entry_type = 'SELLER_RELEASE'`.
+
+Vì thế câu hỏi "tách đợt theo loại khoản" là câu hỏi SAI: trong một đợt
+không có loại nào để tách. Câu trả lời được là *"đợt này gồm những đơn
+thực hiện nào"*, và đó là thứ đã dựng. Xem P3-69.
+
+Phần chi tiết theo tám loại khoản thuộc về một **sổ chi tiết tài khoản nhà
+bán** — chưa làm.
+
+### 7.2 Khoản nợ và phép thu hồi
+
+Khách xin trả ngày 6, hàng về ngày 10 — khi tiền đã chuyển sang rút được.
+Khoản hoàn ghi nợ `SELLER_PAYABLE` vào một tài khoản đã rỗng và làm nó ÂM.
+
+```text
+deficit   phần âm ấy, THU ĐƯỢC ở đợt này, luôn ≤ gross
+net       gross − deficit, KHÔNG BAO GIỜ âm
+```
+
+Mỗi đồng `deficit` có một **bút toán thật** ghi cùng giao dịch tạo đợt:
+
+```text
+ADJUSTMENT, tham chiếu SETTLEMENT
+  DEBIT   SELLER_AVAILABLE   giảm phần được chi
+  CREDIT  SELLER_PAYABLE     đưa số âm về 0
+```
+
+Không có bút toán ấy thì phép trừ chỉ nằm trên giấy, số âm còn nguyên, và
+đợt kế tiếp trừ LẠI cùng khoản — mỗi giờ một lần. Đó là lỗi đã có trong mã
+tới 23/09/2026; xem P3-71.
+
+Nợ lớn hơn tổng đợt thì `deficit` kẹp ở mức `gross`, phần chưa thu nằm
+tiếp ở số âm và kỳ sau thu. Nền tảng không đòi tiền mặt ngược từ nhà bán.
+
+### 7.3 CHƯA dựng
+
+```text
+xác nhận đợt      `DoiSoat.XacNhan` và `DanhDauDaTra` khai ra mà KHÔNG
+                  AI GỌI — mọi đợt nằm DRAFT vĩnh viễn. Khép vòng đời
+                  cần quyết ai được ký chi, và một màn hình admin
+payout            chuyển tiền thật, gọi API ngân hàng. Phase 2
+```
+
+Thiết kế mong muốn của hai phần ấy:
+
+```text
 Seller xem, xác nhận (hoặc tự động sau thời hạn)
     ↓
 Payout — gọi API ngân hàng
@@ -268,7 +319,7 @@ Ghi bút toán:
     CREDIT  PLATFORM_CASH
 ```
 
-### Yêu cầu idempotency cho payout
+### 7.4 Yêu cầu idempotency cho payout (khi dựng)
 
 ```text
 Payout là thao tác NGUY HIỂM NHẤT hệ thống — chuyển tiền thật.

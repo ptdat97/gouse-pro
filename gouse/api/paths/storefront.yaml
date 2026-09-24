@@ -79,14 +79,32 @@ products:
         example: [BLACK, WHITE]
       - name: price_min
         in: query
+        description: |
+          **CHƯA CÀI ĐẶT — máy chủ BỎ QUA tham số này.**
+
+          Giá nằm ở module `marketplace` (offer), tồn kho ở `inventory`.
+          Lọc theo chúng cần JOIN xuyên module — thứ kiến trúc cấm, và cấm
+          có lý do: module nào sở hữu bảng nào là ranh giới giữ cho chúng
+          thay đổi độc lập.
+
+          Lọc ở tầng ứng dụng KHÔNG lách được: lấy 50 sản phẩm rồi tự loại
+          những cái ngoài khoảng giá sẽ trả về ít hơn 50, và trang 2 bỏ
+          sót. Phân trang chỉ đúng khi việc lọc nằm TRONG truy vấn.
+
+          Hướng đi là một read model `product_search` do event cập nhật —
+          xem backlog PH-39. Ghi ở đây vì một tham số khai mà không cài là
+          một bộ lọc im lặng không làm gì: client gửi lên, nhận về danh
+          sách ĐỦ, và không có lỗi nào để lần theo.
         schema:
           type: integer
       - name: price_max
         in: query
+        description: Xem `price_min` — **CHƯA CÀI ĐẶT**, máy chủ bỏ qua.
         schema:
           type: integer
       - name: in_stock
         in: query
+        description: Xem `price_min` — **CHƯA CÀI ĐẶT**, máy chủ bỏ qua.
         schema:
           type: boolean
       - name: gender_target

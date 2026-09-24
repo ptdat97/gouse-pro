@@ -24,6 +24,63 @@ Orders                  — đơn hàng của tôi
 Wishlist                — yêu thích
 ```
 
+### 1.1 Đã dựng tới 24/09/2026
+
+Sơ đồ trên là ĐẶC TẢ. Thực tế `apps/storefront` có chín trang:
+
+```text
+/                        danh mục — kèm bộ lọc màu (mục 1.2)
+/products/[productId]    chi tiết sản phẩm
+/cart                    giỏ hàng
+/checkout                thanh toán
+/orders                  đơn của tôi
+/orders/[orderKey]       chi tiết đơn
+/dang-nhap · /dang-ky    đăng nhập · đăng ký
+/tai-khoan               tài khoản
+```
+
+Chưa có: Discovery, Search, Brand, Collection, Seller, Creator, Content,
+Wishlist.
+
+Trong số đó, Search có sẵn `GET /api/v1/search` và Brand có sẵn
+`GET /api/v1/brands/{brand_id}` cùng `listProducts?brand_id=` — tức chỉ
+thiếu màn hình. Số còn lại thuộc Phase 2 (creator commerce, nội dung).
+
+### 1.2 Bộ lọc danh mục
+
+Mới có **một** bộ lọc: nhóm màu. Backend còn lọc được size, giới tính,
+loại sản phẩm, danh mục, thương hiệu và bộ sưu tập — chưa màn hình nào gọi
+tới.
+
+Khoảng giá và "còn hàng" thì đặc tả có khai mà máy chủ **bỏ qua**: giá nằm
+ở `marketplace`, tồn kho ở `inventory`, và lọc theo chúng cần JOIN xuyên
+module. Xem backlog PH-39 — đừng dựng giao diện cho hai bộ lọc ấy trước
+khi có read model, vì chúng sẽ im lặng trả về danh sách đủ.
+
+```text
+/?color=BLACK,WHITE
+```
+
+**Trạng thái nằm ở URL, không ở `useState`.** Ba thứ chỉ có khi nó ở URL:
+gửi link kèm đúng bộ lọc, bấm Back quay về lựa chọn trước, tải lại không
+mất gì. Đổi lại, `useSearchParams` bắt buộc phải nằm trong một ranh giới
+`<Suspense>` — thiếu nó thì `next build` vỡ trong khi `next dev` vẫn chạy
+ngon.
+
+Mười bốn nhóm màu SUY từ `ColorFamily` của đặc tả. Bảng nhãn khai là
+`Record<NhomMau, …>`, nên thêm một nhóm vào đặc tả mà quên nhãn là
+`typecheck` đỏ — không phải một ô trống khách nhìn thấy trước.
+
+Giá trị lạ trong URL (`?color=CAM_VANG`) bị bỏ ở client. Gửi thẳng lên máy
+chủ thì nó trả rỗng và khách thấy "không có sản phẩm nào" mà không hiểu vì
+sao.
+
+Trạng thái rỗng phải nói ĐÚNG lý do: *"Không có sản phẩm nào màu Tím"* kèm
+nút bỏ lọc, không phải *"Chưa có sản phẩm nào được đăng bán"* — câu sau
+khiến khách nghĩ cửa hàng trống chứ không nghĩ tới việc bỏ bộ lọc.
+
+Xem backlog P3-70 (hợp đồng enum) và P3-72 (bộ lọc).
+
 ---
 
 ## 2. Trang sản phẩm — quan trọng nhất

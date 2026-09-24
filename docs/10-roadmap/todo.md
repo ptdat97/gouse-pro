@@ -23,19 +23,23 @@ Ký hiệu: `[x]` xong và đã kiểm chứng · `[~]` đang làm · `[ ]` chư
 Đo ngày **17/09/2026**, đếm từ code chứ không ước lượng:
 
 ```text
-Tài liệu     139 file · 45.716 dòng
-Đặc tả API   12 file YAML · 100 thao tác · 0 lỗi lint
-Code Go      292 file · 83.619 dòng · 1.145 hàm test
+Tài liệu     139 file · 46.330 dòng
+Đặc tả API   12 file YAML · 100 thao tác · 0 lỗi lint (17 cảnh báo)
+Code Go      294 file · 84.326 dòng  (+186 file test · 53.518 dòng)
+Hàm test Go  1.160
 Migration    56 file SQL · đảo được
-Giao diện    3 app Next.js · 12 test trình duyệt · 64 test đơn vị
+Giao diện    3 app Next.js · 15 test trình duyệt · 69 test đơn vị
 Màn hình nhà bán  6 trang (việc cần làm · sản phẩm · hàng bán ·
                   trả hàng · tiền · hiệu suất)
 Màn hình admin    5 trang (nhà bán · duyệt sản phẩm · đơn hàng ·
                   nhật ký · cấu hình)
+Màn hình cửa hàng 9 trang (danh mục · chi tiết · giỏ · thanh toán ·
+                  đơn của tôi · chi tiết đơn · đăng nhập · đăng ký ·
+                  tài khoản)
 
 Module               19  (17 MVP + recommendation + returns)
 Module có tầng HTTP  14/19
-Thao tác có route    85/100
+Thao tác có route    89/100
 
 Bảy luồng nghiệm thu MVP:  7/7 chạy được
 ```
@@ -52,7 +56,9 @@ và `recommendation` (gợi ý size, ADR-0019). future-phases.md mục 2.1 đã
 **Giai đoạn 1–5 xong. Giai đoạn 6 xong một phần. Giai đoạn 7 xong.**
 Phase hiện tại là **Production Hardening** — mục 12.
 
-Kiểm chứng lần cuối (17/09/2026):
+Nghiệm thu CẢ STACK, chạy một lần trên Docker (17/09/2026). Con số trong
+khối này là của NGÀY ẤY và cố ý giữ nguyên — nó là biên bản, không phải
+trạng thái hiện tại:
 
 ```text
 ✓ gofmt        không có file cần định dạng lại
@@ -90,6 +96,36 @@ Kiểm chứng lần cuối (17/09/2026):
 ✓ email        10 request song song → ĐÚNG 1 email; thiếu địa chỉ thì
                ghi SKIPPED chứ không báo lỗi
 ```
+
+Kiểm chứng gần nhất (24/09/2026), trên Postgres thật ở máy phát triển:
+
+```text
+✓ gofmt        không có file cần định dạng lại
+✓ go vet       không có cảnh báo
+✓ archcheck    OK — 481 file, không vi phạm ranh giới
+✓ apicheck     OK — BA tầng: 100 thao tác khớp 89 tuyến (15 hoãn, đã
+               khai) · 8 header khớp CORS · 15 cặp enum khớp
+✓ go test      toàn bộ package pass, CÓ database thật
+✓ typecheck    3 app + 2 package, không lỗi
+✓ lint         không cảnh báo
+✓ types:check  openapi.d.ts khớp đặc tả
+✓ test đơn vị  69/69
+✓ next build   cửa hàng dựng được, `/` vẫn là trang TĨNH dựng sẵn
+✓ chạy thật    lọc màu ở cửa hàng qua trình duyệt thật, trên API +
+               Postgres thật — xem P3-72
+
+✗ e2e          78/84. SÁU bài đỏ, KHÔNG phải hồi quy:
+               · 5 bài `nha-ban.spec.ts` — app nhà bán (:3002) không chạy
+                 ở lượt kiểm này
+               · 1 bài `dat-hang.spec.ts:149` ("đơn trộn hàng của hai nhà
+                 bán tách thành hai đơn thực hiện") — ĐỎ SẴN. Xác nhận
+                 bằng `git stash`: đỏ y hệt trên mã gốc, kể cả sau khi
+                 khởi động lại worker. Chưa điều tra.
+```
+
+Dòng cuối ở lại đây cho tới khi có người sửa. Một bài đỏ không ghi ra là
+một bài sẽ được coi là "vẫn thế" ở mọi lượt kiểm sau — và khi nó thành đỏ
+vì lý do MỚI thì không ai nhận ra.
 
 **Cách kiểm chứng:** mọi mục trong bảng trên đều được xác nhận bằng cách
 **phá code sản xuất rồi chạy lại test** — nếu test vẫn xanh sau khi bất
@@ -1059,9 +1095,9 @@ có code VÀ test chứng minh.
 | Order | `order` 33 test · mã đơn qua SEQUENCE · idempotency `UNIQUE` |
 | Payment | `payment` 30 test · sổ cái hai vế · idempotency `UNIQUE` |
 | Fulfillment | `fulfillment` 26 test · vòng đời đầy đủ tới DELIVERED |
-| Trung tâm người bán (MVP) | `apps/seller` cổng 3002 · 2 test trình duyệt |
+| Trung tâm người bán (MVP) | `apps/seller` cổng 3002 · 5 test trình duyệt |
 | Nền móng Demand Signal | bảng `demand_signal` · `supplychain` 9 test · kiểm chứng 3 loại tín hiệu |
-| Hợp đồng OpenAPI + TypeScript sinh ra | `npm run types:check` chặn ở CI |
+| Hợp đồng OpenAPI ⇄ cài đặt | `cmd/apicheck` BA tầng: tuyến · header CORS · enum ⇄ hằng Go. `types:check` KHÔNG đủ — nó chỉ so đặc tả với TypeScript sinh ra từ chính nó (P3-56 · P3-58 · P3-70) |
 | Outbox + Event Dispatcher | `platform/eventbus` · rollback không phát · dead letter sau 5 lần |
 | Tách đơn nhiều nhà bán | `TestTachDonBaNguonHangQuaEvent` · hậu tố cơ số 26 |
 | Cô lập fulfillment giữa nhà bán | `TestSellerKhongThayDuocPhanCuaSellerKhac` · phòng vệ hai lớp |

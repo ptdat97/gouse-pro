@@ -4,7 +4,13 @@
 
 `openapi.yaml` là **nguồn sự thật duy nhất** về hợp đồng API.
 
-Đặc tả phải được cập nhật **trong cùng pull request** với thay đổi code. CI so sánh đặc tả với cài đặt và **thất bại** nếu lệch.
+Đặc tả phải được cập nhật **trong cùng pull request** với thay đổi code.
+
+`cmd/apicheck` so đặc tả với cài đặt ở **ba tầng** và thất bại nếu lệch:
+tuyến ⇄ đặc tả · header ⇄ danh sách CORS · enum ⇄ hằng số Go. Cả ba dạng
+lệch ấy đều đã xảy ra thật và đều đi qua được `npm run types:check` — thứ
+chỉ so đặc tả với TypeScript sinh ra từ chính nó. Xem
+[../../docs/03-architecture/api-first.md](../../docs/03-architecture/api-first.md) mục 7.
 
 ---
 
@@ -21,6 +27,7 @@ api/
     ├── cart-checkout.yaml — /api/v1/cart, /checkout
     ├── orders.yaml        — /api/v1/orders
     ├── account.yaml       — /api/v1/me
+    ├── auth.yaml          — /api/v1/auth/...       (đăng nhập, làm mới)
     ├── seller.yaml        — /api/v1/seller/...     (nhà bán)
     ├── creator.yaml       — /api/v1/creator/...    (creator)
     ├── admin.yaml         — /api/v1/admin/...      (quản trị)
@@ -88,6 +95,16 @@ Tiền tố giúp gỡ lỗi nhanh — nhìn `off_` biết ngay là offer.
 ### Enum — client phải chịu được giá trị lạ
 
 Server có thể thêm giá trị enum mới trong cùng phiên bản API (thay đổi tương thích ngược). Client phải rơi vào nhánh mặc định, không crash.
+
+**Chiều ngược lại KHÔNG hợp lệ.** Khai trong đặc tả một giá trị mà máy chủ
+không bao giờ sinh ra là một nhánh client viết rồi không bao giờ chạy tới —
+hoặc tệ hơn, một lựa chọn mời người dùng bấm rồi luôn trả về rỗng. Đã xảy
+ra: `color_family` khai `GRAY` trong khi máy chủ lưu `GREY`, và bộ lọc màu
+im lặng không khớp gì (P3-70).
+
+Tầng enum của `cmd/apicheck` gác việc này. Thêm enum mới vào đặc tả thì
+phải QUYẾT: ghép cặp với hằng số Go trong `capEnumDaKiem`, hoặc khai lý do
+không ghép vào `enumKhongGhep`. Không làm gì thì CI đỏ.
 
 ---
 

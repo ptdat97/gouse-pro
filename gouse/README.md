@@ -197,12 +197,48 @@ make api-types     # sinh kiểu TypeScript cho frontend
   `inventory` từ chối chạy nếu không có, vì bất biến của chúng cần ràng
   buộc ở tầng database chứ không phải kiểm tra trước khi ghi
 
-Biến môi trường: xem [internal/platform/config/config.go](internal/platform/config/config.go). Ở `development` mọi biến đều có giá trị mặc định hợp lý; ở `production` thiếu `DATABASE_URL` là lỗi khởi động.
+Biến môi trường: xem [internal/platform/config/config.go](internal/platform/config/config.go). Ở `production` thiếu `DATABASE_URL` là lỗi khởi động.
 
 | Biến | Dùng ở đâu |
 |---|---|
 | `DATABASE_URL` | Máy chủ API và worker |
+| `MODULES_STORAGE` | Kho lưu trữ — `postgres` hay `memory` |
 | `TEST_DATABASE_URL` | Database KHUÔN cho test |
+
+### `MODULES_STORAGE=memory` là mặc định khi phát triển — và nó KHÔNG vô hại
+
+`APP_ENV=development` mặc định `MODULES_STORAGE=memory`
+(`config.defaultStorage`). API vẫn khởi động bình thường, vẫn trả JSON
+đúng hình dạng, và **phục vụ dữ liệu mẫu trong bộ nhớ** thay vì database.
+
+Hai hậu quả, cả hai đều im lặng:
+
+```text
+dữ liệu khác    mọi id lấy từ database đều trả 404 "Không tìm thấy" —
+                trông y hệt một lỗi trong mã đang sửa
+HÀNH VI khác    kho in-memory là một cài đặt RIÊNG, và nó có thể thiếu
+                thứ bản SQL có
+```
+
+Cái thứ hai đã xảy ra thật: tới 24/09/2026 kho in-memory bỏ qua hẳn bộ lọc
+size và nhóm màu, nên `?color=GREEN` trả về cả danh mục trong khi bản SQL
+trả rỗng đúng. Sửa ở P3-72, và nay có
+`TestHaiKhoLocBienTheGiongNhau` bắt hai kho phải trả lời giống nhau.
+
+**Khi một tính năng cư xử lạ ở môi trường phát triển, kiểm `MODULES_STORAGE`
+TRƯỚC khi nghi ngờ mã.** Dấu hiệu nằm ở log lúc khởi động:
+
+```text
+bỏ qua inventory, seller, marketplace, ...: cần MODULES_STORAGE=postgres
+đã nạp dữ liệu mẫu ... storage=memory
+```
+
+Chạy đối chiếu với dữ liệu thật thì luôn truyền tay:
+
+```bash
+DATABASE_URL="postgres://postgres@localhost:5432/gouse?sslmode=disable" \
+  MODULES_STORAGE=postgres go run ./cmd/api
+```
 
 Hai biến này **không được trỏ cùng một database**: test dọn dữ liệu bằng
 `TRUNCATE`, nên dùng chung là một lần `go test ./...` mất sạch dữ liệu phát
