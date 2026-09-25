@@ -7248,6 +7248,43 @@ vẫn trông như CI. Nó là thứ đã lừa được tôi.
 
 ---
 
+### P3-79 — `price_constraint`: một bảng có mục đích mà không ai đọc
+
+Đo lúc viết [ADR-0021](../adr/0021-ranh-gioi-commerce-kernel.md): module
+`pricing` **không module nào import**, và nó không có route nào. Nó chỉ
+được dựng trong `app.go` để gieo dữ liệu mẫu.
+
+Tài liệu nói nó sở hữu `price_constraint` — *"khung giá ràng buộc seller"*.
+Nhưng `marketplace`, nơi duyệt giá của Offer, KHÔNG import `pricing`:
+
+```text
+marketplace → catalog · inventory · product · seller
+                                     (không có pricing)
+```
+
+Nên khung giá ấy hôm nay **không cưỡng chế gì**. Một nhà bán đặt giá ngoài
+khung vẫn qua.
+
+Đây là dạng lỗi hay gặp nhất của dự án, lần này ở mức BẢNG: một bảng có
+mục đích ghi rõ trong tài liệu mà không ai đọc. Cùng họ với
+`notification_preference` (tạo ở migration 000015, không dòng mã nào chạm,
+xóa ở 000055) — khác ở chỗ `price_constraint` có lý do tồn tại thật.
+
+**Cần quyết trước khi làm:** ai cưỡng chế khung giá, và cưỡng chế ở đâu.
+
+```text
+marketplace nhập pricing        ghép nối mới, và pricing thành kernel
+pricing nghe event offer.*      marketplace không cần biết pricing, nhưng
+                                phát hiện MUỘN — giá sai đã lên sàn
+ràng buộc ở tầng database       chặn sớm nhất, nhưng khung giá là CẤU HÌNH
+                                nghiệp vụ, không phải bất biến lược đồ
+```
+
+Cả ba đều đổi ranh giới Kernel, nên ADR-0021 cố ý KHÔNG xếp `pricing` vào
+nhóm nào — xếp trước khi quyết là đoán.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

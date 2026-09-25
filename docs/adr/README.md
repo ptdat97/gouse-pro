@@ -40,7 +40,7 @@ Deprecated — không còn áp dụng
 | [0007](0007-marketplace-order-model.md) | Offer và tách Order/FulfillmentOrder | Accepted | Commerce, Marketplace |
 | [0008](0008-financial-ledger.md) | Sổ cái bất biến | Accepted | Financial |
 | [0009](0009-service-extraction.md) | Hoãn tách service | Accepted | Toàn hệ thống |
-| [0010](0010-database-layer.md) | PostgreSQL + sqlc cho tầng dữ liệu | Accepted | Toàn hệ thống |
+| [0010](0010-database-layer.md) | PostgreSQL + SQL viết tay, KHÔNG sinh code | Accepted | Toàn hệ thống |
 | [0011](0011-audit-log.md) | Audit log là năng lực platform | Accepted | Toàn hệ thống |
 | [0012](0012-inventory-ownership.md) | Chủ sở hữu tồn kho suy ra từ nhà bán | Accepted | Commerce, Marketplace, Inventory |
 | [0013](0013-write-transaction-boundary.md) | Ranh giới giao dịch bao trọn phép đọc-rồi-ghi | Accepted | Cart, Checkout, Order |
@@ -51,6 +51,7 @@ Deprecated — không còn áp dụng
 | [0018](0018-checkout-completed-khong-phai-da-tra-tien.md) | `checkout.completed` bị dùng như "đã trả tiền" — giao hàng và ghi sổ đều sớm | Accepted | Payment, Fulfillment, Order |
 | [0019](0019-goi-y-size-thuoc-ve-dau.md) | Gợi ý size cần dữ liệu của ba module và bên gọi là module thứ tư — đặt ở đâu để không tạo phụ thuộc vòng | Accepted | Recommendation, Product, Order, Returns |
 | [0020](0020-mot-phien-la-gi.md) | Một "phiên" là LƯỢT TRUY CẬP, không phải giỏ hàng hay phiên thanh toán — ba khái niệm trong một cột làm `conversion_rate` bằng 0 vĩnh viễn | Accepted | Analytics, Cart, Checkout, Storefront |
+| [0021](0021-ranh-gioi-commerce-kernel.md) | Ranh giới Commerce Kernel — `Offer` là primitive, marketplace KHÔNG phải extension | Accepted | Toàn hệ thống |
 
 ## Quy trình thêm ADR mới
 
