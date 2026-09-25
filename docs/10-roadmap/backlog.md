@@ -7285,6 +7285,105 @@ nhóm nào — xếp trước khi quyết là đoán.
 
 ---
 
+### P3-80 — `apicheck` tầng 4: hình dạng phản hồi, và trường hợp thứ SÁU
+
+Dạng lỗi hay gặp nhất của dự án này là *"nạp rồi vứt ở tầng DTO"* — dữ liệu
+đã có trong tay, đặc tả đã khai, và tầng DTO không mang nó ra:
+
+```text
+P3-50  shipping_groups   đặc tả có từ đầu, DTO không có trường
+P3-64  variants
+P3-65  trường sửa được của sản phẩm
+P3-69  lines             đợt đối soát không nói được nó GỒM GÌ
+P3-73  shipping_method   thiếu ở CẢ HAI phía
+```
+
+Năm lần, tìm ra bằng tay, muộn. Bốn cái chỉ lộ ra khi có người mở giao diện
+và thấy thiếu dữ liệu. Cả năm đi qua `types:check` mà CI vẫn xanh: phép kiểm
+ấy so đặc tả với TypeScript sinh ra từ chính nó, không biết gì về Go.
+
+#### Trường hợp thứ sáu, do chính tầng này tìm ra
+
+Lượt chạy đầu tiên: **`CartItem.product_id`** khai trong đặc tả, `itemJSON`
+không có.
+
+Hậu quả nhìn thấy được: giỏ hàng **không có đường về trang sản phẩm**. Kiểm
+`apps/storefront/src/app/cart/page.tsx` — không có `Link` nào từ một dòng
+giỏ tới `/products/…`. Không phải ai quên, mà là không có mã để liên kết.
+
+**Chưa sửa**, và lý do đáng ghi: nó không rẻ như bốn trường kia. Tầng HTTP
+dựng `itemJSON` từ `domain.Item`, và mọi trường hiển thị của Item đều được
+LƯU xuống `cart_item` (`product_name TEXT NOT NULL DEFAULT ''`). Thêm
+`product_id` cho đúng khuôn ấy là thêm một cột, tức một migration — và một
+migration không thuộc phạm vi của việc dựng một hàng rào.
+
+Ba cách sửa:
+
+```text
+thêm cột cart_item.product_id   đúng khuôn các trường hiển thị khác;
+                                tốn một migration
+KHÔNG lưu, chỉ điền lúc đọc     rẻ, nhưng trường sẽ VẮNG ở những đường
+                                không đồng bộ giỏ — một hợp đồng lúc có
+                                lúc không còn tệ hơn không có
+bỏ product_id khỏi đặc tả       thừa nhận giỏ không cần đường về sản phẩm.
+                                Rẻ nhất, và sai với điều khách mong đợi
+```
+
+Trong lúc chờ quyết, `product_id` nằm ở `ChoPhepThieu` kèm lý do — phần còn
+lại của `CartItem` vẫn được gác.
+
+#### Vì sao ghép cặp TAY
+
+Thử ghép tự động theo ĐỘ KHỚP tên trường. Nó tìm đúng phần lớn, và đưa ra
+những cặp sai hẳn:
+
+```text
+BrandRef  ↔ thuongHieuChoBanJSON   khớp 4 trường, hai thứ khác nhau
+Cart      ↔ checkoutJSON           khớp 5, giỏ hàng ≠ phiên thanh toán
+Shipment  ↔ sellerFOJSON           khớp 6, lô hàng ≠ đơn thực hiện
+```
+
+Một cặp đúng tên vẫn có thể sai theo chiều khác: `OrderSummary` được phục
+vụ bởi `checkout.orderSummaryJSON`, KHÔNG phải struct nào trong module
+`order` — nó là thứ trả về khi hoàn tất phiên thanh toán.
+
+12 cặp ghi tay, mỗi cặp kiểm bằng mắt. 20 schema còn lại canh bằng chốt một
+chiều: 13 thuộc Phase 2 (không có struct Go nào để ghép), số còn lại là
+schema NHÚNG vào schema khác (`BrandRef`, `Image`, `ProductTag`) — gác chúng
+cần một phép so lồng nhau, chưa làm.
+
+#### Một lỗi trong phép đọc, tự bắt được
+
+Bản đầu dùng máy trạng thái "đã vào object lồng" và **không bao giờ ra**,
+nên `Checkout` chỉ đọc được 7 trong 12 thuộc tính. Phát hiện vì con số
+không khớp phép đếm tay.
+
+Luật thay thế đơn giản hơn và đúng: thuộc tính của schema là dòng ở thụt lề
+ĐÚNG 4 trong khối `properties:` ở thụt lề 2. Thuộc tính lồng nằm ở thụt lề
+≥ 6 nên tự bị loại. `TestDTOThuocTinhLongKhongTinh` khóa cả hai chiều lại.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+bỏ `lines` khỏi settlementJSON      "đặc tả khai lines mà struct Go KHÔNG có"
+thêm trường ngoài hợp đồng           "Go trả bi_mat mà đặc tả KHÔNG khai"
+ChoPhepThieu khai sai (Go ĐÃ trả)    "xóa dòng ấy đi"
+thêm schema mới không ghép cặp       "21 schema chưa gác, vượt chốt 20"
+```
+
+12 bài test dựng dự án giả, cộng bài chạy trên repo thật.
+
+#### Và một lỗi tôi lặp lại trong cùng một ngày
+
+Thêm tầng mới làm vỡ bốn bài test cũ, vì dự án giả không có
+`api/components/schemas.yaml`. Đúng lỗi đã mắc vài giờ trước với R6 của
+`archcheck` (dự án giả không có `docs/04-modules/`).
+
+Sửa ở `duAn` — nơi dựng dự án giả — chứ không ở từng bài: thêm tầng thứ năm
+sau này sẽ lại làm mọi bài cũ vỡ vì cùng một lý do.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

@@ -233,7 +233,25 @@ tuyến ⇄ đặc tả     mọi `mux.Handle` phải có trong đặc tả, và
 header ⇄ CORS      mọi `in: header` của đặc tả phải nằm trong danh sách
                    CORS, và ngược lại
 enum ⇄ hằng Go     giá trị hợp lệ hai bên phải khớp
+DTO ⇄ schema       HÌNH DẠNG phản hồi: mọi thuộc tính đặc tả khai phải có
+                   trường Go tương ứng, và ngược lại
 ```
+
+Tầng thứ tư nhắm dạng lỗi **hay gặp nhất** của dự án — "nạp rồi vứt ở tầng
+DTO", đã xảy ra SÁU lần:
+
+```text
+P3-50  shipping_groups   đặc tả có, DTO không → API chỉ trả ba con số tổng
+P3-64  variants
+P3-65  trường sửa được của sản phẩm
+P3-69  lines             đợt đối soát không nói được nó GỒM GÌ
+P3-73  shipping_method   thiếu ở CẢ HAI phía → nút Đặt hàng khóa vĩnh viễn
+P3-80  product_id        giỏ hàng không có đường về trang sản phẩm
+```
+
+Năm cái đầu tìm ra BẰNG TAY, muộn — bốn cái chỉ lộ ra khi có người mở giao
+diện và thấy thiếu dữ liệu. Cái thứ sáu do chính tầng này tìm ra, ngay lượt
+chạy đầu tiên.
 
 Ba tầng vì ba dạng lỗi trên đều đã xảy ra THẬT, và không phép kiểm nào lúc
 ấy nhìn vào chỗ chúng xảy ra.

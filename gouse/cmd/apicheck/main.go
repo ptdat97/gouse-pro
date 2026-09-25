@@ -82,6 +82,8 @@ func main() {
 		capEnum:                  capEnumDaKiem,
 		enumKhongGhep:            enumKhongGhep,
 		nguongEnumChuaGac:        soEnumChuaGac,
+		capDTO:                   capDTODaKiem,
+		nguongDTOChuaGac:         soDTOChuaGac,
 	}
 	if err := c.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "apicheck: %v\n", err)
@@ -124,6 +126,10 @@ type checker struct {
 	nguongEnumChuaGac int
 	soEnumChuaGac     int
 
+	capDTO           []capDTO
+	nguongDTOChuaGac int
+	soDTOChuaGac     int
+
 	dacTa map[thaoTac]string // thao tác -> file đặc tả khai nó
 	tuyen map[thaoTac]string // tuyến   -> file Go đăng ký nó
 
@@ -158,10 +164,51 @@ func (c *checker) run() error {
 		return err
 	}
 
+	thuocTinhDTO, err := c.docThuocTinhSchema()
+	if err != nil {
+		return err
+	}
+
 	c.doiChieu()
 	c.doiChieuHeader(c.headerDacTa, c.headerCORS)
 	c.doiChieuEnum(enumDacTa)
+	c.doiChieuDTO(thuocTinhDTO)
+	c.canhDTOChuaGac(thuocTinhDTO)
 	return nil
+}
+
+// canhDTOChuaGac là CHỐT MỘT CHIỀU cho các schema chưa ghép cặp.
+//
+// Chỉ đếm schema CÓ thuộc tính: một schema chỉ có `type: string` hay
+// `$ref` không có hình dạng để mà so.
+func (c *checker) canhDTOChuaGac(thuocTinh map[string][]string) {
+	daGhep := map[string]bool{}
+	for _, cap := range c.capDTO {
+		daGhep[cap.Schema] = true
+	}
+
+	chuaGac := 0
+	for ten, props := range thuocTinh {
+		if len(props) > 0 && !daGhep[ten] {
+			chuaGac++
+		}
+	}
+	c.soDTOChuaGac = chuaGac
+
+	switch {
+	case chuaGac > c.nguongDTOChuaGac:
+		c.viPham = append(c.viPham, fmt.Sprintf(
+			"DTO có %d schema chưa gác hình dạng, vượt chốt %d. Schema mới "+
+				"thêm vào đặc tả phải được QUYẾT: ghép cặp vào `capDTODaKiem`, "+
+				"hoặc hạ chốt nếu nó thật sự chưa có struct Go nào phục vụ.",
+			chuaGac, c.nguongDTOChuaGac))
+	case chuaGac < c.nguongDTOChuaGac:
+		c.viPham = append(c.viPham, fmt.Sprintf(
+			"DTO chỉ còn %d schema chưa gác, chốt đang để %d. Hạ chốt xuống "+
+				"%d trong `dto_cap.go` — chốt này chỉ được GIẢM, và một chốt "+
+				"cao hơn thực tế cho phép lặng lẽ thêm schema không ai gác.",
+			chuaGac, c.nguongDTOChuaGac, chuaGac))
+	}
 }
 
 // ------------------------------------------------------------------ Đặc tả
@@ -429,14 +476,22 @@ func (c *checker) report() {
 			"%d ngoài đặc tả · %d không qua trình duyệt\n",
 			len(c.headerDacTa), len(c.headerCORS),
 			len(c.headerNgoaiDacTa), len(c.headerKhongQuaTrinhDuyet))
+
+		var choPhepThieu int
+		for _, cap := range c.capDTO {
+			choPhepThieu += len(cap.ChoPhepThieu)
+		}
+		fmt.Printf("apicheck: %d cặp DTO đã kiểm · %d trường cho phép thiếu · "+
+			"%d schema CHƯA GÁC (chốt %d)\n",
+			len(c.capDTO), choPhepThieu, c.soDTOChuaGac, c.nguongDTOChuaGac)
 	}
 
 	if len(c.viPham) == 0 {
 		fmt.Printf("apicheck: OK — %d thao tác đặc tả khớp %d tuyến "+
 			"(%d hoãn, đã khai) · %d header khớp danh sách CORS · "+
-			"%d cặp enum khớp\n",
+			"%d cặp enum khớp · %d cặp DTO khớp\n",
 			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.headerCORS),
-			len(c.capEnum))
+			len(c.capEnum), len(c.capDTO))
 		return
 	}
 

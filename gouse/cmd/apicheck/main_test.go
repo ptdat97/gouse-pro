@@ -43,6 +43,13 @@ func duAn(t *testing.T, openapi string, paths map[string]string, goSrc string) s
 	// kiểm tầng header thì ghi đè file này.
 	must(filepath.Join(goc, "internal", "platform", "httpserver", "cors.go"),
 		corsGo("X-Thing-Id"))
+
+	// …và một schemas.yaml, vì tầng DTO luôn đọc nó.
+	//
+	// Dựng ở đây chứ không bắt từng bài tự thêm: thêm tầng thứ năm sau này
+	// sẽ lại làm mọi bài cũ vỡ vì cùng một lý do, và lần nào cũng phải sửa
+	// hàng chục chỗ. Đã mắc đúng lỗi này với `archcheck` cùng ngày.
+	must(filepath.Join(goc, "api", "components", "schemas.yaml"), "")
 	return goc
 }
 
@@ -269,6 +276,8 @@ func TestDuAnThatKhop(t *testing.T) {
 		capEnum:                  capEnumDaKiem,
 		enumKhongGhep:            enumKhongGhep,
 		nguongEnumChuaGac:        soEnumChuaGac,
+		capDTO:                   capDTODaKiem,
+		nguongDTOChuaGac:         soDTOChuaGac,
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run trên repo thật: %v", err)
@@ -677,5 +686,214 @@ func TestBatKieuGoDoiTen(t *testing.T) {
 	}
 	if !strings.Contains(c.viPham[0], "NhomMau") {
 		t.Fatalf("phải gọi tên kiểu không tìm thấy: %v", c.viPham[0])
+	}
+}
+
+// ---------------------------------------------------------------- Tầng DTO
+
+// chayDTO chạy công cụ với sổ ghép DTO truyền vào.
+//
+// `nguong` truyền tay từng bài: chốt của dự án thật (20) sẽ biến mọi bài ở
+// đây thành "thiếu 20 schema chưa gác".
+func chayDTO(t *testing.T, goc string, cap []capDTO, nguong int) *checker {
+	t.Helper()
+	c := &checker{
+		root:                     goc,
+		chuaCai:                  map[string]string{},
+		ngoaiHopDong:             map[string]string{},
+		headerNgoaiDacTa:         map[string]string{},
+		headerKhongQuaTrinhDuyet: map[string]string{},
+		capDTO:                   cap,
+		nguongDTOChuaGac:         nguong,
+	}
+	if err := c.run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return c
+}
+
+// schemaHang là một schema có ba thuộc tính, dạng thật của đặc tả.
+const schemaHang = `Hang:
+  type: object
+  required: [id, ten]
+  description: |
+    Một mô tả nhiều dòng, để chắc rằng phép đọc không nhầm nó thành
+    thuộc tính.
+  properties:
+    id:
+      $ref: './common.yaml#/schemas/Id'
+    ten:
+      type: string
+    nhom:
+      type: object
+      description: Object LỒNG — thuộc tính của nó KHÔNG phải của Hang.
+      properties:
+        ma:
+          type: string
+        nhan:
+          type: string
+`
+
+// dtoHang dựng struct Go phục vụ schema trên.
+func dtoHang(truong ...string) string {
+	s := "package http\n\ntype hangJSON struct {\n"
+	for _, t := range truong {
+		s += "\tX" + t + " string `json:\"" + t + "\"`\n"
+	}
+	return s + "}\n"
+}
+
+// duAnDTO dựng dự án giả có schemas.yaml và một gói DTO.
+func duAnDTO(t *testing.T, schema, dto string) string {
+	t.Helper()
+	goc := duAn(t, openapiMotTuyen,
+		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+	ghiDe(t, goc, "api/components/schemas.yaml", schema)
+	ghiDe(t, goc, "internal/modules/hang/interfaces/http/dto.go", dto)
+	return goc
+}
+
+func capHang(choPhepThieu map[string]string) []capDTO {
+	return []capDTO{{
+		Schema: "Hang", GoiGo: "modules/hang/interfaces/http",
+		KieuGo: "hangJSON", ChoPhepThieu: choPhepThieu, LyDo: "hàng thử",
+	}}
+}
+
+func TestDTOKhopThiKhongBaoViPham(t *testing.T) {
+	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+
+	if c := chayDTO(t, goc, capHang(nil), 0); len(c.viPham) != 0 {
+		t.Fatalf("mong 0 vi phạm, nhận: %v", c.viPham)
+	}
+}
+
+// Thuộc tính của object LỒNG không phải thuộc tính của schema.
+//
+// Nhận nhầm chúng sẽ đòi struct Go có `ma` và `nhan` ở cấp ngoài cùng —
+// một cảnh báo giả, và cảnh báo giả làm người ta tắt hẳn phép kiểm.
+//
+// Bản đầu của phép đọc mắc đúng lỗi này theo chiều NGƯỢC LẠI: nó dùng một
+// máy trạng thái "đã vào object lồng" và không bao giờ ra, nên `Checkout`
+// chỉ đọc được 7 trong 12 thuộc tính.
+func TestDTOThuocTinhLongKhongTinh(t *testing.T) {
+	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+
+	c := chayDTO(t, goc, capHang(nil), 0)
+	for _, v := range c.viPham {
+		if strings.Contains(v, "ma") || strings.Contains(v, "nhan") {
+			t.Fatalf("thuộc tính lồng bị tính vào schema ngoài: %s", v)
+		}
+	}
+}
+
+// ĐÂY LÀ DẠNG LỖI đã xảy ra năm lần: đặc tả có, DTO không có.
+func TestDTOBatTruongDacTaCoMaGoThieu(t *testing.T) {
+	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten")) // thiếu `nhom`
+
+	c := chayDTO(t, goc, capHang(nil), 0)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "nhom") {
+		t.Fatalf("phải gọi tên trường thiếu: %s", c.viPham[0])
+	}
+}
+
+// Chiều ngược: Go trả trường mà hợp đồng không nhắc.
+//
+// Không ai biết nó tồn tại để dùng, và xóa nó đi là thay đổi PHÁ VỠ không
+// ai nhận ra.
+func TestDTOBatTruongGoTraNgoaiHopDong(t *testing.T) {
+	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom", "bi_mat"))
+
+	c := chayDTO(t, goc, capHang(nil), 0)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "bi_mat") {
+		t.Fatalf("phải gọi tên trường thừa: %s", c.viPham[0])
+	}
+}
+
+// `ChoPhepThieu` tắt được một trường, và CHỈ trường ấy.
+func TestDTOChoPhepThieuChiTatMotTruong(t *testing.T) {
+	goc := duAnDTO(t, schemaHang, dtoHang("id")) // thiếu `ten` và `nhom`
+
+	c := chayDTO(t, goc, capHang(map[string]string{"nhom": "chưa làm"}), 0)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm (còn `ten`), nhận %d: %v",
+			len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "ten") ||
+		strings.Contains(c.viPham[0], "nhom") {
+		t.Fatalf("phải còn kêu `ten` và im về `nhom`: %s", c.viPham[0])
+	}
+}
+
+// Hai cách một dòng `ChoPhepThieu` thành NÓI DỐI.
+func TestDTOChoPhepThieuNoiDoiThiBiBat(t *testing.T) {
+	t.Run("trường không còn trong đặc tả", func(t *testing.T) {
+		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+		c := chayDTO(t, goc, capHang(map[string]string{"da_xoa": "lý do cũ"}), 0)
+		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "da_xoa") {
+			t.Fatalf("mong 1 vi phạm về `da_xoa`, nhận: %v", c.viPham)
+		}
+	})
+
+	t.Run("Go ĐÃ trả trường ấy", func(t *testing.T) {
+		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+		c := chayDTO(t, goc, capHang(map[string]string{"ten": "nói là chưa trả"}), 0)
+		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "ĐÃ trả") {
+			t.Fatalf("mong 1 vi phạm \"Go ĐÃ trả\", nhận: %v", c.viPham)
+		}
+	})
+}
+
+// Sổ ghép trỏ tới schema hoặc struct KHÔNG CÒN phải bị bắt.
+func TestDTOSoGhepTroSaiThiBiBat(t *testing.T) {
+	t.Run("schema không tồn tại", func(t *testing.T) {
+		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+		c := chayDTO(t, goc, []capDTO{{
+			Schema: "KhongCo", GoiGo: "modules/hang/interfaces/http",
+			KieuGo: "hangJSON", LyDo: "thử",
+		}}, 1)
+		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "KhongCo") {
+			t.Fatalf("mong 1 vi phạm về schema chết, nhận: %v", c.viPham)
+		}
+	})
+
+	t.Run("struct không tồn tại", func(t *testing.T) {
+		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+		c := chayDTO(t, goc, []capDTO{{
+			Schema: "Hang", GoiGo: "modules/hang/interfaces/http",
+			KieuGo: "khongCoJSON", LyDo: "thử",
+		}}, 0)
+		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "khongCoJSON") {
+			t.Fatalf("mong 1 vi phạm về struct chết, nhận: %v", c.viPham)
+		}
+	})
+}
+
+// Chốt schema chưa gác CHỈ ĐƯỢC GIẢM.
+func TestDTOChotChuaGacChiDuocGiam(t *testing.T) {
+	goc := duAnDTO(t, schemaHang+`
+HangKhac:
+  type: object
+  properties:
+    x:
+      type: string
+`, dtoHang("id", "ten", "nhom"))
+
+	// `HangKhac` chưa gác → chốt phải là 1.
+	if c := chayDTO(t, goc, capHang(nil), 1); len(c.viPham) != 0 {
+		t.Fatalf("chốt đúng thì phải im: %v", c.viPham)
+	}
+	if c := chayDTO(t, goc, capHang(nil), 0); len(c.viPham) != 1 {
+		t.Fatalf("vượt chốt phải kêu: %v", c.viPham)
+	}
+	if c := chayDTO(t, goc, capHang(nil), 5); len(c.viPham) != 1 ||
+		!strings.Contains(c.viPham[0], "Hạ chốt") {
+		t.Fatalf("chốt cao hơn thực tế phải bảo hạ: %v", c.viPham)
 	}
 }
