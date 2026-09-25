@@ -134,6 +134,18 @@ func (c *checker) scanPackages() error {
 			if err != nil {
 				continue
 			}
+			// R9 phải kiểm TRƯỚC lệnh bỏ qua dưới đây: đây là chỗ duy
+			// nhất thư viện bên thứ ba còn nhìn thấy được.
+			if LaThuVienNgoai(c.modulePath, importPath) {
+				if rule, msg, hint := KiemThuVienNgoai(from, importPath); rule != "" {
+					pos := fset.Position(spec.Pos())
+					c.violations = append(c.violations, Violation{
+						Rule: rule, File: rel, Line: pos.Line,
+						Message: msg, Hint: hint,
+					})
+				}
+			}
+
 			if !strings.HasPrefix(importPath, c.modulePath) {
 				continue // thư viện chuẩn hoặc bên thứ ba
 			}

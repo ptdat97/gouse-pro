@@ -226,3 +226,69 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+// TestR9_KhongSDKNgoaiTrongKernelVaDomain.
+//
+// # Vì sao quy tắc này cần bài test riêng
+//
+// R4 nói "kernel chỉ dùng thư viện chuẩn" và R2 nói "domain chỉ phụ thuộc
+// chính nó và kernel". Cả hai câu ấy đúng với mã hiện tại nhưng KHÔNG được
+// cưỡng chế suốt một thời gian dài: vòng quét ở `main.go` bỏ qua mọi import
+// không bắt đầu bằng đường dẫn module, nên `checkImport` không bao giờ
+// NHÌN THẤY một thư viện bên thứ ba.
+//
+// Hai quy tắc hứa nhiều hơn thứ chúng kiểm là đúng dạng lỗi tệ nhất của
+// một công cụ kiểm: nó tạo cảm giác an toàn giả.
+func TestR9_KhongSDKNgoaiTrongKernelVaDomain(t *testing.T) {
+	kernel := p(mod + "/internal/kernel/money")
+	domain := p(mod + "/internal/modules/order/domain")
+	infra := p(mod + "/internal/modules/order/infrastructure/postgres")
+
+	// CẤM ở kernel và domain.
+	for _, tc := range []struct {
+		ten  string
+		from pkgInfo
+	}{{"kernel", kernel}, {"domain", domain}} {
+		rule, _, _ := KiemThuVienNgoai(tc.from, "github.com/stripe/stripe-go/v76")
+		if rule != "R9" {
+			t.Errorf("%s import SDK ngoài phải vi phạm R9, nhận %q", tc.ten, rule)
+		}
+	}
+
+	// ĐƯỢC ở infrastructure: đó chính là chỗ SDK phải sống.
+	if rule, _, _ := KiemThuVienNgoai(infra, "github.com/jackc/pgx/v5"); rule != "" {
+		t.Errorf("infrastructure import SDK phải hợp lệ, nhận %q", rule)
+	}
+}
+
+// Nhận diện thư viện ngoài KHÔNG được nhầm với thư viện chuẩn.
+//
+// Nhầm theo chiều "chuẩn thành ngoài" sẽ làm mọi file domain đỏ và người ta
+// tắt hẳn công cụ. Nhầm theo chiều ngược lại thì quy tắc không gác gì.
+func TestNhanDienThuVienNgoai(t *testing.T) {
+	cases := []struct {
+		importPath string
+		ngoai      bool
+	}{
+		// Thư viện chuẩn: đoạn đầu KHÔNG có dấu chấm.
+		{"time", false},
+		{"net/http", false},
+		{"encoding/json", false},
+		{"crypto/sha256", false},
+
+		// Chính dự án này — cũng bắt đầu bằng github.com, phải loại ra.
+		{mod + "/internal/kernel/ids", false},
+		{mod + "/internal/modules/order/domain", false},
+
+		// Bên thứ ba.
+		{"github.com/jackc/pgx/v5", true},
+		{"golang.org/x/crypto/bcrypt", true},
+		{"gopkg.in/yaml.v3", true},
+		{"go.uber.org/zap", true},
+	}
+	for _, tc := range cases {
+		if got := LaThuVienNgoai(mod, tc.importPath); got != tc.ngoai {
+			t.Errorf("LaThuVienNgoai(%q) = %v, mong %v", tc.importPath, got, tc.ngoai)
+		}
+	}
+}

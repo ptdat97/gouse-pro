@@ -114,12 +114,75 @@ func classify(modulePath, importPath string) pkgInfo {
 // chung), platform/ (hạ tầng trung lập domain), hoặc pkg/ (tiện ích thuần).
 var forbiddenDirs = []string{"common", "utils", "helpers", "services", "shared", "misc"}
 
+// KiemThuVienNgoai thực thi R9: kernel và domain KHÔNG dùng thư viện bên
+// thứ ba.
+//
+// # Vì sao quy tắc này phải tồn tại riêng
+//
+// R4 nói "kernel chỉ dùng thư viện chuẩn" và R2 nói "domain chỉ phụ thuộc
+// chính nó và kernel". Cả hai câu ấy ĐÚNG với mã hiện tại nhưng KHÔNG được
+// cưỡng chế: vòng quét bỏ qua mọi import không bắt đầu bằng đường dẫn
+// module, nên một dòng `import "github.com/stripe/stripe-go"` trong domain
+// đi qua không ai chặn. Hai quy tắc kia hứa nhiều hơn thứ chúng kiểm.
+//
+// Vì thế R9 được gọi TRƯỚC lệnh bỏ qua ấy — đây là chỗ duy nhất nhìn thấy
+// thư viện ngoài.
+//
+// # Vì sao nó quan trọng
+//
+// Một SDK ngoài trong domain kéo theo MÔ HÌNH của hệ thống ngoài:
+// `stripe.Charge`, `OdooSaleOrder`, `ShopifyOrder`. Khi ấy quy tắc nghiệp
+// vụ được viết theo hình dạng dữ liệu của một bên thứ ba, và đổi nhà cung
+// cấp thành đổi miền. Đó là lý do có tầng infrastructure: SDK sống ở đó,
+// sau một cổng do domain định nghĩa.
+//
+// Thư viện chuẩn KHÔNG bị chặn: `time`, `errors`, `fmt` không mang mô hình
+// của ai cả.
+func KiemThuVienNgoai(from pkgInfo, importPath string) (rule, msg, hint string) {
+	switch {
+	case from.IsKernel:
+		return "R9",
+			fmt.Sprintf("kernel không được import thư viện bên thứ ba: %s",
+				importPath),
+			"kernel là phụ thuộc của TOÀN BỘ hệ thống — chỉ thư viện chuẩn"
+	case from.Layer == LayerDomain:
+		return "R9",
+			fmt.Sprintf("domain không được import thư viện bên thứ ba: %s",
+				importPath),
+			"SDK ngoài sống ở infrastructure, sau một cổng do domain định nghĩa"
+	}
+	return "", "", ""
+}
+
+// LaThuVienNgoai cho biết một đường dẫn import là thư viện BÊN THỨ BA.
+//
+// Quy ước của Go: đoạn đầu của đường dẫn thư viện chuẩn KHÔNG chứa dấu
+// chấm (`time`, `net/http`, `encoding/json`), còn phụ thuộc ngoài luôn bắt
+// đầu bằng một tên miền (`github.com/...`, `golang.org/x/...`).
+//
+// Chính dự án này cũng bắt đầu bằng `github.com/`, nên phải loại nó ra —
+// `internal/...` của mình do các quy tắc khác gác.
+func LaThuVienNgoai(modulePath, importPath string) bool {
+	if strings.HasPrefix(importPath, modulePath) {
+		return false
+	}
+	doanDau := importPath
+	if i := strings.Index(importPath, "/"); i >= 0 {
+		doanDau = importPath[:i]
+	}
+	return strings.Contains(doanDau, ".")
+}
+
 // checkImport áp dụng các quy tắc phụ thuộc cho một cặp (package, import).
 //
 // Trả về mã quy tắc bị vi phạm và thông báo, hoặc chuỗi rỗng nếu hợp lệ.
 func checkImport(from, to pkgInfo) (rule, msg, hint string) {
+	if to.ImportPath == "" {
+		return "", "", ""
+	}
+
 	// Bỏ qua import ngoài dự án và import chính mình.
-	if to.ImportPath == "" || (to.Module == "" && !to.IsKernel && !to.IsPlatform && !to.IsCmd) {
+	if to.Module == "" && !to.IsKernel && !to.IsPlatform && !to.IsCmd {
 		return "", "", ""
 	}
 

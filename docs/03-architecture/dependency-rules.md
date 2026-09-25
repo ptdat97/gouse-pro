@@ -365,15 +365,37 @@ Kiểm tra 6: Sở hữu bảng
 
 Kiểm tra 7: Không có gói bị cấm
     Không tồn tại thư mục tên common/, utils/, helpers/, services/
+
+Kiểm tra 8: Không SDK bên thứ ba trong kernel/ và domain/
+    Một SDK ngoài kéo theo MÔ HÌNH của hệ thống ngoài. Khi ấy quy tắc
+    nghiệp vụ được viết theo hình dạng dữ liệu của bên thứ ba, và đổi nhà
+    cung cấp thành đổi miền.
 ```
 
-### Cách cài đặt
+### Trạng thái cài đặt
 
 ```text
-Kiểm tra 1–5: phân tích import bằng công cụ phân tích tĩnh Go
-Kiểm tra 6:   đối chiếu với file khai báo sở hữu bảng
-Kiểm tra 7:   kiểm tra tên thư mục đơn giản
+Kiểm tra 1  R1  ✓ cmd/archcheck
+Kiểm tra 2  R2  ✓ cmd/archcheck
+Kiểm tra 3  R3  ✓ cmd/archcheck
+Kiểm tra 4  R4  ✓ cmd/archcheck
+Kiểm tra 5  R5  ✓ cmd/archcheck  (đồ thị là DAG)
+Kiểm tra 6      ✗ CHƯA CÀI — xem dưới
+Kiểm tra 7  R7  ✓ cmd/archcheck
+Kiểm tra 8  R9  ✓ cmd/archcheck  (thêm 25/09/2026)
 ```
+
+**Về R9 và một hàng rào từng hứa mà không kiểm.** R2 nói *"domain chỉ
+import thư viện chuẩn, kernel, chính nó"* và R4 nói *"kernel chỉ import thư
+viện chuẩn"*. Cả hai câu ấy đúng với mã hiện tại nhưng **không được cưỡng
+chế**: vòng quét bỏ qua mọi import không bắt đầu bằng đường dẫn module, nên
+`import "github.com/stripe/stripe-go"` trong domain đi qua không ai chặn.
+R9 kiểm TRƯỚC lệnh bỏ qua ấy — đó là chỗ duy nhất thư viện ngoài còn nhìn
+thấy được.
+
+**Về Kiểm tra 6.** Mục "Dữ liệu sở hữu" đã có ở **cả 29** tài liệu module,
+nên nguồn dữ liệu sẵn sàng; thiếu là phần đối chiếu. Hôm nay không gì chặn
+`checkout/infrastructure` truy vấn bảng `seller`.
 
 **Nguyên tắc:** kiểm tra phải chạy nhanh (< 30 giây) để không ai muốn bỏ qua nó.
 
