@@ -201,7 +201,7 @@ hạn**. Xem P3-26 trong backlog.
 
 ```sql
 fulfillment_order       -- đơn thực hiện
-fulfillment_line        -- dòng hàng trong đơn thực hiện
+fulfillment_order_line  -- dòng hàng trong đơn thực hiện
 shipment                -- lô hàng gửi đi
 shipment_tracking       -- lịch sử trạng thái vận chuyển
 ```

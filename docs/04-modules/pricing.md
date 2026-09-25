@@ -95,6 +95,7 @@ Hệ thống cần **cảnh báo** khi sell-through thấp hơn mục tiêu đ�
 ## 6. Dữ liệu sở hữu
 
 ```sql
+price                   -- giá hiện hành của một SKU
 price_list              -- bảng giá
 price_rule              -- quy tắc giá
 price_history           -- lịch sử thay đổi

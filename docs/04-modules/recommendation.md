@@ -143,6 +143,7 @@ Yếu tố đầu tiên quan trọng nhất và thường bị bỏ qua: gợi �
 
 ```sql
 recommendation_rule
+quan_sat_size           -- quan sát size thật từ đơn và trả hàng (ADR-0019)
 user_affinity           -- mức độ quan tâm của khách với danh mục/thương hiệu
 product_similarity      -- bảng tính sẵn độ tương tự
 recommendation_log      -- ghi nhận gợi ý đã hiển thị (để đo hiệu quả)

@@ -111,7 +111,7 @@ jobs:
           migrate -path migrations \
             -database "postgres://postgres@127.0.0.1:5432/gouse_test?sslmode=disable" up
 
-      # Bốn bước dưới đây CHÍNH LÀ `make check`, tách rời để khi đỏ thì
+      # Năm bước dưới đây CHÍNH LÀ `make check`, tách rời để khi đỏ thì
       # biết ngay bước nào hỏng mà không phải đọc log.
       - name: Định dạng
         run: make fmt-check
@@ -121,6 +121,16 @@ jobs:
 
       - name: Ranh giới module
         run: make arch
+
+      # Hợp đồng API và EVENT.
+      #
+      # Bước này thiếu cho tới 25/09/2026. `apicheck` và `eventcheck` được
+      # dựng để "chặn ở CI", tài liệu ở ba chỗ nói đúng như thế — nhưng
+      # `make arch` chỉ chạy `archcheck`, nên hai công cụ ấy CHƯA BAO GIỜ
+      # chạy ở đây. Đúng dạng lỗi hay gặp nhất của dự án: một thứ được tin
+      # là đang chạy mà không chạy.
+      - name: Hợp đồng API và event
+        run: make hopdong
 
       # Khi test hỏng, ĐƯA LÝ DO VÀO ANNOTATION.
       #

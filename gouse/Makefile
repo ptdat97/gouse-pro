@@ -80,6 +80,30 @@ fmt-check: ## Kiểm tra định dạng (dùng trong CI)
 .PHONY: arch
 arch: ## Kiểm tra ranh giới module (VI PHẠM = THẤT BẠI)
 	@go run ./cmd/archcheck
+	@go test ./cmd/archcheck/
+
+# Hợp đồng API và EVENT.
+#
+# # Vì sao mục tiêu này phải tồn tại
+#
+# `apicheck` và `eventcheck` được dựng để "chặn ở CI", và tài liệu ở ba chỗ
+# nói đúng như thế (dependency-rules.md, api-first.md, backlog P3-56 ·
+# P3-58 · P3-70 · P3-76). Nhưng CI thật chỉ gọi `make fmt-check`, `make
+# vet`, `make arch`, `make test` — và `arch` chỉ chạy `archcheck`.
+#
+# Tức hai công cụ ấy CHƯA BAO GIỜ chạy trong CI. Phát hiện 25/09/2026, và
+# đúng dạng lỗi hay gặp nhất của dự án này: một thứ được tin là đang chạy
+# mà không chạy. Lần này thứ được tin là "hợp đồng của chúng ta có người
+# gác".
+#
+# Chạy cả TEST của từng công cụ: một công cụ bỏ sót vi phạm còn nguy hiểm
+# hơn không có công cụ.
+.PHONY: hopdong
+hopdong: ## Kiểm hợp đồng API và event (VI PHẠM = THẤT BẠI)
+	@go run ./cmd/apicheck -v
+	@go test ./cmd/apicheck/
+	@go run ./cmd/eventcheck -v
+	@go test ./cmd/eventcheck/
 
 .PHONY: api-lint
 api-lint: ## Kiểm tra đặc tả OpenAPI
@@ -94,7 +118,7 @@ alerts: ## Kiểm tra luật cảnh báo Prometheus
 	@promtool test rules deploy/prometheus/alerts_test.yml
 
 .PHONY: check
-check: fmt-check vet arch test ## Chạy toàn bộ kiểm tra như CI
+check: fmt-check vet arch hopdong test ## Chạy toàn bộ kiểm tra như CI
 	@echo -e "$(GREEN)✓ Mọi kiểm tra đều đạt$(RESET)"
 
 # ---------------------------------------------------------------- Database

@@ -122,6 +122,7 @@ Access token chứa: `user_id`, các vai trò, thời hạn. Không chứa dữ 
 ```sql
 "user"
 user_credential         -- mật khẩu đã băm
+email_verification_token -- token xác minh email, DÙNG MỘT LẦN
 user_social_account     -- liên kết mạng xã hội
 role
 permission

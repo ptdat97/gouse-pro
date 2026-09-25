@@ -61,6 +61,13 @@ func (c *checker) run() error {
 		return err
 	}
 	c.checkDependencyCycles()
+
+	// R6 — sở hữu bảng. Đọc mục "Dữ liệu sở hữu" của tài liệu module, nên
+	// nó trả LỖI (không phải vi phạm) khi tài liệu thiếu hoặc mâu thuẫn:
+	// không có bảng sở hữu đáng tin thì không kiểm được gì.
+	if err := c.kiemSoHuuBang(); err != nil {
+		return err
+	}
 	return nil
 }
 

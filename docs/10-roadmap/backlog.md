@@ -7171,6 +7171,83 @@ không gác gì mà vẫn trông như đang gác.
 
 ---
 
+### P3-78 — R6 sở hữu bảng, và hai công cụ CHƯA BAO GIỜ chạy trong CI
+
+#### Phần đã hứa: R6
+
+`dependency-rules.md` mục 9 liệt kê *"Kiểm tra 6: Sở hữu bảng — file SQL
+trong module X chỉ nhắc tới bảng thuộc X"* là kiểm tra CI **bắt buộc**. Nó
+chưa bao giờ được cài.
+
+R1 chặn module A *import mã* của module B. Nó KHÔNG chặn A viết
+`SELECT ... FROM bang_cua_B` — cùng một sự ghép nối, đi bằng đường khác, và
+là đường khó thấy hơn nhiều vì **không có import nào để đọc**. Hậu quả cũng
+nặng hơn: B đổi lược đồ bảng của mình mà không biết A đang đọc nó, nên một
+migration đúng theo mọi nghĩa vẫn làm A vỡ.
+
+Nguồn sự thật là **chính tài liệu**: mục "Dữ liệu sở hữu" của 29 file trong
+`docs/04-modules/`, khai 159 bảng, không bảng nào bị hai module khai. R6
+đọc chúng thay vì giữ danh sách riêng — một bản sao thứ hai của bảng sở hữu
+sớm muộn sẽ lệch, và khi ấy không biết bên nào đúng.
+
+**Hiện trạng đo được: KHÔNG có truy vấn xuyên module nào.** R6 khóa lại một
+trạng thái vốn đã sạch, giống R9.
+
+Ba cách làm hỏng bảng sở hữu đều là **LỖI khởi động**, không phải vi phạm:
+
+```text
+hai module cùng khai một bảng      → không ai biết đổi lược đồ phải hỏi ai
+thư mục module không tra ra tài liệu → R6 im lặng bỏ gác module ấy
+tài liệu mất mục "Dữ liệu sở hữu"   → không biết module sở hữu bảng nào
+```
+
+Không có bảng sở hữu đáng tin thì R6 không kiểm được gì — và một quy tắc
+im lặng không kiểm gì vẫn in ra `OK`.
+
+Sửa theo: bốn bảng thật chưa ai khai đã vào tài liệu
+(`email_verification_token`, `fulfillment_order_line`, `price`,
+`quan_sat_size`), và `fulfillment_line` sửa thành
+`fulfillment_order_line` cho khớp bảng thật. Năm bảng của `platform` khai
+trong sổ `bangCuaPlatform` kèm lý do.
+
+#### Phần TỆ HƠN: `apicheck` và `eventcheck` chưa bao giờ chạy trong CI
+
+Tìm ra khi đi nối R6 vào CI. Có **hai** file `ci.yml`:
+
+```text
+.github/workflows/ci.yml        ← GitHub đọc file NÀY
+gouse/.github/workflows/ci.yml  ← GitHub KHÔNG BAO GIỜ đọc
+```
+
+GitHub Actions chỉ đọc `.github/workflows/` ở **gốc repo**. Tôi đã nối
+`eventcheck` vào file thứ hai hôm qua và tuyên bố "đã nối vào CI" — sai.
+
+Nhưng chuyện nặng hơn lộ ra khi kiểm file thật: nó gọi `make fmt-check`,
+`make vet`, `make arch`, `make test` — và `make arch` **chỉ chạy
+`archcheck`**. Nên:
+
+```text
+archcheck    ✓ chạy trong CI
+apicheck     ✗ CHƯA BAO GIỜ — dù ba chỗ tài liệu nói "chặn ở CI"
+eventcheck   ✗ CHƯA BAO GIỜ
+```
+
+Ba tầng của `apicheck` (tuyến · header CORS · enum) được dựng chính vì
+những lỗi đi qua CI mà CI vẫn xanh — và bản thân nó cũng chưa bao giờ ở
+trong CI. Đúng dạng lỗi hay gặp nhất của dự án: một thứ được tin là đang
+chạy mà không chạy. Lần này thứ được tin là *"hợp đồng của chúng ta có
+người gác"*.
+
+Sửa: mục tiêu `make hopdong` chạy cả hai công cụ **và test của chúng** (một
+công cụ bỏ sót vi phạm còn nguy hiểm hơn không có công cụ), `make arch` nay
+cũng chạy test của `archcheck`, `make check` gồm cả `hopdong`, và CI thật
+có một bước riêng cho nó.
+
+Còn lại một cái bẫy: file `gouse/.github/workflows/ci.yml` vẫn tồn tại và
+vẫn trông như CI. Nó là thứ đã lừa được tôi.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

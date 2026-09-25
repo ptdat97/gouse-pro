@@ -3,9 +3,34 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// duAnGia gọi writeFiles rồi TỰ THÊM tài liệu cho mọi module nó dựng.
+//
+// R6 đỏ khi một thư mục module không tra ra tài liệu — chủ ý, để lệch tên
+// phải kêu. Nhưng mọi bài test cũ dựng module mà không dựng tài liệu, nên
+// nếu bắt từng bài tự thêm thì mỗi bài mới lại vỡ một lần vì cùng lý do.
+func duAnGia(t *testing.T, files map[string]string) string {
+	t.Helper()
+
+	mods := map[string]bool{}
+	for rel := range files {
+		if m := reModuleTrongDuong.FindStringSubmatch(rel); m != nil {
+			mods[m[1]] = true
+		}
+	}
+	for m := range mods {
+		if ten, than := taiLieuModule(m); files[ten] == "" {
+			files[ten] = than
+		}
+	}
+	return writeFiles(t, files)
+}
+
+var reModuleTrongDuong = regexp.MustCompile(`^internal/modules/([a-z][a-z0-9_]*)/`)
 
 // writeFiles tạo cây thư mục tạm với nội dung cho trước.
 func writeFiles(t *testing.T, files map[string]string) string {
@@ -25,6 +50,19 @@ func writeFiles(t *testing.T, files map[string]string) string {
 
 func runChecker(t *testing.T, root string) []Violation {
 	t.Helper()
+	vs, err := chayChecker(root)
+	if err != nil {
+		t.Fatalf("checker.run: %v", err)
+	}
+	return vs
+}
+
+// chayChecker chạy công cụ và trả CẢ lỗi, để bài test đo được lỗi cấu hình.
+//
+// R6 đọc `docs/04-modules/` và trả LỖI (không phải vi phạm) khi tài liệu
+// thiếu — không có bảng sở hữu đáng tin thì không kiểm được gì. Bài test
+// nào đo chuyện đó cần nhìn thấy lỗi ấy.
+func chayChecker(root string) ([]Violation, error) {
 	c := &checker{
 		root:       root,
 		modulePath: mod,
@@ -32,9 +70,22 @@ func runChecker(t *testing.T, root string) []Violation {
 		pkgFiles:   make(map[string][]string),
 	}
 	if err := c.run(); err != nil {
-		t.Fatalf("checker.run: %v", err)
+		return nil, err
 	}
-	return c.violations
+	return c.violations, nil
+}
+
+// taiLieuModule dựng một file tài liệu tối thiểu có mục "Dữ liệu sở hữu".
+//
+// Mọi dự án giả phải có nó cho MỌI thư mục module, vì R6 đỏ khi một module
+// không tra ra tài liệu — đó là chủ ý: lệch tên phải kêu, không được im.
+func taiLieuModule(mod string, bang ...string) (string, string) {
+	than := "## 1. Dữ liệu sở hữu\n\n```sql\n"
+	for _, b := range bang {
+		than += b + "\n"
+	}
+	than += "```\n"
+	return "../docs/04-modules/" + mod + ".md", than
 }
 
 func rulesFound(vs []Violation) map[string]bool {
@@ -54,7 +105,7 @@ func TestDetectsEachViolationType(t *testing.T) {
 		return "package x\nimport _ \"" + mod + p + "\"\n"
 	}
 
-	root := writeFiles(t, map[string]string{
+	root := duAnGia(t, map[string]string{
 		// R4: kernel import platform
 		"internal/kernel/money/money.go": imp("/internal/platform/database"),
 		// R3: platform import module nghiệp vụ
@@ -89,7 +140,7 @@ func TestDetectsDependencyCycle(t *testing.T) {
 		return "package application\nimport _ \"" + mod + p + "\"\n"
 	}
 
-	root := writeFiles(t, map[string]string{
+	root := duAnGia(t, map[string]string{
 		"internal/modules/order/public.go":   "package order\n",
 		"internal/modules/loyalty/public.go": "package loyalty\n",
 		"internal/modules/catalog/public.go": "package catalog\n",
@@ -130,7 +181,7 @@ func TestValidStructureProducesNoViolations(t *testing.T) {
 		return s
 	}
 
-	root := writeFiles(t, map[string]string{
+	root := duAnGia(t, map[string]string{
 		"internal/kernel/money/money.go":   "package money\n",
 		"internal/kernel/types/t.go":       imp("types", "/internal/kernel/money"),
 		"internal/platform/database/db.go": imp("database", "/internal/kernel/ids"),
@@ -180,4 +231,123 @@ func TestSelfCheck(t *testing.T) {
 			t.Errorf("codebase vi phạm ranh giới:\n%s", v)
 		}
 	}
+}
+
+// ------------------------------------------------- R6: sở hữu bảng
+
+// R6 bắt module chạm bảng của module KHÁC.
+//
+// # Vì sao quy tắc này cần tồn tại
+//
+// R1 chặn module A import mã của module B. Nhưng nó KHÔNG chặn A viết
+// `SELECT ... FROM bang_cua_B` — cùng một sự ghép nối, đi bằng đường khác,
+// và là đường khó thấy hơn nhiều: không có import nào để đọc.
+//
+// Hậu quả nặng hơn ghép nối thường: B đổi lược đồ bảng của mình mà không
+// biết A đang đọc nó, nên một migration đúng theo mọi nghĩa vẫn làm A vỡ.
+func TestR6_ModuleKhongChamBangCuaModuleKhac(t *testing.T) {
+	tenOrder, thanOrder := taiLieuModule("order", `"order"`, "order_line")
+	tenSeller, thanSeller := taiLieuModule("seller", "seller", "seller_bank_account")
+
+	root := writeFiles(t, map[string]string{
+		tenOrder:  thanOrder,
+		tenSeller: thanSeller,
+
+		// order đọc bảng của CHÍNH MÌNH — hợp lệ.
+		"internal/modules/order/infrastructure/postgres/store.go": "package postgres\n" +
+			"const q = `SELECT id FROM order_line WHERE order_id = $1`\n",
+
+		// order đọc bảng của seller — VI PHẠM.
+		"internal/modules/order/infrastructure/postgres/xau.go": "package postgres\n" +
+			"const q2 = `SELECT name FROM seller WHERE id = $1`\n",
+	})
+
+	vs, err := chayChecker(root)
+	if err != nil {
+		t.Fatalf("chayChecker: %v", err)
+	}
+	if !rulesFound(vs)["R6"] {
+		t.Fatalf("phải bắt R6, nhận: %v", vs)
+	}
+
+	var soR6 int
+	for _, v := range vs {
+		if v.Rule == "R6" {
+			soR6++
+			if !strings.Contains(v.Message, "seller") {
+				t.Errorf("thông báo phải gọi tên bảng và module chủ: %s", v.Message)
+			}
+		}
+	}
+	if soR6 != 1 {
+		t.Errorf("mong đúng 1 vi phạm R6 (bảng của chính mình không tính), nhận %d", soR6)
+	}
+}
+
+// Bảng của platform thì MỌI module được chạm.
+//
+// Đó là hạ tầng dùng chung và không mang khái niệm nghiệp vụ nào để rò rỉ.
+// Không có ngoại lệ này thì mọi module ghi audit đều đỏ, và người ta tắt
+// hẳn quy tắc.
+func TestR6_BangPlatformThiAiCungChamDuoc(t *testing.T) {
+	ten, than := taiLieuModule("order", `"order"`)
+	root := writeFiles(t, map[string]string{
+		ten: than,
+		"internal/modules/order/infrastructure/postgres/store.go": "package postgres\n" +
+			"const q = `INSERT INTO audit_log (id) VALUES ($1)`\n" +
+			"const q2 = `INSERT INTO event_outbox (id) VALUES ($1)`\n",
+	})
+
+	vs, err := chayChecker(root)
+	if err != nil {
+		t.Fatalf("chayChecker: %v", err)
+	}
+	if rulesFound(vs)["R6"] {
+		t.Fatalf("bảng platform không được tính là vi phạm: %v", vs)
+	}
+}
+
+// Ba cách LÀM HỎNG BẢNG SỞ HỮU phải thành LỖI, không phải vi phạm.
+//
+// Không có bảng sở hữu đáng tin thì R6 không kiểm được gì — và một quy tắc
+// im lặng không kiểm gì là thứ tệ nhất: nó vẫn in ra OK.
+func TestR6_BangSoHuuHongThiBaoLoi(t *testing.T) {
+	tenOrder, thanOrder := taiLieuModule("order", `"order"`)
+
+	t.Run("hai module cùng khai một bảng", func(t *testing.T) {
+		tenSeller, thanSeller := taiLieuModule("seller", "seller", `"order"`)
+		root := writeFiles(t, map[string]string{
+			tenOrder:                       thanOrder,
+			tenSeller:                      thanSeller,
+			"internal/modules/order/x.go":  "package order\n",
+			"internal/modules/seller/x.go": "package seller\n",
+		})
+		_, err := chayChecker(root)
+		if err == nil || !strings.Contains(err.Error(), "HAI module") {
+			t.Fatalf("khai trùng phải là lỗi, nhận: %v", err)
+		}
+	})
+
+	t.Run("module không có tài liệu", func(t *testing.T) {
+		root := writeFiles(t, map[string]string{
+			tenOrder:                      thanOrder,
+			"internal/modules/order/x.go": "package order\n",
+			"internal/modules/laKia/x.go": "package lakia\n",
+		})
+		_, err := chayChecker(root)
+		if err == nil || !strings.Contains(err.Error(), "không có tài liệu") {
+			t.Fatalf("module thiếu tài liệu phải là lỗi, nhận: %v", err)
+		}
+	})
+
+	t.Run("tài liệu mất mục Dữ liệu sở hữu", func(t *testing.T) {
+		root := writeFiles(t, map[string]string{
+			"../docs/04-modules/order.md": "# Order\n\nKhông có mục sở hữu.\n",
+			"internal/modules/order/x.go": "package order\n",
+		})
+		_, err := chayChecker(root)
+		if err == nil || !strings.Contains(err.Error(), "Dữ liệu sở hữu") {
+			t.Fatalf("thiếu mục sở hữu phải là lỗi, nhận: %v", err)
+		}
+	})
 }

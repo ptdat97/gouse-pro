@@ -26,6 +26,9 @@ jobs:
           cache: true
 
       - name: Kiểm tra ranh giới module
+        # Chín quy tắc, trong đó R6 (sở hữu bảng) đọc mục "Dữ liệu sở hữu"
+        # của docs/04-modules/ làm nguồn sự thật — nên nó cần cả thư mục
+        # docs, không chỉ thư mục gouse.
         run: go run ./cmd/archcheck -v
 
       - name: Test chính công cụ archcheck

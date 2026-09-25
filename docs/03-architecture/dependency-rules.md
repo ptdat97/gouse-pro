@@ -380,7 +380,7 @@ Kiểm tra 2  R2  ✓ cmd/archcheck
 Kiểm tra 3  R3  ✓ cmd/archcheck
 Kiểm tra 4  R4  ✓ cmd/archcheck
 Kiểm tra 5  R5  ✓ cmd/archcheck  (đồ thị là DAG)
-Kiểm tra 6      ✗ CHƯA CÀI — xem dưới
+Kiểm tra 6  R6  ✓ cmd/archcheck  (thêm 25/09/2026)
 Kiểm tra 7  R7  ✓ cmd/archcheck
 Kiểm tra 8  R9  ✓ cmd/archcheck  (thêm 25/09/2026)
 ```
@@ -393,9 +393,26 @@ chế**: vòng quét bỏ qua mọi import không bắt đầu bằng đường 
 R9 kiểm TRƯỚC lệnh bỏ qua ấy — đó là chỗ duy nhất thư viện ngoài còn nhìn
 thấy được.
 
-**Về Kiểm tra 6.** Mục "Dữ liệu sở hữu" đã có ở **cả 29** tài liệu module,
-nên nguồn dữ liệu sẵn sàng; thiếu là phần đối chiếu. Hôm nay không gì chặn
-`checkout/infrastructure` truy vấn bảng `seller`.
+**Về R6 — sở hữu bảng.** R1 chặn module A *import mã* của module B. Nó
+KHÔNG chặn A viết `SELECT ... FROM bang_cua_B` — cùng một sự ghép nối, đi
+bằng đường khác, và là đường khó thấy hơn nhiều vì không có import nào để
+đọc. Hậu quả cũng nặng hơn: B đổi lược đồ bảng của mình mà không biết A
+đang đọc nó, nên một migration đúng theo mọi nghĩa vẫn làm A vỡ.
+
+Nguồn sự thật là **chính tài liệu này**: mục "Dữ liệu sở hữu" của 29 file
+trong `docs/04-modules/`, khai 159 bảng. R6 đọc chúng thay vì giữ một danh
+sách riêng — một bản sao thứ hai của bảng sở hữu sớm muộn sẽ lệch, và khi
+ấy không biết bên nào đúng.
+
+Ba cách làm hỏng bảng sở hữu đều là **LỖI khởi động**, không phải vi phạm:
+hai module cùng khai một bảng · một thư mục module không tra ra tài liệu ·
+một tài liệu mất mục sở hữu. Không có bảng sở hữu đáng tin thì R6 không
+kiểm được gì, và một quy tắc im lặng không kiểm gì vẫn in ra `OK` — thứ tệ
+nhất.
+
+Bảng thuộc `internal/platform` (`audit_log`, `event_outbox`,
+`event_processed`, `ops_config`, `webhook_event`) thì mọi module được chạm:
+đó là hạ tầng dùng chung, không mang khái niệm nghiệp vụ nào để rò rỉ.
 
 **Nguyên tắc:** kiểm tra phải chạy nhanh (< 30 giây) để không ai muốn bỏ qua nó.
 
