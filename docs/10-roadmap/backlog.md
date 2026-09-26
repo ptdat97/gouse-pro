@@ -7384,6 +7384,86 @@ sau này sẽ lại làm mọi bài cũ vỡ vì cùng một lý do.
 
 ---
 
+### P3-81 — chuỗi quy công đứt ở giữa, và phép thử của ADR-0021
+
+[ADR-0021](../adr/0021-ranh-gioi-commerce-kernel.md) trả lời *"xây Affiliate
+phải sửa Core bao nhiêu?"* bằng một dự đoán. Chặng 1 của phép thử biến nó
+thành số đo.
+
+#### Hai đầu có, giữa không
+
+Hạ tầng quy công đã tồn tại ở cả hai đầu từ tháng 8:
+
+```text
+cart_item.source_content_id        migration 000009
+cart_item.source_creator_id        migration 000009, CÓ index
+order_line.attributed_creator_id   migration 000008, CÓ index
+order_line.creator_commission_rate migration 000008
+order.PlaceOrderLineInput.AttributedCreatorID   đã có sẵn trường
+```
+
+`checkout.domain.Line` không mang trường quy công. Nên khi phiên thanh toán
+dựng đơn, thông tin creator **biến mất ở chính giữa** — và mọi cột, mọi
+index nói trên chưa bao giờ có dữ liệu khác rỗng.
+
+Dạng lỗi hay gặp nhất của dự án, lần này trải dài qua ba module và hai
+migration cách nhau một số thứ tự. Không ai thấy vì không có gì để thấy:
+không lỗi, không log, chỉ những cột rỗng.
+
+`RestoreLine` của checkout cũng không gán ba trường mới lúc tôi thêm chúng —
+tức chuỗi sẽ đứt lần thứ hai ở phép đọc-lại nếu không để ý. Đó là lý do dự
+án có hai bài canh "không trường nào biến mất khi lưu rồi đọc lại".
+
+#### Số đo
+
+```text
+44 dòng mã · 1 module (checkout) · 1 migration (2 cột + 1 index)
+
+KHÔNG sửa: cart · order · payment · marketplace · inventory · product
+```
+
+Khoản **một lần**: creator, livestream, campaign sau này dùng lại đúng chuỗi
+ấy.
+
+#### Kernel chỉ CHỞ hai cái mã
+
+`TestKernelKhongTraCreator` dùng một mã creator KHÔNG tồn tại và đòi request
+thành công. Ngày nào kernel đi tra mã ấy, bài test đỏ — tín hiệu đúng, vì
+lúc ấy kernel đã biết về creator commerce và ranh giới ADR-0021 bị phá.
+
+#### Một cột suýt thêm vào mà không ai ghi
+
+Bản đầu của migration 000057 thêm cả `creator_commission_rate` vào
+`checkout_line`, cho cân với `commission_rate` của nhà bán ngay bên trên.
+
+Bỏ đi: affiliate.md mục 7 đã quyết bảng `attribution` của CHÍNH NÓ đóng
+băng tỷ lệ (`commission_rate INT NOT NULL -- ĐÓNG BĂNG`). Hai cột cho cùng
+một con số tiền là hai nguồn để lệch nhau, và cột ở kernel sẽ không ai ghi.
+
+Suýt tự tạo ra đúng dạng lỗi đang đi sửa.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+bỏ nối giỏ→phiên   "checkout_line mang nguồn quy công: mong 1, nhận 0"
+bỏ nối phiên→đơn   "order_line nhận quy công: mong 1, nhận 0"
+```
+
+Bài test đi qua HTTP, bốn module, ba tầng lưu trữ — gọi thẳng service sẽ bỏ
+qua đúng chỗ đã đứt.
+
+#### Chặng 2, chưa làm
+
+Dựng module `affiliate` thật: 5 bảng (`affiliate_link`, `click`,
+`attribution`, `commission_record`, `fraud_signal`), nghe `order.paid`, ghi
+attribution theo last-click trong cửa sổ 7 ngày, tính hoa hồng, đảo ngược
+khi hoàn hàng.
+
+Điều cần ĐO ở chặng 2: nó cần **0** dòng core. Nếu khác 0, ADR-0021 còn
+thiếu một extension point.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

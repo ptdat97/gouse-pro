@@ -523,6 +523,13 @@ type PlaceOrderLine struct {
 	Quantity           int
 	CommissionRate     types.BasisPoints
 
+	// AttributedCreatorID là creator được QUY CÔNG cho dòng này.
+	//
+	// Chở từ giỏ qua phiên tới đơn. Kernel không tính hoa hồng creator và
+	// không biết tỷ lệ — đó là việc của module affiliate, và tỷ lệ đóng
+	// băng trong bảng `attribution` của nó.
+	AttributedCreatorID ids.ID
+
 	// BenChiuGiamGia là bên gánh phần giảm của dòng này.
 	//
 	// Đóng băng từ phiên thanh toán (xem migration 000046). Trước đây tầng
@@ -899,9 +906,15 @@ func (s *Service) reserveAll(
 			VariantDescription: it.VariantDescription,
 			// ĐÓNG BĂNG: từ đây tới lúc tạo đơn, con số này không đổi dù
 			// seller có sửa giá.
-			UnitPrice:       it.UnitPrice,
-			Quantity:        it.Quantity,
-			CommissionRate:  rate,
+			UnitPrice:      it.UnitPrice,
+			Quantity:       it.Quantity,
+			CommissionRate: rate,
+
+			// Chở nguồn quy công từ giỏ. Phiên thanh toán không dùng nó;
+			// `order_line.attributed_creator_id` mới là nơi nó tới.
+			SourceContentID: it.SourceContentID,
+			SourceCreatorID: it.SourceCreatorID,
+
 			ReservationID:   reservationID,
 			InventoryItemID: itemID,
 			Now:             now,
@@ -1459,8 +1472,11 @@ func (s *Service) CompleteCheckout(
 			UnitPrice:          l.UnitPrice(),
 			Quantity:           l.Quantity(),
 			CommissionRate:     l.CommissionRate(),
-			GiamGia:            giamTheoDong[l.ID()],
-			BenChiuGiamGia:     string(c.BenChiuGiamGia()),
+
+			AttributedCreatorID: l.SourceCreatorID(),
+
+			GiamGia:        giamTheoDong[l.ID()],
+			BenChiuGiamGia: string(c.BenChiuGiamGia()),
 		})
 	}
 

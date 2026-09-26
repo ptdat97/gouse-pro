@@ -49,6 +49,21 @@ type Line struct {
 	quantity           int
 	commissionRate     types.BasisPoints
 
+	// ---- Nguồn QUY CÔNG, mang từ giỏ sang đơn ----
+	//
+	// Phiên thanh toán không LÀM GÌ với ba trường này. Nó chỉ chở chúng:
+	// `cart_item` biết khách đến từ nội dung nào, `order_line` cần biết để
+	// tính hoa hồng creator, và giữa hai chỗ ấy là đây.
+	//
+	// Trước 25/09/2026 chuỗi này ĐỨT ở đúng chỗ này — cả hai đầu đã có cột
+	// và index, và không gì nối chúng. Xem migration 000057.
+	//
+	// CHỈ hai cái mã, không mang tỷ lệ hoa hồng: tỷ lệ đóng băng ở bảng
+	// `attribution` của module affiliate. Hai nguồn cho cùng một con số
+	// tiền sớm muộn sẽ lệch nhau.
+	sourceContentID ids.ID
+	sourceCreatorID ids.ID
+
 	// reservationID là mã giữ hàng ở inventory.
 	//
 	// KHÔNG CÓ Ở cart.Item, và đó chính là khác biệt cốt lõi giữa hai
@@ -84,6 +99,10 @@ type NewLineParams struct {
 	InventoryItemID ids.ID
 
 	Now time.Time
+
+	// Nguồn quy công, chở từ giỏ sang đơn — xem chú thích ở `Line`.
+	SourceContentID ids.ID
+	SourceCreatorID ids.ID
 }
 
 // NewLine tạo một dòng với giá ĐÃ ĐÓNG BĂNG.
@@ -124,9 +143,13 @@ func NewLine(p NewLineParams) (*Line, error) {
 		unitPrice:          p.UnitPrice,
 		quantity:           p.Quantity,
 		commissionRate:     p.CommissionRate,
-		reservationID:      p.ReservationID,
-		inventoryItemID:    p.InventoryItemID,
-		createdAt:          now,
+
+		sourceContentID: p.SourceContentID,
+		sourceCreatorID: p.SourceCreatorID,
+
+		reservationID:   p.ReservationID,
+		inventoryItemID: p.InventoryItemID,
+		createdAt:       now,
 	}, nil
 }
 
@@ -148,6 +171,10 @@ type RestoreLineParams struct {
 	ReservationID      ids.ID
 	InventoryItemID    ids.ID
 	CreatedAt          time.Time
+
+	// Nguồn quy công, chở từ giỏ sang đơn — xem chú thích ở `Line`.
+	SourceContentID ids.ID
+	SourceCreatorID ids.ID
 }
 
 // RestoreLine dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
@@ -166,9 +193,13 @@ func RestoreLine(p RestoreLineParams) *Line {
 		unitPrice:          p.UnitPrice,
 		quantity:           p.Quantity,
 		commissionRate:     p.CommissionRate,
-		reservationID:      p.ReservationID,
-		inventoryItemID:    p.InventoryItemID,
-		createdAt:          p.CreatedAt,
+
+		sourceContentID: p.SourceContentID,
+		sourceCreatorID: p.SourceCreatorID,
+
+		reservationID:   p.ReservationID,
+		inventoryItemID: p.InventoryItemID,
+		createdAt:       p.CreatedAt,
 	}
 }
 
@@ -187,9 +218,12 @@ func (l *Line) VariantDescription() string        { return l.variantDescription 
 func (l *Line) UnitPrice() money.Money            { return l.unitPrice }
 func (l *Line) Quantity() int                     { return l.quantity }
 func (l *Line) CommissionRate() types.BasisPoints { return l.commissionRate }
-func (l *Line) ReservationID() ids.ID             { return l.reservationID }
-func (l *Line) InventoryItemID() ids.ID           { return l.inventoryItemID }
-func (l *Line) CreatedAt() time.Time              { return l.createdAt }
+
+func (l *Line) SourceContentID() ids.ID { return l.sourceContentID }
+func (l *Line) SourceCreatorID() ids.ID { return l.sourceCreatorID }
+func (l *Line) ReservationID() ids.ID   { return l.reservationID }
+func (l *Line) InventoryItemID() ids.ID { return l.inventoryItemID }
+func (l *Line) CreatedAt() time.Time    { return l.createdAt }
 
 // LineTotal là tiền của dòng theo giá ĐÃ ĐÓNG BĂNG.
 func (l *Line) LineTotal() money.Money {

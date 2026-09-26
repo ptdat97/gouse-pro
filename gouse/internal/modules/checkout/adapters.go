@@ -296,7 +296,13 @@ func (a *orderAdapter) PlaceOrder(
 			},
 			Quantity:       l.Quantity,
 			CommissionRate: int(l.CommissionRate.Value()),
-			Adjustments:    khoanGiam(l),
+
+			// Quy công tới đây là HẾT đường của kernel: `order_line` có cột
+			// và index cho nó từ migration 000008, và module affiliate đọc
+			// từ đó. Kernel không tính hoa hồng creator.
+			AttributedCreatorID: l.AttributedCreatorID.String(),
+
+			Adjustments: khoanGiam(l),
 		})
 	}
 

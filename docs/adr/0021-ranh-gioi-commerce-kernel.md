@@ -273,9 +273,49 @@ Livestream    module mới + quy công, cùng khuôn với creator
 ERP           adapter sau một cổng; R9 chặn SDK của họ vào domain
 ```
 
-Bốn dòng cuối là **dự đoán**, không phải bằng chứng. Bước tiếp theo là dựng
-`affiliate` như một module thật rồi **ĐẾM số dòng core phải sửa**. Con số ấy
-trả lời câu hỏi nghiệm thu; lập luận thì không.
+### ĐO được, 25/09/2026 — chặng 1 của phép thử
+
+Bốn dòng trên là dự đoán. Đây là số đo.
+
+Đi dựng `affiliate` thì việc đầu tiên đụng phải là: **chuỗi quy công đứt ở
+giữa**. Hạ tầng đã có ở CẢ HAI ĐẦU từ tháng 8 —
+
+```text
+cart_item.source_content_id        migration 000009
+cart_item.source_creator_id        migration 000009, CÓ index
+order_line.attributed_creator_id   migration 000008, CÓ index
+order.PlaceOrderLineInput.AttributedCreatorID
+```
+
+— và `checkout.domain.Line` không mang trường quy công, nên thông tin
+creator biến mất ở chính giữa. Mọi cột và index nói trên **chưa bao giờ có
+dữ liệu khác rỗng**.
+
+Khoản sửa core, đo bằng `git diff`:
+
+```text
+44 dòng mã · 1 module (checkout) · 1 migration (2 cột + 1 index)
+
+KHÔNG sửa: cart · order · payment · marketplace · inventory · product
+```
+
+Và nó là khoản **MỘT LẦN**: creator, livestream, campaign sau này dùng lại
+đúng chuỗi ấy, không cần thêm dòng core nào.
+
+Kernel chỉ **CHỞ hai cái mã**. Nó không tra creator có tồn tại không —
+`TestKernelKhongTraCreator` dùng một mã creator KHÔNG tồn tại và đòi request
+phải thành công. Ngày nào kernel đi tra, bài ấy đỏ, và đó là tín hiệu đúng:
+lúc ấy kernel đã biết về creator commerce.
+
+Một quyết định trong lúc làm đáng ghi: bản đầu của migration thêm cả
+`creator_commission_rate` cho cân với `commission_rate` của nhà bán. Bỏ đi,
+vì affiliate.md mục 7 đã quyết bảng `attribution` của CHÍNH NÓ đóng băng tỷ
+lệ. Hai cột cho cùng một con số tiền là hai nguồn để lệch nhau — và cột ở
+kernel sẽ không ai ghi.
+
+**Chặng 2 chưa làm:** dựng module `affiliate` thật (5 bảng, nghe
+`order.paid`, ghi attribution + commission) và đo nó cần **0** dòng core.
+Xem P3-81.
 
 ## Liên quan
 
