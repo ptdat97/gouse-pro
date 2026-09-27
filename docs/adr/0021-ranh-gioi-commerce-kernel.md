@@ -268,7 +268,8 @@ Rủi ro    Nếu sau này thật sự cần một bản không-marketplace, ph�
 ```text
 Marketplace   ĐÃ ở trong Kernel. Câu hỏi không áp dụng.
 Creator       module mới + trường quy công đã có trên CartItem/OrderLine
-Affiliate     module mới + nghe event. Đang dựng để ĐO — xem dưới.
+Affiliate     ĐÃ DỰNG 27/09/2026. Module mới + 3 bên nhận event
+              + 7 dòng ở mặt ĐỌC của order. Xem "chặng 2" dưới.
 Livestream    module mới + quy công, cùng khuôn với creator
 ERP           adapter sau một cổng; R9 chặn SDK của họ vào domain
 ```
@@ -313,9 +314,103 @@ vì affiliate.md mục 7 đã quyết bảng `attribution` của CHÍNH NÓ đó
 lệ. Hai cột cho cùng một con số tiền là hai nguồn để lệch nhau — và cột ở
 kernel sẽ không ai ghi.
 
-**Chặng 2 chưa làm:** dựng module `affiliate` thật (5 bảng, nghe
-`order.paid`, ghi attribution + commission) và đo nó cần **0** dòng core.
-Xem P3-81.
+### ĐO được, 27/09/2026 — chặng 2 của phép thử
+
+Chặng 1 nối chuỗi quy công. Chặng 2 dựng module `affiliate` THẬT: nó biến mã
+creator thành TIỀN — quy công khi tiền về, đảo khi đơn hủy, mở khóa khi hết
+hạn đổi trả.
+
+Dự đoán ở bản đầu ADR này là **0 dòng core**. Số đo là **7 dòng bắt buộc**,
+trên **12 dòng thực thêm**.
+
+```text
+BẮT BUỘC — affiliate không chạy được nếu thiếu:
+
+  order/public.go   import internal/modules/order/domain
+                    OrderLineView.AttributedCreatorID string
+                    const ( … )                        ← 2 dòng bao
+                    LineStatusActive
+                    AdjustmentPromotion
+  order/module.go   AttributedCreatorID: l.AttributedCreatorID().String()
+                                                        ─────────
+                                                         7 dòng
+
+THÊM VÌ ĐỦ BỘ — liệt kê thiếu sẽ đẩy bên đọc về chỗ gõ tay chuỗi:
+
+  order/public.go   LineStatusCancelled · LineStatusReturned
+                    AdjustmentTax · AdjustmentShipping · AdjustmentCommission
+                                                        ─────────
+                                                         5 dòng
+
+KHÔNG sửa: cart · checkout · payment · fulfillment · marketplace ·
+           inventory · product · promotion · seller · returns
+KHÔNG đổi payload event nào
+KHÔNG module kernel nào biết affiliate tồn tại
+```
+
+(`checkout/adapters.go` có MỘT dòng đổi: `"PROMOTION"` gõ tay thành
+`order.AdjustmentPromotion`. Không tính vào con số trên — nó là sửa một lỗi
+có từ trước, không phải cái giá của affiliate.)
+
+Mười hai dòng ấy nằm HẾT ở mặt ĐỌC của `order`, không dòng nào ở domain,
+application hay infrastructure của bất kỳ module kernel nào.
+
+**Vì sao dự đoán 0 mà thực tế 7.** Cột `order_line.attributed_creator_id` có
+từ migration 000008 và chuỗi giỏ→phiên→đơn chở nó từ 000057 — nhưng KHÔNG
+mặt đọc nào bày nó ra. Dữ liệu nằm trong bảng suốt và không ai lấy được.
+Đúng dạng lỗi "nạp rồi vứt ở tầng DTO" mà dự án này đã gặp sáu lần; chặng 1
+đã sửa nửa đường ghi và để lại nửa đường đọc.
+
+Bốn hằng số kia (`LineStatusActive`, `AdjustmentPromotion`, và hai anh em
+của chúng) là chuỗi quyết định TIỀN mà mặt công khai chưa từng bày ra. Không
+có chúng, affiliate phải gõ tay `"ACTIVE"` và `"PROMOTION"` — và
+`checkout/adapters.go` đã gõ tay `"PROMOTION"` từ trước, tức chuỗi ấy đã có
+hai nguồn trước khi affiliate ra đời. Bản này sửa cả chỗ cũ.
+
+**Con số 7 không phải phản chứng của ADR này, nhưng nó cũng không phải 0.**
+Điều ADR khẳng định là chiều phụ thuộc, và chiều ấy giữ nguyên: affiliate
+đọc order, order không biết affiliate. Bảy dòng là cái giá của việc BÀY RA
+dữ liệu kernel đã có — không phải giá của việc dạy kernel về hoa hồng.
+
+**Khoản sửa NGOÀI module kernel** (gốc ghép nối, không phải kernel):
+
+```text
+internal/app/app.go     dựng module + giữ nó cho test tích hợp
+cmd/worker/main.go      dựng module + đăng ký 3 bên nhận event
+```
+
+Mọi module đều tốn hai khoản này. Chúng là định nghĩa của một gốc ghép nối.
+
+### Ba quyết định trong lúc làm, đáng ghi
+
+**Đọc ngược order thay vì nhồi dòng hàng vào `order.paid`.** Payload
+`order.paid` mang tổng tiền, không mang dòng hàng, mà hoa hồng tính theo
+TỪNG DÒNG. Theo ADR-0016, thêm trường vào một event đang chạy bắt MỌI bên
+nhận khai lại `MaxEventVersion` — tức sửa payment và fulfillment cho một
+trường chỉ affiliate dùng. Đọc qua `GetOrder` là chiều extension → kernel,
+chiều ADR này cho phép.
+
+**`seller_id` trên bảng `attribution`, dù order đã có nó.** Tín hiệu hết hạn
+đổi trả là `fulfillment_order.completed`, mang `(order_id, seller_id)` chứ
+không mang dòng hàng. Không có cột ấy, một đơn nhiều nhà bán mở khóa hoa hồng
+của CẢ đơn khi nhà bán đầu tiên giao xong — và nền tảng chi tiền cho hàng còn
+trong hạn trả. `TestMoKhoaHoaHongTheoTungNhaBan` gác điều này; bỏ `seller_id`
+khỏi lời gọi mở khóa thì bài ấy đỏ đúng chỗ.
+
+**Hai bảng, không phải năm.** `affiliate_link`, `click`, `fraud_signal` chưa
+dựng vì chưa có mã nào ghi vào chúng. Đó là quy tắc P13 và §17 của đề xuất
+Commerce Kernel, và là dạng lỗi dự án này đã gặp bốn lần ở hằng số event
+(P3-76).
+
+### Còn thiếu, ghi rõ
+
+```text
+P3-84  attribution.content_id LUÔN RỖNG — order_line không có cột nội dung
+P3-85  hủy TỪNG PHẦN không phát order.cancelled, nên hoa hồng dòng bị hủy
+       riêng lẻ không được đảo
+P3-83  order_line.creator_commission_rate không ai ghi khác 0 — một cột tỷ
+       lệ TIỀN ở kernel cho thứ affiliate sở hữu. Cần migration để bỏ
+```
 
 ## Liên quan
 

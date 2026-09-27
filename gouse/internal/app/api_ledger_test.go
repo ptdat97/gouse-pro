@@ -8,6 +8,7 @@ import (
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/kernel/money"
+	"github.com/fashion-commerce/platform/internal/modules/affiliate"
 	"github.com/fashion-commerce/platform/internal/modules/analytics"
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
@@ -69,6 +70,19 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	// nhận chuẩn chứ không phải phần phụ.
 	if a.mods.notification != nil {
 		bus.Subscribe(notification.NewOrderNotifier(a.mods.notification, log))
+	}
+
+	// Hoa hồng creator: quy công khi tiền về, đảo khi đơn hủy, mở khóa khi
+	// hết hạn đổi trả.
+	//
+	// BA bên nhận đi cùng nhau. Đăng ký thiếu một cái sẽ cho một hệ thống
+	// TRÔNG NHƯ chạy: quy công có, nhưng hoặc nền tảng trả hoa hồng cho đơn
+	// đã hủy, hoặc mọi khoản đứng ở CHỜ ĐẾN HẠN vĩnh viễn. Cả hai đều im
+	// lặng, và cả hai đều là tiền.
+	if a.mods.affiliate != nil {
+		bus.Subscribe(affiliate.NewQuyCongHandler(a.mods.affiliate, log))
+		bus.Subscribe(affiliate.NewDaoHandler(a.mods.affiliate, log))
+		bus.Subscribe(affiliate.NewMoKhoaHandler(a.mods.affiliate, log))
 	}
 }
 

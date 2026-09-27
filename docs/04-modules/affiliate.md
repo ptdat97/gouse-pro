@@ -181,6 +181,44 @@ commission_record
 fraud_signal            -- tín hiệu nghi vấn gian lận
 ```
 
+> Khối trên là danh sách SỞ HỮU, và `cmd/archcheck` quy tắc R6 đọc chính nó
+> để chặn module khác chạm vào năm bảng này. Nó khai cả bảng chưa dựng: sở
+> hữu là lời tuyên bố về ranh giới, không phải ảnh chụp lược đồ.
+
+### 7.1. ĐÃ DỰNG: hai bảng (migration 000058, 27/09/2026)
+
+`attribution` và `commission_record`. Ba bảng còn lại chưa dựng:
+
+| Bảng | Vì sao chưa |
+|---|---|
+| `affiliate_link` | cần HTTP cho creator tạo link, tức module `creator` (Phase 2). Và quy công KHÔNG cần link: chuỗi `source.creator_id` → cart → checkout → order_line đủ để quy công ngay hôm nay. Link là cách theo dõi click qua URL chuyển hướng — một tối ưu, không phải điều kiện. |
+| `click` | cùng lý do: không có link thì không có click. |
+| `fraud_signal` | chưa có phép phát hiện gian lận nào. Một bảng không ai ghi là dạng lỗi hay gặp nhất của dự án này. |
+
+### 7.2. Lược đồ THẬT khác lược đồ dưới đây
+
+Khối `CREATE TABLE` bên dưới là bản THIẾT KẾ. Bản đang chạy ở
+`migrations/000058_affiliate.up.sql` khác nó ở sáu điểm, mỗi điểm có lý do
+ghi tại chỗ trong migration:
+
+| Thiết kế | Đang chạy | Vì sao |
+|---|---|---|
+| `id UUID` | `id TEXT` có tiền tố `atr_`/`crc_` | quy ước định danh của cả hệ thống (`internal/kernel/ids`) |
+| `click_id NOT NULL` | không có | không có bảng `click` thì không có mã click. Bắt buộc một cột không nguồn nghĩa là chèn giá trị giả |
+| `campaign_id` | không có | module `campaign` là Phase 2 |
+| `attribution_weight NUMERIC` | không có | `LAST_CLICK` cho trọng số luôn bằng 1. Một cột luôn bằng 1 là chỗ để tin sai |
+| `commission_amount` trên `attribution` | không có; TÍNH từ `commission_rate × commission_base` | hai nguồn cho cùng một con số tiền sớm muộn sẽ lệch. Cả hai đầu vào đều đóng băng nên phép tính cho cùng kết quả mãi mãi |
+| `status` trên `attribution` | nằm ở `commission_record` | `attribution` BẤT BIẾN (quy tắc 2); một cột trạng thái trên bảng bất biến là tự phủ định |
+
+Và MỘT cột thiết kế không có: `seller_id` trên `attribution`. Tín hiệu hết
+hạn đổi trả là `fulfillment_order.completed`, mang `(order_id, seller_id)` —
+không mang dòng hàng. Không có cột ấy, một đơn nhiều nhà bán sẽ mở khóa hoa
+hồng của CẢ đơn khi nhà bán đầu tiên giao xong.
+
+`content_id` có nhưng LUÔN RỖNG: `cart_item` và `checkout_line` mang
+`source_content_id` từ migration 000057, nhưng `order_line` chỉ có
+`attributed_creator_id`. Xem P3-84.
+
 ```sql
 CREATE TABLE attribution (
     id                 UUID PRIMARY KEY,
@@ -214,6 +252,29 @@ CREATE INDEX idx_attribution_order ON attribution (order_id);
 
 ## 8. Interface công khai
 
+### 8.1. ĐANG CHẠY — cố ý nhỏ
+
+```go
+// internal/modules/affiliate/public.go
+type API interface {
+    SoDuCreator(ctx, creatorID string) (map[string]int64, error)
+}
+```
+
+MỘT hàm, và nó chỉ ĐỌC. Việc ghi xảy ra qua event, nên không có đường nào để
+một module khác tạo ra một khoản hoa hồng — quy công chỉ sinh ra từ một đơn
+đã thanh toán.
+
+Không module nào gọi mặt này. Nó tồn tại vì bài test tích hợp cần đọc số dư
+để khẳng định TIỀN, và một mặt công khai có bên gọi thật là mặt duy nhất
+chứng minh được là đúng.
+
+`TheoCreator` (lịch sử hoa hồng của một creator) đã bị BỎ khỏi cổng kho lưu
+trữ: nó cần một màn hình cho creator, mà module `creator` là Phase 2. Bày ra
+một hàm chưa ai gọi là tạo trước thứ phải bảo trì.
+
+### 8.2. Bản thiết kế — chưa cài
+
 ```go
 type PublicAPI interface {
     CreateAffiliateLink(ctx, req CreateLinkRequest) (*AffiliateLink, error)
@@ -229,27 +290,69 @@ type PublicAPI interface {
 }
 ```
 
+Bốn hàm đầu cần bảng `affiliate_link` và `click`. `ResolveAttribution` thì
+KHÔNG còn cần: việc chọn creator đã xảy ra TRƯỚC khi tới module này —
+`cart.Item.setSource` giữ nguồn của lần thêm gần nhất (cart.md mục 6), và
+chuỗi giỏ→phiên→đơn chở đúng một creator. "Last click" ở đây là mô tả thứ đã
+xảy ra, không phải phép tính module này chạy.
+
 ---
 
 ## 9. Event
 
-**Phát ra:**
+### 9.1. Đang chạy (27/09/2026)
 
-| Event | Bên nghe |
-|---|---|
-| `affiliate.click_recorded` | analytics, supply-chain |
-| `affiliate.conversion_attributed` | **payment (ghi hoa hồng)**, creator, analytics |
-| `affiliate.attribution_reversed` | **payment (đảo ngược)**, creator |
-| `affiliate.fraud_suspected` | notification (cảnh báo admin) |
-
-**Lắng nghe:**
+**Lắng nghe — ba bên nhận, đăng ký ở `cmd/worker`:**
 
 | Event | Từ | Hành động |
 |---|---|---|
-| `order.placed` | order | Xác nhận quy kết, tạo bản ghi hoa hồng |
-| `order.cancelled` | order | Đảo ngược quy kết |
-| `return.refunded` | return | Đảo ngược quy kết phần bị hoàn |
-| `content.taken_down` | content | Vô hiệu hóa link liên quan |
+| `order.paid` | order | Quy công mọi dòng có creator, tạo khoản hoa hồng `PENDING` |
+| `order.cancelled` | order | Đảo mọi khoản hoa hồng của đơn, kèm lý do |
+| `fulfillment_order.completed` | fulfillment | `PENDING` → `AVAILABLE` cho đúng `(đơn, nhà bán)` |
+
+**Phát ra:** KHÔNG event nào.
+
+Bảng cũ của tài liệu này khai bốn event `affiliate.*` và không cái nào tồn
+tại. Chưa khai chúng vào `internal/platform/eventbus` là có chủ ý: một hằng
+số event không ai phát là dạng lỗi đã xảy ra bốn lần ở dự án này (P3-76), và
+`cmd/eventcheck` nay gác nó. Khai khi có bên nghe thật.
+
+### 9.2. Vì sao `order.paid` chứ không `order.placed`
+
+`order.placed` **không tồn tại**. Nó từng được khai ở `eventbus` và không
+chỗ nào phát, không ai nghe, suốt nhiều tháng; xóa 25/09/2026 (P3-76). Tài
+liệu này khai nó tới 27/09/2026 — một bên nhận viết theo bảng cũ sẽ là mã
+không bao giờ chạy.
+
+Và ngay cả khi nó tồn tại, nó vẫn sai mốc: quy công lúc ĐẶT đơn sinh ra một
+khoản hoa hồng cho doanh thu chưa tồn tại. `order.paid` là mốc duy nhất nói
+"tiền của đơn này đã về" (ADR-0018).
+
+`return.refunded` cũng không tồn tại và chưa bao giờ tồn tại. Đảo theo hoàn
+hàng đi qua `order.cancelled` khi cả đơn bị hủy; hoàn TỪNG PHẦN chưa có
+đường tới đây — xem P3-85.
+
+### 9.3. `order.paid` không mang dòng hàng
+
+Payload của nó có `order_id`, `order_number`, `customer_id`,
+`payment_method`, `amount`, `currency`, `paid_at` — không có dòng hàng, mà
+hoa hồng tính theo TỪNG DÒNG.
+
+Nên module này đọc dòng hàng qua **cổng công khai của order**
+(`GetOrder` → `OrderView.Lines`), chiều extension → kernel mà ADR-0021 cho
+phép. KHÔNG nhồi dòng hàng vào payload: theo ADR-0016, thêm trường vào một
+event đang chạy bắt MỌI bên nhận của nó khai lại `MaxEventVersion` — tức sửa
+payment và fulfillment cho một trường chỉ affiliate dùng.
+
+### 9.4. Dự kiến (chưa cài)
+
+| Event | Bên nghe | Cần gì trước |
+|---|---|---|
+| `affiliate.click_recorded` | analytics, supply-chain | bảng `click`, tức module `creator` |
+| `affiliate.conversion_attributed` | payment, creator, analytics | một bên nghe thật |
+| `affiliate.attribution_reversed` | payment, creator | một bên nghe thật |
+| `affiliate.fraud_suspected` | notification | phép phát hiện gian lận |
+| `content.taken_down` | (module `content`, Phase 2) | module `content` |
 
 ---
 

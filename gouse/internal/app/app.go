@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/modules/affiliate"
 	"github.com/fashion-commerce/platform/internal/modules/analytics"
 	analyticshttp "github.com/fashion-commerce/platform/internal/modules/analytics/interfaces/http"
 	"github.com/fashion-commerce/platform/internal/modules/cart"
@@ -659,6 +660,36 @@ func Build(
 		}
 	}
 
+	// affiliate là EXTENSION (ADR-0021): bỏ nó ra thì khách vẫn mua được
+	// hàng, tiền vẫn vào sổ, hàng vẫn rời kho — chỉ mất phần ghi công cho
+	// creator.
+	//
+	// # Vì sao nó được dựng ở lớp API, không chỉ ở worker
+	//
+	// Việc quy công CHẠY ở worker: cả ba bên nhận event của nó đăng ký ở
+	// `cmd/worker`. Nó nằm đây để BÀI TEST TÍCH HỢP đi qua được đường ấy —
+	// cùng lý do `notification` nằm đây. Không có nó thì chuỗi
+	// giỏ→phiên→đơn→hoa hồng chỉ chạy ở worker và không bài test nào ở lớp
+	// này chứng minh được tiền về đúng creator.
+	//
+	// Nó KHÔNG đăng ký route nào: màn hình cho creator cần module `creator`,
+	// và đó là Phase 2.
+	//
+	// KHÔNG module nào nhận nó vào — chiều phụ thuộc chỉ đi affiliate →
+	// order. Đó chính là điều ADR-0021 đem module này ra để đo.
+	var affiliateModule *affiliate.Module
+	if db != nil {
+		affiliateModule, err = affiliate.New(affiliate.Config{
+			Storage: "postgres",
+			DB:      db,
+			Order:   orderModule,
+			Log:     log,
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+	}
+
 	return Modules{
 		catalog:        catalogModule,
 		product:        productModule,
@@ -677,6 +708,7 @@ func Build(
 		notification:   notificationModule,
 		recommendation: recommendationModule,
 		inventory:      inventoryModule,
+		affiliate:      affiliateModule,
 		audit:          auditRecorder,
 		opsConfig:      opsConfigStore,
 	}, nil
@@ -704,6 +736,10 @@ type Modules struct {
 	// một cổng hẹp ở tầng interfaces và được nối ở đây, nên không có vòng
 	// (ADR-0019).
 	recommendation *recommendation.Module
+
+	// affiliate quy công đơn cho creator. Nil khi chạy với kho in-memory:
+	// chống quy công trùng dựa vào ràng buộc UNIQUE ở tầng database.
+	affiliate *affiliate.Module
 
 	// analytics nằm ở đây CHỈ để phơi bày đường thu dữ liệu hành vi.
 	//

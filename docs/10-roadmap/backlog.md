@@ -7452,15 +7452,176 @@ bỏ nối phiên→đơn   "order_line nhận quy công: mong 1, nhận 0"
 Bài test đi qua HTTP, bốn module, ba tầng lưu trữ — gọi thẳng service sẽ bỏ
 qua đúng chỗ đã đứt.
 
-#### Chặng 2, chưa làm
+#### Chặng 2 — ĐÃ LÀM, 27/09/2026
 
-Dựng module `affiliate` thật: 5 bảng (`affiliate_link`, `click`,
-`attribution`, `commission_record`, `fraud_signal`), nghe `order.paid`, ghi
-attribution theo last-click trong cửa sổ 7 ngày, tính hoa hồng, đảo ngược
-khi hoàn hàng.
+Module `affiliate` thật: hai bảng (`attribution`, `commission_record`), ba
+bên nhận event, kho lưu trữ postgres, mặt công khai một hàm.
 
-Điều cần ĐO ở chặng 2: nó cần **0** dòng core. Nếu khác 0, ADR-0021 còn
-thiếu một extension point.
+**Số đo: 7 dòng core bắt buộc, không phải 0.**
+
+```text
+order/public.go   import order/domain
+                  OrderLineView.AttributedCreatorID string
+                  const ( … )                    ← 2 dòng bao
+                  LineStatusActive
+                  AdjustmentPromotion
+order/module.go   gán trường ấy từ l.AttributedCreatorID()
+```
+
+Cộng 5 hằng số bày thêm cho đủ bộ (`LineStatusCancelled`,
+`LineStatusReturned`, `AdjustmentTax/Shipping/Commission`) = 12 dòng thực
+thêm.
+
+**Vì sao khác 0.** `order_line.attributed_creator_id` có từ migration 000008
+và chặng 1 đã chở dữ liệu vào nó — nhưng KHÔNG mặt đọc nào bày nó ra. Chặng 1
+sửa nửa đường GHI và để lại nửa đường ĐỌC. Đúng dạng lỗi "nạp rồi vứt ở tầng
+DTO", lần thứ BẢY.
+
+Và bốn hằng số kia là chuỗi quyết định TIỀN (`"ACTIVE"`, `"PROMOTION"`) mà
+mặt công khai chưa từng bày ra — `checkout/adapters.go` đã gõ tay
+`"PROMOTION"` từ trước, tức nó đã có hai nguồn trước khi affiliate ra đời.
+
+Con số 7 KHÔNG phản chứng ADR-0021: điều ADR khẳng định là chiều phụ thuộc,
+và chiều ấy giữ nguyên — affiliate đọc order, order không biết affiliate.
+Bảy dòng là giá của việc BÀY RA dữ liệu kernel đã có, không phải giá của
+việc dạy kernel về hoa hồng.
+
+#### Kiểm chứng bằng cách phá — năm phép, đều đỏ đúng chỗ
+
+```text
+nghe checkout.completed thay order.paid  → "đơn CHƯA trả tiền đã có 1 bản
+   (kèm MaxEventVersion 9)                  quy công, cần 0"
+OrderLineView.AttributedCreatorID = ""   → "0 bản quy công, cần 1"
+TienGocTinhHoaHong bỏ vòng trừ giảm giá  → 6 bài đỏ
+TienGocTinhHoaHong bỏ phép kẹp về 0      → TestTienGocKepVe0 đỏ
+MoKhoaTheoDon(orderID, "")               → "hoa hồng của nhà bán CHƯA giao
+                                            xong đã AVAILABLE"
+```
+
+Phép thứ ba đáng ghi riêng: nó ĐỎ KHÔNG ĐƯỢC ở lần chạy đầu — hàm
+`TienGocTinhHoaHong` chưa có bài nào gác, dù nó là phép tính quyết định số
+tiền trả creator. Sáu bài ở `tien_goc_test.go` được viết SAU khi phép phá
+cho thấy hàng rào không tồn tại.
+
+Phép thứ nhất cũng đáng ghi: lần thử đầu chỉ đổi `EventTypes()`, và bài test
+đỏ vì *"không tìm thấy đơn thực hiện"* — một lý do KHÁC. Nguyên nhân là hàng
+rào phiên bản của ADR-0016: bên nhận không khai `MaxEventVersion` làm
+dispatcher HOÃN event cho TẤT CẢ, nên fulfillment không tách đơn. Phải khai
+thêm phiên bản 9 mới chạm được vào điều cần kiểm. Một phép phá đỏ vì lý do
+khác là một phép phá CHƯA chứng minh gì.
+
+---
+
+### P3-82 — hai hằng số dùng chung tiền tố `evt`
+
+`ids.PrefixEmailToken` và `ids.PrefixEvent` đều là `"evt"`. Nghĩa là một mã
+token xác minh email và một mã domain event không phân biệt được bằng tiền
+tố — thứ mà mọi `ids.Parse` trong hệ thống dựa vào.
+
+`TestTienToKhongTrung` (thêm 27/09/2026) đọc chính `ids.go` và ĐỎ khi có hai
+hằng số trùng tiền tố. Cặp này được khai trong sổ `trungCoLyDo` kèm lý do,
+vì sửa nó cần **migration dữ liệu**: đổi tiền tố nghĩa là mọi mã đã phát ra
+không parse được nữa.
+
+Việc cần làm: chọn tiền tố mới cho một trong hai (`emt` cho email token là
+lựa chọn ít va đập hơn — bảng `email_token` nhỏ và có hạn dùng ngắn), viết
+migration đổi cột, rồi bỏ khai báo trong sổ.
+
+---
+
+### P3-83 — `order_line.creator_commission_rate`: cột tỷ lệ TIỀN ở kernel mà không ai ghi
+
+Kiểm trên database phát triển, 27/09/2026:
+
+```text
+order_line: 3298 dòng · creator_commission_rate <> 0: 0
+```
+
+Cột có từ migration 000008, có đường đi đủ ở Go (`PlaceOrderLineInput` →
+`domain.Line` → store → `RestoreLine`), và **không bên gọi nào truyền giá trị
+khác 0**. `checkout/adapters.go` chỉ truyền `AttributedCreatorID`.
+
+Từ 27/09 nó còn là một nguồn sự thật THỨ HAI: `attribution.commission_rate`
+của module affiliate đóng băng tỷ lệ thật. Hai cột cho cùng một con số tiền là
+hai chỗ để lệch — và ADR-0021 nói rõ phần kinh tế thuộc extension, kernel chỉ
+chở định danh.
+
+Việc cần làm: migration bỏ cột, bỏ trường khỏi `domain.Line`,
+`PlaceOrderLineInput`, store và `module.go`. Không cần đường di cư dữ liệu —
+cột rỗng ở mọi dòng.
+
+Lưu ý: bản đầu của migration 000057 từng THÊM `creator_commission_rate` vào
+`checkout_line` cho cân với nhà bán; nó bị bỏ trước khi áp dụng, đúng vì lý do
+này. Cột ở `order_line` là phiên bản cũ hơn của cùng một sai lầm.
+
+---
+
+### P3-84 — `attribution.content_id` luôn rỗng: chuỗi nội dung dừng ở `checkout_line`
+
+```text
+cart_item.source_content_id       migration 000009  ✓
+checkout_line.source_content_id   migration 000057  ✓
+order_line                        KHÔNG có cột nội dung
+attribution.content_id            luôn ''
+```
+
+Quy công theo CREATOR chạy đủ. Quy công theo NỘI DUNG thì không — nên câu hỏi
+*"video nào bán được hàng"* chưa trả lời được, dù `cart_item` đã ghi
+`source_content_id` từ tháng 8.
+
+Ba đường, chưa chọn:
+
+| Đường | Giá | Vấn đề |
+|---|---|---|
+| thêm `attributed_content_id` vào `order_line` | 1 migration + ~6 dòng kernel | kernel chở thêm một khái niệm của extension |
+| affiliate tự có bảng `click` rồi tra nội dung từ đó | 1 bảng + module `creator` | cần Phase 2 |
+| `checkout` phát nội dung trong `checkout.completed`, affiliate tự lưu | 1 trường event + tăng phiên bản | ADR-0016 bắt 8 bên nhận khai lại |
+
+Đường 2 là đường ADR-0021 ưa: extension tự sở hữu dữ liệu của mình, kernel
+không phải đổi một dòng. Nhưng nó chờ Phase 2.
+
+---
+
+### P3-85 — hủy TỪNG PHẦN để hoa hồng creator mắc ở `PENDING` vĩnh viễn
+
+`affiliate.DaoKhiHuyDon` nghe `order.cancelled`, và event ấy chỉ phát từ
+`CancelWithReason` — tức hủy CẢ đơn.
+
+Đường hủy TỪNG PHẦN thật sự chạy như sau, và nó không đi qua chỗ nào affiliate
+nghe được:
+
+```text
+đơn thực hiện của MỘT nhà bán bị hủy
+  → fulfillment phát `fulfillment.cancelled`  (mang sku_id + quantity)
+  → order.RecalculateStatus → status = PARTIALLY_CANCELLED
+  → order_line.status vẫn ACTIVE
+  → KHÔNG phát `order.cancelled`
+```
+
+Hai điều đáng ghi, đã kiểm trên mã:
+
+- `Order.CancelLine` — hàm duy nhất đặt `order_line.status = CANCELLED` —
+  **không bên gọi nào ngoài domain**. Nó tồn tại và chưa bao giờ chạy. Trạng
+  thái `PARTIALLY_CANCELLED` thì có đường tới, nhưng qua `RecalculateStatus`,
+  và đường đó không chạm tới dòng hàng.
+- Nên hậu quả cho affiliate KHÔNG phải trả tiền sai. Đơn thực hiện bị hủy
+  không bao giờ phát `fulfillment_order.completed`, nên khoản hoa hồng của
+  dòng ấy đứng ở `PENDING` **mãi mãi**: không đảo, không mở khóa. Một dòng rác
+  trong bảng tiền, và nó im lặng.
+
+`affiliate.DaoTheoDon` hiện đảo theo `order_id`, tức đảo CẢ đơn — dùng nó cho
+hủy từng phần sẽ đảo luôn hoa hồng của nhà bán vẫn đang giao.
+
+Việc cần làm, và thứ tự:
+
+1. `fulfillment.cancelled` mang `sku_id` + `quantity`, KHÔNG mang
+   `order_line_id`. Affiliate quy công theo dòng đơn, nên nó không khớp được.
+   Thêm `order_line_id` vào payload là việc đầu tiên (ADR-0016: tăng phiên
+   bản, ba bên nhận hiện có phải khai lại).
+2. Rồi affiliate nghe event ấy và đảo theo dòng.
+
+Module `returns` sẽ cần đúng cùng thứ — hoàn hàng từng dòng có cùng vấn đề.
+Nên quyết một lần, đừng để hai event cho hai đường tới cùng một sự thật.
 
 ---
 

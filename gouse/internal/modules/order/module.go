@@ -539,8 +539,11 @@ func toLineView(l *domain.Line) OrderLineView {
 		CommissionRate:     int(l.CommissionRate().Value()),
 		CommissionAmount:   toAmount(l.CommissionAmount()),
 		SellerPayable:      toAmount(l.SellerPayable()),
-		Status:             string(l.Status()),
-		Adjustments:        adjViews,
+
+		AttributedCreatorID: l.AttributedCreatorID().String(),
+
+		Status:      string(l.Status()),
+		Adjustments: adjViews,
 	}
 }
 

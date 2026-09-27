@@ -23,6 +23,7 @@ import (
 	"context"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/modules/order/domain"
 )
 
 // API là hợp đồng công khai của module order.
@@ -348,9 +349,57 @@ type OrderLineView struct {
 	// SellerPayable = tiền hàng − hoa hồng, tính từ số ĐÃ ĐÓNG BĂNG.
 	SellerPayable Amount
 
+	// AttributedCreatorID là creator được quy công cho dòng này. Rỗng =
+	// khách tự tìm thấy hàng.
+	//
+	// # Vì sao kernel BÀY trường này ra
+	//
+	// Cột `order_line.attributed_creator_id` có từ migration 000008 và
+	// chuỗi giỏ→phiên→đơn đã chở nó từ 000057, nhưng KHÔNG mặt đọc nào
+	// bày nó ra — nên dữ liệu đã nằm trong bảng suốt và không ai lấy được.
+	// Đúng dạng lỗi "nạp rồi vứt ở tầng DTO" đã gặp sáu lần.
+	//
+	// Kernel chở MỘT ĐỊNH DANH và hết phần của nó: nó không biết tỷ lệ hoa
+	// hồng, không biết ai chịu chi phí, không biết mô hình quy công. Module
+	// `affiliate` đọc trường này qua `GetOrder` rồi tự quyết toàn bộ phần
+	// kinh tế trong bảng của chính nó (ADR-0021).
+	//
+	// Bày ra ĐÂY chứ không nhồi vào payload `order.paid`: theo ADR-0016,
+	// thêm trường vào một event đang chạy bắt MỌI bên nhận của nó khai lại
+	// `MaxEventVersion` — tức sửa payment và fulfillment cho một trường
+	// chỉ affiliate dùng.
+	AttributedCreatorID string
+
 	Status      string
 	Adjustments []AdjustmentView
 }
+
+// Trạng thái dòng hàng và loại khoản điều chỉnh, dưới dạng chuỗi.
+//
+// # Vì sao BÀY RA thay vì để bên đọc gõ chuỗi
+//
+// `OrderLineView.Status` và `AdjustmentView.Type` là chuỗi, nên bên đọc phải
+// so sánh với một hằng gì đó. Tới 27/09/2026 chưa có hằng nào ở mặt công
+// khai, nên `checkout/adapters.go` gõ tay `"PROMOTION"` lúc dựng khoản giảm
+// — một chuỗi quyết định TIỀN, viết ở hai nơi.
+//
+// Định nghĩa TỪ hằng số của miền, không gõ lại chuỗi: đổi tên ở miền mà quên
+// ở đây thì không biên dịch được, thay vì lặng lẽ so sánh với giá trị cũ.
+//
+// Bày đủ CẢ BA trạng thái dòng dù hôm nay chỉ `ACTIVE` có bên đọc: bên nào
+// cần "dòng còn hiệu lực" sẽ so sánh với `LineStatusActive`, còn bên cần
+// phân biệt hủy với hoàn thì cần hai cái kia — và liệt kê thiếu sẽ đẩy họ
+// về lại chỗ gõ tay.
+const (
+	LineStatusActive    = string(domain.LineActive)
+	LineStatusCancelled = string(domain.LineCancelled)
+	LineStatusReturned  = string(domain.LineReturned)
+
+	AdjustmentPromotion  = string(domain.AdjustmentPromotion)
+	AdjustmentTax        = string(domain.AdjustmentTax)
+	AdjustmentShipping   = string(domain.AdjustmentShipping)
+	AdjustmentCommission = string(domain.AdjustmentCommission)
+)
 
 // AdjustmentView là một khoản cộng/trừ trên dòng hàng.
 type AdjustmentView struct {

@@ -392,7 +392,7 @@ func khoanGiam(l application.PlaceOrderLine) []order.AdjustmentInput {
 		return nil
 	}
 	return []order.AdjustmentInput{{
-		Type:  "PROMOTION",
+		Type:  order.AdjustmentPromotion,
 		Label: "Giảm giá đã phân bổ",
 		Amount: order.Amount{
 			Value:    -l.GiamGia.Amount(),

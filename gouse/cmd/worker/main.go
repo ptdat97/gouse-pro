@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fashion-commerce/platform/internal/modules/affiliate"
 	"github.com/fashion-commerce/platform/internal/modules/analytics"
 	"github.com/fashion-commerce/platform/internal/modules/cart"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
@@ -475,6 +476,21 @@ func run() error {
 		return err
 	}
 
+	// affiliate quy công đơn cho creator khi tiền về.
+	//
+	// Nó là EXTENSION (ADR-0021): thiếu nó thì khách vẫn mua được hàng, chỉ
+	// mất phần ghi công cho creator. Nên nó được dựng SAU cùng và không
+	// module nào nhận nó vào — chiều phụ thuộc chỉ đi affiliate → order.
+	affiliateModule, err := affiliate.New(affiliate.Config{
+		Storage: "postgres",
+		DB:      db,
+		Order:   orderModule,
+		Log:     log,
+	})
+	if err != nil {
+		return err
+	}
+
 	// Bus event: bộ phát đọc outbox và đưa event tới các bên nhận.
 	//
 	// Đăng ký bên nhận Ở ĐÂY, tại điểm khởi chạy — không phải bên trong
@@ -529,6 +545,16 @@ func run() error {
 
 	bus.Subscribe(promotion.NewGhiLuotDungHandler(promotionModule, log))
 	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(promotionModule, log))
+
+	// Quy công đơn cho creator, và hai đầu kia của vòng đời khoản hoa hồng.
+	//
+	// BA bên nhận, không phải một: quy công lúc tiền về, đảo khi đơn hủy,
+	// mở khóa khi hết hạn đổi trả. Thiếu bên ĐẢO thì nền tảng trả hoa hồng
+	// cho đơn đã hủy; thiếu bên MỞ KHÓA thì mọi khoản đứng ở CHỜ ĐẾN HẠN
+	// vĩnh viễn và creator không bao giờ được chi.
+	bus.Subscribe(affiliate.NewQuyCongHandler(affiliateModule, log))
+	bus.Subscribe(affiliate.NewDaoHandler(affiliateModule, log))
+	bus.Subscribe(affiliate.NewMoKhoaHandler(affiliateModule, log))
 
 	jobs := []job{
 		{

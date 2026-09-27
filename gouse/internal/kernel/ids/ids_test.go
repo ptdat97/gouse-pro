@@ -2,8 +2,10 @@ package ids_test
 
 import (
 	"errors"
+	"os"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -175,5 +177,73 @@ func TestIsValid(t *testing.T) {
 func BenchmarkNew(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = ids.MustNew(ids.PrefixOrder)
+	}
+}
+
+// ------------------------------------------------ Tiền tố không được TRÙNG
+
+// trungCoLyDo là những tiền tố trùng nhau ĐÃ TỒN TẠI, kèm lý do.
+//
+// Sổ này tồn tại để một lần trùng cũ không chặn hàng rào chống trùng MỚI.
+// Nó CHỈ ĐƯỢC RÚT NGẮN.
+var trungCoLyDo = map[string]string{
+	"evt": "PrefixEmailToken và PrefixEvent cùng dùng `evt` từ đầu. Sửa " +
+		"nghĩa là đổi định dạng mã của những hàng ĐÃ CÓ trong database, " +
+		"tức một migration dữ liệu — xem P3-82.",
+}
+
+// Mỗi tiền tố phải là DUY NHẤT.
+//
+// # Vì sao quy tắc này quan trọng hơn vẻ ngoài của nó
+//
+// Chú thích của chính gói này nói: *"Tiền tố giúp gỡ lỗi nhanh — nhìn
+// `off_` biết ngay là offer."* Hai khái niệm dùng một tiền tố phá đúng điều
+// đó.
+//
+// Nặng hơn: `ids.Parse(x, PrefixA)` KHÔNG phân biệt được mã của A với mã
+// của B khi hai tiền tố giống nhau. Một hàm nhận mã token xác minh email sẽ
+// nhận luôn một mã event và coi là hợp lệ — phép kiểm kiểu ở biên biến
+// thành không kiểm gì.
+//
+// Ngày 25/09/2026 đã có MỘT lần trùng, tìm ra khi thêm hai tiền tố cho
+// module affiliate. Bài này chặn lần thứ hai.
+func TestTienToKhongTrung(t *testing.T) {
+	// Đọc chính file nguồn: một danh sách chép tay ở đây sẽ lệch với danh
+	// sách thật, và khi ấy bài test gác một thứ không tồn tại.
+	src, err := os.ReadFile("ids.go")
+	if err != nil {
+		t.Fatalf("đọc ids.go: %v", err)
+	}
+
+	re := regexp.MustCompile(`(Prefix\w+)\s+Prefix = "(\w+)"`)
+	theoTienTo := map[string][]string{}
+	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+		theoTienTo[m[2]] = append(theoTienTo[m[2]], m[1])
+	}
+	if len(theoTienTo) < 40 {
+		t.Fatalf("chỉ đọc được %d tiền tố — đổi cách khai thì phải sửa cả "+
+			"bài test này", len(theoTienTo))
+	}
+
+	for tienTo, tens := range theoTienTo {
+		if len(tens) == 1 {
+			continue
+		}
+		if _, coLyDo := trungCoLyDo[tienTo]; coLyDo {
+			continue
+		}
+		sort.Strings(tens)
+		t.Errorf("tiền tố %q bị %d hằng số cùng dùng: %s\n"+
+			"Mã có tiền tố giống nhau thì `ids.Parse` không phân biệt được "+
+			"chúng, và phép kiểm kiểu ở biên thành không kiểm gì.",
+			tienTo, len(tens), strings.Join(tens, ", "))
+	}
+
+	// Sổ trỏ tới một tiền tố KHÔNG còn trùng cũng là một dòng nói dối.
+	for tienTo := range trungCoLyDo {
+		if len(theoTienTo[tienTo]) <= 1 {
+			t.Errorf("`trungCoLyDo` còn dòng cho %q mà nó không còn trùng — "+
+				"xóa đi, sổ này chỉ được rút ngắn", tienTo)
+		}
 	}
 }

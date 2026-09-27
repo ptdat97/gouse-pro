@@ -65,6 +65,8 @@ const (
 	PrefixContent           Prefix = "cnt"
 	PrefixOutfit            Prefix = "otf"
 	PrefixAffiliateLink     Prefix = "afl"
+	PrefixAttribution       Prefix = "atr"
+	PrefixCommissionRecord  Prefix = "crc"
 	PrefixCampaign          Prefix = "cmp"
 	PrefixUser              Prefix = "usr"
 	PrefixSession           Prefix = "ses"
