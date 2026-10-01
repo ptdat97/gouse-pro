@@ -4,7 +4,7 @@
 |---|---|
 | **Bounded Context** | Commerce |
 | **Phân loại** | Supporting (có thể thành Core nếu làm định giá động) |
-| **Tầng (microkernel)** | **CHƯA XẾP ĐƯỢC** |
+| **Tầng (microkernel)** | **KERNEL — đường mua hàng** |
 | **Giai đoạn** | MVP |
 
 ---
@@ -104,6 +104,28 @@ price_constraint        -- khung giá ràng buộc seller
 ```
 
 `price_history` cần cho: phát hiện thao túng giá (tăng rồi giảm giả vờ khuyến mãi), phân tích độ co giãn của cầu, và nghĩa vụ minh bạch giá ở một số thị trường.
+
+### 6.1. `price_constraint` cưỡng chế lúc GHI (ADR-0023, 01/10/2026)
+
+Bảng này có từ migration 000003 và **không ai đọc nó** tới 01/10/2026 —
+`marketplace`, nơi duyệt giá Offer, không import `pricing`. Nhà bán đặt giá
+ngoài khung vẫn qua, và không gì báo (P3-79).
+
+Nay `marketplace` gọi `ValidateSellerPrice` ở HAI chỗ:
+
+```text
+CreateOffer   bước 4, SAU hàng rào chống hàng giả
+UpdatePrice   trước khi đổi giá
+```
+
+Chặn lúc GHI chứ không phát hiện sau: giá sai lên sàn nghĩa là khách có thể
+đã mua ở giá đó, và lúc ấy không có đường sửa nào ngoài hủy đơn hoặc chịu lỗ.
+
+**Hệ quả ranh giới:** `pricing` thuộc **KERNEL — đường mua hàng**. Tháo nó ra
+làm `marketplace` không biên dịch được.
+
+`NeedsReview` — giá lệch xa giá tham chiếu mà VẪN hợp lệ — hiện chưa đi đâu:
+chưa có hàng đợi rà soát. Xem P3-88.
 
 ---
 

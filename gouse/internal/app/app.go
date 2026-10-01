@@ -272,6 +272,10 @@ func Build(
 			Seller:    sellerModule,
 			Inventory: inventoryModule,
 			OpsConfig: opsConfigStore,
+
+			// Khung giá: chặn giá ngoài khung TRƯỚC khi offer được lưu
+			// (ADR-0023). `pricing` dựng ở trên, nên thứ tự đã đúng.
+			Pricing: pricingModule,
 		})
 		if err != nil {
 			return Modules{}, err
@@ -709,6 +713,7 @@ func Build(
 		recommendation: recommendationModule,
 		inventory:      inventoryModule,
 		affiliate:      affiliateModule,
+		pricing:        pricingModule,
 		audit:          auditRecorder,
 		opsConfig:      opsConfigStore,
 	}, nil
@@ -740,6 +745,15 @@ type Modules struct {
 	// affiliate quy công đơn cho creator. Nil khi chạy với kho in-memory:
 	// chống quy công trùng dựa vào ràng buộc UNIQUE ở tầng database.
 	affiliate *affiliate.Module
+
+	// pricing giữ KHUNG GIÁ ràng buộc nhà bán (ADR-0023).
+	//
+	// Nằm ở đây để bài test tích hợp dựng được khung giá rồi khẳng định
+	// `marketplace` chặn thật. Trước 01/10/2026 nó không có trong `Modules`,
+	// và hệ quả là không bài nào ở lớp này đi qua đường khung giá — cùng
+	// khoảng trống đã làm `inventory.NewReleaseHandler` lọt nhiều tháng
+	// (P3-86).
+	pricing *pricing.Module
 
 	// analytics nằm ở đây CHỈ để phơi bày đường thu dữ liệu hành vi.
 	//

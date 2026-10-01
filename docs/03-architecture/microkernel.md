@@ -22,7 +22,8 @@ Tài liệu này là **bảng tra cứu**. Lý do nằm ở
                   │  ĐƯỜNG MUA HÀNG — bao đóng của checkout  │
                   │    cart  catalog  checkout  fulfillment  │
                   │    inventory  marketplace  order         │
-                  │    payment  product  promotion  seller   │
+                  │    payment  pricing  product  promotion  │
+                  │    seller                                │
                   │                                          │
                   │  NĂNG LỰC CẮT NGANG                     │
                   │    identity   customer                   │
@@ -59,7 +60,7 @@ là kernel. Xem ADR-0021.
 > `docs/04-modules/<module>.md`, và `cmd/archcheck` R10 đọc chính nó. Khi hai
 > chỗ lệch nhau, tin hàng kia — và sửa bảng này.
 
-### Kernel — đường mua hàng (11)
+### Kernel — đường mua hàng (12)
 
 | Module | Ai import nó | Vai trò primitive |
 |---|---|---|
@@ -74,6 +75,7 @@ là kernel. Xem ADR-0021.
 | `payment` | checkout, returns | sổ cái kép, số dư nhà bán |
 | `promotion` | checkout | mã giảm, phân bổ chi phí |
 | `fulfillment` | checkout | góc nhìn vận hành của việc giao |
+| `pricing` | marketplace | **khung giá** ràng buộc nhà bán (ADR-0023) |
 
 `order` bị `affiliate` import — đó là chiều extension → kernel, chiều được
 phép.
@@ -98,12 +100,17 @@ phép.
 
 Cả sáu đều **không module nào import** — đo được, không phải tuyên bố.
 
-### Chưa xếp được (1)
+### Chưa xếp được: KHÔNG CÒN (0)
 
-`pricing`. Tài liệu nói nó sở hữu `price_constraint` — *"khung giá ràng buộc
-seller"* — nhưng `marketplace` (nơi duyệt giá Offer) không import `pricing`,
-nên khung giá ấy không cưỡng chế gì. Xếp nó vào đâu phải chờ quyết định "ai
-cưỡng chế khung giá" (P3-79).
+`pricing` là trường hợp duy nhất từng ở đây. Giải ngày 01/10/2026 bằng
+[ADR-0023](../adr/0023-khung-gia-cuong-che-luc-ghi.md): `marketplace` import
+`pricing` và chặn giá ngoài khung **lúc GHI**, nên `pricing` nay nằm trên
+đường mua hàng theo đúng phép đo.
+
+Trạng thái ấy tồn tại sáu ngày, và nó đáng giữ lại như một khuôn: `CHƯA XẾP
+ĐƯỢC` là trạng thái **hợp lệ** của bảng phân loại, không phải một chỗ bị
+quên. Xếp sai còn tệ hơn để trống — một module gán nhãn "kernel" sẽ được
+người sau tin là ổn định. R10 không kết luận gì về module ở trạng thái ấy.
 
 ### Extension — có tài liệu, chưa dựng (9)
 

@@ -53,6 +53,7 @@ Deprecated — không còn áp dụng
 | [0020](0020-mot-phien-la-gi.md) | Một "phiên" là LƯỢT TRUY CẬP, không phải giỏ hàng hay phiên thanh toán — ba khái niệm trong một cột làm `conversion_rate` bằng 0 vĩnh viễn | Accepted | Analytics, Cart, Checkout, Storefront |
 | [0021](0021-ranh-gioi-commerce-kernel.md) | Ranh giới Commerce Kernel — `Offer` là primitive, marketplace KHÔNG phải extension | Accepted | Toàn hệ thống |
 | [0022](0022-microkernel-kernel-on-dinh.md) | Microkernel — kernel ỔN ĐỊNH, business là tính năng bổ sung. Module EXTENSION mới được phép; module KERNEL mới vẫn đóng băng | Accepted | Toàn hệ thống |
+| [0023](0023-khung-gia-cuong-che-luc-ghi.md) | `pricing` thuộc Kernel — khung giá cưỡng chế lúc GHI, không phát hiện sau | Accepted | Marketplace, Pricing |
 
 ## Quy trình thêm ADR mới
 

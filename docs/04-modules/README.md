@@ -84,9 +84,10 @@ Xem [../03-architecture/microkernel.md](../03-architecture/microkernel.md) và
 ### Bảng tra nhanh theo tầng
 
 ```text
-KERNEL — đường mua hàng (11)
+KERNEL — đường mua hàng (12)
     cart · catalog · checkout · fulfillment · inventory
-    marketplace · order · payment · product · promotion · seller
+    marketplace · order · payment · pricing · product
+    promotion · seller
 
 KERNEL — năng lực cắt ngang (2)
     identity · customer
@@ -99,8 +100,9 @@ EXTENSION — chưa dựng (8)
     campaign · content · creator · loyalty
     manufacturing · procurement · quality · warehouse
 
-CHƯA XẾP ĐƯỢC (1)
-    pricing — xem P3-79
+CHƯA XẾP ĐƯỢC (0)
+    `pricing` từng ở đây; giải 01/10/2026 bằng ADR-0023.
+    Trạng thái này vẫn HỢP LỆ — xếp sai tệ hơn để trống.
 ```
 
 ---

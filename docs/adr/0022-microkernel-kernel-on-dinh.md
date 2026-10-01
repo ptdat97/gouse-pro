@@ -50,6 +50,7 @@ TRONG bao đóng của checkout — 11
 NGOÀI — 9
     affiliate · analytics · customer · identity
     notification · pricing · recommendation · returns · supplychain
+    (`pricing` vào đường mua hàng từ 01/10 — ADR-0023)
 
 KHÔNG AI import (tháo ra được) — 9
     affiliate · analytics · customer · notification · pricing
@@ -185,6 +186,14 @@ khung giá ấy hôm nay không cưỡng chế gì. Xếp nó vào đâu phải 
 
 Xếp trước rồi sửa sau tệ hơn để trống: một module được gán nhãn "kernel" sẽ
 được người sau tin là ổn định.
+
+> **Cập nhật 01/10/2026:** câu hỏi ấy đã được trả lời —
+> [ADR-0023](0023-khung-gia-cuong-che-luc-ghi.md) chọn chặn lúc GHI, và
+> `pricing` thành KERNEL. Việc ADR này KHÔNG đoán trước là đúng: quyết định
+> cần một câu trả lời nghiệp vụ, không phải một phép suy từ đồ thị phụ thuộc.
+>
+> Trạng thái `CHƯA XẾP ĐƯỢC` vẫn là trạng thái hợp lệ của bảng phân loại, và
+> R10 vẫn không kết luận gì về module ở trạng thái ấy.
 
 ### Không tách kernel thành repo hay service riêng
 

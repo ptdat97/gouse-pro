@@ -130,7 +130,7 @@ Năm extension đã dựng đều có **không ai import** (đo được), nên 
 sự tháo ra được. Đó là bằng chứng mạnh nhất hiện có cho câu hỏi nghiệm thu
 của đề xuất — và nó có trước khi đề xuất ra đời.
 
-### `pricing` — một trường hợp chưa xếp được
+### `pricing` — một trường hợp chưa xếp được (GIẢI 01/10/2026)
 
 Đo cho thấy `pricing` không ai import, và nó cũng không có route nào. Nó
 chỉ được dựng trong `app.go` để gieo dữ liệu mẫu.
@@ -143,6 +143,13 @@ nên khung giá ấy hôm nay không cưỡng chế gì.
 có mục đích ghi rõ mà không ai đọc. Xếp `pricing` vào Kernel hay Extension
 phải chờ quyết định "ai cưỡng chế khung giá" — ghi vào backlog thay vì
 đoán ở đây.
+
+> **Đã giải 01/10/2026 —
+> [ADR-0023](0023-khung-gia-cuong-che-luc-ghi.md):** `marketplace` import
+> `pricing` và chặn giá ngoài khung lúc GHI, nên `pricing` thuộc **KERNEL —
+> đường mua hàng**. Việc để trống sáu ngày là đúng: quyết định cần một câu
+> trả lời nghiệp vụ ("chặn hay phát hiện sau"), và đoán trước sẽ gán nhãn
+> "kernel" cho một module mà không ai dùng.
 
 ### Đường ranh này khác đề xuất ở đúng HAI chỗ
 

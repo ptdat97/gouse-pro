@@ -216,9 +216,9 @@ Mục tiêu duy nhất:
 
 ```text
 Module trong mã                        20
-  kernel                               13   (11 đường mua hàng + 2 cắt ngang)
+  kernel                               14   (12 đường mua hàng + 2 cắt ngang)
   extension                             6
-  chưa xếp được                         1   (pricing — P3-79)
+  chưa xếp được                         0
 Module có tầng HTTP                    14/20
 Thao tác trong OpenAPI                100
 Tuyến HTTP khớp đặc tả                 89   (15 hoãn, đã khai)
@@ -236,8 +236,10 @@ fulfillment_order trên database phát triển, đo 01/10/2026:
   HANDED_OVER     37      đã rời kho, chưa ai xác nhận đã giao
   COMPLETED        1      đi hết chuỗi — đúng MỘT đơn, do test tích hợp
 
-pricing.price_constraint có mục đích ghi rõ mà không ai đọc (P3-79)
-attribution.content_id luôn rỗng — order_line không có cột nội dung (P3-84)
+attribution.content_id luôn rỗng — order_line chưa có cột nội dung (P3-84,
+  đã quyết: thêm cột; chưa làm)
+NeedsReview của khung giá chưa đi đâu — chưa có hàng đợi rà soát (P3-88)
+đợt đối soát nằm DRAFT vĩnh viễn — chưa có đường ký chi (P3-89, đã quyết)
 ```
 
 Con số 3260/37/1 là dữ liệu phát triển, không phải production — nhưng nó cho

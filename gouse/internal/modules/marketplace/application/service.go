@@ -78,6 +78,52 @@ type InventoryPort interface {
 	AvailableForSKUs(ctx context.Context, skuIDs []ids.ID) (map[ids.ID]int, error)
 }
 
+// KhungGiaPort kiểm giá của nhà bán có nằm trong khung cho phép không.
+//
+// # Vì sao marketplace phải HỎI thay vì tự biết
+//
+// Khung giá do module `pricing` sở hữu (bảng `price_constraint`), và nó mang
+// cả ngưỡng chống bán phá giá lẫn ngưỡng cảnh báo lỗi nhập liệu. Tự cài lại
+// phép kiểm ở đây là cài một quy tắc TIỀN lần thứ hai, và hai bản cài của
+// một quy tắc tiền sớm muộn sẽ lệch — đúng lỗi P3-18.
+//
+// # Vì sao chặn lúc GHI, không phát hiện sau
+//
+// ADR-0023. Giá sai lên sàn nghĩa là khách có thể đã mua ở giá đó, và lúc ấy
+// không có đường sửa nào ngoài hủy đơn hoặc chịu lỗ. PH-41 đã rút ra quy tắc
+// ấy cho dữ liệu tiền: *"phát hiện xong thì SỬA được không?"* — trả lời
+// "không, chỉ đảo được" thì việc cần làm là chặn, không phải đếm.
+//
+// Nil thì KHÔNG kiểm, và offer lưu như trước bản sửa này. Đó là chủ ý: một
+// môi trường chưa dựng `pricing` vẫn bán được hàng, cùng cách `ChinhSachPort`
+// nil rơi về mặc định của domain.
+type KhungGiaPort interface {
+	// KiemGiaNhaBan trả (được phép, mã vi phạm, thông điệp).
+	//
+	// `canRaSoat` đúng khi giá VẪN được chấp nhận mà cần người xem lại —
+	// giá lệch xa thị trường thường là lỗi nhập liệu, nhưng cũng có thể là
+	// hàng thanh lý thật, nên chặn thẳng sẽ cản việc bán hàng hợp lệ.
+	KiemGiaNhaBan(
+		ctx context.Context, skuID ids.ID, gia money.Money,
+	) (duocPhep bool, ma, thongDiep string, canRaSoat bool, err error)
+}
+
+// GiaNgoaiKhungError khi giá nhà bán nằm ngoài khung cho phép.
+//
+// Kiểu riêng vì nó mang MÃ máy đọc được: giao diện cần phân biệt "thấp hơn
+// giá tối thiểu" với "cao hơn giá tối đa" để chỉ đúng chỗ phải sửa, thay vì
+// một thông báo chung chung mà nhà bán phải đoán.
+type GiaNgoaiKhungError struct {
+	SKUID     ids.ID
+	Ma        string
+	ThongDiep string
+}
+
+func (e *GiaNgoaiKhungError) Error() string {
+	return fmt.Sprintf("marketplace: giá cho SKU %s ngoài khung (%s): %s",
+		e.SKUID, e.Ma, e.ThongDiep)
+}
+
 // NotAuthorizedError khi seller không được phép bán thương hiệu.
 //
 // Kiểu riêng vì nó mang theo LÝ DO — giao diện cần lý do để hiển thị hành
@@ -116,6 +162,7 @@ type Service struct {
 	seller    SellerPort
 	inventory InventoryPort
 	chinhSach ChinhSachPort
+	khungGia  KhungGiaPort
 	clock     Clock
 }
 
@@ -159,6 +206,9 @@ type Deps struct {
 	// hành vi trước khi có tham số vận hành.
 	ChinhSach ChinhSachPort
 
+	// KhungGia có thể nil: khi đó KHÔNG kiểm khung giá. Xem `KhungGiaPort`.
+	KhungGia KhungGiaPort
+
 	Clock Clock
 }
 
@@ -175,6 +225,7 @@ func NewService(d Deps) *Service {
 		seller:    d.Seller,
 		inventory: d.Inventory,
 		chinhSach: d.ChinhSach,
+		khungGia:  d.KhungGia,
 		clock:     clock,
 	}
 }
@@ -209,6 +260,12 @@ type CreateOfferInput struct {
 // marketplace thời trang (mục 5 của đặc tả).
 func (s *Service) CreateOffer(ctx context.Context, in CreateOfferInput) (*domain.Offer, error) {
 	if err := s.CheckCanCreateOffer(ctx, in.SellerID, in.SKUID); err != nil {
+		return nil, err
+	}
+
+	// Bước 4: khung giá (ADR-0023). SAU hàng rào chống hàng giả vì bước ấy
+	// chặn nhiều hơn và rẻ hơn.
+	if err := s.kiemKhungGia(ctx, in.SKUID, in.Price); err != nil {
 		return nil, err
 	}
 
@@ -349,6 +406,12 @@ func (s *Service) UpdatePrice(
 		return nil, err
 	}
 
+	// Kiểm khung giá Ở ĐÂY nữa, không chỉ lúc tạo: đổi giá là đường đi vào
+	// vùng ngoài khung dễ nhất, và nó không đi qua `CreateOffer`.
+	if err := s.kiemKhungGia(ctx, o.SKUID(), price); err != nil {
+		return nil, err
+	}
+
 	now := s.clock.Now()
 	if err := o.ChangePrice(price, compareAt, now); err != nil {
 		return nil, err
@@ -360,6 +423,34 @@ func (s *Service) UpdatePrice(
 		return nil, err
 	}
 	return o, nil
+}
+
+// kiemKhungGia chặn giá ngoài khung TRƯỚC khi offer được lưu.
+//
+// Cổng nil = không kiểm. Lỗi hạ tầng của `pricing` thì CHẶN, không cho qua:
+// một lời gọi thất bại nghĩa là không chứng minh được giá hợp lệ, và với dữ
+// liệu tiền thì "không chứng minh được" phải xử như "không hợp lệ". Thất bại
+// theo hướng ĐÓNG — cùng lựa chọn với `notification.CoDongY`.
+func (s *Service) kiemKhungGia(ctx context.Context, skuID ids.ID, gia money.Money) error {
+	if s.khungGia == nil {
+		return nil
+	}
+
+	duocPhep, ma, thongDiep, canRaSoat, err := s.khungGia.KiemGiaNhaBan(ctx, skuID, gia)
+	if err != nil {
+		return fmt.Errorf("marketplace: không kiểm được khung giá cho SKU %s: %w",
+			skuID, err)
+	}
+	if !duocPhep {
+		return &GiaNgoaiKhungError{SKUID: skuID, Ma: ma, ThongDiep: thongDiep}
+	}
+
+	// `canRaSoat` KHÔNG chặn, đúng thiết kế của `pricing`: giá lệch xa thị
+	// trường thường là lỗi nhập liệu, nhưng cũng có thể là hàng thanh lý
+	// thật. Tới khi có hàng đợi rà soát, nó chưa đi đâu — và đó là một
+	// khoảng trống ĐÃ BIẾT, không phải một chỗ bị quên. Xem P3-88.
+	_ = canRaSoat
+	return nil
 }
 
 // ActivateOffer đưa offer lên bán.

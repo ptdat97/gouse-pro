@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
+	"github.com/fashion-commerce/platform/internal/kernel/money"
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 	"github.com/fashion-commerce/platform/internal/modules/catalog"
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
@@ -14,6 +15,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/marketplace/domain"
 	marketpg "github.com/fashion-commerce/platform/internal/modules/marketplace/infrastructure/postgres"
 	markethttp "github.com/fashion-commerce/platform/internal/modules/marketplace/interfaces/http"
+	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 	"github.com/fashion-commerce/platform/internal/platform/database"
@@ -50,6 +52,24 @@ type Config struct {
 	// Có thể nil: khi đó buy box KHÔNG lọc theo tồn kho. Chỉ chấp nhận
 	// được ở môi trường phát triển.
 	Inventory inventory.API
+
+	// Pricing để kiểm KHUNG GIÁ của nhà bán trước khi lưu offer (ADR-0023).
+	//
+	// # Vì sao marketplace phụ thuộc pricing
+	//
+	// `price_constraint` có từ migration 000003 và mang mục đích ghi rõ —
+	// "khung giá ràng buộc seller" — nhưng tới 01/10/2026 KHÔNG ai đọc nó.
+	// `pricing.ValidateSellerPrice` cũng đã cài đủ và có test, với chú thích
+	// nói đúng điều này: *"Module marketplace gọi TRƯỚC khi cho seller lưu
+	// offer"*. Nó chưa bao giờ có bên gọi.
+	//
+	// Nên đây không phải một phụ thuộc MỚI về thiết kế; nó là bên gọi mà
+	// thiết kế đã chờ. Hệ quả ranh giới: `pricing` thành KERNEL — xem
+	// ADR-0023 và P3-79.
+	//
+	// Có thể nil: khi đó KHÔNG kiểm khung giá, và offer lưu như trước bản
+	// sửa này.
+	Pricing pricing.API
 
 	// OpsConfig cấp những con số CHÍNH SÁCH sửa được lúc chạy: trọng số
 	// buy box, điểm hiệu suất mặc định, thời gian chuẩn bị mặc định.
@@ -95,6 +115,9 @@ func New(cfg Config) (*Module, error) {
 	}
 	if cfg.OpsConfig != nil {
 		deps.ChinhSach = &chinhSachAdapter{cfg: cfg.OpsConfig}
+	}
+	if cfg.Pricing != nil {
+		deps.KhungGia = &khungGiaAdapter{api: cfg.Pricing}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -249,6 +272,26 @@ func (a *inventoryAdapter) AvailableForSKUs(
 		out[ids.ID(skuID)] = qty
 	}
 	return out, nil
+}
+
+// khungGiaAdapter nối tới module pricing.
+//
+// Dịch `PriceCheck` thành bốn giá trị thuần: tầng application của marketplace
+// chỉ biết interface do chính nó khai, nên nó kiểm chứng được bằng bản giả mà
+// không cần dựng module pricing thật.
+type khungGiaAdapter struct{ api pricing.API }
+
+var _ application.KhungGiaPort = (*khungGiaAdapter)(nil)
+
+func (a *khungGiaAdapter) KiemGiaNhaBan(
+	ctx context.Context, skuID ids.ID, gia money.Money,
+) (bool, string, string, bool, error) {
+	res, err := a.api.ValidateSellerPrice(ctx, skuID.String(),
+		gia.Amount(), string(gia.Currency()))
+	if err != nil {
+		return false, "", "", false, err
+	}
+	return res.Allowed, res.Code, res.Message, res.NeedsReview, nil
 }
 
 // ---------------------------------------------------------------- API

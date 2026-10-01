@@ -6821,6 +6821,8 @@ nào** — mọi đợt nằm `DRAFT` vĩnh viễn. Cùng dạng với `SELLER_R
 riêng, vì khép vòng đời cần quyết định ai được ký chi và một màn hình
 admin — không phải việc gộp vào một bản sửa lỗi tiền.
 
+**Đã quyết 01/10/2026 — xem P3-89.** Hai bước, có người ký, quyền riêng.
+
 `phanAmDangCho` thì xóa hẳn: việc của nó chuyển vào trong giao dịch, và
 một hàm còn lại mà không ai gọi chính là cách dạng lỗi trên sinh ra.
 
@@ -7248,7 +7250,7 @@ vẫn trông như CI. Nó là thứ đã lừa được tôi.
 
 ---
 
-### P3-79 — `price_constraint`: một bảng có mục đích mà không ai đọc
+### P3-79 — ĐÃ LÀM 01/10/2026 — `price_constraint`: một bảng có mục đích mà không ai đọc
 
 Đo lúc viết [ADR-0021](../adr/0021-ranh-gioi-commerce-kernel.md): module
 `pricing` **không module nào import**, và nó không có route nào. Nó chỉ
@@ -7270,18 +7272,65 @@ mục đích ghi rõ trong tài liệu mà không ai đọc. Cùng họ với
 `notification_preference` (tạo ở migration 000015, không dòng mã nào chạm,
 xóa ở 000055) — khác ở chỗ `price_constraint` có lý do tồn tại thật.
 
-**Cần quyết trước khi làm:** ai cưỡng chế khung giá, và cưỡng chế ở đâu.
+**Đã quyết 01/10/2026 — [ADR-0023](../adr/0023-khung-gia-cuong-che-luc-ghi.md):**
+`marketplace` import `pricing` và chặn lúc GHI. `pricing` thành **KERNEL —
+đường mua hàng**.
+
+Ba đường đã cân, và vì sao chọn đường một:
 
 ```text
-marketplace nhập pricing        ghép nối mới, và pricing thành kernel
-pricing nghe event offer.*      marketplace không cần biết pricing, nhưng
-                                phát hiện MUỘN — giá sai đã lên sàn
-ràng buộc ở tầng database       chặn sớm nhất, nhưng khung giá là CẤU HÌNH
-                                nghiệp vụ, không phải bất biến lược đồ
+marketplace nhập pricing   ✓ CHỌN. Chặn ở thời điểm GHI: giá ngoài khung
+                             bị từ chối, không bao giờ lên sàn
+pricing nghe event offer.*   kernel không đổi, nhưng phát hiện MUỘN — và
+                             còn cần đường xử lý vi phạm chưa ai dựng
+ràng buộc tầng database      khung giá là CẤU HÌNH sửa lúc chạy, không
+                             phải bất biến lược đồ; cần trigger
 ```
 
-Cả ba đều đổi ranh giới Kernel, nên ADR-0021 cố ý KHÔNG xếp `pricing` vào
-nhóm nào — xếp trước khi quyết là đoán.
+Lý do quyết định là quy tắc PH-41 đã rút ra cho dữ liệu tiền: *"phát hiện
+xong thì SỬA được không?"* — giá sai lên sàn nghĩa là khách có thể đã mua ở
+giá đó, và lúc ấy không có đường sửa nào ngoài hủy đơn hoặc chịu lỗ.
+
+#### Đã làm
+
+```text
+marketplace/application  KhungGiaPort + GiaNgoaiKhungError (mang MÃ)
+                         kiemKhungGia() gọi ở CreateOffer (bước 4)
+                         và ở UpdatePrice
+marketplace/module.go    Config.Pricing + khungGiaAdapter
+internal/app + worker    nối ở CẢ HAI gốc ghép nối
+internal/app            `pricing` vào `Modules` (test cần dựng khung giá)
+docs/04-modules/pricing  Tầng: CHƯA XẾP ĐƯỢC → KERNEL — đường mua hàng
+```
+
+`ValidateSellerPrice` **không phải viết mới**: nó đã cài đủ, có test ở hai
+tầng, và chú thích của nó từ tháng 8 nói đúng điều cần làm — *"Module
+marketplace gọi TRƯỚC khi cho seller lưu offer"*. Nó chỉ chưa bao giờ có bên
+gọi.
+
+Thứ tự kiểm KHÔNG đổi: khung giá là **bước 4**, sau hàng rào chống hàng giả.
+Bước 3 chặn nhiều hơn, rẻ hơn, và là rủi ro sống còn.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+bỏ `Pricing` khỏi nối dây   → cả hai bài đỏ (tái hiện hiện trạng cũ)
+bỏ kiểm ở `UpdatePrice`     → bài thứ hai đỏ, bài đầu vẫn xanh
+```
+
+Phép thứ hai đáng ghi: `UpdatePrice` là đường vào vùng ngoài khung DỄ NHẤT —
+tạo offer giá hợp lệ rồi sửa xuống. Kiểm một chỗ mà bỏ chỗ kia là hàng rào có
+cửa sau, và chỉ bài test thứ hai phân biệt được.
+
+#### Một phép phá đỏ vì lý do KHÁC, và cách sửa phép thử
+
+Bài test đầu đỏ ở *"seller không được bán SKU: RESTRICTED_TO_DESIGNATED_SELLER"*
+— SKU mẫu duy nhất có khung giá thuộc một thương hiệu HẠN CHẾ, nên bước 3 chặn
+trước khi tới bước 4.
+
+Thứ tự ấy ĐÚNG và không đổi. Bài test tự dựng SKU thương hiệu MỞ kèm khung
+giá. Một phép thử đỏ vì lý do khác là một phép thử nói về chính nó chứ không
+về thứ nó định kiểm.
 
 ---
 
@@ -7574,16 +7623,41 @@ Quy công theo CREATOR chạy đủ. Quy công theo NỘI DUNG thì không — n
 *"video nào bán được hàng"* chưa trả lời được, dù `cart_item` đã ghi
 `source_content_id` từ tháng 8.
 
-Ba đường, chưa chọn:
+Ba đường đã cân:
 
 | Đường | Giá | Vấn đề |
 |---|---|---|
-| thêm `attributed_content_id` vào `order_line` | 1 migration + ~6 dòng kernel | kernel chở thêm một khái niệm của extension |
-| affiliate tự có bảng `click` rồi tra nội dung từ đó | 1 bảng + module `creator` | cần Phase 2 |
+| **thêm `attributed_content_id` vào `order_line`** | **1 migration + ~6 dòng kernel** | **✓ ĐÃ CHỌN 01/10/2026** |
+| affiliate tự có bảng `click` rồi tra nội dung từ đó | 1 bảng + module `creator` | cần Phase 2, và dữ liệu không tạo ngược được |
 | `checkout` phát nội dung trong `checkout.completed`, affiliate tự lưu | 1 trường event + tăng phiên bản | ADR-0016 bắt 8 bên nhận khai lại |
 
-Đường 2 là đường ADR-0021 ưa: extension tự sở hữu dữ liệu của mình, kernel
-không phải đổi một dòng. Nhưng nó chờ Phase 2.
+**Đã quyết 01/10/2026:** thêm `attributed_content_id` vào `order_line`.
+
+Lý do: [ADR-0022](../adr/0022-microkernel-kernel-on-dinh.md) cho phép kernel
+**CHỞ ĐỊNH DANH**. Một mã nội dung là đúng loại ấy — kernel không tra nó,
+không biết nội dung là gì, cùng khuôn với `attributed_creator_id` đã có.
+Không phải "kernel chở thêm một khái niệm của extension" như bản ghi trước
+lo; nó là **một tham chiếu nữa**, và quy tắc đã cho phép.
+
+Đường 2 là đường ADR-0021 ưa về nguyên tắc, nhưng nó chờ Phase 2 — và dữ liệu
+nội dung **không tạo ngược được**: không ghi hôm nay thì Phase 3 khởi động với
+lịch sử trống, đúng lý do `search.no_result` được ghi từ MVP.
+
+#### Chưa làm — việc còn lại
+
+```text
+migration            ALTER TABLE order_line ADD attributed_content_id
+order/domain/line.go  trường + params + getter (NewLine và RestoreLine)
+order/public.go       PlaceOrderLineInput + OrderLineView
+order/store           INSERT + SELECT
+checkout/adapters.go  chở từ checkout_line.source_content_id
+affiliate/adapters.go đọc vào DongDon.ContentID
+affiliate/application  truyền vào TaoAttributionParams.ContentID
+test                  mở rộng `TestNguonQuyCongDiTuGioToiDon` sang chặng 4
+```
+
+Khoảng SÁU dòng mã ở kernel, đúng loại ADR-0022 cho phép — nên nó KHÔNG đổi
+con số "7 dòng" của chặng 2, vì nó là một khoản sửa riêng với lý do riêng.
 
 ---
 
@@ -7812,6 +7886,109 @@ sang `moiChecker` để R10 chạy trong `go test` chứ không chỉ khi gọi 
 `pricing` vẫn CHƯA XẾP ĐƯỢC (P3-79). R10 không kết luận gì về nó — xếp sai
 còn tệ hơn để trống, vì một module gán nhãn "kernel" sẽ được người sau tin là
 ổn định.
+
+---
+
+### P3-88 — `NeedsReview` của khung giá chưa đi đâu
+
+[ADR-0023](../adr/0023-khung-gia-cuong-che-luc-ghi.md) nối
+`pricing.ValidateSellerPrice` vào `marketplace`, và nó trả BA kết quả:
+
+```text
+Allowed = false    → CHẶN. Đã cài.
+Allowed = true
+  NeedsReview      → giá VẪN hợp lệ mà cần người xem lại
+  bình thường      → đi qua
+```
+
+Nhánh giữa hiện **không đi đâu**: `kiemKhungGia` đọc cờ rồi bỏ. Giá lệch xa
+giá tham chiếu (ngưỡng `suspicious_below_bp`, mặc định 5000 = 50%) thường là
+lỗi nhập liệu — gõ thiếu một số 0 — nhưng cũng có thể là hàng thanh lý thật,
+nên chặn thẳng sẽ cản việc bán hàng hợp lệ.
+
+Đây là khoảng trống **ĐÃ BIẾT**, ghi ra ngay trong mã (`_ = canRaSoat` kèm
+chú thích) chứ không để lặng. Dựng hàng đợi rà soát bây giờ là dựng thứ chưa
+có người dùng — đúng lỗi ADR-0023 vừa sửa.
+
+Việc cần làm khi có người vận hành thật: một hàng đợi `offer cần rà soát` +
+màn hình admin. Cùng lúc với P3-89 (màn hình đợt đối soát), vì cả hai là màn
+hình vận hành tiền.
+
+---
+
+### P3-89 — ĐÃ QUYẾT 01/10/2026 — khép vòng đời đợt đối soát: ai được ký chi
+
+`DoiSoat.XacNhan` và `DoiSoat.DanhDauDaTra` khai ra mà không lời gọi nào, nên
+mọi đợt nằm `DRAFT` **vĩnh viễn** — nhà bán không bao giờ được chi.
+
+**Quyết định: HAI BƯỚC, có người ký, quyền riêng.**
+
+```text
+DRAFT  ──XacNhan──►  CONFIRMED  ──DanhDauDaTra──►  PAID
+         người ký                  người ký
+         quyền `settlement:approve`
+```
+
+Ba lựa chọn đã cân:
+
+| Đường | Vì sao không chọn |
+|---|---|
+| **hai bước, người ký, quyền riêng** | **✓ CHỌN** |
+| tự động `CONFIRMED`, chỉ việc TRẢ cần người | không ai soát con số trước khi nó thành cam kết với nhà bán |
+| xóa hai hàm, dựng lại khi có quy trình | thừa nhận đường tiền ra cho nhà bán chưa tồn tại |
+
+Lý do: **tiền RỜI nền tảng thì phải có người chịu trách nhiệm**, và vết kiểm
+toán là thứ không tạo ngược được. Quyền `settlement:approve` tách khỏi quyền
+admin thường — ai xem được báo cáo không có nghĩa là ký được chi.
+
+#### Chưa làm — việc còn lại
+
+```text
+quyền            `settlement:approve` vào sổ quyền của identity
+                 KHÔNG gộp vào quyền admin sẵn có
+endpoint         POST /api/v1/admin/settlements/{id}/confirm
+                 POST /api/v1/admin/settlements/{id}/mark-paid
+                 cả hai idempotent — bấm hai lần không chi hai lần
+vết kiểm toán    ai bấm, lúc nào, số tiền lúc ấy — qua platform/audit
+màn hình admin   danh sách đợt + chi tiết dòng (P3-69 đã cho dòng)
+đặc tả           hai operation vào openapi.yaml TRƯỚC khi cài
+test             đợt đã PAID không confirm lại được
+                 người không có quyền nhận 403, không phải 404
+```
+
+Làm cùng P3-88: cả hai là màn hình vận hành tiền, và tách ra sẽ dựng hai lần
+cùng một khung quyền.
+
+---
+
+### P3-90 — ĐÃ QUYẾT 01/10/2026 — `supplychain` vào `Modules` của `internal/app`
+
+Phần còn lại của P3-86. `supplychain` không nằm trong `Modules`, nên bộ bên
+nhận của test tích hợp thiếu `supplychain.NewSignalHandler` — **tín hiệu nhu
+cầu cho sản xuất không có bài test nào đi qua**.
+
+Đây là miễn trừ duy nhất còn lại của `eventcheck` R4 mà không phải lý do kỹ
+thuật. (`payment.NewChiPhiVanChuyenHandler` có lý do thật: nó cần một nguồn
+GIÁ, nên `api_chi_phi_van_chuyen_test.go` tự đăng ký kèm giá cố định.)
+
+**Quyết định: thêm vào `Modules`.**
+
+Lý do: khoảng trống này đúng cùng dạng đã làm `inventory.NewReleaseHandler`
+lọt nhiều tháng — một bên nhận không chạy ở lớp test thì không bài nào bắt
+được lỗi của nó, và nó chỉ lộ ra khi một phép phá KHÔNG đỏ.
+
+#### Chưa làm — việc còn lại
+
+```text
+internal/app/app.go   dựng supplychainModule + vào struct Modules
+api_ledger_test.go    bus.Subscribe(supplychain.NewSignalHandler(...))
+microkernel.go        bỏ dòng supplychain khỏi `benNhanChiOWorker`
+                      (eventcheck R4 sẽ ĐỎ nếu bỏ sổ mà chưa nối dây)
+test mới              đặt đơn → tín hiệu nhu cầu được ghi
+```
+
+Thứ tự bắt buộc: nối dây TRƯỚC, bỏ sổ SAU. Bỏ trước thì R4 đỏ — và đó là R4
+làm đúng việc.
 
 ---
 

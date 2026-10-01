@@ -37,6 +37,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/notification"
 	"github.com/fashion-commerce/platform/internal/modules/order"
 	"github.com/fashion-commerce/platform/internal/modules/payment"
+	"github.com/fashion-commerce/platform/internal/modules/pricing"
 	"github.com/fashion-commerce/platform/internal/modules/product"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/modules/recommendation"
@@ -329,6 +330,19 @@ func run() error {
 		return err
 	}
 
+	// pricing: khung giá ràng buộc nhà bán (ADR-0023).
+	//
+	// Dựng ở worker dù worker KHÔNG tạo offer, vì để nil ở đây tạo ra một
+	// khác biệt IM LẶNG giữa hai gốc ghép nối — đúng dạng lỗi `eventcheck`
+	// R4 vừa được dựng để gác ở tầng bên nhận event (P3-86).
+	pricingModule, err := pricing.New(pricing.Config{
+		Storage: "postgres",
+		DB:      db,
+	})
+	if err != nil {
+		return err
+	}
+
 	marketplaceModule, err := marketplace.New(marketplace.Config{
 		Storage:   "postgres",
 		DB:        db,
@@ -337,6 +351,7 @@ func run() error {
 		Seller:    sellerModule,
 		Inventory: inventoryModule,
 		OpsConfig: opsConfigStore,
+		Pricing:   pricingModule,
 	})
 	if err != nil {
 		return err
