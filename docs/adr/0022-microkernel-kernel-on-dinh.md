@@ -105,6 +105,16 @@ kernel được chở    mã creator, mã nội dung, mã chiến dịch
 kernel KHÔNG chở   tỷ lệ hoa hồng, bên chịu chi phí, mô hình quy công
 ```
 
+Quy tắc này đã được áp dụng HAI lần theo hai chiều ngược nhau, và cặp ấy là
+cách đọc nó rõ nhất:
+
+```text
+BỎ   order_line.creator_commission_rate   migration 000059 — một TỶ LỆ TIỀN
+THÊM order_line.attributed_content_id     migration 000060 — một MÃ
+```
+
+Cùng bảng, cùng tuần, ngược chiều — và cả hai đều theo đúng một quy tắc.
+
 **3. Thêm vào kernel phải là PRIMITIVE, không phải tính năng.**
 
 Thước đo: *mọi* mô hình kinh doanh đều cần nó, hay chỉ mô hình đang làm?

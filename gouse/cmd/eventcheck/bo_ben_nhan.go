@@ -43,11 +43,14 @@ import (
 //
 // Cùng khuôn với `khongAiPhat`/`khongAiNghe`: miễn trừ phải là quyết định có
 // người ký, không phải một chỗ bị bỏ quên.
+// Từng có `supplychain.NewSignalHandler` ở đây với lý do *"module không nằm
+// trong `Modules` của internal/app"*. Bỏ 01/10/2026: lý do ấy là một HIỆN
+// TRẠNG, không phải một ràng buộc — và một dòng miễn trừ mô tả hiện trạng sẽ
+// làm hiện trạng ấy sống mãi. Nối dây xong thì bỏ dòng (P3-90).
+//
+// Dòng còn lại nêu một ràng buộc KỸ THUẬT thật: nó cần dữ liệu mà bộ chung
+// không có cách cấp.
 var benNhanChiOWorker = map[string]string{
-	"supplychain.NewSignalHandler": "module `supplychain` không nằm trong " +
-		"`Modules` của internal/app, nên tín hiệu nhu cầu không dựng được " +
-		"ở lớp test. Khác biệt CÓ THẬT so với worker — xem P3-86",
-
 	"payment.NewChiPhiVanChuyenHandler": "cần một nguồn GIÁ vận chuyển, nên " +
 		"`api_chi_phi_van_chuyen_test.go` tự đăng ký kèm giá cố định qua " +
 		"`phatEventKemChiPhi`. Đăng ký vào bộ chung sẽ phải chọn một giá " +

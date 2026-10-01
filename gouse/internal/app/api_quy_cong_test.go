@@ -111,6 +111,23 @@ func TestNguonQuyCongDiTuGioToiDon(t *testing.T) {
 		t.Fatalf("order_line nhận quy công: mong 1 dòng, nhận %d — chuỗi "+
 			"giỏ→phiên→đơn chưa nối hết", n)
 	}
+
+	// Chặng 4 — CHỖ TỪNG ĐỨT LẦN THỨ HAI.
+	//
+	// Migration 000057 nối chuỗi cho CREATOR và để NỘI DUNG lại:
+	// `order_line` không có cột nội dung, nên `attribution.content_id` của
+	// affiliate luôn rỗng và câu "video nào bán được hàng" không trả lời
+	// được. Nối ở migration 000060 — xem P3-84.
+	//
+	// Khẳng định CẢ HAI mã trên cùng một dòng: một bản cài chở đúng creator
+	// mà đánh rơi nội dung sẽ xanh ở chặng 3, và chặng này là chỗ duy nhất
+	// phân biệt.
+	if n := a.demDong("order_line",
+		"attributed_creator_id = $1 AND attributed_content_id = $2",
+		creatorID, contentID); n != 1 {
+		t.Fatalf("order_line nhận CẢ mã nội dung: mong 1 dòng, nhận %d — "+
+			"chuỗi nội dung dừng ở checkout_line, xem migration 000060", n)
+	}
 }
 
 // Kernel KHÔNG được tra module creator.

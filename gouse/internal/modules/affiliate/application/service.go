@@ -30,6 +30,13 @@ type DongDon struct {
 	// CreatorID rỗng = dòng này khách tự tìm, KHÔNG quy công.
 	CreatorID string
 
+	// ContentID là nội dung dẫn tới lượt mua. Rỗng = không biết.
+	//
+	// RỖNG KHÔNG chặn việc quy công: creator vẫn được ghi công, chỉ không
+	// biết nội dung nào. Chặn vì thiếu nó sẽ làm mọi đơn trước migration
+	// 000060 không quy công được, và quy công cho creator là việc chính.
+	ContentID string
+
 	// TienHang là đơn giá × số lượng, CHƯA trừ khuyến mãi.
 	TienHang int64
 
@@ -183,6 +190,17 @@ func (s *Service) quyCongMotDong(
 	if err != nil {
 		return fmt.Errorf("affiliate: mã creator %q: %w", d.CreatorID, err)
 	}
+
+	// Mã nội dung SAI định dạng thì bỏ qua, không chặn: quy công cho
+	// creator là việc chính, và một mã nội dung rác không đáng để mất nó.
+	// Ghi vào bản quy công thì phải hợp lệ — bảng không có CHECK định dạng
+	// cho cột ấy, nên hàng rào duy nhất là ở đây.
+	var contentID ids.ID
+	if d.ContentID != "" {
+		if id, err := ids.Parse(d.ContentID, ids.PrefixContent); err == nil {
+			contentID = id
+		}
+	}
 	sellerID, err := ids.Parse(d.SellerID, ids.PrefixSeller)
 	if err != nil {
 		return fmt.Errorf("affiliate: mã nhà bán %q: %w", d.SellerID, err)
@@ -212,6 +230,7 @@ func (s *Service) quyCongMotDong(
 		OrderLineID: lineID,
 		SellerID:    sellerID,
 		CreatorID:   creatorID,
+		ContentID:   contentID,
 		Rate:        s.tyLe,
 		Base:        domain.TienGocTinhHoaHong(tienHang, km),
 		BenChiu:     domain.BenChiuMacDinh,

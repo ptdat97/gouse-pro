@@ -301,6 +301,7 @@ func (a *orderAdapter) PlaceOrder(
 			// và index cho nó từ migration 000008, và module affiliate đọc
 			// từ đó. Kernel không tính hoa hồng creator.
 			AttributedCreatorID: l.AttributedCreatorID.String(),
+			AttributedContentID: l.AttributedContentID.String(),
 
 			Adjustments: khoanGiam(l),
 		})

@@ -20,6 +20,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/payment"
 	"github.com/fashion-commerce/platform/internal/modules/promotion"
 	"github.com/fashion-commerce/platform/internal/modules/recommendation"
+	"github.com/fashion-commerce/platform/internal/modules/supplychain"
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
@@ -29,9 +30,23 @@ import (
 // Dựng bên nhận riêng cho test sẽ kiểm một thứ khác với thứ chạy thật —
 // đúng cái bẫy đã làm bộ middleware trong test này từng lệch với production.
 //
-// KHÔNG đủ bộ: `supplychain` vẫn không nằm trong Modules của
-// internal/app, nên tín hiệu nhu cầu không được dựng ở lớp test này. Đó
-// là một khác biệt CÓ THẬT so với worker, không phải sự tương đương.
+// ĐỦ BỘ từ 01/10/2026, trừ ĐÚNG MỘT bên nhận có lý do kỹ thuật:
+// `payment.NewChiPhiVanChuyenHandler` cần một nguồn GIÁ vận chuyển, nên
+// `api_chi_phi_van_chuyen_test.go` tự đăng ký nó kèm giá cố định — đăng ký
+// vào bộ chung sẽ phải chọn một giá cho MỌI bài, và giá ấy là thứ bài kia
+// đang kiểm.
+//
+// `cmd/eventcheck` R4 so danh sách này với `cmd/worker/main.go` và ĐỎ khi
+// lệch, theo cả hai chiều. Miễn trừ duy nhất còn lại nằm ở sổ
+// `benNhanChiOWorker` kèm lý do trên.
+//
+// Hai khoảng trống từng ở đây và cách chúng lộ ra:
+//
+//	inventory.NewReleaseHandler   tìm ra bằng một phép phá KHÔNG đỏ — bỏ
+//	                              `MaxEventVersion` của nó mà không bài nào
+//	                              đỏ, vì nó chưa bao giờ chạy ở đây (P3-86)
+//	supplychain.NewSignalHandler  chú thích cũ ĐÃ GHI nó, nhiều tháng. "Đã
+//	                              ghi" không phải "đã gác" (P3-90)
 //
 // `analytics` và `notification` thì ĐÃ đủ từ 17/09 — xem hai dòng
 // Subscribe cuối. Trước đó hai đường ấy chỉ chạy ở worker, nên đường thư
@@ -77,6 +92,15 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	// Phễu chuyển đổi: `analytics` ghi event_log cho mỗi bước.
 	if a.mods.analytics != nil {
 		bus.Subscribe(analytics.NewEventRecorder(a.mods.analytics))
+	}
+
+	// Bánh đà dữ liệu: hành vi khách chảy ngược vào lập kế hoạch sản xuất.
+	//
+	// Thiếu ở bộ này tới 01/10/2026 — chú thích cũ đã ghi khoảng trống ấy,
+	// nhưng "đã ghi" không phải "đã gác": không bài nào ở lớp này chứng
+	// minh được tín hiệu nhu cầu có được ghi. Xem P3-90.
+	if a.mods.supplychain != nil {
+		bus.Subscribe(supplychain.NewSignalHandler(a.mods.supplychain))
 	}
 
 	// Thư giao dịch: khách phải nhận được thư báo đặt hàng và thư báo đã

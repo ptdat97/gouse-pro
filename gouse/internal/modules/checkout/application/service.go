@@ -530,6 +530,13 @@ type PlaceOrderLine struct {
 	// băng trong bảng `attribution` của nó.
 	AttributedCreatorID ids.ID
 
+	// AttributedContentID là nội dung dẫn tới lượt mua. Rỗng = không có.
+	//
+	// Chuỗi này tới migration 000060 mới đi hết: trước đó `order_line`
+	// không có cột nội dung, nên nó dừng ở `checkout_line` và
+	// `attribution.content_id` của affiliate luôn rỗng (P3-84).
+	AttributedContentID ids.ID
+
 	// BenChiuGiamGia là bên gánh phần giảm của dòng này.
 	//
 	// Đóng băng từ phiên thanh toán (xem migration 000046). Trước đây tầng
@@ -1474,6 +1481,7 @@ func (s *Service) CompleteCheckout(
 			CommissionRate:     l.CommissionRate(),
 
 			AttributedCreatorID: l.SourceCreatorID(),
+			AttributedContentID: l.SourceContentID(),
 
 			GiamGia:        giamTheoDong[l.ID()],
 			BenChiuGiamGia: string(c.BenChiuGiamGia()),

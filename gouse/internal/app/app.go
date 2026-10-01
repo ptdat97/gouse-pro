@@ -66,6 +66,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/recommendation"
 	"github.com/fashion-commerce/platform/internal/modules/returns"
 	"github.com/fashion-commerce/platform/internal/modules/seller"
+	"github.com/fashion-commerce/platform/internal/modules/supplychain"
 	"github.com/fashion-commerce/platform/internal/platform/apierror"
 	"github.com/fashion-commerce/platform/internal/platform/audit"
 	"github.com/fashion-commerce/platform/internal/platform/config"
@@ -664,6 +665,33 @@ func Build(
 		}
 	}
 
+	// supplychain là EXTENSION: tháo ra thì mất tín hiệu nhu cầu cho sản
+	// xuất, khách vẫn mua được hàng.
+	//
+	// # Vì sao nó được dựng ở lớp API
+	//
+	// Việc ghi tín hiệu CHẠY ở worker. Nó nằm đây để BÀI TEST TÍCH HỢP đi
+	// qua được đường ấy — cùng lý do `notification`, `analytics` và
+	// `affiliate` nằm đây.
+	//
+	// Tới 01/10/2026 nó KHÔNG có trong `Modules`, nên bộ bên nhận của test
+	// thiếu `supplychain.NewSignalHandler` và bánh đà dữ liệu hành vi →
+	// sản xuất không có bài test nào đi qua. Chú thích cũ của
+	// `dangKyBenNhan` đã ghi khoảng trống ấy, nhưng "đã ghi" không phải
+	// "đã gác" — xem P3-90.
+	//
+	// Nó KHÔNG đăng ký route nào: màn hình lập kế hoạch sản xuất là Phase 3.
+	var supplyModule *supplychain.Module
+	if db != nil {
+		supplyModule, err = supplychain.New(supplychain.Config{
+			Storage: "postgres",
+			DB:      db,
+		})
+		if err != nil {
+			return Modules{}, err
+		}
+	}
+
 	// affiliate là EXTENSION (ADR-0021): bỏ nó ra thì khách vẫn mua được
 	// hàng, tiền vẫn vào sổ, hàng vẫn rời kho — chỉ mất phần ghi công cho
 	// creator.
@@ -714,6 +742,7 @@ func Build(
 		inventory:      inventoryModule,
 		affiliate:      affiliateModule,
 		pricing:        pricingModule,
+		supplychain:    supplyModule,
 		audit:          auditRecorder,
 		opsConfig:      opsConfigStore,
 	}, nil
@@ -745,6 +774,13 @@ type Modules struct {
 	// affiliate quy công đơn cho creator. Nil khi chạy với kho in-memory:
 	// chống quy công trùng dựa vào ràng buộc UNIQUE ở tầng database.
 	affiliate *affiliate.Module
+
+	// supplychain ghi TÍN HIỆU NHU CẦU từ hành vi khách.
+	//
+	// Nil khi chạy với kho in-memory: toàn bộ giá trị của module nằm ở chỗ
+	// dữ liệu SỐNG SÓT, nên một bản in-memory mất đúng thứ nó tồn tại để
+	// giữ.
+	supplychain *supplychain.Module
 
 	// pricing giữ KHUNG GIÁ ràng buộc nhà bán (ADR-0023).
 	//

@@ -44,7 +44,7 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 	}
 
 	creatorID := ids.MustNew(ids.PrefixCreator).String()
-	maDon, tong, foID, sellerID, _ := a.donTraTruocCuaCreator(t, creatorID)
+	maDon, tong, foID, sellerID, _, contentID := a.donTraTruocCuaCreator(t, creatorID)
 
 	// ---- Chặng 1: đặt đơn xong mà CHƯA quy công ----
 	//
@@ -81,20 +81,34 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 
 	// Bản quy công phải ĐÓNG BĂNG đủ thứ để đối soát lại được.
 	var (
-		gotCreator, gotSeller, benChiu, moHinh string
-		tyLe                                   int
-		tienGoc                                int64
+		gotCreator, gotContent, gotSeller string
+		benChiu, moHinh                   string
+		tyLe                              int
+		tienGoc                           int64
 	)
 	if err := a.db.Pool().QueryRow(ctx, `
-		SELECT creator_id, seller_id, cost_bearer, attribution_model,
-		       commission_rate, commission_base
+		SELECT creator_id, content_id, seller_id, cost_bearer,
+		       attribution_model, commission_rate, commission_base
 		  FROM attribution WHERE order_id = $1`, maDon,
-	).Scan(&gotCreator, &gotSeller, &benChiu, &moHinh, &tyLe, &tienGoc); err != nil {
+	).Scan(&gotCreator, &gotContent, &gotSeller, &benChiu, &moHinh,
+		&tyLe, &tienGoc); err != nil {
 		t.Fatalf("đọc bản quy công: %v", err)
 	}
 
 	if gotCreator != creatorID {
 		t.Errorf("quy công cho creator %q, cần %q", gotCreator, creatorID)
+	}
+
+	// content_id đi hết chuỗi: giỏ → phiên → đơn → bản quy công.
+	//
+	// Tới migration 000060 cột này LUÔN RỖNG vì `order_line` không có chỗ
+	// chở nó, nên câu "video nào bán được hàng" không trả lời được (P3-84).
+	// Khẳng định ở đây chứ không chỉ ở `order_line`: chặng cuối là chặng
+	// affiliate thật sự đọc, và một bản cài chở đúng tới `order_line` mà
+	// đánh rơi ở adapter vẫn xanh nếu chỉ kiểm chặng trước.
+	if gotContent != contentID {
+		t.Errorf("bản quy công ghi nội dung %q, cần %q — chuỗi nội dung "+
+			"chưa đi hết tới attribution", gotContent, contentID)
 	}
 	// seller_id CẦN để mở khóa theo từng nhà bán — xem chặng 4.
 	if gotSeller != sellerID {
@@ -222,7 +236,7 @@ func TestHuyDonThiDaoHoaHongCreator(t *testing.T) {
 	}
 
 	creatorID := ids.MustNew(ids.PrefixCreator).String()
-	maDon, tong, _, _, dienThoai := a.donTraTruocCuaCreator(t, creatorID)
+	maDon, tong, _, _, dienThoai, _ := a.donTraTruocCuaCreator(t, creatorID)
 
 	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
 		"event_id":   "evt_hoa_hong_dao_1",
@@ -302,7 +316,7 @@ func TestHuyDonThiDaoHoaHongCreator(t *testing.T) {
 // COD phải chờ tới lúc giao. Bài test cần mốc tiền về ở giữa chuỗi.
 func (a *apiTest) donTraTruocCuaCreator(
 	t *testing.T, creatorID string,
-) (maDon string, tong int64, foID, sellerID, dienThoai string) {
+) (maDon string, tong int64, foID, sellerID, dienThoai, contentID string) {
 	t.Helper()
 
 	maOffer := a.timOfferBanDuoc()
@@ -310,9 +324,13 @@ func (a *apiTest) donTraTruocCuaCreator(
 		t.Skip("không có offer nào bán được")
 	}
 
+	contentID = ids.MustNew(ids.PrefixContent).String()
 	res := a.call(http.MethodPost, "/api/v1/cart/items", map[string]any{
 		"offer_id": maOffer, "quantity": 1,
-		"source": map[string]any{"creator_id": creatorID},
+		"source": map[string]any{
+			"creator_id": creatorID,
+			"content_id": contentID,
+		},
 	}, khoaIdem())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm giỏ kèm nguồn creator: HTTP %d — %s", res.code, res.raw)
@@ -359,7 +377,7 @@ func (a *apiTest) donTraTruocCuaCreator(
 	// Đơn thực hiện chỉ tồn tại sau khi `checkout.completed` được phát.
 	a.phatEvent(t)
 	foID, sellerID = a.donThucHienCuaDon(t, maDon)
-	return maDon, tong, foID, sellerID, dienThoai
+	return maDon, tong, foID, sellerID, dienThoai, contentID
 }
 
 func (a *apiTest) demQuyCong(t *testing.T, maDon string) int {

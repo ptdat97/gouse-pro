@@ -125,21 +125,21 @@ func insertLine(ctx context.Context, tx pgx.Tx, orderID ids.ID, l *domain.Line) 
 			id, order_id, offer_id, sku_id, seller_id,
 			product_name, variant_description, unit_price, currency, quantity,
 			commission_rate, commission_amount,
-			attributed_creator_id,
+			attributed_creator_id, attributed_content_id,
 			status, cancelled_at, created_at, updated_at
 		) VALUES (
 			$1,$2,$3,$4,$5,
 			$6,$7,$8,$9,$10,
 			$11,$12,
-			$13,
-			$14,$15,$16,$17
+			$13,$14,
+			$15,$16,$17,$18
 		)`,
 		l.ID().String(), orderID.String(), l.OfferID().String(),
 		l.SKUID().String(), l.SellerID().String(),
 		l.ProductName(), l.VariantDescription(),
 		l.UnitPrice().Amount(), string(l.UnitPrice().Currency()), l.Quantity(),
 		int(l.CommissionRate().Value()), l.CommissionAmount().Amount(),
-		l.AttributedCreatorID().String(),
+		l.AttributedCreatorID().String(), l.AttributedContentID().String(),
 		string(l.Status()), nullTime(l.CancelledAt()),
 		l.CreatedAt(), l.UpdatedAt())
 	if err != nil {
@@ -479,7 +479,7 @@ func (s *OrderStore) loadLines(ctx context.Context, orderID ids.ID) ([]*domain.L
 		SELECT id, offer_id, sku_id, seller_id,
 		       product_name, variant_description, unit_price, currency, quantity,
 		       commission_rate, commission_amount,
-		       attributed_creator_id,
+		       attributed_creator_id, attributed_content_id,
 		       status, cancelled_at, created_at, updated_at
 		  FROM order_line
 		 WHERE order_id = $1
@@ -497,7 +497,8 @@ func (s *OrderStore) loadLines(ctx context.Context, orderID ids.ID) ([]*domain.L
 		var (
 			p                           domain.RestoreLineParams
 			offerID, skuID, sellerID    string
-			id, creatorID, currency     string
+			id, creatorID, contentID    string
+			currency                    string
 			unitPrice, commissionAmount int64
 			commRate                    int
 			status                      string
@@ -510,7 +511,7 @@ func (s *OrderStore) loadLines(ctx context.Context, orderID ids.ID) ([]*domain.L
 			&id, &offerID, &skuID, &sellerID,
 			&productName, &variantDesc, &unitPrice, &currency, &quantity,
 			&commRate, &commissionAmount,
-			&creatorID,
+			&creatorID, &contentID,
 			&status, &cancelledAt, &createdAt, &updatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("order: đọc dòng hàng: %w", err)
@@ -529,6 +530,7 @@ func (s *OrderStore) loadLines(ctx context.Context, orderID ids.ID) ([]*domain.L
 			CommissionRate:      mustRate(commRate),
 			CommissionAmount:    mustMoney(commissionAmount, cur),
 			AttributedCreatorID: ids.ID(creatorID),
+			AttributedContentID: ids.ID(contentID),
 			Status:              domain.LineStatus(status),
 			CancelledAt:         deref(cancelledAt),
 			CreatedAt:           createdAt,

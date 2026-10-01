@@ -236,8 +236,6 @@ fulfillment_order trên database phát triển, đo 01/10/2026:
   HANDED_OVER     37      đã rời kho, chưa ai xác nhận đã giao
   COMPLETED        1      đi hết chuỗi — đúng MỘT đơn, do test tích hợp
 
-attribution.content_id luôn rỗng — order_line chưa có cột nội dung (P3-84,
-  đã quyết: thêm cột; chưa làm)
 NeedsReview của khung giá chưa đi đâu — chưa có hàng đợi rà soát (P3-88)
 đợt đối soát nằm DRAFT vĩnh viễn — chưa có đường ký chi (P3-89, đã quyết)
 ```

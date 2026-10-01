@@ -219,6 +219,9 @@ type PlaceOrderLineInput struct {
 	// xem P3-83.
 	AttributedCreatorID string
 
+	// AttributedContentID là nội dung dẫn tới lượt mua. Rỗng = không có.
+	AttributedContentID string
+
 	Adjustments []AdjustmentInput
 }
 
@@ -373,6 +376,14 @@ type OrderLineView struct {
 	// `MaxEventVersion` — tức sửa payment và fulfillment cho một trường
 	// chỉ affiliate dùng.
 	AttributedCreatorID string
+
+	// AttributedContentID là nội dung dẫn tới lượt mua. Rỗng = khách không
+	// đến từ nội dung nào.
+	//
+	// Thêm 01/10/2026 cùng migration 000060. Trước đó chuỗi nội dung dừng ở
+	// `checkout_line`, nên `attribution.content_id` của affiliate luôn rỗng
+	// và câu "video nào bán được hàng" không trả lời được (P3-84).
+	AttributedContentID string
 
 	Status      string
 	Adjustments []AdjustmentView

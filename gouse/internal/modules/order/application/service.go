@@ -210,6 +210,7 @@ type PlaceOrderLine struct {
 	CommissionRate types.BasisPoints
 
 	AttributedCreatorID ids.ID
+	AttributedContentID ids.ID
 
 	// Adjustments đã được PHÂN BỔ về từng dòng ở tầng trên.
 	//
@@ -314,6 +315,7 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 			Quantity:            src.Quantity,
 			CommissionRate:      src.CommissionRate,
 			AttributedCreatorID: src.AttributedCreatorID,
+			AttributedContentID: src.AttributedContentID,
 			Now:                 now,
 		})
 		if err != nil {

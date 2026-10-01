@@ -216,9 +216,18 @@ hạn đổi trả là `fulfillment_order.completed`, mang `(order_id, seller_id
 không mang dòng hàng. Không có cột ấy, một đơn nhiều nhà bán sẽ mở khóa hoa
 hồng của CẢ đơn khi nhà bán đầu tiên giao xong.
 
-`content_id` có nhưng LUÔN RỖNG: `cart_item` và `checkout_line` mang
-`source_content_id` từ migration 000057, nhưng `order_line` chỉ có
-`attributed_creator_id`. Xem P3-84.
+`content_id` ĐÃ ĐẦY từ 01/10/2026. Chuỗi nội dung đi hết sau migration
+000060, thêm `order_line.attributed_content_id`:
+
+```text
+cart_item.source_content_id       migration 000009
+checkout_line.source_content_id   migration 000057
+order_line.attributed_content_id  migration 000060
+attribution.content_id            ✓
+```
+
+Trước đó nó luôn rỗng vì `order_line` không có chỗ chở mã nội dung, nên câu
+*"video nào bán được hàng"* không trả lời được (P3-84).
 
 ```sql
 CREATE TABLE attribution (

@@ -65,6 +65,7 @@ type Line struct {
 
 	// Quy kết creator, cũng đóng băng.
 	attributedCreatorID   ids.ID
+	attributedContentID   ids.ID
 	creatorCommissionRate types.BasisPoints
 
 	status LineStatus
@@ -100,6 +101,12 @@ type NewLineParams struct {
 	// khác 0 — và từ 27/09 nó là nguồn sự thật THỨ HAI cho một con số tiền
 	// mà affiliate đã sở hữu. Xem P3-83 và migration 000059.
 	AttributedCreatorID ids.ID
+
+	// AttributedContentID là nội dung dẫn tới lượt mua. Rỗng = không có.
+	//
+	// Cũng là một MÃ, cùng lý do với trường trên: kernel không tra nó,
+	// không biết nội dung là gì. Xem migration 000060 và P3-84.
+	AttributedContentID ids.ID
 
 	Now time.Time
 }
@@ -146,6 +153,7 @@ func NewLine(p NewLineParams) (*Line, error) {
 		commissionRate:      p.CommissionRate,
 		commissionAmount:    lineTotal.ApplyRate(p.CommissionRate, money.RoundHalfUp),
 		attributedCreatorID: p.AttributedCreatorID,
+		attributedContentID: p.AttributedContentID,
 		status:              LineActive,
 		createdAt:           now,
 		updatedAt:           now,
@@ -165,6 +173,7 @@ type RestoreLineParams struct {
 	CommissionRate      types.BasisPoints
 	CommissionAmount    money.Money
 	AttributedCreatorID ids.ID
+	AttributedContentID ids.ID
 	Status              LineStatus
 	Adjustments         []Adjustment
 	CancelledAt         time.Time
@@ -186,6 +195,7 @@ func RestoreLine(p RestoreLineParams) *Line {
 		commissionRate:      p.CommissionRate,
 		commissionAmount:    p.CommissionAmount,
 		attributedCreatorID: p.AttributedCreatorID,
+		attributedContentID: p.AttributedContentID,
 		status:              p.Status,
 		adjustments:         p.Adjustments,
 		cancelledAt:         p.CancelledAt,
@@ -205,6 +215,7 @@ func (l *Line) Quantity() int                     { return l.quantity }
 func (l *Line) CommissionRate() types.BasisPoints { return l.commissionRate }
 func (l *Line) CommissionAmount() money.Money     { return l.commissionAmount }
 func (l *Line) AttributedCreatorID() ids.ID       { return l.attributedCreatorID }
+func (l *Line) AttributedContentID() ids.ID       { return l.attributedContentID }
 func (l *Line) Status() LineStatus                { return l.status }
 func (l *Line) CancelledAt() time.Time            { return l.cancelledAt }
 func (l *Line) CreatedAt() time.Time              { return l.createdAt }

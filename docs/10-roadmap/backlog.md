@@ -7610,7 +7610,7 @@ này. Cột ở `order_line` là phiên bản cũ hơn của cùng một sai l�
 
 ---
 
-### P3-84 — `attribution.content_id` luôn rỗng: chuỗi nội dung dừng ở `checkout_line`
+### P3-84 — ĐÃ LÀM 01/10/2026 — `attribution.content_id` luôn rỗng: chuỗi nội dung dừng ở `checkout_line`
 
 ```text
 cart_item.source_content_id       migration 000009  ✓
@@ -7643,21 +7643,46 @@ lo; nó là **một tham chiếu nữa**, và quy tắc đã cho phép.
 nội dung **không tạo ngược được**: không ghi hôm nay thì Phase 3 khởi động với
 lịch sử trống, đúng lý do `search.no_result` được ghi từ MVP.
 
-#### Chưa làm — việc còn lại
+#### Đã làm
 
 ```text
-migration            ALTER TABLE order_line ADD attributed_content_id
-order/domain/line.go  trường + params + getter (NewLine và RestoreLine)
-order/public.go       PlaceOrderLineInput + OrderLineView
-order/store           INSERT + SELECT
-checkout/adapters.go  chở từ checkout_line.source_content_id
-affiliate/adapters.go đọc vào DongDon.ContentID
-affiliate/application  truyền vào TaoAttributionParams.ContentID
-test                  mở rộng `TestNguonQuyCongDiTuGioToiDon` sang chặng 4
+migration 000060      order_line.attributed_content_id + chỉ mục một phần
+order/domain/line.go   trường + 2 params + getter (NewLine và RestoreLine)
+order/public.go        PlaceOrderLineInput + OrderLineView
+order/module.go        phân giải mã + bày ra ở view
+order/store            INSERT $14 + SELECT
+checkout/application   PlaceOrderLine.AttributedContentID
+checkout/adapters.go   chở từ `l.SourceContentID()`
+affiliate/adapters.go  đọc vào `DongDon.ContentID`
+affiliate/application  truyền vào `TaoAttributionParams.ContentID`
 ```
 
-Khoảng SÁU dòng mã ở kernel, đúng loại ADR-0022 cho phép — nên nó KHÔNG đổi
-con số "7 dòng" của chặng 2, vì nó là một khoản sửa riêng với lý do riêng.
+Khoảng BẢY dòng mã ở kernel, đúng loại ADR-0022 cho phép (kernel CHỞ ĐỊNH
+DANH) — nên nó KHÔNG đổi con số "7 dòng" của chặng 2 ADR-0021: đó là một
+khoản sửa riêng, với lý do riêng, cho một tính năng riêng.
+
+#### Hai quyết định nhỏ trong lúc làm
+
+**Mã nội dung phân giải RIÊNG, không nằm trong khối `if` của creator.** Một
+dòng có thể có nội dung mà không có creator — ví dụ nội dung do nền tảng tự
+sản xuất. Gộp vào khối ấy sẽ lặng lẽ bỏ mã nội dung trong đúng trường hợp đó.
+
+**Mã nội dung SAI định dạng thì bỏ qua, không chặn quy công.** Quy công cho
+creator là việc chính; một mã nội dung rác không đáng để mất nó. Nhưng ghi
+vào bản quy công thì phải hợp lệ — bảng không có `CHECK` định dạng cho cột
+ấy, nên hàng rào duy nhất là ở tầng application.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+checkout không chở nội dung sang order  → CẢ HAI bài đỏ (hiện trạng cũ)
+adapter affiliate đánh rơi nội dung     → chỉ bài CHẶNG CUỐI đỏ
+```
+
+Phép thứ hai cho thấy hai bài **bổ sung nhau chứ không trùng**:
+`TestNguonQuyCongDiTuGioToiDon` (chặng 4, kiểm `order_line`) vẫn XANH, chỉ
+`TestHoaHongCreatorDiHetChuoi` (kiểm `attribution`) đỏ. Một bản cài chở đúng
+tới `order_line` mà đánh rơi ở adapter chỉ lộ ra ở bài sau.
 
 ---
 
@@ -7961,7 +7986,7 @@ cùng một khung quyền.
 
 ---
 
-### P3-90 — ĐÃ QUYẾT 01/10/2026 — `supplychain` vào `Modules` của `internal/app`
+### P3-90 — ĐÃ LÀM 01/10/2026 — `supplychain` vào `Modules` của `internal/app`
 
 Phần còn lại của P3-86. `supplychain` không nằm trong `Modules`, nên bộ bên
 nhận của test tích hợp thiếu `supplychain.NewSignalHandler` — **tín hiệu nhu
@@ -7977,18 +8002,59 @@ Lý do: khoảng trống này đúng cùng dạng đã làm `inventory.NewReleas
 lọt nhiều tháng — một bên nhận không chạy ở lớp test thì không bài nào bắt
 được lỗi của nó, và nó chỉ lộ ra khi một phép phá KHÔNG đỏ.
 
-#### Chưa làm — việc còn lại
+#### Đã làm
 
 ```text
-internal/app/app.go   dựng supplychainModule + vào struct Modules
-api_ledger_test.go    bus.Subscribe(supplychain.NewSignalHandler(...))
-microkernel.go        bỏ dòng supplychain khỏi `benNhanChiOWorker`
-                      (eventcheck R4 sẽ ĐỎ nếu bỏ sổ mà chưa nối dây)
-test mới              đặt đơn → tín hiệu nhu cầu được ghi
+internal/app/app.go      dựng supplychainModule + vào struct Modules
+api_ledger_test.go       bus.Subscribe(supplychain.NewSignalHandler(...))
+bo_ben_nhan.go           bỏ dòng supplychain khỏi `benNhanChiOWorker`
+api_tin_hieu_nhu_cau_test.go   HAI bài mới
 ```
 
-Thứ tự bắt buộc: nối dây TRƯỚC, bỏ sổ SAU. Bỏ trước thì R4 đỏ — và đó là R4
-làm đúng việc.
+Thứ tự: nối dây TRƯỚC, bỏ sổ SAU.
+
+#### Hai bài cũ về tín hiệu kiểm OUTBOX, không kiểm `demand_signal`
+
+Trước khi viết bài mới tôi kiểm xem đường ấy đã có ai gác chưa.
+`TestBamTimLanHaiKhongPhatTinHieuMoi` và `TestXinTraHangPhatTinHieuKemLyDo`
+đều đọc `event_outbox` — chúng khẳng định event được **PHÁT**, không khẳng
+định có ai **TIÊU THỤ** nó. Phía tiêu thụ chưa có bài nào.
+
+Đó là một phân biệt dễ trượt: hai bài xanh ở một bảng có dữ liệu, và bảng ấy
+là bảng của bên phát.
+
+#### Hai bài mới, và vì sao bài thứ hai đo SỐ LƯỢNG
+
+```text
+TestThemGioThiGhiTinHieuNhuCau   ADD_TO_CART tăng ĐÚNG 1
+TestDatDonThiGhiTinHieuORDER     ORDER của đúng đơn ấy, và TỔNG SỐ LƯỢNG
+```
+
+Lập kế hoạch sản xuất cần biết **BAO NHIÊU**, không chỉ "có nhu cầu". Một bản
+cài ghi đủ dòng mà bỏ số lượng sẽ xanh ở phép đếm, và Phase 3 khởi động với
+một bảng đầy dòng vô dụng.
+
+`demand_signal` KHÔNG có `reference_id`: cặp truy vết của nó là
+`(source_type, source_id)`, vì tham chiếu của nó vượt module nên không có
+khóa ngoại nào để đặt tên theo.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+bỏ đăng ký bên nhận      → "tín hiệu ADD_TO_CART: 0 → 0" (hiện trạng cũ)
+handler ghi Quantity: 1  → "tổng số lượng = 1, cần 2"
+```
+
+#### Và một dòng chú thích đã làm hiện trạng sống lâu hơn
+
+Sổ `benNhanChiOWorker` từng miễn trừ `supplychain.NewSignalHandler` với lý do
+*"module không nằm trong `Modules` của internal/app"*. Lý do ấy là một **HIỆN
+TRẠNG**, không phải một ràng buộc — và một dòng miễn trừ mô tả hiện trạng
+biến một việc phải làm thành một đặc điểm đã được giải thích.
+
+Dòng còn lại trong sổ nêu một ràng buộc KỸ THUẬT thật
+(`ChiPhiVanChuyen` cần nguồn giá). Đó là khác biệt đáng giữ khi viết một sổ
+miễn trừ.
 
 ---
 

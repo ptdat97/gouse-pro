@@ -299,6 +299,19 @@ func toPlaceOrderLine(
 		out.AttributedCreatorID = creatorID
 	}
 
+	// Mã nội dung phân giải RIÊNG, không nằm trong khối `if` của creator.
+	//
+	// Một dòng có thể có nội dung mà không có creator — ví dụ nội dung do
+	// nền tảng tự sản xuất. Gộp vào khối trên sẽ lặng lẽ bỏ mã nội dung
+	// trong đúng trường hợp ấy.
+	if src.AttributedContentID != "" {
+		contentID, err := ids.Parse(src.AttributedContentID, ids.PrefixContent)
+		if err != nil {
+			return out, ErrInvalidInput
+		}
+		out.AttributedContentID = contentID
+	}
+
 	for _, a := range src.Adjustments {
 		amount, err := toMoney(a.Amount, currency)
 		if err != nil {
@@ -535,6 +548,7 @@ func toLineView(l *domain.Line) OrderLineView {
 		SellerPayable:      toAmount(l.SellerPayable()),
 
 		AttributedCreatorID: l.AttributedCreatorID().String(),
+		AttributedContentID: l.AttributedContentID().String(),
 
 		Status:      string(l.Status()),
 		Adjustments: adjViews,

@@ -60,6 +60,7 @@ func (a *orderAdapter) DongDonQuyCong(
 			OrderLineID: l.ID,
 			SellerID:    l.SellerID,
 			CreatorID:   l.AttributedCreatorID,
+			ContentID:   l.AttributedContentID,
 			TienHang:    l.LineTotal.Value,
 			Currency:    l.LineTotal.Currency,
 
