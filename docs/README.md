@@ -220,8 +220,8 @@ Module trong mã                        20
   extension                             6
   chưa xếp được                         0
 Module có tầng HTTP                    14/20
-Thao tác trong OpenAPI                102
-Tuyến HTTP khớp đặc tả                 91   (15 hoãn, đã khai)
+Thao tác trong OpenAPI                103
+Tuyến HTTP khớp đặc tả                 92   (15 hoãn, đã khai)
 ```
 
 Chỗ nghẽn cũ — *"3/17 có tầng HTTP, 10/71 operation"* của 15/08/2026 — đã
@@ -236,8 +236,7 @@ fulfillment_order trên database phát triển, đo 01/10/2026:
   HANDED_OVER     37      đã rời kho, chưa ai xác nhận đã giao
   COMPLETED        1      đi hết chuỗi — đúng MỘT đơn, do test tích hợp
 
-NeedsReview của khung giá chưa đi đâu — chưa có hàng đợi rà soát (P3-88)
-hai endpoint ký đợt đối soát ĐÃ có, màn hình admin thì chưa (P3-89)
+NeedsReview của khung giá: backend có cờ, chưa có hàng đợi rà soát (P3-88)
 ```
 
 Con số 3260/37/1 là dữ liệu phát triển, không phải production — nhưng nó cho
@@ -286,7 +285,7 @@ FUTURE. Đừng tạo backlog thứ hai.
 nó chỉ để tra cứu. Việc phải làm nằm ở
 [10-roadmap/backlog.md](10-roadmap/backlog.md).
 
-**Đối chiếu với code (01/10/2026):** 14/20 module có tầng HTTP, 91/102 thao
+**Đối chiếu với code (01/10/2026):** 14/20 module có tầng HTTP, 92/103 thao
 tác đặc tả có tuyến thật. Khoảng cách "đã thiết kế" vs "chạy được" của
 15/08/2026 — *3/17 HTTP, 10/71 operation* — đã đóng.
 
@@ -309,8 +308,8 @@ Những chỗ tài liệu đã được sửa cho khớp code thật, kèm lý d
 Hợp đồng API nằm ở [`/api/openapi.yaml`](../gouse/api/README.md) — **nguồn sự thật duy nhất**, được cập nhật cùng pull request với thay đổi code.
 
 ```text
-102 thao tác · 0 lỗi lint · sinh kiểu TypeScript thành công
- 91 có tuyến thật · 15 hoãn sang Phase 2/3 (đã khai lý do)
+103 thao tác · 0 lỗi lint · sinh kiểu TypeScript thành công
+ 92 có tuyến thật · 15 hoãn sang Phase 2/3 (đã khai lý do)
 ```
 
 `cmd/apicheck` gác bốn tầng hợp đồng: tuyến ⇄ đặc tả · header ⇄ CORS ·

@@ -49,7 +49,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/admin/ledger/adjustments",
 		http.HandlerFunc(h.createAdjustment))
 
-	// Hai bước KÝ đợt đối soát — xem settlement_ky.go.
+	// Đợt đối soát: danh sách + hai bước KÝ — xem settlement_ky.go.
+	mux.Handle("GET /api/v1/admin/settlements",
+		http.HandlerFunc(h.listSettlements))
 	mux.Handle("POST /api/v1/admin/settlements/{settlement_id}/confirm",
 		http.HandlerFunc(h.confirmSettlement))
 	mux.Handle("POST /api/v1/admin/settlements/{settlement_id}/mark-paid",

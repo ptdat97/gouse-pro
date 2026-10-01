@@ -1621,6 +1621,52 @@ admin_product_reject:
 # nên mọi đợt nằm DRAFT vĩnh viễn. Xem P3-89.
 # ---------------------------------------------------------------------
 
+settlements:
+  get:
+    tags: [Admin]
+    summary: Danh sách đợt đối soát
+    description: |
+      Đợt của **MỌI** gian hàng — mặt quản trị.
+
+      Khác `GET /api/v1/seller/settlements` ở đúng ranh giới bảo mật: đường
+      của nhà bán lọc theo `seller_id` lấy từ token, đường này cố ý KHÔNG lọc.
+      Hai đường dùng hai hàm kho khác nhau chứ không một hàm có tham số rỗng —
+      một chỗ quên truyền token sẽ trả dữ liệu mọi gian hàng, và chỗ quên ấy
+      không trông giống lỗi.
+
+      Trả thêm `confirmed_by` / `paid_by` mà mặt nhà bán KHÔNG có.
+
+      `status` lạ trả mảng rỗng, không trả mọi đợt: một lỗi đánh máy ở tham số
+      lọc không được biến thành "cho xem hết".
+    operationId: listSettlements
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/Limit'
+      - name: status
+        in: query
+        description: Thiếu tham số = mọi trạng thái.
+        schema:
+          type: string
+          enum: [DRAFT, CONFIRMED, PAID]
+    responses:
+      '200':
+        description: Danh sách đợt
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: '../components/schemas.yaml#/Settlement'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+
 settlement_confirm:
   post:
     tags: [Admin]

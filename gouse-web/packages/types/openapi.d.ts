@@ -1852,6 +1852,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Danh sách đợt đối soát
+         * @description Đợt của **MỌI** gian hàng — mặt quản trị.
+         *
+         *     Khác `GET /api/v1/seller/settlements` ở đúng ranh giới bảo mật: đường
+         *     của nhà bán lọc theo `seller_id` lấy từ token, đường này cố ý KHÔNG lọc.
+         *     Hai đường dùng hai hàm kho khác nhau chứ không một hàm có tham số rỗng —
+         *     một chỗ quên truyền token sẽ trả dữ liệu mọi gian hàng, và chỗ quên ấy
+         *     không trông giống lỗi.
+         *
+         *     Trả thêm `confirmed_by` / `paid_by` mà mặt nhà bán KHÔNG có.
+         *
+         *     `status` lạ trả mảng rỗng, không trả mọi đợt: một lỗi đánh máy ở tham số
+         *     lọc không được biến thành "cho xem hết".
+         */
+        get: operations["listSettlements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settlements/{settlement_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Chốt đợt đối soát
+         * @description Bước MỘT của hai: chuyển đợt `DRAFT` → `CONFIRMED`.
+         *
+         *     Đây là lúc một con số **tính được** thành một **cam kết** với nhà bán —
+         *     số đó hiện trên màn hình của họ và họ dựa vào nó. Tách khỏi bước chuyển
+         *     tiền để có người soát con số trước khi nó thành cam kết.
+         *
+         *     Từ chối đợt có `net_amount` ≤ 0: nhà bán đang nợ nền tảng nhiều hơn số
+         *     kiếm được trong kỳ, và khoản nợ chuyển sang kỳ sau.
+         *
+         *     `409 CONFLICT` khi đợt KHÔNG ở `DRAFT` — thường vì người khác vừa bấm.
+         *     Không phải `400`: request hợp lệ, không có gì để người dùng sửa.
+         *
+         *     Yêu cầu: vai trò `ADMIN` hoặc `OPS_FINANCE` (cả hai bắt buộc xác thực
+         *     hai lớp), `reason` tối thiểu 20 ký tự, `Idempotency-Key`.
+         *
+         *     Người ký lấy TỪ TOKEN, không nhận từ thân request: nhận từ thân nghĩa
+         *     là ai gọi được endpoint cũng ghi được tên người khác vào vết kiểm toán.
+         */
+        post: operations["confirmSettlement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settlements/{settlement_id}/mark-paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ghi nhận đã chuyển tiền cho nhà bán
+         * @description Bước HAI của hai: chuyển đợt `CONFIRMED` → `PAID`.
+         *
+         *     Endpoint này **KHÔNG chuyển tiền**. Việc chuyển xảy ra ngoài hệ thống
+         *     (chuyển khoản ngân hàng), và endpoint này ghi nhận rằng nó đã xảy ra.
+         *
+         *     Phân biệt ấy quan trọng: nếu một ngày có cổng chi trả tự động, bước này
+         *     thành bên NHẬN webhook của cổng ấy thay vì một nút người bấm — và hàng
+         *     rào trạng thái cùng vết kiểm toán không phải viết lại.
+         *
+         *     `paid_by` là bản ghi DUY NHẤT nói ai quyết định chuyển tiền ra khỏi nền
+         *     tảng. Ràng buộc `settlement_da_tra_phai_co_nguoi_ky` ở tầng database
+         *     cưỡng chế nó.
+         *
+         *     `409 CONFLICT` khi đợt KHÔNG ở `CONFIRMED`.
+         */
+        post: operations["markSettlementPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/payouts": {
         parameters: {
             query?: never;
@@ -3504,6 +3604,19 @@ export interface components {
         Settlement: {
             id: components["schemas"]["Id"];
             /**
+             * @description Gian hàng của đợt.
+             *
+             *     Với mặt của nhà bán trường này là DƯ — họ chỉ thấy đợt của chính
+             *     mình. Nó có vì mặt quản trị (`listSettlements`) liệt kê đợt của MỌI
+             *     gian hàng, và một danh sách như thế không có mã gian hàng thì không
+             *     dùng được.
+             *
+             *     Một hình dạng dùng chung với một trường dư ít tệ hơn hai hình dạng
+             *     cho cùng một tài nguyên: hai hình dạng là hai chỗ phải cùng đúng mỗi
+             *     lần đổi.
+             */
+            seller_id: components["schemas"]["Id"];
+            /**
              * @description BA trạng thái, không phải bốn. `PENDING_CONFIRMATION` của bản trước
              *     chưa bao giờ tồn tại trong `domain.TrangThaiDoiSoat`.
              * @enum {string}
@@ -3547,6 +3660,42 @@ export interface components {
             net_amount: components["schemas"]["Money"];
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: date-time
+             * @description Mốc đợt được CHỐT, sẵn sàng chi trả. Thiếu trường = chưa chốt.
+             *
+             *     Nhà bán thấy mốc này: "đã xác nhận lúc nào" là một trong hai câu họ
+             *     hỏi nhiều nhất về một đợt.
+             */
+            confirmed_at?: string;
+            /**
+             * Format: date-time
+             * @description Mốc tiền ĐÃ chuyển. Thiếu trường = chưa chuyển.
+             *
+             *     Việc chuyển tiền xảy ra NGOÀI hệ thống (chuyển khoản ngân hàng);
+             *     mốc này ghi nhận rằng nó đã xảy ra.
+             */
+            paid_at?: string;
+            /**
+             * @description Người KÝ bước chốt. CHỈ có ở mặt QUẢN TRỊ.
+             *
+             *     Mặt của nhà bán KHÔNG trả trường này: nhà bán không cần biết nhân
+             *     viên nào bấm nút, và định danh nhân viên lọt ra ngoài là một rò rỉ
+             *     không cần thiết.
+             *
+             *     Tới 01/10/2026 hai bước của vòng đời không có lời gọi nào, nên mọi
+             *     đợt nằm `DRAFT` vĩnh viễn — xem P3-89.
+             */
+            confirmed_by?: components["schemas"]["Id"];
+            /**
+             * @description Người KÝ bước chuyển tiền. CHỈ có ở mặt QUẢN TRỊ.
+             *
+             *     Đây là bản ghi duy nhất nói ai quyết định chuyển tiền RA KHỎI nền
+             *     tảng, nên nó BẮT BUỘC khi `paid_at` có mặt — ràng buộc
+             *     `settlement_da_tra_phai_co_nguoi_ky` ở tầng database cưỡng chế điều
+             *     đó.
+             */
+            paid_by?: components["schemas"]["Id"];
             /**
              * @description TỪNG KHOẢN làm nên đợt này.
              *
@@ -3642,6 +3791,23 @@ export interface components {
             /** @enum {string} */
             direction: "DEBIT" | "CREDIT";
             amount: components["schemas"]["Money"];
+        };
+        /**
+         * @description Thân của CẢ HAI bước ký.
+         *
+         *     CHỈ có `reason`. Người ký lấy từ token — xem mô tả của
+         *     `confirmSettlement`.
+         */
+        SettlementSignRequest: {
+            /**
+             * @description Vì sao ký bước này. Tối thiểu 20 ký tự, và `audit.WriteSensitive`
+             *     từ chối giá trị rác.
+             *
+             *     Không phải thủ tục: với đường tiền, "vì sao" là thứ duy nhất phân
+             *     biệt một lần chi chính đáng với một lần biển thủ.
+             * @example Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng
+             */
+            reason: string;
         };
         /**
          * @description Đề xuất bổ sung hàng — ví dụ điển hình của **phần mềm hỗ trợ ra quyết định**,
@@ -8496,6 +8662,123 @@ export interface operations {
             };
         };
     };
+    listSettlements: {
+        parameters: {
+            query?: {
+                /** @description Số bản ghi tối đa mỗi trang. */
+                limit?: components["parameters"]["Limit"];
+                /** @description Thiếu tham số = mọi trạng thái. */
+                status?: "DRAFT" | "CONFIRMED" | "PAID";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Danh sách đợt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Settlement"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    confirmSettlement: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                settlement_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettlementSignRequest"];
+            };
+        };
+        responses: {
+            /** @description Đã chốt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        settlement: components["schemas"]["Settlement"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    markSettlementPaid: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description ULID do client sinh, gắn với **ý định của người dùng**, không phải với
+                 *     lần gọi mạng. Mọi lần thử lại cùng hành động phải dùng **cùng key**.
+                 *
+                 *     - Cùng key, cùng nội dung → trả kết quả đã lưu, không xử lý lại
+                 *     - Cùng key, khác nội dung → `409 IDEMPOTENCY_KEY_REUSED`
+                 *     - Đang xử lý → `409 IDEMPOTENT_REQUEST_IN_PROGRESS`
+                 *     - Key hết hạn (24 giờ) → xử lý như request mới
+                 */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                settlement_id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettlementSignRequest"];
+            };
+        };
+        responses: {
+            /** @description Đã ghi nhận chuyển tiền */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        settlement: components["schemas"]["Settlement"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     executePayouts: {
         parameters: {
             query?: never;
@@ -9129,7 +9412,7 @@ export interface operations {
                  *     lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
                  */
                 cursor?: components["parameters"]["Cursor"];
-                resource_type?: "LEDGER" | "INVENTORY" | "SELLER" | "CREATOR" | "CUSTOMER" | "CONTENT" | "ORDER" | "CONFIG";
+                resource_type?: "LEDGER" | "INVENTORY" | "SELLER" | "CREATOR" | "CUSTOMER" | "CONTENT" | "ORDER" | "CONFIG" | "SETTLEMENT";
                 action?: string;
                 actor_id?: string;
                 /**

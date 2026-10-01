@@ -659,6 +659,12 @@ type SettlementRepository interface {
 	TimTheoID(ctx context.Context, id ids.ID) (*domain.DoiSoat, error)
 	TimTheoNhaBan(ctx context.Context, sellerID ids.ID, limit int) ([]*domain.DoiSoat, error)
 
+	// TimTheoTrangThai liệt kê đợt của MỌI nhà bán — mặt QUẢN TRỊ.
+	//
+	// Tách khỏi `TimTheoNhaBan` vì hai hàm có ranh giới bảo mật ngược
+	// nhau; xem chú thích ở `postgres.SettlementStore.TimTheoTrangThai`.
+	TimTheoTrangThai(ctx context.Context, trangThai string, limit int) ([]*domain.DoiSoat, error)
+
 	// ButToanChuaGom trả các bút toán rút được chưa thuộc đợt nào, gom
 	// theo nhà bán.
 	ButToanChuaGom(
@@ -757,6 +763,28 @@ func (s *Service) LayDoiSoat(
 		return nil, domain.ErrSettlementNotFound
 	}
 	return d, nil
+}
+
+// DanhSachDoiSoatQuanTri liệt kê đợt của MỌI nhà bán, lọc theo trạng thái.
+//
+// Dành cho mặt QUẢN TRỊ. Hàm này cố ý KHÔNG nhận `sellerID`: nhận nó rồi để
+// rỗng nghĩa là có một đường gọi trả dữ liệu mọi gian hàng mà trông như
+// đường của nhà bán.
+func (s *Service) DanhSachDoiSoatQuanTri(
+	ctx context.Context, trangThai string, limit int,
+) ([]*domain.DoiSoat, error) {
+	if s.settlements == nil {
+		return nil, errors.New("payment: chưa nối kho đợt đối soát")
+	}
+	switch trangThai {
+	case "", string(domain.DoiSoatNhap), string(domain.DoiSoatXacNhan),
+		string(domain.DoiSoatDaTra):
+	default:
+		// Trạng thái lạ trả RỖNG thay vì mọi đợt: một lỗi đánh máy ở tham
+		// số lọc không được biến thành "cho xem hết".
+		return nil, nil
+	}
+	return s.settlements.TimTheoTrangThai(ctx, trangThai, limit)
 }
 
 // DanhSachDoiSoat trả các đợt của một nhà bán.

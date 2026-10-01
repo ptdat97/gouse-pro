@@ -33,6 +33,15 @@ const ORDER_TONES: Record<string, Tone> = {
   REFUNDED: "neutral",
 };
 
+const SETTLEMENT_TONES: Record<string, Tone> = {
+  // DRAFT là trạng thái CẦN NGƯỜI LÀM GÌ, nên nó warning chứ không neutral:
+  // một đợt nằm DRAFT nghĩa là nhà bán chưa được chi, và tới 01/10/2026 MỌI
+  // đợt đều nằm đó vì vòng đời chưa khép (P3-89).
+  DRAFT: "warning",
+  CONFIRMED: "info",
+  PAID: "success",
+};
+
 // Nhận `undefined` vì kiểu sinh từ OpenAPI cho biết `status` không phải
 // trường bắt buộc. Ép kiểu để làm TypeScript im lặng chỉ giấu vấn đề tới
 // lúc chạy.
@@ -42,4 +51,8 @@ export function sellerTone(status: string | undefined): Tone {
 
 export function orderTone(status: string | undefined): Tone {
   return status ? ORDER_TONES[status] ?? "neutral" : "neutral";
+}
+
+export function settlementTone(status: string | undefined): Tone {
+  return status ? SETTLEMENT_TONES[status] ?? "neutral" : "neutral";
 }

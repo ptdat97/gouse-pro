@@ -354,9 +354,11 @@ quên.
 
 ```text
 payout            chuyển tiền thật, gọi API ngân hàng. Phase 2
-màn hình admin    danh sách đợt + nút ký. Hai endpoint đã có, giao diện
-                  chưa — xem P3-89
 ```
+
+Màn hình quản trị ĐÃ có từ 01/10/2026: `apps/admin/settlements`, lọc theo
+trạng thái, một nút cho mỗi bước, lý do đi qua `ReasonDialog` (cùng component
+với hủy đơn và điều chỉnh sổ cái).
 
 Thiết kế mong muốn của hai phần ấy:
 

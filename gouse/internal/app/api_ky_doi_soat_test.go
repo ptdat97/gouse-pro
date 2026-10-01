@@ -263,3 +263,71 @@ func (a *apiTest) trangThaiDoiSoat(t *testing.T, id string) string {
 	}
 	return tt
 }
+
+// Danh sách đợt của QUẢN TRỊ thấy MỌI gian hàng; của nhà bán chỉ thấy mình.
+//
+// # Ranh giới bảo mật ngược nhau trong hai đường gần giống nhau
+//
+// `/api/v1/admin/settlements` và `/api/v1/seller/settlements` trả cùng hình
+// dạng, và khác nhau ở đúng một điều: đường của nhà bán lọc theo `seller_id`
+// lấy từ token, đường của quản trị cố ý KHÔNG lọc.
+//
+// Backend dùng HAI hàm kho khác nhau (`TimTheoNhaBan` / `TimTheoTrangThai`)
+// chứ không một hàm có tham số rỗng. Lý do: một chỗ quên truyền token sẽ trả
+// dữ liệu mọi gian hàng, và chỗ quên ấy không trông giống lỗi.
+//
+// Bài này khẳng định cả hai chiều. Chỉ kiểm chiều "admin thấy hết" thì một
+// bản cài bỏ hẳn phép lọc vẫn xanh.
+func TestDanhSachDoiSoatPhanBietQuanTriVaNhaBan(t *testing.T) {
+	a := newAPITest(t)
+
+	id, B := a.doiSoatNhap(t)
+	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsFinance)
+
+	// ---- Quản trị: thấy đợt, kèm hai trường NGƯỜI KÝ ----
+	res := a.call(http.MethodGet, "/api/v1/admin/settlements?status=DRAFT",
+		nil, bearer(tok))
+	if res.code != http.StatusOK {
+		t.Fatalf("quản trị liệt kê đợt: HTTP %d — %s", res.code, res.raw)
+	}
+	ds, _ := res.body["data"].([]any)
+	if len(ds) == 0 {
+		t.Fatal("quản trị không thấy đợt nào")
+	}
+
+	thay := false
+	for _, v := range ds {
+		d, _ := v.(map[string]any)
+		if got, _ := d["id"].(string); got == id {
+			thay = true
+			if s, _ := d["seller_id"].(string); s != B.sellerID {
+				t.Errorf("đợt thiếu mã gian hàng (%q) — một danh sách MỌI "+
+					"gian hàng không có mã gian hàng thì không dùng được", s)
+			}
+		}
+	}
+	if !thay {
+		t.Errorf("đợt %s không có trong danh sách của quản trị", id)
+	}
+
+	// ---- Nhà bán: KHÔNG tới được đường của quản trị ----
+	//
+	// 403 chứ không 404: họ đã xác thực, chỉ không đủ quyền.
+	if r := a.call(http.MethodGet, "/api/v1/admin/settlements", nil,
+		bearer(B.token)); r.code != http.StatusForbidden {
+		t.Errorf("nhà bán gọi được đường quản trị: HTTP %d — %s", r.code, r.raw)
+	}
+
+	// ---- `status` LẠ trả rỗng, KHÔNG trả mọi đợt ----
+	//
+	// Một lỗi đánh máy ở tham số lọc không được biến thành "cho xem hết".
+	res = a.call(http.MethodGet, "/api/v1/admin/settlements?status=KHONG_CO_THAT",
+		nil, bearer(tok))
+	if res.code != http.StatusOK {
+		t.Fatalf("lọc trạng thái lạ: HTTP %d — %s", res.code, res.raw)
+	}
+	if lac, _ := res.body["data"].([]any); len(lac) != 0 {
+		t.Errorf("trạng thái lạ trả %d đợt, cần 0 — một lỗi đánh máy ở ô lọc "+
+			"không được thành \"cho xem hết\"", len(lac))
+	}
+}

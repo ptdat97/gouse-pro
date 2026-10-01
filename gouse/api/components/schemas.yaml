@@ -1188,10 +1188,24 @@ Settlement:
     chúng CHƯA tính được: đợt đối soát gom theo khoản rút được ở
     `seller_balance_entry`, không gom theo loại bút toán. Tách ra được, mà
     đó là một tính năng chứ không phải một phép đổi tên. Xem P3-60.
-  required: [id, status, currency, period_start, period_end, gross_amount, deficit_amount, net_amount, created_at]
+  required: [id, seller_id, status, currency, period_start, period_end, gross_amount, deficit_amount, net_amount, created_at]
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
+    seller_id:
+      allOf:
+        - $ref: './common.yaml#/schemas/Id'
+      description: |
+        Gian hàng của đợt.
+
+        Với mặt của nhà bán trường này là DƯ — họ chỉ thấy đợt của chính
+        mình. Nó có vì mặt quản trị (`listSettlements`) liệt kê đợt của MỌI
+        gian hàng, và một danh sách như thế không có mã gian hàng thì không
+        dùng được.
+
+        Một hình dạng dùng chung với một trường dư ít tệ hơn hai hình dạng
+        cho cùng một tài nguyên: hai hình dạng là hai chỗ phải cùng đúng mỗi
+        lần đổi.
     status:
       type: string
       description: |

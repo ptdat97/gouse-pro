@@ -172,6 +172,29 @@ func (s *SettlementStore) TimTheoID(ctx context.Context, id ids.ID) (*domain.Doi
 	return ds[0], nil
 }
 
+// TimTheoTrangThai liệt kê đợt của MỌI nhà bán, lọc theo trạng thái.
+//
+// # Vì sao một hàm riêng thay vì nới `TimTheoNhaBan`
+//
+// Hai hàm trả lời hai câu có RANH GIỚI BẢO MẬT ngược nhau: `TimTheoNhaBan`
+// lọc theo nhà bán lấy từ token, còn hàm này CỐ Ý không lọc. Gộp lại thành
+// một hàm có tham số `sellerID` rỗng nghĩa là một chỗ quên truyền token sẽ
+// trả dữ liệu của mọi gian hàng — và chỗ quên ấy không trông giống lỗi.
+//
+// `trangThai` rỗng = mọi trạng thái.
+func (s *SettlementStore) TimTheoTrangThai(
+	ctx context.Context, trangThai string, limit int,
+) ([]*domain.DoiSoat, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	// `$1 = ''` chọn MỌI trạng thái. Một truy vấn thay vì hai nhánh chuỗi
+	// SQL nối tay — chuỗi nối tay là chỗ lỗ SQL injection hay xuất hiện.
+	return s.doc(ctx,
+		`WHERE ($1 = '' OR status = $1) ORDER BY created_at DESC LIMIT $2`,
+		trangThai, limit)
+}
+
 func (s *SettlementStore) TimTheoNhaBan(
 	ctx context.Context, sellerID ids.ID, limit int,
 ) ([]*domain.DoiSoat, error) {

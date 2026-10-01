@@ -8063,10 +8063,73 @@ coverage     TestMoiDuongCanQuyenDeuDuocKiem + …DeuCoTrongMaTran:
 Cả hai đỏ TRƯỚC khi tôi kịp quên — đó là thứ một bộ hàng rào tốt làm được:
 nó không chờ người nhớ.
 
+#### Màn hình admin — ĐÃ LÀM cùng ngày
+
+Hai endpoint ký mà không màn hình nào gọi vẫn là hai endpoint không ai gọi —
+đúng dạng lỗi vừa sửa, chỉ dịch lên một tầng. Nên màn hình làm ngay sau.
+
+```text
+GET /api/v1/admin/settlements   endpoint liệt kê, CHƯA có trước đó
+api-client                      listSettlements · confirmSettlement
+                                markSettlementPaid
+apps/admin/settlements/page.tsx trang, lọc theo trạng thái, hai nút
+components/shell.tsx            mục menu, CHỈ OPS_FINANCE + ADMIN
+lib/status.ts                   settlementTone — DRAFT là `warning`
+unit/ky-doi-soat.spec.ts        6 bài
+```
+
+**`GET` cần một chuỗi middleware RIÊNG.** Chuỗi của hai nút có
+`RequireIdempotencyKey`, mà middleware ấy chỉ áp cho POST/PATCH — nhưng dùng
+chung chuỗi nghĩa là mọi lần đọc danh sách cũng đi qua nó.
+
+**`DRAFT` là `warning`, không phải `neutral`.** `DRAFT` nghe như "bản nháp" —
+một thứ chưa cần ai nhìn. Với đợt đối soát nó nghĩa là **nhà bán chưa được
+chi**. Sắc thái trung tính làm nó lẫn vào danh sách.
+
+**Nút chốt MỜ khi `net ≤ 0`.** `XacNhan` từ chối trường hợp ấy; để nút sáng
+rồi trả lỗi là bắt người vận hành học quy tắc bằng cách gặp lỗi — trên màn
+hình tiền.
+
+**`PAID` không có nút nào.** Một nút không làm gì là một nút người dùng sẽ
+bấm rồi không hiểu vì sao im lặng.
+
+#### Hợp đồng chặn một trường tôi định bịa
+
+Trang cần `seller_id` để hiện gian hàng. `Settlement` KHÔNG khai nó — mặt
+nhà bán không cần (họ chỉ thấy đợt của mình), nên nó chưa bao giờ có.
+
+`tsc` đỏ ngay: *"Property 'seller_id' does not exist"*. Giao diện không bịa
+được một trường hợp đồng không có — thêm vào đặc tả VÀ vào DTO Go, rồi sinh
+lại kiểu.
+
+Một hình dạng dùng chung với một trường dư (nhà bán nhận `seller_id` của
+chính mình) ít tệ hơn hai hình dạng cho cùng một tài nguyên: hai hình dạng là
+hai chỗ phải cùng đúng mỗi lần đổi.
+
+#### Và chốt một chiều của apicheck bắt enum mới
+
+Thêm `status` vào tham số lọc đẩy số enum chưa gác từ 63 lên 64, vượt chốt.
+Ghép cặp nó với `domain.TrangThaiDoiSoat` — và ghép CẢ HAI chỗ (tham số lọc
+và `Settlement/properties/status`) chứ không chỉ một: tham số lọc khai một
+trạng thái mà miền không có là một ô lọc không bao giờ ra kết quả.
+
+#### Ba phép phá ranh giới bảo mật của danh sách
+
+```text
+trạng thái lạ trả MỌI đợt        → "trả 1 đợt, cần 0"
+admin dùng hàm kho của nhà bán   → "quản trị không thấy đợt nào"
+route nới cho SELLER_OWNER       → "nhà bán gọi được đường quản trị: 200"
+```
+
+Phép thứ hai là lý do backend có HAI hàm kho (`TimTheoNhaBan` /
+`TimTheoTrangThai`) chứ không một hàm với `sellerID` rỗng: một chỗ quên
+truyền token sẽ trả dữ liệu mọi gian hàng, và chỗ quên ấy không trông giống
+lỗi.
+
 #### Việc còn lại
 
-Màn hình admin (danh sách đợt + nút ký). Làm cùng P3-88, vì cả hai là màn
-hình vận hành tiền và tách ra sẽ dựng hai lần cùng một khung quyền.
+P3-88 (hàng đợi rà soát cho `NeedsReview` của khung giá) dùng lại đúng khung
+quyền và khuôn trang này.
 
 ---
 

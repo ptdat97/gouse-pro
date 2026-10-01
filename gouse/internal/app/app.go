@@ -1024,6 +1024,16 @@ func RegisterRoutes(
 			// OPS_MERCHANDISING KHÔNG tới được đây, và đó là nghĩa thực
 			// tế của "quyền ký chi tách khỏi quyền admin thường" trong
 			// một hệ phân quyền theo VAI TRÒ.
+			// GET KHÔNG cần Idempotency-Key: middleware chỉ áp cho
+			// POST/PATCH, nhưng chuỗi này có `RequireIdempotencyKey` nên
+			// phải tách ra một chuỗi riêng — nếu không mọi lần đọc danh
+			// sách cũng đòi một khóa.
+			mux.Handle("GET /api/v1/admin/settlements", httpserver.Chain(
+				payMux,
+				httpserver.Auth(identityModule),
+				httpserver.RequireRole("ADMIN", "OPS_FINANCE"),
+			))
+
 			mux.Handle(
 				"POST /api/v1/admin/settlements/{settlement_id}/confirm",
 				authedFinance)

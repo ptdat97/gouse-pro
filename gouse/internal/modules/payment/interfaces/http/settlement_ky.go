@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 	"github.com/fashion-commerce/platform/internal/modules/payment/application"
@@ -50,6 +51,38 @@ func themNguoiKy(j settlementJSON, d *domain.DoiSoat) settlementJSON {
 	j.ConfirmedBy = d.ConfirmedBy().String()
 	j.PaidBy = d.PaidBy().String()
 	return j
+}
+
+// listSettlements liệt kê đợt của MỌI nhà bán — mặt QUẢN TRỊ.
+//
+// Không có endpoint này thì hai nút ký ở trên không có đường nào tới: màn
+// hình vận hành cần danh sách trước khi cần nút. Một endpoint ghi mà không
+// có endpoint đọc là một nút không ai bấm được.
+func (h *Handler) listSettlements(w http.ResponseWriter, r *http.Request) {
+	ds, err := h.svc.DanhSachDoiSoatQuanTri(r.Context(),
+		r.URL.Query().Get("status"), docLimit(r))
+	if err != nil {
+		h.fail(w, r, translateDoiSoat(err))
+		return
+	}
+
+	out := make([]settlementJSON, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, themNguoiKy(toSettlementJSON(d), d))
+	}
+	h.ok(w, r, map[string]any{"data": out})
+}
+
+// docLimit đọc `limit`, kẹp về khoảng hợp lệ.
+//
+// Giá trị lạ rơi về mặc định thay vì báo lỗi: đây là tham số TRÌNH BÀY, và
+// một màn hình vận hành không nên trắng vì ai đó gõ `limit=abc`.
+func docLimit(r *http.Request) int {
+	n, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || n <= 0 || n > 100 {
+		return 50
+	}
+	return n
 }
 
 func (h *Handler) confirmSettlement(w http.ResponseWriter, r *http.Request) {

@@ -119,7 +119,21 @@ func (h *SellerHandler) fail(w http.ResponseWriter, r *http.Request, err error) 
 // ---------------------------------------------------------------- Đối soát
 
 type settlementJSON struct {
-	ID       string `json:"id"`
+	ID string `json:"id"`
+
+	// SellerID: gian hàng của đợt.
+	//
+	// # Vì sao mặt NHÀ BÁN cũng trả nó
+	//
+	// Nhà bán chỉ thấy đợt của chính mình, nên với họ trường này là dư. Nó
+	// có vì mặt QUẢN TRỊ liệt kê đợt của MỌI gian hàng, và một danh sách
+	// như thế không có mã gian hàng thì không dùng được.
+	//
+	// Một hình dạng dùng chung với một trường dư thừa ít tệ hơn hai hình
+	// dạng cho cùng một tài nguyên: hai hình dạng là hai chỗ phải cùng
+	// đúng mỗi lần đổi.
+	SellerID string `json:"seller_id"`
+
 	Status   string `json:"status"`
 	Currency string `json:"currency"`
 
@@ -191,7 +205,8 @@ func toSettlementJSON(d *domain.DoiSoat) settlementJSON {
 		return moneyJSON{Amount: x.Amount(), Currency: string(x.Currency())}
 	}
 	out := settlementJSON{
-		ID: d.ID().String(), Status: string(d.Status()),
+		ID: d.ID().String(), SellerID: d.SellerID().String(),
+		Status:      string(d.Status()),
 		Currency:    string(d.Net().Currency()),
 		PeriodStart: d.PeriodStart().Format(time.RFC3339),
 		PeriodEnd:   d.PeriodEnd().Format(time.RFC3339),

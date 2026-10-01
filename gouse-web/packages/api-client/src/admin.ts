@@ -251,3 +251,77 @@ export function rejectProduct(
     { reason },
   );
 }
+
+// ------------------------------------------------- Đợt đối soát
+
+export type AdminSettlements = Ok<operations["listSettlements"]>;
+export type SettlementSigned = Ok<operations["confirmSettlement"]>;
+
+/** Một đợt đối soát ở mặt quản trị. */
+export type AdminSettlement = AdminSettlements["data"][number];
+
+/**
+ * Danh sách đợt đối soát của MỌI gian hàng.
+ *
+ * Khác `listMySettlements` của nhà bán ở đúng ranh giới bảo mật: đường kia
+ * lọc theo `seller_id` lấy từ token. Backend dùng hai hàm kho khác nhau chứ
+ * không một hàm có tham số rỗng — xem mô tả của `listSettlements` trong đặc
+ * tả.
+ *
+ * `status` lạ trả mảng rỗng, không trả mọi đợt.
+ */
+export function listSettlements(
+  api: ApiClient,
+  params?: { status?: string; limit?: number },
+): Promise<AdminSettlements> {
+  return api.get<AdminSettlements>("/api/v1/admin/settlements", {
+    status: params?.status,
+    limit: params?.limit,
+  });
+}
+
+/**
+ * Bước MỘT: chốt đợt — `DRAFT` → `CONFIRMED`.
+ *
+ * Đây là lúc một con số **tính được** thành một **cam kết** với nhà bán: số
+ * đó hiện trên màn hình của họ và họ dựa vào nó.
+ *
+ * `reason` tối thiểu 20 ký tự — backend từ chối lý do rác. Với đường tiền,
+ * "vì sao" là thứ duy nhất phân biệt một lần chi chính đáng với một lần biển
+ * thủ.
+ *
+ * Người ký lấy TỪ TOKEN ở backend, không gửi trong thân.
+ */
+export function confirmSettlement(
+  api: ApiClient,
+  id: string,
+  reason: string,
+  idempotencyKey?: string,
+): Promise<SettlementSigned> {
+  return api.post<SettlementSigned>(
+    `/api/v1/admin/settlements/${encodeURIComponent(id)}/confirm`,
+    { reason },
+    { idempotencyKey },
+  );
+}
+
+/**
+ * Bước HAI: ghi nhận đã chuyển tiền — `CONFIRMED` → `PAID`.
+ *
+ * **KHÔNG chuyển tiền.** Việc chuyển xảy ra ngoài hệ thống (chuyển khoản
+ * ngân hàng); lời gọi này ghi nhận rằng nó đã xảy ra.
+ *
+ * `409 CONFLICT` khi đợt không ở `CONFIRMED` — thường vì người khác vừa bấm.
+ */
+export function markSettlementPaid(
+  api: ApiClient,
+  id: string,
+  reason: string,
+  idempotencyKey?: string,
+): Promise<SettlementSigned> {
+  return api.post<SettlementSigned>(
+    `/api/v1/admin/settlements/${encodeURIComponent(id)}/mark-paid`,
+    { reason },
+    { idempotencyKey },
+  );
+}

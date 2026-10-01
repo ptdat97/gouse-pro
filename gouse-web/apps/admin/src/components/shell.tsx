@@ -38,6 +38,13 @@ const NAV: NavItem[] = [
   { href: "/sellers", label: "Nhà bán", roles: ["OPS_MERCHANDISING"] },
   { href: "/products", label: "Duyệt sản phẩm", roles: ["OPS_MERCHANDISING"] },
   { href: "/orders", label: "Đơn hàng", roles: ["OPS_SUPPORT"] },
+
+  // Tài chính: CHỈ OPS_FINANCE (và ADMIN, luôn thấy tất cả).
+  //
+  // Hai nút trên trang này là đường TIỀN RA nhà bán, nên nhóm thấy được nó
+  // phải trùng nhóm backend cho phép — nếu không người vận hành bấm vào rồi
+  // nhận 403, và họ sẽ nghĩ hệ thống lỗi.
+  { href: "/settlements", label: "Đợt đối soát", roles: ["OPS_FINANCE"] },
   { href: "/audit-log", label: "Nhật ký thao tác", roles: [] },
 
   // CHỈ ADMIN: những tham số này quyết định cách hệ thống chấm điểm nhà
