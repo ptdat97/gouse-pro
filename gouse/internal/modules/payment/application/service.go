@@ -42,6 +42,30 @@ type AuditRecorder interface {
 	// dịch thật phía sau. "Vì sao" là thứ duy nhất phân biệt một lần sửa
 	// sai chính đáng với một lần biển thủ.
 	RecordLedgerAdjustment(ctx context.Context, in AdjustmentRecord) error
+
+	// RecordSettlementSigned ghi việc KÝ một bước của đợt đối soát.
+	//
+	// Tách khỏi `RecordLedgerAdjustment` vì hai thao tác trả lời hai câu
+	// khác nhau: điều chỉnh sổ cái TẠO RA tiền trong sổ, còn ký đợt đối
+	// soát CHUYỂN tiền đã có ra ngoài. Gộp chúng vào một `Action` sẽ làm
+	// báo cáo kiểm toán không phân biệt được hai rủi ro khác hẳn nhau.
+	RecordSettlementSigned(ctx context.Context, in SettlementSignRecord) error
+}
+
+// SettlementSignRecord là dữ liệu ghi vào nhật ký khi ký một bước.
+type SettlementSignRecord struct {
+	SettlementID ids.ID
+	SellerID     ids.ID
+
+	// Buoc là "confirm" hoặc "mark_paid".
+	Buoc string
+
+	ActorID   string
+	Reason    string
+	RequestID string
+
+	NetAmount int64
+	Currency  string
 }
 
 // AdjustmentRecord là dữ liệu ghi vào nhật ký khi điều chỉnh sổ cái.
@@ -624,6 +648,13 @@ type SettlementRepository interface {
 		ctx context.Context, sellerID ids.ID,
 		dung func(noDangCho money.Money) (*domain.DoiSoat, *domain.LedgerEntry, error),
 	) error
+
+	// LuuKemAudit ghi trạng thái mới và chạy `fn` trong CÙNG một giao dịch.
+	//
+	// Hai bước của vòng đời đợt đối soát là hai bước duy nhất biến một con
+	// số tính được thành TIỀN RỜI nền tảng, nên vết kiểm toán không được
+	// phép ghi rời — xem `postgres.SettlementStore.LuuKemAudit`.
+	LuuKemAudit(ctx context.Context, d *domain.DoiSoat, fn domain.TxFunc) error
 
 	TimTheoID(ctx context.Context, id ids.ID) (*domain.DoiSoat, error)
 	TimTheoNhaBan(ctx context.Context, sellerID ids.ID, limit int) ([]*domain.DoiSoat, error)

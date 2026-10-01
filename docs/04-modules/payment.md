@@ -299,13 +299,63 @@ tới 23/09/2026; xem P3-71.
 Nợ lớn hơn tổng đợt thì `deficit` kẹp ở mức `gross`, phần chưa thu nằm
 tiếp ở số âm và kỳ sau thu. Nền tảng không đòi tiền mặt ngược từ nhà bán.
 
-### 7.3 CHƯA dựng
+### 7.3 Vòng đời — ĐÃ KHÉP 01/10/2026
 
 ```text
-xác nhận đợt      `DoiSoat.XacNhan` và `DanhDauDaTra` khai ra mà KHÔNG
-                  AI GỌI — mọi đợt nằm DRAFT vĩnh viễn. Khép vòng đời
-                  cần quyết ai được ký chi, và một màn hình admin
+DRAFT ──confirm──► CONFIRMED ──mark-paid──► PAID
+       người ký                người ký
+       ADMIN | OPS_FINANCE     ADMIN | OPS_FINANCE
+```
+
+`DoiSoat.XacNhan` và `DanhDauDaTra` có từ migration 000036 với đủ hàng rào
+trạng thái, và tới 01/10/2026 **không lời gọi nào** — mọi đợt nằm `DRAFT`
+vĩnh viễn, nhà bán không bao giờ được chi. Khép nó cần một quyết định không
+thuộc về mã: ai được ký chi (P3-89).
+
+**Hai bước, không một.** Bước một là lúc một con số *tính được* thành một
+*cam kết* với nhà bán — số đó hiện trên màn hình của họ và họ dựa vào nó.
+Bước hai là lúc tiền rời nền tảng. Gộp lại thì không ai soát con số trước khi
+nó thành cam kết.
+
+**`mark-paid` KHÔNG chuyển tiền.** Việc chuyển xảy ra ngoài hệ thống (chuyển
+khoản ngân hàng), và endpoint ghi nhận rằng nó đã xảy ra. Nếu một ngày có
+cổng chi trả tự động, bước này thành bên NHẬN webhook của cổng ấy thay vì một
+nút người bấm — và hàng rào trạng thái cùng vết kiểm toán không phải viết
+lại.
+
+**Người ký lưu TRÊN đợt** (`confirmed_by` / `paid_by`), không chỉ trong
+`audit_log`. Hai nguồn này không phải hai nguồn sự thật: audit ghi SỰ KIỆN
+(ai gọi API nào, lúc nào), cột ghi TRẠNG THÁI (đợt này do ai ký). Câu "ai ký
+đợt này" xuất hiện trên màn hình chi tiết đợt và trong tranh chấp với nhà
+bán; bắt mọi bên đọc đi JOIN `audit_log` là biến một thuộc tính thành một
+truy vấn.
+
+Ràng buộc `settlement_xac_nhan_phai_co_nguoi_ky` và
+`settlement_da_tra_phai_co_nguoi_ky` ở tầng database là chốt chặn cuối: một
+câu UPDATE viết tay lúc xử lý sự cố cũng không ghi được `PAID` mà thiếu người
+ký.
+
+#### Nguyên tắc BỐN MẮT — chưa cài, và đó là lựa chọn
+
+Người xác nhận hiện **được phép** đánh dấu đã trả. Nguyên tắc bốn mắt là hàng
+rào đúng cho một tổ chức có từ hai người vận hành tài chính, nhưng nó sẽ chặn
+hẳn đường chi trả của một đội một người.
+
+Thêm nó là MỘT dòng trong `DanhDauDaTra`:
+
+```go
+if nguoiKy == d.confirmedBy { return ErrCanHaiNguoiKy }
+```
+
+Ghi ra để việc KHÔNG cài nó là một lựa chọn đọc được, không phải một chỗ bị
+quên.
+
+### 7.4 CHƯA dựng
+
+```text
 payout            chuyển tiền thật, gọi API ngân hàng. Phase 2
+màn hình admin    danh sách đợt + nút ký. Hai endpoint đã có, giao diện
+                  chưa — xem P3-89
 ```
 
 Thiết kế mong muốn của hai phần ấy:

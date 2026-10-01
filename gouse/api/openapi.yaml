@@ -236,6 +236,10 @@ paths:
     $ref: './paths/admin.yaml#/seller_suspend'
   /api/v1/admin/ledger/adjustments:
     $ref: './paths/admin.yaml#/ledger_adjustment'
+  /api/v1/admin/settlements/{settlement_id}/confirm:
+    $ref: './paths/admin.yaml#/settlement_confirm'
+  /api/v1/admin/settlements/{settlement_id}/mark-paid:
+    $ref: './paths/admin.yaml#/settlement_mark_paid'
   /api/v1/admin/payouts:
     $ref: './paths/admin.yaml#/payouts'
   /api/v1/admin/inventory/adjustments:

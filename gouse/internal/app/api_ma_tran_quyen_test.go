@@ -38,6 +38,15 @@ var maTranQuyen = []nhomQuyen{
 	{"sổ cái — tài chính", "/api/v1/admin/ledger",
 		[]string{identity.RoleAdmin, identity.RoleOpsFinance}},
 
+	// Ký đợt đối soát — ĐƯỜNG TIỀN RA nhà bán (P3-89).
+	//
+	// CÙNG hai vai trò với sổ cái, và đó là hai vai trò duy nhất mà
+	// `Role.RequiresTwoFactor()` trả true trong nhóm nhân viên. OPS_SUPPORT
+	// và OPS_MERCHANDISING KHÔNG tới được — đó là nghĩa thực tế của "quyền
+	// ký chi tách khỏi quyền admin thường" trong hệ phân quyền theo VAI TRÒ.
+	{"ký đợt đối soát — tài chính", "/api/v1/admin/settlements",
+		[]string{identity.RoleAdmin, identity.RoleOpsFinance}},
+
 	{"hồ sơ nhà bán — vận hành hàng hóa", "/api/v1/admin/sellers",
 		[]string{identity.RoleAdmin, identity.RoleOpsMerchandising}},
 

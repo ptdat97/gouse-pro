@@ -1179,7 +1179,7 @@ audit_log:
         in: query
         schema:
           type: string
-          enum: [LEDGER, INVENTORY, SELLER, CREATOR, CUSTOMER, CONTENT, ORDER, CONFIG]
+          enum: [LEDGER, INVENTORY, SELLER, CREATOR, CUSTOMER, CONTENT, ORDER, CONFIG, SETTLEMENT]
       - name: action
         in: query
         schema:
@@ -1613,3 +1613,149 @@ admin_product_reject:
         description: Thiếu lý do
       '404':
         $ref: '../components/common.yaml#/responses/NotFound'
+
+# ---------------------------------------------------------------------
+# Hai bước KÝ đợt đối soát — mắt xích cuối của đường tiền ra nhà bán.
+#
+# Tới 01/10/2026 `DoiSoat.XacNhan` và `DanhDauDaTra` không có lời gọi nào,
+# nên mọi đợt nằm DRAFT vĩnh viễn. Xem P3-89.
+# ---------------------------------------------------------------------
+
+settlement_confirm:
+  post:
+    tags: [Admin]
+    summary: Chốt đợt đối soát
+    description: |
+      Bước MỘT của hai: chuyển đợt `DRAFT` → `CONFIRMED`.
+
+      Đây là lúc một con số **tính được** thành một **cam kết** với nhà bán —
+      số đó hiện trên màn hình của họ và họ dựa vào nó. Tách khỏi bước chuyển
+      tiền để có người soát con số trước khi nó thành cam kết.
+
+      Từ chối đợt có `net_amount` ≤ 0: nhà bán đang nợ nền tảng nhiều hơn số
+      kiếm được trong kỳ, và khoản nợ chuyển sang kỳ sau.
+
+      `409 CONFLICT` khi đợt KHÔNG ở `DRAFT` — thường vì người khác vừa bấm.
+      Không phải `400`: request hợp lệ, không có gì để người dùng sửa.
+
+      Yêu cầu: vai trò `ADMIN` hoặc `OPS_FINANCE` (cả hai bắt buộc xác thực
+      hai lớp), `reason` tối thiểu 20 ký tự, `Idempotency-Key`.
+
+      Người ký lấy TỪ TOKEN, không nhận từ thân request: nhận từ thân nghĩa
+      là ai gọi được endpoint cũng ghi được tên người khác vào vết kiểm toán.
+    operationId: confirmSettlement
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - name: settlement_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SettlementSignRequest'
+    responses:
+      '200':
+        description: Đã chốt
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settlement]
+              properties:
+                settlement:
+                  $ref: '../components/schemas.yaml#/Settlement'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+
+settlement_mark_paid:
+  post:
+    tags: [Admin]
+    summary: Ghi nhận đã chuyển tiền cho nhà bán
+    description: |
+      Bước HAI của hai: chuyển đợt `CONFIRMED` → `PAID`.
+
+      Endpoint này **KHÔNG chuyển tiền**. Việc chuyển xảy ra ngoài hệ thống
+      (chuyển khoản ngân hàng), và endpoint này ghi nhận rằng nó đã xảy ra.
+
+      Phân biệt ấy quan trọng: nếu một ngày có cổng chi trả tự động, bước này
+      thành bên NHẬN webhook của cổng ấy thay vì một nút người bấm — và hàng
+      rào trạng thái cùng vết kiểm toán không phải viết lại.
+
+      `paid_by` là bản ghi DUY NHẤT nói ai quyết định chuyển tiền ra khỏi nền
+      tảng. Ràng buộc `settlement_da_tra_phai_co_nguoi_ky` ở tầng database
+      cưỡng chế nó.
+
+      `409 CONFLICT` khi đợt KHÔNG ở `CONFIRMED`.
+    operationId: markSettlementPaid
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: '../components/common.yaml#/parameters/IdempotencyKey'
+      - name: settlement_id
+        in: path
+        required: true
+        schema:
+          $ref: '../components/common.yaml#/schemas/Id'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SettlementSignRequest'
+    responses:
+      '200':
+        description: Đã ghi nhận chuyển tiền
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settlement]
+              properties:
+                settlement:
+                  $ref: '../components/schemas.yaml#/Settlement'
+      '400':
+        $ref: '../components/common.yaml#/responses/BadRequest'
+      '401':
+        $ref: '../components/common.yaml#/responses/Unauthorized'
+      '403':
+        $ref: '../components/common.yaml#/responses/Forbidden'
+      '404':
+        $ref: '../components/common.yaml#/responses/NotFound'
+      '409':
+        $ref: '../components/common.yaml#/responses/Conflict'
+
+components:
+  schemas:
+    SettlementSignRequest:
+      type: object
+      description: |
+        Thân của CẢ HAI bước ký.
+
+        CHỈ có `reason`. Người ký lấy từ token — xem mô tả của
+        `confirmSettlement`.
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 20
+          description: |
+            Vì sao ký bước này. Tối thiểu 20 ký tự, và `audit.WriteSensitive`
+            từ chối giá trị rác.
+
+            Không phải thủ tục: với đường tiền, "vì sao" là thứ duy nhất phân
+            biệt một lần chi chính đáng với một lần biển thủ.
+          example: Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng

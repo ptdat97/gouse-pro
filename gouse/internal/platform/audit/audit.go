@@ -62,6 +62,17 @@ const (
 	ResourceContent   = "CONTENT"
 	ResourceOrder     = "ORDER"
 	ResourceConfig    = "CONFIG"
+
+	// ResourceSettlement: đợt đối soát của nhà bán.
+	//
+	// Tách khỏi `ResourceLedger` vì hai thứ mang hai rủi ro khác hẳn: sổ
+	// cái là nơi tiền được GHI NHẬN, đợt đối soát là nơi tiền RỜI nền
+	// tảng. Một báo cáo kiểm toán gộp chúng sẽ không trả lời được câu hỏi
+	// "ai đã ký chi trong tháng này".
+	//
+	// Thêm 01/10/2026 cùng P3-89. Enum ở `api/paths/admin.yaml#/audit_log`
+	// phải khớp — xem ghi chú đầu khối.
+	ResourceSettlement = "SETTLEMENT"
 )
 
 // minReasonLen là độ dài tối thiểu của lý do cho thao tác nhạy cảm.

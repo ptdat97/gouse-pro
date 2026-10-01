@@ -252,6 +252,8 @@ luồng 6 (giao hàng đến quyết toán) vừa được mở khóa ở P1.5.
 | `approveSeller` | `POST /api/v1/admin/sellers/{id}/approve` | IMPLEMENTED |
 | `suspendSeller` | `POST /api/v1/admin/sellers/{id}/suspend` | IMPLEMENTED |
 | `createLedgerAdjustment` | `POST /api/v1/admin/ledger/adjustments` | IMPLEMENTED |
+| `confirmSettlement` | `POST /api/v1/admin/settlements/{settlement_id}/confirm` | IMPLEMENTED |
+| `markSettlementPaid` | `POST /api/v1/admin/settlements/{settlement_id}/mark-paid` | IMPLEMENTED |
 | `listAdminOrders` | `GET /api/v1/admin/orders` | IMPLEMENTED |
 | `getAdminOrderDetail` | `GET /api/v1/admin/orders/{id}` | IMPLEMENTED |
 | `cancelAdminOrder` | `POST /api/v1/admin/orders/{id}/cancel` | IMPLEMENTED |

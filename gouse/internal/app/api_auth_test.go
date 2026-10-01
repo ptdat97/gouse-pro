@@ -52,6 +52,12 @@ func duongCanQuyen() []struct {
 		{http.MethodGet, "/api/v1/admin/sellers"},
 		{http.MethodGet, "/api/v1/admin/sellers/sel_01J9XABC123DEF456GHJKMNPQR"},
 		{http.MethodPost, "/api/v1/admin/ledger/adjustments"},
+
+		// Hai bước KÝ đợt đối soát — đường TIỀN RA nhà bán (P3-89).
+		{http.MethodPost,
+			"/api/v1/admin/settlements/stl_01J9XABC123DEF456GHJKMNPQR/confirm"},
+		{http.MethodPost,
+			"/api/v1/admin/settlements/stl_01J9XABC123DEF456GHJKMNPQR/mark-paid"},
 		{http.MethodPost, "/api/v1/admin/orders/ord_01J9XABC123DEF456GHJKMNPQR/cancel"},
 		{http.MethodPost, "/api/v1/admin/sellers/sel_01J9XABC123DEF456GHJKMNPQR/submit-review"},
 		{http.MethodPost, "/api/v1/admin/sellers/sel_01J9XABC123DEF456GHJKMNPQR/approve"},

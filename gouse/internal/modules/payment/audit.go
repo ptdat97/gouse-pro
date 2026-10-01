@@ -58,3 +58,43 @@ func (a *auditRecorder) RecordLedgerAdjustment(
 		},
 	})
 }
+
+// RecordSettlementSigned ghi vết việc KÝ một bước của đợt đối soát.
+//
+// Cùng ràng buộc giao dịch với `RecordLedgerAdjustment`, và cùng lý do: một
+// đợt chuyển sang `PAID` mà vết kiểm toán hỏng nghĩa là có một khoản tiền
+// RỜI nền tảng mà không ai truy được ai đã ký.
+//
+// `Action` phân biệt hai bước (`settlement.confirm` / `settlement.mark_paid`)
+// chứ không gộp thành một: báo cáo kiểm toán cần tách "ai chốt con số" khỏi
+// "ai quyết định chuyển tiền".
+func (a *auditRecorder) RecordSettlementSigned(
+	ctx context.Context, in application.SettlementSignRecord,
+) error {
+	tx, ok := paymentpg.TxFrom(ctx)
+	if !ok {
+		return errors.New(
+			"payment: ghi vết ký đợt đối soát ngoài giao dịch của kho lưu " +
+				"trữ — trạng thái đợt và vết kiểm toán phải cùng thành công " +
+				"hoặc cùng thất bại")
+	}
+
+	// WriteSensitive kiểm lý do: tối thiểu 20 ký tự, chặn giá trị rác.
+	return a.rec.WriteSensitive(ctx, tx, audit.Entry{
+		ActorType:    audit.ActorUser,
+		ActorID:      in.ActorID,
+		Action:       "settlement." + in.Buoc,
+		ResourceType: audit.ResourceSettlement,
+		ResourceID:   in.SettlementID.String(),
+		Reason:       in.Reason,
+		RequestID:    in.RequestID,
+		Metadata: map[string]any{
+			// KHÔNG đặt tên nhà bán hay số tài khoản vào đây: audit log giữ
+			// nhiều năm, và dữ liệu cá nhân lọt vào metadata sẽ sống lâu
+			// hơn mọi chính sách xóa dữ liệu.
+			"seller_id":  in.SellerID.String(),
+			"net_amount": in.NetAmount,
+			"currency":   in.Currency,
+		},
+	})
+}

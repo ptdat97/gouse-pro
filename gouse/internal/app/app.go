@@ -1004,12 +1004,32 @@ func RegisterRoutes(
 			payMux := http.NewServeMux()
 			paymentModule.RegisterAdminRoutes(payMux, log)
 
-			mux.Handle("POST /api/v1/admin/ledger/adjustments", httpserver.Chain(
+			authedFinance := httpserver.Chain(
 				payMux,
 				httpserver.Auth(identityModule),
 				httpserver.RequireRole("ADMIN", "OPS_FINANCE"),
 				httpserver.RequireIdempotencyKey(),
-			))
+			)
+			mux.Handle("POST /api/v1/admin/ledger/adjustments", authedFinance)
+
+			// Hai bước KÝ đợt đối soát — mắt xích cuối của đường tiền ra
+			// (P3-89).
+			//
+			// CÙNG chuỗi middleware với điều chỉnh sổ cái, vì cùng mức rủi
+			// ro: `RequireIdempotencyKey` chặn thử lại vì mạng chập chờn
+			// ghi vết kiểm toán thứ hai cho cùng một lần ký.
+			//
+			// Vai trò: ADMIN và OPS_FINANCE — hai vai trò mà
+			// `Role.RequiresTwoFactor()` đã trả true. OPS_SUPPORT và
+			// OPS_MERCHANDISING KHÔNG tới được đây, và đó là nghĩa thực
+			// tế của "quyền ký chi tách khỏi quyền admin thường" trong
+			// một hệ phân quyền theo VAI TRÒ.
+			mux.Handle(
+				"POST /api/v1/admin/settlements/{settlement_id}/confirm",
+				authedFinance)
+			mux.Handle(
+				"POST /api/v1/admin/settlements/{settlement_id}/mark-paid",
+				authedFinance)
 		}
 
 		// Đơn hàng: ADMIN và OPS_SUPPORT (admin.md mục 2 — hỗ trợ khách).

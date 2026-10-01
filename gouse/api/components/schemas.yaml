@@ -1243,6 +1243,42 @@ Settlement:
     created_at:
       type: string
       format: date-time
+    confirmed_at:
+      type: string
+      format: date-time
+      description: |
+        Mốc đợt được CHỐT, sẵn sàng chi trả. Thiếu trường = chưa chốt.
+
+        Nhà bán thấy mốc này: "đã xác nhận lúc nào" là một trong hai câu họ
+        hỏi nhiều nhất về một đợt.
+    paid_at:
+      type: string
+      format: date-time
+      description: |
+        Mốc tiền ĐÃ chuyển. Thiếu trường = chưa chuyển.
+
+        Việc chuyển tiền xảy ra NGOÀI hệ thống (chuyển khoản ngân hàng);
+        mốc này ghi nhận rằng nó đã xảy ra.
+    confirmed_by:
+      $ref: './common.yaml#/schemas/Id'
+      description: |
+        Người KÝ bước chốt. CHỈ có ở mặt QUẢN TRỊ.
+
+        Mặt của nhà bán KHÔNG trả trường này: nhà bán không cần biết nhân
+        viên nào bấm nút, và định danh nhân viên lọt ra ngoài là một rò rỉ
+        không cần thiết.
+
+        Tới 01/10/2026 hai bước của vòng đời không có lời gọi nào, nên mọi
+        đợt nằm `DRAFT` vĩnh viễn — xem P3-89.
+    paid_by:
+      $ref: './common.yaml#/schemas/Id'
+      description: |
+        Người KÝ bước chuyển tiền. CHỈ có ở mặt QUẢN TRỊ.
+
+        Đây là bản ghi duy nhất nói ai quyết định chuyển tiền RA KHỎI nền
+        tảng, nên nó BẮT BUỘC khi `paid_at` có mặt — ràng buộc
+        `settlement_da_tra_phai_co_nguoi_ky` ở tầng database cưỡng chế điều
+        đó.
     lines:
       type: array
       description: |

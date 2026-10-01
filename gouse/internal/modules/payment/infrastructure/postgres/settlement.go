@@ -25,7 +25,8 @@ func NewSettlementStore(pool *pgxpool.Pool) *SettlementStore {
 const stlCols = `
 	id, seller_id, period_start, period_end, status,
 	gross_amount, deficit_amount, net_amount, currency,
-	created_at, confirmed_at, paid_at, version, updated_at`
+	created_at, confirmed_at, confirmed_by, paid_at, paid_by,
+	version, updated_at`
 
 // TaoChoNhaBan lập đợt đối soát cho MỘT nhà bán, trong một giao dịch.
 //
@@ -111,18 +112,22 @@ func (s *SettlementStore) TaoChoNhaBan(
 func (s *SettlementStore) ghi(ctx context.Context, tx pgx.Tx, d *domain.DoiSoat) error {
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO settlement (`+stlCols+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		ON CONFLICT (id) DO UPDATE SET
 			status       = EXCLUDED.status,
 			confirmed_at = EXCLUDED.confirmed_at,
+			confirmed_by = EXCLUDED.confirmed_by,
 			paid_at      = EXCLUDED.paid_at,
+			paid_by      = EXCLUDED.paid_by,
 			updated_at   = EXCLUDED.updated_at,
 			version      = settlement.version + 1
-		WHERE settlement.version = $13`,
+		WHERE settlement.version = $15`,
 		d.ID().String(), d.SellerID().String(), d.PeriodStart(), d.PeriodEnd(),
 		string(d.Status()), d.Gross().Amount(), d.Deficit().Amount(),
 		d.Net().Amount(), string(d.Gross().Currency()),
-		d.CreatedAt(), nullTime(d.ConfirmedAt()), nullTime(d.PaidAt()),
+		d.CreatedAt(),
+		nullTime(d.ConfirmedAt()), d.ConfirmedBy().String(),
+		nullTime(d.PaidAt()), d.PaidBy().String(),
 		d.Version(), d.UpdatedAt())
 	if err != nil {
 		return fmt.Errorf("payment: ghi đợt đối soát: %w", err)
@@ -236,12 +241,14 @@ func (s *SettlementStore) doc(
 	for rows.Next() {
 		var p domain.KhoiPhucDoiSoatParams
 		var id, sellerID, status, tienTe string
+		var confirmedBy, paidBy string
 		var gross, deficit, net int64
 		var confirmed, paid *time.Time
 
 		if err := rows.Scan(&id, &sellerID, &p.PeriodStart, &p.PeriodEnd,
 			&status, &gross, &deficit, &net, &tienTe,
-			&p.CreatedAt, &confirmed, &paid, &p.Version, &p.UpdatedAt); err != nil {
+			&p.CreatedAt, &confirmed, &confirmedBy, &paid, &paidBy,
+			&p.Version, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 
@@ -255,6 +262,7 @@ func (s *SettlementStore) doc(
 		p.Status = domain.TrangThaiDoiSoat(status)
 		p.Gross, p.Deficit, p.Net = mk(gross), mk(deficit), mk(net)
 		p.ConfirmedAt, p.PaidAt = deref(confirmed), deref(paid)
+		p.ConfirmedBy, p.PaidBy = ids.ID(confirmedBy), ids.ID(paidBy)
 
 		theoID[p.ID] = &p
 		ma = append(ma, id)
@@ -320,4 +328,44 @@ func deref(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
+}
+
+// LuuKemAudit ghi trạng thái mới của đợt đối soát và chạy `fn` trong CÙNG
+// một giao dịch.
+//
+// # Vì sao audit phải cùng giao dịch
+//
+// Đây là hai bước duy nhất biến một con số tính được thành TIỀN RỜI nền
+// tảng. Một đợt chuyển sang `PAID` mà vết kiểm toán hỏng nghĩa là có một
+// khoản chi không ai truy được ai đã ký — và vết kiểm toán không tạo ngược
+// được.
+//
+// Cùng khuôn `LedgerStore.AppendWithAudit`: ghi TRƯỚC, chạy `fn` SAU, commit
+// CUỐI. `fn` thất bại thì `defer Rollback` hủy cả hai.
+//
+// Kiểm phiên bản của `ghi` vẫn là chốt chặn thật cho hai người bấm cùng lúc:
+// lượt thứ hai thấy `ErrVersionConflict` và không ghi gì.
+func (s *SettlementStore) LuuKemAudit(
+	ctx context.Context, d *domain.DoiSoat, fn domain.TxFunc,
+) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("payment: mở giao dịch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.ghi(ctx, tx, d); err != nil {
+		return err
+	}
+
+	if fn != nil {
+		if err := fn(context.WithValue(ctx, txKey{}, tx)); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("payment: chốt giao dịch: %w", err)
+	}
+	return nil
 }

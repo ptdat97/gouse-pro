@@ -21,6 +21,15 @@ var (
 	// sau (docs/04-modules/payment.md mục 6).
 	ErrSettlementNotPayable = errors.New(
 		"payment: đợt đối soát không có số dương để chi trả")
+
+	// ErrThieuNguoiKy khi một bước của vòng đời không nêu ai ký.
+	//
+	// Tiền rời nền tảng thì phải có người chịu trách nhiệm, và vết kiểm
+	// toán không tạo ngược được. Ràng buộc tương ứng ở tầng database là
+	// `settlement_xac_nhan_phai_co_nguoi_ky` — hàng rào này báo lỗi rõ
+	// hơn, ràng buộc kia là chốt chặn cuối.
+	ErrThieuNguoiKy = errors.New(
+		"payment: bước này của đợt đối soát bắt buộc phải nêu người ký")
 )
 
 // TrangThaiDoiSoat là trạng thái một đợt đối soát.
@@ -58,6 +67,10 @@ type DongDoiSoat struct {
 type DoiSoat struct {
 	id       ids.ID
 	sellerID ids.ID
+
+	// confirmedBy và paidBy là NGƯỜI KÝ ở mỗi bước. Rỗng = bước chưa xảy ra.
+	confirmedBy ids.ID
+	paidBy      ids.ID
 
 	periodStart time.Time
 	periodEnd   time.Time
@@ -148,9 +161,16 @@ func TaoDoiSoat(p TaoDoiSoatParams) (*DoiSoat, error) {
 }
 
 // XacNhan chốt đợt đối soát, sẵn sàng chi trả.
-func (d *DoiSoat) XacNhan(now time.Time) error {
+//
+// `nguoiKy` BẮT BUỘC: đây là bước biến một con số tính được thành một CAM KẾT
+// với nhà bán, và một cam kết không ai ký là một cam kết không ai chịu trách
+// nhiệm. Xem P3-89 và migration 000061.
+func (d *DoiSoat) XacNhan(nguoiKy ids.ID, now time.Time) error {
 	if d.status != DoiSoatNhap {
 		return ErrInvalidStatus
+	}
+	if nguoiKy.IsZero() {
+		return ErrThieuNguoiKy
 	}
 	// KHÔNG cho xác nhận đợt không có gì để trả: xác nhận rồi mới phát
 	// hiện không trả được là bắt người vận hành làm hai lần.
@@ -158,17 +178,39 @@ func (d *DoiSoat) XacNhan(now time.Time) error {
 		return ErrSettlementNotPayable
 	}
 	d.status = DoiSoatXacNhan
+	d.confirmedBy = nguoiKy
 	d.confirmedAt = now
 	d.updatedAt = now
 	return nil
 }
 
 // DanhDauDaTra ghi nhận đã chuyển tiền.
-func (d *DoiSoat) DanhDauDaTra(now time.Time) error {
+//
+// `nguoiKy` BẮT BUỘC, cùng lý do với `XacNhan` — và ở bước này nặng hơn: tiền
+// đã RỜI nền tảng, nên đây là bản ghi duy nhất nói ai quyết định chuyển nó.
+//
+// # Vì sao KHÔNG chặn người ký bước 1 ký bước 2
+//
+// Nguyên tắc bốn mắt — người xác nhận không được là người đánh dấu đã trả —
+// là hàng rào đúng cho một tổ chức có từ hai người vận hành tài chính. Nó
+// KHÔNG được cài ở đây vì nó sẽ chặn hẳn đường chi trả của một đội một
+// người, và dự án này chưa có đội vận hành thật.
+//
+// Thêm nó là MỘT dòng ở đây khi cần:
+//
+//	if nguoiKy == d.confirmedBy { return ErrCanHaiNguoiKy }
+//
+// Ghi ra để lần sau không ai phải suy lại, và để việc KHÔNG cài nó là một
+// lựa chọn đọc được chứ không phải một chỗ bị quên. Xem P3-89.
+func (d *DoiSoat) DanhDauDaTra(nguoiKy ids.ID, now time.Time) error {
 	if d.status != DoiSoatXacNhan {
 		return ErrInvalidStatus
 	}
+	if nguoiKy.IsZero() {
+		return ErrThieuNguoiKy
+	}
 	d.status = DoiSoatDaTra
+	d.paidBy = nguoiKy
 	d.paidAt = now
 	d.updatedAt = now
 	return nil
@@ -184,6 +226,8 @@ func (d *DoiSoat) Deficit() money.Money     { return d.deficit }
 func (d *DoiSoat) Net() money.Money         { return d.net }
 func (d *DoiSoat) CreatedAt() time.Time     { return d.createdAt }
 func (d *DoiSoat) ConfirmedAt() time.Time   { return d.confirmedAt }
+func (d *DoiSoat) ConfirmedBy() ids.ID      { return d.confirmedBy }
+func (d *DoiSoat) PaidBy() ids.ID           { return d.paidBy }
 func (d *DoiSoat) PaidAt() time.Time        { return d.paidAt }
 func (d *DoiSoat) Version() int64           { return d.version }
 func (d *DoiSoat) UpdatedAt() time.Time     { return d.updatedAt }
@@ -202,7 +246,9 @@ type KhoiPhucDoiSoatParams struct {
 	Dong        []DongDoiSoat
 	CreatedAt   time.Time
 	ConfirmedAt time.Time
+	ConfirmedBy ids.ID
 	PaidAt      time.Time
+	PaidBy      ids.ID
 	Version     int64
 	UpdatedAt   time.Time
 }
@@ -213,7 +259,9 @@ func KhoiPhucDoiSoat(p KhoiPhucDoiSoatParams) *DoiSoat {
 		id: p.ID, sellerID: p.SellerID,
 		periodStart: p.PeriodStart, periodEnd: p.PeriodEnd,
 		status: p.Status, gross: p.Gross, deficit: p.Deficit, net: p.Net,
-		dong: p.Dong, createdAt: p.CreatedAt, confirmedAt: p.ConfirmedAt,
-		paidAt: p.PaidAt, version: p.Version, updatedAt: p.UpdatedAt,
+		dong: p.Dong, createdAt: p.CreatedAt,
+		confirmedAt: p.ConfirmedAt, confirmedBy: p.ConfirmedBy,
+		paidAt: p.PaidAt, paidBy: p.PaidBy,
+		version: p.Version, updatedAt: p.UpdatedAt,
 	}
 }

@@ -7941,7 +7941,7 @@ hình vận hành tiền.
 
 ---
 
-### P3-89 — ĐÃ QUYẾT 01/10/2026 — khép vòng đời đợt đối soát: ai được ký chi
+### P3-89 — ĐÃ LÀM 01/10/2026 — khép vòng đời đợt đối soát: ai được ký chi
 
 `DoiSoat.XacNhan` và `DoiSoat.DanhDauDaTra` khai ra mà không lời gọi nào, nên
 mọi đợt nằm `DRAFT` **vĩnh viễn** — nhà bán không bao giờ được chi.
@@ -7966,23 +7966,107 @@ Lý do: **tiền RỜI nền tảng thì phải có người chịu trách nhi�
 toán là thứ không tạo ngược được. Quyền `settlement:approve` tách khỏi quyền
 admin thường — ai xem được báo cáo không có nghĩa là ký được chi.
 
-#### Chưa làm — việc còn lại
+#### Đã làm
 
 ```text
-quyền            `settlement:approve` vào sổ quyền của identity
-                 KHÔNG gộp vào quyền admin sẵn có
-endpoint         POST /api/v1/admin/settlements/{id}/confirm
-                 POST /api/v1/admin/settlements/{id}/mark-paid
-                 cả hai idempotent — bấm hai lần không chi hai lần
-vết kiểm toán    ai bấm, lúc nào, số tiền lúc ấy — qua platform/audit
-màn hình admin   danh sách đợt + chi tiết dòng (P3-69 đã cho dòng)
-đặc tả           hai operation vào openapi.yaml TRƯỚC khi cài
-test             đợt đã PAID không confirm lại được
-                 người không có quyền nhận 403, không phải 404
+migration 000061   settlement.confirmed_by / paid_by + HAI ràng buộc CHECK
+domain             XacNhan(nguoiKy, now) · DanhDauDaTra(nguoiKy, now)
+                   ErrThieuNguoiKy
+store              LuuKemAudit — trạng thái và vết kiểm toán CÙNG giao dịch
+application        XacNhanDoiSoat · DanhDauDoiSoatDaTra
+audit              RecordSettlementSigned, Action tách hai bước
+platform/audit     ResourceSettlement = "SETTLEMENT" (+ enum đặc tả)
+interfaces/http    hai endpoint + translateDoiSoat
+đặc tả             settlement_confirm · settlement_mark_paid
+                   Settlement += confirmed_at/by, paid_at/by
+nối dây            cùng chuỗi middleware với điều chỉnh sổ cái
 ```
 
-Làm cùng P3-88: cả hai là màn hình vận hành tiền, và tách ra sẽ dựng hai lần
-cùng một khung quyền.
+#### "Quyền riêng" trong một hệ phân quyền theo VAI TRÒ
+
+Quyết định nói *"quyền `settlement:approve` tách khỏi quyền admin thường"*.
+Dự án này KHÔNG có hệ quyền chi tiết theo chuỗi — nó phân quyền theo VAI TRÒ,
+và danh sách đóng băng cấm dựng thêm cơ chế tổng quát.
+
+Nên "quyền riêng" được dịch thành: hai endpoint này đòi `ADMIN` hoặc
+`OPS_FINANCE` — hai vai trò duy nhất trong nhóm nhân viên mà
+`Role.RequiresTwoFactor()` trả true. `OPS_SUPPORT`, `OPS_MERCHANDISING`,
+`OPS_WAREHOUSE` KHÔNG tới được, và `TestChiVaiTroTaiChinhKyDuocDoiSoat` gác
+cả ba.
+
+Nếu sau này cần tách *xem báo cáo tài chính* khỏi *ký chi*, đó là một vai trò
+mới (`OPS_PAYOUT`), không phải một hệ quyền mới — và lúc ấy cần một ADR vì nó
+đổi mô hình phân quyền.
+
+#### Người ký lưu TRÊN đợt, không chỉ trong `audit_log`
+
+Hai nguồn này KHÔNG phải hai nguồn sự thật:
+
+```text
+audit_log   ghi SỰ KIỆN     ai gọi API nào, lúc nào, vì sao
+settlement  ghi TRẠNG THÁI  đợt này do ai ký
+```
+
+Câu "ai ký đợt này" xuất hiện trên màn hình chi tiết đợt, trong báo cáo đối
+soát, và trong tranh chấp với nhà bán. Bắt mọi bên đọc đi JOIN `audit_log`
+theo chuỗi mã là biến một thuộc tính thành một truy vấn.
+
+#### Nhà bán thấy MỐC, không thấy NGƯỜI
+
+`toSettlementJSON` (mặt nhà bán) điền `confirmed_at`/`paid_at` và để trống
+`confirmed_by`/`paid_by`; `themNguoiKy` điền chúng cho mặt admin.
+
+Hai mốc là hai câu nhà bán hỏi nhiều nhất về một đợt. Nhân viên nào bấm nút
+là việc nội bộ, và định danh nhân viên lọt ra ngoài là một rò rỉ không cần
+thiết.
+
+Một hàm BỌC thay vì một tham số cờ: cờ sẽ lan vào mọi chỗ gọi và sớm muộn có
+chỗ truyền sai.
+
+#### Nguyên tắc BỐN MẮT — chưa cài, và đó là lựa chọn
+
+Người xác nhận hiện được phép đánh dấu đã trả. Bốn mắt là hàng rào đúng cho
+tổ chức có từ hai người vận hành tài chính, nhưng nó chặn hẳn đường chi trả
+của một đội một người.
+
+Thêm nó là MỘT dòng trong `DanhDauDaTra`, và dòng ấy được ghi sẵn trong chú
+thích của hàm. Việc KHÔNG cài nó là một lựa chọn đọc được, không phải một chỗ
+bị quên.
+
+#### Kiểm chứng bằng cách phá — năm phép
+
+```text
+bỏ hàng rào trạng thái ở DanhDauDaTra  → "nhảy bước phải 409, nhận 200"
+người ký lấy từ thân thay vì token      → 401 "Không xác định được người ký"
+mặt nhà bán rò rỉ confirmed_by          → "định danh nhân viên không nên
+                                           rời phạm vi quản trị"
+audit ghi RỜI, ngoài giao dịch          → 500 (ghi vết ngoài tx bị từ chối)
+UPDATE tay đặt PAID không người ký      → database TỪ CHỐI
+                                           (settlement_da_tra_phai_co_nguoi_ky)
+```
+
+Phép thứ hai lần đầu **không đỏ** — vì bản phá không BIÊN DỊCH được
+(`declared and not used: ac`), nên `go test` dừng ở lỗi build và lưới grep
+thấy trống. Đúng cái bẫy đã ghi: một lỗi biên dịch giả dạng "hàng rào thủng".
+Phá lại cho biên dịch được thì nó đỏ đúng chỗ.
+
+#### Và HAI hàng rào sẵn có đã bắt bản sửa này
+
+```text
+apicheck     3 vi phạm — hai endpoint ngoài đặc tả, và bốn trường DTO
+             Go trả mà đặc tả không khai
+coverage     TestMoiDuongCanQuyenDeuDuocKiem + …DeuCoTrongMaTran:
+             đường cần quyền phải có trong danh sách kiểm phân quyền
+             VÀ thuộc một nhóm của ma trận quyền
+```
+
+Cả hai đỏ TRƯỚC khi tôi kịp quên — đó là thứ một bộ hàng rào tốt làm được:
+nó không chờ người nhớ.
+
+#### Việc còn lại
+
+Màn hình admin (danh sách đợt + nút ký). Làm cùng P3-88, vì cả hai là màn
+hình vận hành tiền và tách ra sẽ dựng hai lần cùng một khung quyền.
 
 ---
 

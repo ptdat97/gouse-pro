@@ -140,6 +140,24 @@ type settlementJSON struct {
 
 	CreatedAt string `json:"created_at"`
 
+	// Hai mốc của vòng đời. Rỗng = bước chưa xảy ra.
+	//
+	// Nhà bán THẤY hai mốc này: "đã xác nhận lúc" và "đã trả lúc" là hai
+	// câu họ hỏi nhiều nhất, và không trả lời được chúng là nguyên nhân
+	// khiếu nại.
+	ConfirmedAt string `json:"confirmed_at,omitempty"`
+	PaidAt      string `json:"paid_at,omitempty"`
+
+	// NGƯỜI KÝ — CHỈ điền ở mặt QUẢN TRỊ.
+	//
+	// `toSettlementJSON` để trống hai trường này, và
+	// `themNguoiKy` điền chúng cho mặt admin. Nhà bán không cần biết nhân
+	// viên nào bấm nút, và định danh nhân viên lọt ra ngoài là một rò rỉ
+	// không cần thiết — cùng lý do `order` không có API nào cho seller
+	// (xem public.go của nó).
+	ConfirmedBy string `json:"confirmed_by,omitempty"`
+	PaidBy      string `json:"paid_by,omitempty"`
+
 	// Lines là TỪNG KHOẢN làm nên đợt này.
 	//
 	// Đặc tả nói thẳng: nhà bán phải xem được "từng dòng cấu thành số
@@ -178,7 +196,9 @@ func toSettlementJSON(d *domain.DoiSoat) settlementJSON {
 		PeriodStart: d.PeriodStart().Format(time.RFC3339),
 		PeriodEnd:   d.PeriodEnd().Format(time.RFC3339),
 		Gross:       m(d.Gross()), Deficit: m(d.Deficit()), Net: m(d.Net()),
-		CreatedAt: d.CreatedAt().Format(time.RFC3339),
+		CreatedAt:   d.CreatedAt().Format(time.RFC3339),
+		ConfirmedAt: thoiDiem(d.ConfirmedAt()),
+		PaidAt:      thoiDiem(d.PaidAt()),
 	}
 
 	out.Lines = make([]settlementLineJSON, 0, len(d.Dong()))
