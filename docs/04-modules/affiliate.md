@@ -300,15 +300,24 @@ xảy ra, không phải phép tính module này chạy.
 
 ## 9. Event
 
-### 9.1. Đang chạy (27/09/2026)
+### 9.1. Đang chạy (01/10/2026)
 
-**Lắng nghe — ba bên nhận, đăng ký ở `cmd/worker`:**
+**Lắng nghe — bốn bên nhận, đăng ký ở `cmd/worker`:**
 
 | Event | Từ | Hành động |
 |---|---|---|
 | `order.paid` | order | Quy công mọi dòng có creator, tạo khoản hoa hồng `PENDING` |
 | `order.cancelled` | order | Đảo mọi khoản hoa hồng của đơn, kèm lý do |
+| `fulfillment.cancelled` v2 | fulfillment | Đảo hoa hồng của ĐÚNG những dòng nhà bán không giao nữa |
 | `fulfillment_order.completed` | fulfillment | `PENDING` → `AVAILABLE` cho đúng `(đơn, nhà bán)` |
+
+Bốn bên nhận, không ba: `order.cancelled` chỉ phát khi hủy CẢ đơn. Hủy TỪNG
+PHẦN — một nhà bán không giao được — chỉ phát `fulfillment.cancelled`, và
+trước 01/10/2026 khoản hoa hồng của dòng ấy đứng ở `PENDING` **mãi mãi**:
+không đảo, và cũng không mở khóa, vì đơn thực hiện bị hủy không bao giờ phát
+`fulfillment_order.completed`. Xem P3-85.
+
+Đảo theo DÒNG, không theo đơn: nhà bán còn lại vẫn đang giao bình thường.
 
 **Phát ra:** KHÔNG event nào.
 
@@ -332,7 +341,20 @@ khoản hoa hồng cho doanh thu chưa tồn tại. `order.paid` là mốc duy n
 hàng đi qua `order.cancelled` khi cả đơn bị hủy; hoàn TỪNG PHẦN chưa có
 đường tới đây — xem P3-85.
 
-### 9.3. `order.paid` không mang dòng hàng
+### 9.3. `fulfillment.cancelled` lên v2 vì module này
+
+`order_line_id` thêm vào payload ngày 01/10/2026 — affiliate quy công theo
+dòng đơn, và một đơn có thể có hai dòng CÙNG SKU với hai creator khác nhau,
+nên `(sku_id, quantity)` của v1 không đủ để đảo đúng người.
+
+Cái giá, đo thật: `inventory.release_on_fulfillment_cancelled` không dùng
+trường mới — nó trả hàng về kho theo `(sku_id, quantity)` — nhưng vẫn phải
+khai `MaxEventVersion` ≥ 2, nếu không dispatcher HOÃN event cho TẤT CẢ và
+**hàng không được trả về kho** vì một trường module ấy không đọc (ADR-0016).
+
+Đó là lý do mục 9.4 dưới đây không nhồi dữ liệu vào `order.paid`.
+
+### 9.4. `order.paid` không mang dòng hàng
 
 Payload của nó có `order_id`, `order_number`, `customer_id`,
 `payment_method`, `amount`, `currency`, `paid_at` — không có dòng hàng, mà
@@ -344,7 +366,7 @@ phép. KHÔNG nhồi dòng hàng vào payload: theo ADR-0016, thêm trường v�
 event đang chạy bắt MỌI bên nhận của nó khai lại `MaxEventVersion` — tức sửa
 payment và fulfillment cho một trường chỉ affiliate dùng.
 
-### 9.4. Dự kiến (chưa cài)
+### 9.5. Dự kiến (chưa cài)
 
 | Event | Bên nghe | Cần gì trước |
 |---|---|---|

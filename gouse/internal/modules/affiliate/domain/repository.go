@@ -32,6 +32,19 @@ type Repo interface {
 		ctx context.Context, orderID, sellerID ids.ID,
 	) ([]*CommissionRecord, error)
 
+	// TheoDongDon trả các khoản hoa hồng của một TẬP dòng đơn.
+	//
+	// Nhận cả tập chứ không một dòng mỗi lượt: hủy một đơn thực hiện hủy
+	// nhiều dòng cùng lúc, và một lượt đọc cho N dòng thay vì N lượt đọc
+	// giữ số truy vấn không phụ thuộc số món khách mua.
+	//
+	// Tập rỗng trả danh sách rỗng, KHÔNG phải mọi bản ghi: đơn thực hiện cũ
+	// có `order_line_id` rỗng, và một câu truy vấn không điều kiện ở đó sẽ
+	// đảo hoa hồng của toàn hệ thống.
+	TheoDongDon(
+		ctx context.Context, orderLineIDs []ids.ID,
+	) ([]*CommissionRecord, error)
+
 	// KHÔNG có `TheoCreator` (lịch sử hoa hồng của một creator).
 	//
 	// Nó cần một màn hình cho creator, mà module `creator` là Phase 2.

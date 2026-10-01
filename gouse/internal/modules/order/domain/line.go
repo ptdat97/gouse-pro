@@ -89,8 +89,17 @@ type NewLineParams struct {
 
 	CommissionRate types.BasisPoints
 
-	AttributedCreatorID   ids.ID
-	CreatorCommissionRate types.BasisPoints
+	// AttributedCreatorID là creator được quy công cho dòng này.
+	//
+	// Kernel CHỞ cái mã và HẾT phần của nó (ADR-0021). Tỷ lệ hoa hồng, tiền
+	// gốc và bên chịu chi phí là việc của module `affiliate`, và nó đóng
+	// băng cả ba ở bảng `attribution` của chính nó.
+	//
+	// Từng có `CreatorCommissionRate` ngay dưới đây. Bỏ 01/10/2026: nó
+	// chưa bao giờ nhận giá trị khác 0 — 3298 dòng `order_line`, 0 dòng
+	// khác 0 — và từ 27/09 nó là nguồn sự thật THỨ HAI cho một con số tiền
+	// mà affiliate đã sở hữu. Xem P3-83 và migration 000059.
+	AttributedCreatorID ids.ID
 
 	Now time.Time
 }
@@ -126,65 +135,62 @@ func NewLine(p NewLineParams) (*Line, error) {
 	lineTotal := p.UnitPrice.MulQuantity(int64(p.Quantity))
 
 	return &Line{
-		id:                    id,
-		offerID:               p.OfferID,
-		skuID:                 p.SKUID,
-		sellerID:              p.SellerID,
-		productName:           strings.TrimSpace(p.ProductName),
-		variantDescription:    strings.TrimSpace(p.VariantDescription),
-		unitPrice:             p.UnitPrice,
-		quantity:              p.Quantity,
-		commissionRate:        p.CommissionRate,
-		commissionAmount:      lineTotal.ApplyRate(p.CommissionRate, money.RoundHalfUp),
-		attributedCreatorID:   p.AttributedCreatorID,
-		creatorCommissionRate: p.CreatorCommissionRate,
-		status:                LineActive,
-		createdAt:             now,
-		updatedAt:             now,
+		id:                  id,
+		offerID:             p.OfferID,
+		skuID:               p.SKUID,
+		sellerID:            p.SellerID,
+		productName:         strings.TrimSpace(p.ProductName),
+		variantDescription:  strings.TrimSpace(p.VariantDescription),
+		unitPrice:           p.UnitPrice,
+		quantity:            p.Quantity,
+		commissionRate:      p.CommissionRate,
+		commissionAmount:    lineTotal.ApplyRate(p.CommissionRate, money.RoundHalfUp),
+		attributedCreatorID: p.AttributedCreatorID,
+		status:              LineActive,
+		createdAt:           now,
+		updatedAt:           now,
 	}, nil
 }
 
 // RestoreLineParams dựng lại từ kho lưu trữ.
 type RestoreLineParams struct {
-	ID                    ids.ID
-	OfferID               ids.ID
-	SKUID                 ids.ID
-	SellerID              ids.ID
-	ProductName           string
-	VariantDescription    string
-	UnitPrice             money.Money
-	Quantity              int
-	CommissionRate        types.BasisPoints
-	CommissionAmount      money.Money
-	AttributedCreatorID   ids.ID
-	CreatorCommissionRate types.BasisPoints
-	Status                LineStatus
-	Adjustments           []Adjustment
-	CancelledAt           time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                  ids.ID
+	OfferID             ids.ID
+	SKUID               ids.ID
+	SellerID            ids.ID
+	ProductName         string
+	VariantDescription  string
+	UnitPrice           money.Money
+	Quantity            int
+	CommissionRate      types.BasisPoints
+	CommissionAmount    money.Money
+	AttributedCreatorID ids.ID
+	Status              LineStatus
+	Adjustments         []Adjustment
+	CancelledAt         time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // RestoreLine dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
 func RestoreLine(p RestoreLineParams) *Line {
 	return &Line{
-		id:                    p.ID,
-		offerID:               p.OfferID,
-		skuID:                 p.SKUID,
-		sellerID:              p.SellerID,
-		productName:           p.ProductName,
-		variantDescription:    p.VariantDescription,
-		unitPrice:             p.UnitPrice,
-		quantity:              p.Quantity,
-		commissionRate:        p.CommissionRate,
-		commissionAmount:      p.CommissionAmount,
-		attributedCreatorID:   p.AttributedCreatorID,
-		creatorCommissionRate: p.CreatorCommissionRate,
-		status:                p.Status,
-		adjustments:           p.Adjustments,
-		cancelledAt:           p.CancelledAt,
-		createdAt:             p.CreatedAt,
-		updatedAt:             p.UpdatedAt,
+		id:                  p.ID,
+		offerID:             p.OfferID,
+		skuID:               p.SKUID,
+		sellerID:            p.SellerID,
+		productName:         p.ProductName,
+		variantDescription:  p.VariantDescription,
+		unitPrice:           p.UnitPrice,
+		quantity:            p.Quantity,
+		commissionRate:      p.CommissionRate,
+		commissionAmount:    p.CommissionAmount,
+		attributedCreatorID: p.AttributedCreatorID,
+		status:              p.Status,
+		adjustments:         p.Adjustments,
+		cancelledAt:         p.CancelledAt,
+		createdAt:           p.CreatedAt,
+		updatedAt:           p.UpdatedAt,
 	}
 }
 
@@ -199,13 +205,10 @@ func (l *Line) Quantity() int                     { return l.quantity }
 func (l *Line) CommissionRate() types.BasisPoints { return l.commissionRate }
 func (l *Line) CommissionAmount() money.Money     { return l.commissionAmount }
 func (l *Line) AttributedCreatorID() ids.ID       { return l.attributedCreatorID }
-func (l *Line) CreatorCommissionRate() types.BasisPoints {
-	return l.creatorCommissionRate
-}
-func (l *Line) Status() LineStatus     { return l.status }
-func (l *Line) CancelledAt() time.Time { return l.cancelledAt }
-func (l *Line) CreatedAt() time.Time   { return l.createdAt }
-func (l *Line) UpdatedAt() time.Time   { return l.updatedAt }
+func (l *Line) Status() LineStatus                { return l.status }
+func (l *Line) CancelledAt() time.Time            { return l.cancelledAt }
+func (l *Line) CreatedAt() time.Time              { return l.createdAt }
+func (l *Line) UpdatedAt() time.Time              { return l.updatedAt }
 
 // LineTotal là tiền hàng của dòng: đơn giá × số lượng.
 func (l *Line) LineTotal() money.Money {

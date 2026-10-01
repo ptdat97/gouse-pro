@@ -210,3 +210,119 @@ func (h *MoKhoaKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event) er
 	}
 	return nil
 }
+
+// ------------------------------------------- Đảo khi hủy TỪNG PHẦN
+
+// DaoKhiHuyDonThucHien đảo hoa hồng của những dòng mà nhà bán không giao nữa.
+//
+// # Vì sao `DaoKhiHuyDon` không đủ
+//
+// Nó nghe `order.cancelled`, và event ấy chỉ phát khi hủy CẢ đơn. Đường hủy
+// TỪNG PHẦN đi như sau, và tới 01/10/2026 không chỗ nào affiliate nghe được:
+//
+//	đơn thực hiện của MỘT nhà bán bị hủy
+//	  → fulfillment phát `fulfillment.cancelled`
+//	  → order.RecalculateStatus → PARTIALLY_CANCELLED
+//	  → KHÔNG phát `order.cancelled`
+//
+// Hệ quả KHÔNG phải trả tiền sai, mà là một dòng rác trong bảng tiền: đơn
+// thực hiện bị hủy không bao giờ phát `fulfillment_order.completed`, nên
+// khoản hoa hồng của dòng ấy đứng ở CHỜ ĐẾN HẠN mãi mãi — không đảo, không
+// mở khóa, không ai thấy. Xem P3-85.
+//
+// Đảo theo DÒNG, không theo đơn: nhà bán còn lại vẫn đang giao bình thường,
+// và hoa hồng của họ không được chạm tới.
+type DaoKhiHuyDonThucHien struct {
+	module *Module
+	log    *slog.Logger
+}
+
+func NewDaoDonThucHienHandler(m *Module, log *slog.Logger) *DaoKhiHuyDonThucHien {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &DaoKhiHuyDonThucHien{module: m, log: log}
+}
+
+var _ eventbus.Handler = (*DaoKhiHuyDonThucHien)(nil)
+
+func (h *DaoKhiHuyDonThucHien) Name() string {
+	return "affiliate.dao_khi_huy_don_thuc_hien"
+}
+
+func (h *DaoKhiHuyDonThucHien) EventTypes() []string {
+	return []string{eventbus.TypeFulfillmentCancelled}
+}
+
+// MaxEventVersion: bên nhận này ĐÒI phiên bản 2 trở lên.
+//
+// v1 của `fulfillment.cancelled` mang `(sku_id, quantity)` và KHÔNG mang
+// `order_line_id` — tức không đủ để đảo đúng người. Một đơn có thể có hai
+// dòng cùng SKU với hai creator khác nhau, nên gộp theo SKU sẽ đảo sai.
+//
+// Trường ấy thêm ở v2 (01/10/2026), cùng lúc với bên nhận này.
+func (h *DaoKhiHuyDonThucHien) MaxEventVersion(eventType string) int {
+	if eventType == eventbus.TypeFulfillmentCancelled {
+		return 2
+	}
+	return eventbus.DefaultMaxEventVersion
+}
+
+type fulfillmentCancelledPayload struct {
+	OrderID       string `json:"order_id"`
+	FulfillmentID string `json:"fulfillment_id"`
+	FONumber      string `json:"fo_number"`
+
+	Lines []struct {
+		OrderLineID string `json:"order_line_id"`
+	} `json:"lines"`
+}
+
+func (h *DaoKhiHuyDonThucHien) Handle(ctx context.Context, e eventbus.Event) error {
+	var p fulfillmentCancelledPayload
+	if err := e.Unmarshal(&p); err != nil {
+		return fmt.Errorf(
+			"affiliate: đọc dữ liệu event fulfillment.cancelled: %w", err)
+	}
+
+	ma := make([]string, 0, len(p.Lines))
+	for _, l := range p.Lines {
+		if l.OrderLineID == "" {
+			continue
+		}
+		ma = append(ma, l.OrderLineID)
+	}
+
+	// Đơn thực hiện CŨ không có mã dòng đơn (`FOLine.OrderLineID` chỉ được
+	// điền từ migration 000024). Ghi log ở mức CẢNH BÁO thay vì trả lỗi:
+	// trả lỗi sẽ làm event thử lại mãi rồi vào dead letter, mà thử lại
+	// không làm dữ liệu cũ có thêm mã dòng.
+	if len(ma) == 0 && len(p.Lines) > 0 {
+		h.log.WarnContext(ctx,
+			"hủy đơn thực hiện không mang mã dòng đơn — hoa hồng creator "+
+				"của các dòng này KHÔNG đảo được",
+			"order_id", p.OrderID, "fo_number", p.FONumber,
+			"so_dong", len(p.Lines))
+		return nil
+	}
+
+	// Lý do nêu rõ ĐƠN THỰC HIỆN nào, không chỉ "bị hủy": lúc đối soát,
+	// "đơn thực hiện FC-FO-000123 bị hủy" tra ra được chuyện đã xảy ra, còn
+	// "đơn bị hủy" thì không.
+	lyDo := "đơn thực hiện " + p.FONumber + " bị hủy"
+	if p.FONumber == "" {
+		lyDo = "đơn thực hiện " + p.FulfillmentID + " bị hủy"
+	}
+
+	n, err := h.module.svc.DaoTheoDongDon(ctx, ma, lyDo)
+	if err != nil {
+		return fmt.Errorf("affiliate: đảo hoa hồng của %d dòng đơn: %w",
+			len(ma), err)
+	}
+	if n > 0 {
+		h.log.InfoContext(ctx,
+			"đã đảo hoa hồng creator vì đơn thực hiện bị hủy",
+			"order_id", p.OrderID, "fo_number", p.FONumber, "so_khoan", n)
+	}
+	return nil
+}

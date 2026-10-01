@@ -251,6 +251,68 @@ func (s *Service) DaoTheoDon(ctx context.Context, orderID, lyDo string) (int, er
 		return 0, err
 	}
 
+	return s.dao(ctx, ghi, lyDo)
+}
+
+// DaoTheoDongDon đảo hoa hồng của những DÒNG ĐƠN cụ thể.
+//
+// # Vì sao cần đường này bên cạnh `DaoTheoDon`
+//
+// Hủy TỪNG PHẦN — một nhà bán trong đơn nhiều nhà bán không giao được —
+// KHÔNG phát `order.cancelled`. Nó phát `fulfillment.cancelled`, và đơn chỉ
+// chuyển sang `PARTIALLY_CANCELLED`.
+//
+// Trước 01/10/2026 không đường nào tới đây, nên khoản hoa hồng của dòng bị
+// hủy đứng ở CHỜ ĐẾN HẠN **mãi mãi**: không đảo, vì không có
+// `order.cancelled`; không mở khóa, vì đơn thực hiện bị hủy không bao giờ
+// phát `fulfillment_order.completed`. Một dòng rác trong bảng tiền, và nó
+// im lặng. Xem P3-85.
+//
+// Dùng `DaoTheoDon` cho việc này là SAI: nó đảo theo `order_id`, tức đảo
+// luôn hoa hồng của nhà bán vẫn đang giao bình thường.
+//
+// Danh sách RỖNG trả 0 và không lỗi: đơn thực hiện cũ có `order_line_id`
+// rỗng (điền từ migration 000024), và việc ấy không phải lỗi cần thử lại.
+func (s *Service) DaoTheoDongDon(
+	ctx context.Context, orderLineIDs []string, lyDo string,
+) (int, error) {
+	if lyDo == "" {
+		return 0, domain.ErrThieuLyDoDao
+	}
+	if len(orderLineIDs) == 0 {
+		return 0, nil
+	}
+
+	ma := make([]ids.ID, 0, len(orderLineIDs))
+	for _, raw := range orderLineIDs {
+		if raw == "" {
+			continue
+		}
+		id, err := ids.Parse(raw, ids.PrefixOrderLine)
+		if err != nil {
+			return 0, fmt.Errorf("affiliate: mã dòng đơn %q: %w", raw, err)
+		}
+		ma = append(ma, id)
+	}
+	if len(ma) == 0 {
+		return 0, nil
+	}
+
+	ghi, err := s.repo.TheoDongDon(ctx, ma)
+	if err != nil {
+		return 0, err
+	}
+
+	return s.dao(ctx, ghi, lyDo)
+}
+
+// dao đảo một tập khoản hoa hồng và trả số khoản THẬT SỰ đổi trạng thái.
+//
+// Dùng chung bởi `DaoTheoDon` và `DaoTheoDongDon`: hai đường vào khác nhau
+// nhưng cùng một phép, và hai bản cài của một phép đảo tiền sớm muộn sẽ lệch.
+func (s *Service) dao(
+	ctx context.Context, ghi []*domain.CommissionRecord, lyDo string,
+) (int, error) {
 	now := s.clock()
 	var daDao int
 	for _, c := range ghi {
@@ -266,7 +328,6 @@ func (s *Service) DaoTheoDon(ctx context.Context, orderID, lyDo string) (int, er
 		}
 		daDao++
 	}
-
 	return daDao, nil
 }
 

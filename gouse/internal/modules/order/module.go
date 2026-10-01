@@ -297,12 +297,6 @@ func toPlaceOrderLine(
 			return out, ErrInvalidID
 		}
 		out.AttributedCreatorID = creatorID
-
-		creatorRate, err := types.NewBasisPoints(int32(src.CreatorCommissionRate))
-		if err != nil {
-			return out, ErrInvalidInput
-		}
-		out.CreatorCommissionRate = creatorRate
 	}
 
 	for _, a := range src.Adjustments {

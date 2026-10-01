@@ -1,0 +1,32 @@
+-- Bỏ `order_line.creator_commission_rate` — một cột tỷ lệ TIỀN mà không ai ghi.
+--
+-- # Bằng chứng nó chưa bao giờ có dữ liệu
+--
+-- Đo trên database phát triển 27/09/2026:
+--
+--	order_line                        3298 dòng
+--	creator_commission_rate <> 0         0 dòng
+--
+-- Cột có từ migration 000008 (tháng 8), có đường đi ĐỦ ở Go —
+-- `PlaceOrderLineInput` → `domain.Line` → store → `RestoreLine` — và KHÔNG
+-- bên gọi nào truyền giá trị khác 0. `checkout/adapters.go` chỉ truyền
+-- `AttributedCreatorID`. Không một bài test nào nhắc tới nó.
+--
+-- # Vì sao bỏ chứ không điền vào
+--
+-- Từ 27/09/2026 module `affiliate` đóng băng tỷ lệ hoa hồng creator ở
+-- `attribution.commission_rate` của CHÍNH NÓ. Điền cột này nghĩa là có hai
+-- cột cho cùng một con số tiền, ở hai module, và hai nguồn sự thật cho một
+-- con số tiền sớm muộn sẽ lệch — đúng lỗi P3-18.
+--
+-- ADR-0021 nói rõ ranh giới: kernel CHỞ định danh (`attributed_creator_id`),
+-- extension sở hữu phần KINH TẾ (tỷ lệ, tiền gốc, bên chịu chi phí). Tỷ lệ
+-- hoa hồng creator ở bảng của kernel là ranh giới ấy bị rò.
+--
+-- Lưu ý lịch sử: bản đầu của migration 000057 từng THÊM
+-- `creator_commission_rate` vào `checkout_line` cho cân với nhà bán; nó bị
+-- bỏ trước khi áp dụng, đúng vì lý do trên. Cột ở `order_line` là phiên bản
+-- cũ hơn của cùng một sai lầm.
+--
+-- KHÔNG cần đường di cư dữ liệu: cột rỗng ở mọi dòng. Xem P3-83.
+ALTER TABLE order_line DROP COLUMN creator_commission_rate;

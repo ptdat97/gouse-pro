@@ -281,11 +281,31 @@ có một hợp đồng nữa, và `cmd/eventcheck` gác nó:
 R1  khai mà KHÔNG AI PHÁT   một cái tên không có sự kiện đằng sau
 R2  khai mà KHÔNG AI NGHE   một sự thật không ai hành động
 R3  NGHE mà không ai phát   bên nhận chết, chờ một event không tới
+R4  BỘ BÊN NHẬN lệch nhau   test chạy với hệ thống khác production
 ```
 
 Đã tìm ra bốn loại event khai mà không ai phát, trong đó `order.placed`
 được nhắc tên trong chú thích của hai module như thể nó đang chạy — xem
 P3-76.
+
+**R4 gác tầng NỐI DÂY, không phải hợp đồng event.** Nó so danh sách
+`bus.Subscribe(...)` của `cmd/worker/main.go` với `dangKyBenNhan` của
+`internal/app/api_ledger_test.go`, theo CẢ HAI chiều:
+
+```text
+thiếu ở test      bài test không hỏi tới phần ấy — không bài nào đỏ
+chỉ có ở test     TỆ HƠN: bài test xanh cho đường KHÔNG chạy ở production
+```
+
+Nó ra đời 01/10/2026 vì `inventory.NewReleaseHandler` — ĐƯỜNG RA của kho —
+thiếu ở bộ test suốt nhiều tháng, nên lỗi *"đặt 5 món rồi hủy, tồn kho đứng
+nguyên 15 khả dụng / 5 cam kết"* không bài nào ở lớp ấy bắt được.
+
+Tìm ra bằng một phép phá **KHÔNG ĐỎ**: bỏ khai báo phiên bản của chính bên
+nhận ấy mà bài test vẫn xanh, vì nó chưa bao giờ chạy ở đó. Xem P3-86.
+
+Miễn trừ đi qua sổ `benNhanChiOWorker` kèm lý do, cùng khuôn mọi sổ khác —
+và sổ ấy cũng bị gác: một dòng trỏ tới bên nhận không còn tồn tại là vi phạm.
 
 ---
 

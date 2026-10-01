@@ -7529,7 +7529,7 @@ migration đổi cột, rồi bỏ khai báo trong sổ.
 
 ---
 
-### P3-83 — `order_line.creator_commission_rate`: cột tỷ lệ TIỀN ở kernel mà không ai ghi
+### P3-83 — ĐÃ LÀM 01/10/2026 — `order_line.creator_commission_rate`: cột tỷ lệ TIỀN ở kernel mà không ai ghi
 
 Kiểm trên database phát triển, 27/09/2026:
 
@@ -7546,9 +7546,14 @@ của module affiliate đóng băng tỷ lệ thật. Hai cột cho cùng một 
 hai chỗ để lệch — và ADR-0021 nói rõ phần kinh tế thuộc extension, kernel chỉ
 chở định danh.
 
-Việc cần làm: migration bỏ cột, bỏ trường khỏi `domain.Line`,
-`PlaceOrderLineInput`, store và `module.go`. Không cần đường di cư dữ liệu —
-cột rỗng ở mọi dòng.
+**Đã bỏ** ở migration 000059 cùng trường tương ứng trong `domain.Line`,
+`PlaceOrderLineInput`, `application.PlaceOrderLineInput`, store và
+`module.go`. Không cần đường di cư dữ liệu — cột rỗng ở mọi dòng. Migration
+`down` trả lại cột theo ĐÚNG định nghĩa cũ của 000008, nên lùi rồi tiến lại
+cho cùng lược đồ.
+
+Một dấu hiệu nữa cho thấy nó chưa bao giờ chạy: **không một bài test nào**
+trong cả repo nhắc tới `CreatorCommissionRate`.
 
 Lưu ý: bản đầu của migration 000057 từng THÊM `creator_commission_rate` vào
 `checkout_line` cho cân với nhà bán; nó bị bỏ trước khi áp dụng, đúng vì lý do
@@ -7582,7 +7587,7 @@ không phải đổi một dòng. Nhưng nó chờ Phase 2.
 
 ---
 
-### P3-85 — hủy TỪNG PHẦN để hoa hồng creator mắc ở `PENDING` vĩnh viễn
+### P3-85 — ĐÃ LÀM 01/10/2026 — hủy TỪNG PHẦN để hoa hồng creator mắc ở `PENDING` vĩnh viễn
 
 `affiliate.DaoKhiHuyDon` nghe `order.cancelled`, và event ấy chỉ phát từ
 `CancelWithReason` — tức hủy CẢ đơn.
@@ -7612,16 +7617,110 @@ Hai điều đáng ghi, đã kiểm trên mã:
 `affiliate.DaoTheoDon` hiện đảo theo `order_id`, tức đảo CẢ đơn — dùng nó cho
 hủy từng phần sẽ đảo luôn hoa hồng của nhà bán vẫn đang giao.
 
-Việc cần làm, và thứ tự:
+#### Đã làm
 
-1. `fulfillment.cancelled` mang `sku_id` + `quantity`, KHÔNG mang
-   `order_line_id`. Affiliate quy công theo dòng đơn, nên nó không khớp được.
-   Thêm `order_line_id` vào payload là việc đầu tiên (ADR-0016: tăng phiên
-   bản, ba bên nhận hiện có phải khai lại).
-2. Rồi affiliate nghe event ấy và đảo theo dòng.
+```text
+fulfillment.cancelled  →  v2, mỗi dòng mang thêm `order_line_id`
+CancelledLine          →  thêm OrderLineID (FOLine đã có sẵn)
+inventory              →  khai MaxEventVersion = 2 (KHÔNG dùng trường mới)
+affiliate              →  bên nhận thứ TƯ: dao_khi_huy_don_thuc_hien
+Service.DaoTheoDongDon →  đảo theo TẬP dòng đơn
+Repo.TheoDongDon       →  đọc hoa hồng theo `order_line_id = ANY($1)`
+```
 
-Module `returns` sẽ cần đúng cùng thứ — hoàn hàng từng dòng có cùng vấn đề.
-Nên quyết một lần, đừng để hai event cho hai đường tới cùng một sự thật.
+`order_line_id` KHÔNG dùng `omitempty`: một trường biến mất khi rỗng buộc
+bên nhận phân biệt "không có khóa" với "rỗng", và hai cách hiện cho cùng một
+sự thật là chỗ để đọc sai.
+
+**Đơn thực hiện CŨ không có mã dòng** (`FOLine.OrderLineID` chỉ được điền từ
+migration 000024). Bên nhận ghi log CẢNH BÁO rồi trả `nil`, không trả lỗi:
+thử lại không làm dữ liệu cũ có thêm mã dòng, nên trả lỗi chỉ đẩy event vào
+dead letter.
+
+**Lý do đảo nêu rõ đơn thực hiện nào** — `"đơn thực hiện FC-FO-000123 bị
+hủy"`, không phải `"đơn bị hủy"`. Lúc đối soát, câu thứ hai không tra ra được
+chuyện đã xảy ra.
+
+#### Kiểm chứng bằng cách phá
+
+```text
+bỏ đăng ký bên nhận mới       → "nhà bán hủy mà hoa hồng vẫn PENDING"
+                                 (tái hiện ĐÚNG lỗi gốc)
+dùng DaoTheoDon(order_id)     → "hoa hồng của nhà bán VẪN ĐANG GIAO đã
+                                 thành REVERSED"
+bỏ order_line_id khỏi payload → như phép 1
+```
+
+Phép thứ hai là phép quan trọng: nửa đầu của bài test xanh ở cả hai bản cài,
+và chỉ khẳng định "dòng của nhà bán còn lại KHÔNG được chạm" mới phân biệt
+được chúng.
+
+#### Còn lại cho module `returns`
+
+Hoàn hàng từng dòng có đúng cùng vấn đề. `order_line_id` nay đã có trên
+`fulfillment.cancelled`, nên khi `returns` cần đảo theo dòng thì nó dùng lại
+chính khóa ấy — đừng thêm event thứ hai cho cùng một sự thật.
+
+---
+
+### P3-86 — bộ bên nhận của test tích hợp thiếu ba cái, và chỉ một cái có lý do
+
+`internal/app/api_ledger_test.go` có `dangKyBenNhan` — "bộ bên nhận chuẩn,
+dùng chung cho mọi bài test cần phát event, **để không có bài nào chạy với
+bộ bên nhận khác production**".
+
+So với `cmd/worker/main.go`, nó thiếu ba:
+
+| Thiếu | Lý do |
+|---|---|
+| `supplychain.NewSignalHandler` | ĐÃ ghi trong chú thích: `supplychain` không nằm trong `Modules` của `internal/app` |
+| `payment.NewChiPhiVanChuyenHandler` | hợp lý: nó cần một nguồn GIÁ, nên `api_chi_phi_van_chuyen_test.go` tự đăng ký kèm giá cố định |
+| `inventory.NewReleaseHandler` | **không lý do nào** |
+
+Cái thứ ba là **đường RA của kho**. Hệ quả: tới 01/10/2026 mọi bài test lớp
+này chạy với một hệ thống không có đường ra của kho, nên lỗi mà
+`order/events.go` mô tả kèm lần kiểm chứng bằng đơn thật — *"đặt 5 món rồi
+hủy, tồn kho đứng nguyên 15 khả dụng / 5 cam kết. Không lỗi, không log."* —
+không bài nào ở đây bắt được.
+
+#### Tìm ra bằng một phép phá KHÔNG đỏ
+
+Đang kiểm P3-85, tôi bỏ `MaxEventVersion` của
+`inventory.release_on_fulfillment_cancelled` để xem hàng rào phiên bản
+ADR-0016 có gác thật không. Bài test **xanh**. Lý do không phải hàng rào
+hỏng — mà là bên nhận ấy chưa bao giờ chạy ở lớp test.
+
+**Một phép phá không đỏ nói về PHÉP THỬ, không chỉ về mã.** Ở đây nó chỉ ra
+một khoảng trống lớn hơn thứ đang kiểm.
+
+#### Đã làm 01/10/2026
+
+Thêm `inventory.NewReleaseHandler` vào bộ chuẩn (dùng `sellerOwner` đã có ở
+`internal/app/stock.go` — hai interface `OwnerResolver` cùng chữ ký).
+
+Và thêm `TestHuyDonThucHienThiTraHangVeKho` để bên nhận ấy có bài gác: một
+bên nhận được đăng ký mà không bài nào đi qua chỉ là nửa bản sửa.
+
+Bài đó đo **cả hai** con số, và khẳng định tổng GIỮ NGUYÊN:
+
+```text
+cam kết   phải GIẢM   — không thì hàng bị giữ cho đơn không còn tồn tại
+khả dụng  phải TĂNG   — không thì hàng có thật mà hệ thống không bán được
+tổng      phải BẰNG   — nhả hàng là CHUYỂN trạng thái, không tạo thêm hàng
+```
+
+Khẳng định thứ ba là khẳng định dễ bỏ qua nhất và nguy hiểm nhất khi thiếu:
+một bản cài cộng vào khả dụng mà quên trừ cam kết sẽ xanh ở hai điều đầu, và
+hệ quả là tồn kho tự nhân lên — nền tảng bán thứ không có.
+
+Sau khi thêm, phép phá ban đầu đỏ đúng chỗ.
+
+#### Việc còn lại
+
+`supplychain` vẫn ngoài `Modules`. Chú thích đã ghi, nhưng "đã ghi" không
+phải "đã gác": tín hiệu nhu cầu của nó không có bài test tích hợp nào. Cần
+một phép so DANH SÁCH tự động giữa `cmd/worker` và `dangKyBenNhan` — đúng
+khuôn `cmd/eventcheck` đang làm cho event.
 
 ---
 

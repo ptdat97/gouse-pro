@@ -324,6 +324,13 @@ func (p *eventPublisher) PublishCancelled(
 	ctx context.Context, in application.FulfillmentCancelled,
 ) error {
 	type cancelledLine struct {
+		// OrderLineID thêm ở PHIÊN BẢN 2 (01/10/2026).
+		//
+		// `omitempty` KHÔNG dùng: một trường biến mất khi rỗng buộc bên
+		// nhận phân biệt "không có khóa" với "rỗng", và hai cách hiện cho
+		// cùng một sự thật là chỗ để đọc sai.
+		OrderLineID string `json:"order_line_id"`
+
 		SKUID    string `json:"sku_id"`
 		Quantity int    `json:"quantity"`
 	}
@@ -331,8 +338,9 @@ func (p *eventPublisher) PublishCancelled(
 	lines := make([]cancelledLine, 0, len(in.Lines))
 	for _, l := range in.Lines {
 		lines = append(lines, cancelledLine{
-			SKUID:    l.SKUID.String(),
-			Quantity: l.Quantity,
+			OrderLineID: l.OrderLineID.String(),
+			SKUID:       l.SKUID.String(),
+			Quantity:    l.Quantity,
 		})
 	}
 
@@ -371,7 +379,15 @@ func (p *eventPublisher) PublishCancelled(
 		return err
 	}
 
-	e = e.WithTrace(in.OrderID.String(), "")
+	// PHIÊN BẢN 2: thêm `order_line_id` cho mỗi dòng.
+	//
+	// Theo ADR-0016, mọi bên nhận của event này phải khai `MaxEventVersion`
+	// ≥ 2, nếu không dispatcher HOÃN event cho TẤT CẢ — kể cả bên nhận
+	// không dùng trường mới. Hai bên nhận hiện có đã khai:
+	//
+	//	inventory.release_on_fulfillment_cancelled   không dùng trường mới
+	//	affiliate.dao_khi_huy_don_thuc_hien          dùng nó làm khóa
+	e = e.WithVersion(2).WithTrace(in.OrderID.String(), "")
 	return p.outbox.Publish(ctx, e)
 }
 

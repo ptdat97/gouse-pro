@@ -123,6 +123,21 @@ type FulfillmentCancelled struct {
 
 // CancelledLine là một món không đi nữa.
 type CancelledLine struct {
+	// OrderLineID là dòng của ĐƠN HÀNG mà món này thuộc về.
+	//
+	// # Vì sao cần nó bên cạnh SKUID
+	//
+	// inventory trả hàng về kho theo `(sku_id, quantity)` và không cần mã
+	// dòng đơn. Nhưng mọi thứ TÍNH TIỀN theo dòng đơn thì cần: module
+	// `affiliate` đảo hoa hồng creator theo `order_line_id`, và một đơn có
+	// thể có hai dòng CÙNG SKU với hai creator khác nhau — gộp theo SKU sẽ
+	// đảo sai người.
+	//
+	// Có thể RỖNG với đơn thực hiện cũ: `FOLine.OrderLineID` chỉ được điền
+	// từ migration 000024 trở đi. Bên nhận phải bỏ qua dòng rỗng chứ không
+	// được coi đó là lỗi.
+	OrderLineID ids.ID
+
 	SKUID    ids.ID
 	Quantity int
 }
@@ -421,7 +436,11 @@ func (s *Service) publishCancelled(
 		if l.SKUID.IsZero() || l.Quantity <= 0 {
 			continue
 		}
-		lines = append(lines, CancelledLine{SKUID: l.SKUID, Quantity: l.Quantity})
+		lines = append(lines, CancelledLine{
+			OrderLineID: l.OrderLineID,
+			SKUID:       l.SKUID,
+			Quantity:    l.Quantity,
+		})
 	}
 
 	return s.events.PublishCancelled(ctx, FulfillmentCancelled{

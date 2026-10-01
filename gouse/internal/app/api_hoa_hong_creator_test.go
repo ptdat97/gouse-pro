@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -422,85 +423,9 @@ func TestMoKhoaHoaHongTheoTungNhaBan(t *testing.T) {
 		t.Skip("module affiliate cần kho lưu trữ postgres")
 	}
 
-	offerA, offerB := a.haiOfferKhacNhaBan(t)
-	if offerA == "" || offerB == "" {
-		t.Skip("không có đủ hai nhà bán bán được hàng")
-	}
-
-	// CÙNG một creator cho cả hai dòng: bài này kiểm ranh giới NHÀ BÁN, nên
-	// hai creator khác nhau sẽ làm lẫn hai nguyên nhân với nhau.
-	creatorID := ids.MustNew(ids.PrefixCreator).String()
-	for _, id := range []string{offerA, offerB} {
-		r := a.call(http.MethodPost, "/api/v1/cart/items", map[string]any{
-			"offer_id": id, "quantity": 1,
-			"source": map[string]any{"creator_id": creatorID},
-		}, khoaIdem())
-		if r.code != http.StatusOK {
-			t.Fatalf("thêm offer %s: HTTP %d — %s", id, r.code, r.raw)
-		}
-	}
-
-	gio := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
-	c, _ := gio.body["cart"].(map[string]any)
-	if nhom, _ := c["groups"].([]any); len(nhom) < 2 {
-		t.Skipf("giỏ chỉ có %d nhà bán, cần 2", len(nhom))
-	}
-	maGio, _ := c["id"].(string)
-
-	const dienThoai = "0900444333"
-	maPhien := a.moPhienTuGio(t, maGio, emailMoi("hh2nb"), dienThoai)
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "CARD"}, khoaIdem())
-	if res.code != http.StatusOK && res.code != http.StatusCreated {
-		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
-	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	tongMap, _ := don["total"].(map[string]any)
-	soTien, _ := tongMap["amount"].(float64)
-
-	a.phatEvent(t)
-	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
-		"event_id":   "evt_hoa_hong_2nb_1",
-		"event_type": "payment.succeeded",
-		"data": map[string]any{
-			"payment_intent_id": "pi_hoa_hong_2nb_1",
-			"amount":            int64(soTien),
-			"currency":          "VND",
-			"metadata":          map[string]any{"order_id": maDon},
-		},
-	}, biMatCongTT)
-	if whRes.code != http.StatusOK {
-		t.Fatalf("webhook thanh toán: HTTP %d — %s", whRes.code, whRes.raw)
-	}
-	a.phatEvent(t)
-
-	if n := a.demQuyCong(t, maDon); n != 2 {
-		t.Fatalf("đơn hai nhà bán có %d bản quy công, cần 2 — quy công theo "+
-			"TỪNG DÒNG, không theo cả đơn", n)
-	}
+	maDon, dsFO := a.donHaiNhaBanDaTraTien(t, "2nb")
 
 	// Hoàn tất đơn thực hiện của MỘT nhà bán thôi.
-	type fo struct{ id, sellerID string }
-	var dsFO []fo
-	rows, err := a.db.Pool().Query(ctx,
-		`SELECT id, seller_id FROM fulfillment_order WHERE order_id = $1
-		  ORDER BY created_at`, maDon)
-	if err != nil {
-		t.Fatalf("đọc đơn thực hiện: %v", err)
-	}
-	for rows.Next() {
-		var f fo
-		if err := rows.Scan(&f.id, &f.sellerID); err != nil {
-			t.Fatalf("đọc đơn thực hiện: %v", err)
-		}
-		dsFO = append(dsFO, f)
-	}
-	rows.Close()
-	if len(dsFO) != 2 {
-		t.Fatalf("đơn tách thành %d đơn thực hiện, cần 2", len(dsFO))
-	}
-
 	mot := dsFO[0]
 	tokNB := a.taoTokenNhaBan(t, mot.sellerID)
 	for _, buoc := range []string{"ship", "deliver"} {
@@ -578,4 +503,211 @@ func (a *apiTest) moPhienTuGio(t *testing.T, maGio, email, dienThoai string) str
 		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
 
 	return maPhien
+}
+
+// donThucHien là một đơn thực hiện trong bài test, kèm nhà bán của nó.
+type donThucHien struct{ id, sellerID string }
+
+// donHaiNhaBanDaTraTien dựng một đơn HAI nhà bán, cùng một creator, ĐÃ trả
+// tiền và ĐÃ quy công.
+//
+// CÙNG một creator cho cả hai dòng có chủ ý: bài dùng nó kiểm ranh giới NHÀ
+// BÁN, nên hai creator khác nhau sẽ làm lẫn hai nguyên nhân với nhau.
+//
+// `nhan` phân biệt mã idempotency của webhook giữa các bài: cả gói test dùng
+// chung một database, nên hai bài gửi cùng `event_id` thì bài sau nhận lại
+// phản hồi của bài trước và không có event nào được phát.
+func (a *apiTest) donHaiNhaBanDaTraTien(
+	t *testing.T, nhan string,
+) (maDon string, dsFO []donThucHien) {
+	t.Helper()
+	ctx := context.Background()
+
+	offerA, offerB := a.haiOfferKhacNhaBan(t)
+	if offerA == "" || offerB == "" {
+		t.Skip("không có đủ hai nhà bán bán được hàng")
+	}
+
+	creatorID := ids.MustNew(ids.PrefixCreator).String()
+	for _, id := range []string{offerA, offerB} {
+		r := a.call(http.MethodPost, "/api/v1/cart/items", map[string]any{
+			"offer_id": id, "quantity": 1,
+			"source": map[string]any{"creator_id": creatorID},
+		}, khoaIdem())
+		if r.code != http.StatusOK {
+			t.Fatalf("thêm offer %s: HTTP %d — %s", id, r.code, r.raw)
+		}
+	}
+
+	gio := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
+	c, _ := gio.body["cart"].(map[string]any)
+	if nhom, _ := c["groups"].([]any); len(nhom) < 2 {
+		t.Skipf("giỏ chỉ có %d nhà bán, cần 2", len(nhom))
+	}
+	maGio, _ := c["id"].(string)
+
+	dienThoai := "09004" + ids.MustNew(ids.PrefixRequest).String()[25:30]
+	maPhien := a.moPhienTuGio(t, maGio, emailMoi("hh"+nhan), dienThoai)
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
+		map[string]any{"payment_method": "CARD"}, khoaIdem())
+	if res.code != http.StatusOK && res.code != http.StatusCreated {
+		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
+	}
+	don, _ := res.body["order"].(map[string]any)
+	maDon, _ = don["id"].(string)
+	tongMap, _ := don["total"].(map[string]any)
+	soTien, _ := tongMap["amount"].(float64)
+
+	// Phát TRƯỚC webhook: đơn thực hiện chỉ tồn tại sau `checkout.completed`.
+	a.phatEvent(t)
+
+	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
+		"event_id":   "evt_hoa_hong_" + nhan,
+		"event_type": "payment.succeeded",
+		"data": map[string]any{
+			"payment_intent_id": "pi_hoa_hong_" + nhan,
+			"amount":            int64(soTien),
+			"currency":          "VND",
+			"metadata":          map[string]any{"order_id": maDon},
+		},
+	}, biMatCongTT)
+	if whRes.code != http.StatusOK {
+		t.Fatalf("webhook thanh toán: HTTP %d — %s", whRes.code, whRes.raw)
+	}
+	a.phatEvent(t)
+
+	if n := a.demQuyCong(t, maDon); n != 2 {
+		t.Fatalf("đơn hai nhà bán có %d bản quy công, cần 2 — quy công theo "+
+			"TỪNG DÒNG, không theo cả đơn", n)
+	}
+
+	rows, err := a.db.Pool().Query(ctx,
+		`SELECT id, seller_id FROM fulfillment_order WHERE order_id = $1
+		  ORDER BY created_at`, maDon)
+	if err != nil {
+		t.Fatalf("đọc đơn thực hiện: %v", err)
+	}
+	for rows.Next() {
+		var f donThucHien
+		if err := rows.Scan(&f.id, &f.sellerID); err != nil {
+			t.Fatalf("đọc đơn thực hiện: %v", err)
+		}
+		dsFO = append(dsFO, f)
+	}
+	rows.Close()
+	if len(dsFO) != 2 {
+		t.Fatalf("đơn tách thành %d đơn thực hiện, cần 2", len(dsFO))
+	}
+
+	return maDon, dsFO
+}
+
+// trangThaiHoaHongTheoNhaBan trả trạng thái khoản hoa hồng của một nhà bán
+// trong một đơn.
+func (a *apiTest) trangThaiHoaHongTheoNhaBan(
+	t *testing.T, maDon, sellerID string,
+) string {
+	t.Helper()
+	var tt string
+	if err := a.db.Pool().QueryRow(context.Background(), `
+		SELECT c.status
+		  FROM commission_record c
+		  JOIN attribution a ON a.id = c.attribution_id
+		 WHERE a.order_id = $1 AND a.seller_id = $2`,
+		maDon, sellerID).Scan(&tt); err != nil {
+		t.Fatalf("đọc hoa hồng của nhà bán %s: %v", sellerID, err)
+	}
+	return tt
+}
+
+// Hủy đơn thực hiện của MỘT nhà bán phải ĐẢO hoa hồng của đúng dòng ấy.
+//
+// # P3-85 — một dòng rác trong bảng tiền, và nó im lặng
+//
+// Tới 01/10/2026 đường hủy TỪNG PHẦN không đi qua chỗ nào affiliate nghe
+// được:
+//
+//	đơn thực hiện của MỘT nhà bán bị hủy
+//	  → fulfillment phát `fulfillment.cancelled`
+//	  → order.RecalculateStatus → PARTIALLY_CANCELLED
+//	  → KHÔNG phát `order.cancelled`
+//
+// Hệ quả KHÔNG phải trả tiền sai — đơn thực hiện bị hủy không bao giờ phát
+// `fulfillment_order.completed`, nên khoản ấy cũng không mở khóa. Nó đứng ở
+// CHỜ ĐẾN HẠN **mãi mãi**: không đảo, không chi, không ai thấy.
+//
+// Bài này đòi hai điều cùng lúc, và điều thứ hai mới là chỗ dễ sai: dòng của
+// nhà bán CÒN LẠI không được chạm tới. `DaoTheoDon` đảo theo `order_id`, nên
+// dùng nó cho việc này sẽ xanh ở nửa đầu và sai ở nửa sau.
+func TestHuyDonThucHienThiDaoHoaHongCuaDongDo(t *testing.T) {
+	a := newAPITest(t)
+	ctx := context.Background()
+
+	if a.mods.affiliate == nil {
+		t.Skip("module affiliate cần kho lưu trữ postgres")
+	}
+
+	maDon, dsFO := a.donHaiNhaBanDaTraTien(t, "huy_fo")
+	huy, conLai := dsFO[0], dsFO[1]
+
+	for _, f := range dsFO {
+		if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, f.sellerID); tt != "PENDING" {
+			t.Fatalf("trước khi hủy: hoa hồng của %s là %q, cần PENDING",
+				f.sellerID, tt)
+		}
+	}
+
+	// Hủy qua API CỦA MODULE: không có route HTTP nào cho việc này, và đây
+	// là đường production thật — `CancelFulfillment` là thứ phát
+	// `fulfillment.cancelled`.
+	if err := a.mods.fulfillment.CancelFulfillment(
+		ctx, huy.sellerID, huy.id, "hết hàng",
+	); err != nil {
+		t.Fatalf("hủy đơn thực hiện: %v", err)
+	}
+	a.phatEvent(t)
+
+	if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, huy.sellerID); tt != "REVERSED" {
+		t.Fatalf("nhà bán hủy mà hoa hồng vẫn %q — khoản này sẽ đứng ở "+
+			"CHỜ ĐẾN HẠN mãi mãi, vì đơn thực hiện bị hủy không bao giờ phát "+
+			"fulfillment_order.completed (P3-85)", tt)
+	}
+
+	// VÀ dòng của nhà bán còn lại KHÔNG được chạm.
+	if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, conLai.sellerID); tt != "PENDING" {
+		t.Fatalf("hoa hồng của nhà bán VẪN ĐANG GIAO đã thành %q — đảo theo "+
+			"order_id thay vì theo dòng đơn", tt)
+	}
+
+	// Lý do phải nêu rõ ĐƠN THỰC HIỆN nào: "đơn bị hủy" không tra ra được
+	// chuyện đã xảy ra lúc đối soát.
+	var lyDo string
+	if err := a.db.Pool().QueryRow(ctx, `
+		SELECT c.reversed_reason
+		  FROM commission_record c
+		  JOIN attribution a ON a.id = c.attribution_id
+		 WHERE a.order_id = $1 AND a.seller_id = $2`,
+		maDon, huy.sellerID).Scan(&lyDo); err != nil {
+		t.Fatalf("đọc lý do đảo: %v", err)
+	}
+	if !strings.Contains(lyDo, "đơn thực hiện") {
+		t.Errorf("lý do đảo = %q — phải nêu rõ đơn thực hiện nào bị hủy", lyDo)
+	}
+
+	// Phát LẠI event không được đổi gì: giao ít nhất một lần.
+	if _, err := a.db.Pool().Exec(ctx,
+		`UPDATE event_outbox SET published_at = NULL, attempts = 0
+		  WHERE event_type = 'fulfillment.cancelled'`); err != nil {
+		t.Fatalf("đưa event về hàng chờ: %v", err)
+	}
+	if _, err := a.db.Pool().Exec(ctx,
+		`DELETE FROM event_processed WHERE handler LIKE 'affiliate.%'`,
+	); err != nil {
+		t.Fatalf("xóa dấu đã xử lý: %v", err)
+	}
+	a.phatEvent(t)
+
+	if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, conLai.sellerID); tt != "PENDING" {
+		t.Errorf("phát lại event đổi hoa hồng của nhà bán còn lại thành %q", tt)
+	}
 }

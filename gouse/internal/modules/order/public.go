@@ -212,8 +212,12 @@ type PlaceOrderLineInput struct {
 	// sai số dấu phẩy động tích lũy thành lệch đối soát.
 	CommissionRate int
 
-	AttributedCreatorID   string
-	CreatorCommissionRate int
+	// AttributedCreatorID là creator được quy công. Rỗng = khách tự tìm.
+	//
+	// Kernel chỉ CHỞ cái mã; phần kinh tế thuộc module `affiliate`
+	// (ADR-0021). Từng có `CreatorCommissionRate` cạnh đây — bỏ 01/10/2026,
+	// xem P3-83.
+	AttributedCreatorID string
 
 	Adjustments []AdjustmentInput
 }

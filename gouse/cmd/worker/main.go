@@ -546,14 +546,22 @@ func run() error {
 	bus.Subscribe(promotion.NewGhiLuotDungHandler(promotionModule, log))
 	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(promotionModule, log))
 
-	// Quy công đơn cho creator, và hai đầu kia của vòng đời khoản hoa hồng.
+	// Quy công đơn cho creator, và ba đầu kia của vòng đời khoản hoa hồng.
 	//
-	// BA bên nhận, không phải một: quy công lúc tiền về, đảo khi đơn hủy,
-	// mở khóa khi hết hạn đổi trả. Thiếu bên ĐẢO thì nền tảng trả hoa hồng
-	// cho đơn đã hủy; thiếu bên MỞ KHÓA thì mọi khoản đứng ở CHỜ ĐẾN HẠN
-	// vĩnh viễn và creator không bao giờ được chi.
+	// BỐN bên nhận, và mỗi cái đóng một lỗ khác nhau:
+	//
+	//	quy công       lúc tiền về
+	//	đảo cả đơn     khi khách hủy toàn bộ
+	//	đảo theo dòng  khi MỘT nhà bán không giao nữa (P3-85)
+	//	mở khóa        khi hết hạn đổi trả
+	//
+	// Thiếu bên ĐẢO CẢ ĐƠN thì nền tảng trả hoa hồng cho đơn đã hủy. Thiếu
+	// bên ĐẢO THEO DÒNG thì hoa hồng của dòng bị hủy đứng ở CHỜ ĐẾN HẠN
+	// mãi mãi — không ai thấy. Thiếu bên MỞ KHÓA thì creator không bao giờ
+	// được chi.
 	bus.Subscribe(affiliate.NewQuyCongHandler(affiliateModule, log))
 	bus.Subscribe(affiliate.NewDaoHandler(affiliateModule, log))
+	bus.Subscribe(affiliate.NewDaoDonThucHienHandler(affiliateModule, log))
 	bus.Subscribe(affiliate.NewMoKhoaHandler(affiliateModule, log))
 
 	jobs := []job{

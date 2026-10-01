@@ -38,7 +38,74 @@ func duAn(t *testing.T, khai string, file map[string]string) string {
 	for ten, noiDung := range file {
 		must(filepath.Join(goc, "internal", filepath.FromSlash(ten)), noiDung)
 	}
+
+	// Hai file mà R4 đọc phải TỒN TẠI, nếu không `run()` dừng ở lỗi đọc
+	// file và mọi bài kiểm R1/R2/R3 đỏ vì một lý do không liên quan.
+	//
+	// Sửa Ở ĐÂY, không ở từng bài: đã hai lần thêm một tầng kiểm mới làm
+	// vỡ bộ test cũ vì dự án giả thiếu một file (archcheck thiếu
+	// `docs/04-modules/`, apicheck thiếu `api/components/schemas.yaml`), và
+	// cả hai lần cách sửa đúng là vá chỗ dựng dự án giả.
+	//
+	// Nội dung KHỚP NHAU, nên dự án giả mặc định không có vi phạm R4 — bài
+	// nào muốn kiểm R4 thì tự ghi đè bằng `boBenNhan`.
+	must(filepath.Join(goc, "cmd", "worker", "main.go"), workerGia(benNhanMacDinh))
+	must(filepath.Join(goc, "internal", "app", "api_ledger_test.go"),
+		boTestGia(benNhanMacDinh))
+
 	return goc
+}
+
+// benNhanMacDinh là bộ bên nhận của dự án giả khi bài test không quan tâm R4.
+//
+// KHÔNG để rỗng: công cụ ĐỎ khi không tìm thấy lời gọi `Subscribe` nào, và
+// đó là hành vi đúng — một bộ bên nhận rỗng nghĩa là đã đổi chỗ đăng ký, chứ
+// không phải "không có bên nhận nào".
+var benNhanMacDinh = []string{"a.NewMotHandler"}
+
+// boBenNhan ghi lại hai file của R4 với hai danh sách bên nhận KHÁC nhau.
+//
+// Dùng sau `duAn` để dựng đúng tình huống R4 cần bắt.
+func boBenNhan(t *testing.T, goc string, cuaWorker, cuaTest []string) {
+	t.Helper()
+	ghi := func(duong, noiDung string) {
+		t.Helper()
+		if err := os.WriteFile(duong, []byte(noiDung), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ghi(filepath.Join(goc, "cmd", "worker", "main.go"), workerGia(cuaWorker))
+	ghi(filepath.Join(goc, "internal", "app", "api_ledger_test.go"),
+		boTestGia(cuaTest))
+}
+
+// workerGia dựng một `cmd/worker/main.go` đăng ký đúng các bên nhận cho
+// trước. Tên dạng `goi.NewXxxHandler`.
+func workerGia(benNhan []string) string {
+	var b strings.Builder
+	b.WriteString("package main\n\nfunc run() {\n")
+	for _, ten := range benNhan {
+		b.WriteString("\tbus.Subscribe(" + ten + "(m, log))\n")
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// boTestGia dựng một `api_ledger_test.go` có hàm `dangKyBenNhan`.
+//
+// Có THÊM một lời gọi Subscribe NGOÀI hàm ấy, để khẳng định công cụ chỉ đọc
+// trong thân hàm: `phatEvent` và các bài test riêng cũng gọi `Subscribe`, và
+// gộp chúng vào sẽ làm sổ miễn trừ vô nghĩa.
+func boTestGia(benNhan []string) string {
+	var b strings.Builder
+	b.WriteString("package app\n\nfunc (a *apiTest) dangKyBenNhan() {\n")
+	for _, ten := range benNhan {
+		b.WriteString("\tbus.Subscribe(" + ten + "(m, log))\n")
+	}
+	b.WriteString("}\n\nfunc (a *apiTest) rieng() {\n")
+	b.WriteString("\tbus.Subscribe(rieng.NewChiOBaiNayHandler(m, log))\n")
+	b.WriteString("}\n")
+	return b.String()
 }
 
 const khaiMotEvent = `const (
@@ -80,12 +147,13 @@ func (h *` + ten + `) EventTypes() []string {
 func chay(t *testing.T, goc string, so ...map[string]string) *checker {
 	t.Helper()
 	c := &checker{
-		root:      goc,
-		khongPhat: map[string]string{},
-		khongNghe: map[string]string{},
-		khaiEvent: map[string]string{},
-		noiPhat:   map[string][]string{},
-		noiNghe:   map[string][]string{},
+		root:       goc,
+		khongPhat:  map[string]string{},
+		khongNghe:  map[string]string{},
+		chiOWorker: map[string]string{},
+		khaiEvent:  map[string]string{},
+		noiPhat:    map[string][]string{},
+		noiNghe:    map[string][]string{},
 	}
 	if len(so) > 0 && so[0] != nil {
 		c.khongPhat = so[0]
@@ -234,14 +302,10 @@ func TestFilePhatTrongTestKhongTinh(t *testing.T) {
 // Thiếu bài này thì công cụ có thể đúng mà không ai chạy nó lên thứ đáng
 // chạy — cùng lý do với `TestDuAnThatKhop` của apicheck.
 func TestDuAnThatSach(t *testing.T) {
-	c := &checker{
-		root:      "../..",
-		khongPhat: khongAiPhat,
-		khongNghe: khongAiNghe,
-		khaiEvent: map[string]string{},
-		noiPhat:   map[string][]string{},
-		noiNghe:   map[string][]string{},
-	}
+	// `moiChecker` chứ không dựng bằng tay: dựng bằng tay ở đây là một bản
+	// sao thứ hai của danh sách sổ, và nó đã lệch một lần — thêm sổ của R4
+	// làm bài này đỏ dù dự án thật sạch.
+	c := moiChecker("../..")
 	if err := c.run(); err != nil {
 		t.Fatalf("run trên repo thật: %v", err)
 	}
@@ -249,4 +313,136 @@ func TestDuAnThatSach(t *testing.T) {
 		t.Fatalf("repo có %d vi phạm hợp đồng event:\n%s",
 			len(c.viPham), strings.Join(c.viPham, "\n"))
 	}
+}
+
+// ------------------------------------------------- R4: bộ bên nhận
+
+// R4 — worker đăng ký một bên nhận mà bộ của test KHÔNG.
+//
+// ĐÂY LÀ LỖI THẬT, tìm ra 01/10/2026: `inventory.NewReleaseHandler` — đường
+// RA của kho — có ở worker và thiếu ở `dangKyBenNhan` suốt nhiều tháng, nên
+// mọi bài test tích hợp chạy với một hệ thống không nhả hàng về kho.
+func TestBatBenNhanThieuOBoTest(t *testing.T) {
+	goc := duAn(t, khaiMotEvent, map[string]string{
+		"modules/a/phat.go": benPhat("TypeOrderPaid"),
+		"modules/b/nghe.go": benNghe("Nghe", "TypeOrderPaid"),
+	})
+	boBenNhan(t, goc,
+		[]string{"a.NewMotHandler", "inv.NewReleaseHandler"},
+		[]string{"a.NewMotHandler"})
+
+	c := chay(t, goc)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	for _, can := range []string{"R4", "inv.NewReleaseHandler", "dangKyBenNhan"} {
+		if !strings.Contains(c.viPham[0], can) {
+			t.Errorf("thiếu %q trong: %s", can, c.viPham[0])
+		}
+	}
+}
+
+// R4 chiều NGƯỢC — bên nhận chỉ chạy trong test.
+//
+// Tệ hơn chiều kia: bài test xanh cho một đường KHÔNG chạy ở production, nên
+// nó tạo ra lòng tin sai chứ chỉ không thiếu phép kiểm.
+func TestBatBenNhanChiCoOBoTest(t *testing.T) {
+	goc := duAn(t, khaiMotEvent, map[string]string{
+		"modules/a/phat.go": benPhat("TypeOrderPaid"),
+		"modules/b/nghe.go": benNghe("Nghe", "TypeOrderPaid"),
+	})
+	boBenNhan(t, goc,
+		[]string{"a.NewMotHandler"},
+		[]string{"a.NewMotHandler", "b.NewChiTrongTestHandler"})
+
+	c := chay(t, goc)
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "b.NewChiTrongTestHandler") {
+		t.Errorf("không chỉ ra bên nhận chỉ có ở test: %s", c.viPham[0])
+	}
+}
+
+// Sổ miễn trừ TẮT được R4 — nhưng chỉ cho đúng bên nhận đã khai.
+func TestSoMienTruTatDuocR4(t *testing.T) {
+	goc := duAn(t, khaiMotEvent, map[string]string{
+		"modules/a/phat.go": benPhat("TypeOrderPaid"),
+		"modules/b/nghe.go": benNghe("Nghe", "TypeOrderPaid"),
+	})
+	boBenNhan(t, goc,
+		[]string{"a.NewMotHandler", "sc.NewSignalHandler", "x.NewKhacHandler"},
+		[]string{"a.NewMotHandler"})
+
+	c := chayVoiSoR4(t, goc, map[string]string{
+		"sc.NewSignalHandler": "module không nằm trong Modules của app",
+	})
+
+	// MỘT vi phạm còn lại: `x.NewKhacHandler` không có lý do nào.
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "x.NewKhacHandler") {
+		t.Errorf("sổ miễn trừ tắt sai bên nhận: %s", c.viPham[0])
+	}
+}
+
+// Lý do khai cho một bên nhận KHÔNG tồn tại là một sổ đã mục.
+//
+// Bên nhận đổi tên hoặc bị xóa, và dòng trong sổ ở lại — từ đó nó miễn trừ
+// cho một cái tên không còn nghĩa gì, và lần sau có bên nhận THẬT thiếu thì
+// không ai biết dòng ấy đang che cái gì.
+func TestBatSoR4DaMuc(t *testing.T) {
+	goc := duAn(t, khaiMotEvent, map[string]string{
+		"modules/a/phat.go": benPhat("TypeOrderPaid"),
+		"modules/b/nghe.go": benNghe("Nghe", "TypeOrderPaid"),
+	})
+
+	c := chayVoiSoR4(t, goc, map[string]string{
+		"da.NewDoiTenHandler": "lý do cũ cho một tên không còn tồn tại",
+	})
+
+	if len(c.viPham) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	}
+	if !strings.Contains(c.viPham[0], "da.NewDoiTenHandler") {
+		t.Errorf("không chỉ ra dòng sổ đã mục: %s", c.viPham[0])
+	}
+}
+
+// Lời gọi Subscribe NGOÀI `dangKyBenNhan` không được tính.
+//
+// `phatEvent` và các bài test riêng cũng gọi `Subscribe` cho bên nhận của
+// riêng chúng — ví dụ `payment.NewChiPhiVanChuyenHandler` kèm giá cố định.
+// Tính cả chúng sẽ làm sổ miễn trừ vô nghĩa, vì mọi thứ đều "có ở test".
+//
+// `boTestGia` luôn ghi thêm `rieng.NewChiOBaiNayHandler` ngoài hàm ấy, nên
+// nếu công cụ đọc cả file thì bài này đỏ ở chiều "chỉ có ở test".
+func TestSubscribeNgoaiHamKhongTinh(t *testing.T) {
+	goc := duAn(t, khaiMotEvent, map[string]string{
+		"modules/a/phat.go": benPhat("TypeOrderPaid"),
+		"modules/b/nghe.go": benNghe("Nghe", "TypeOrderPaid"),
+	})
+
+	if c := chay(t, goc); len(c.viPham) != 0 {
+		t.Fatalf("mong 0 vi phạm, nhận: %v", c.viPham)
+	}
+}
+
+// chayVoiSoR4 chạy công cụ với sổ miễn trừ R4 cho trước.
+func chayVoiSoR4(t *testing.T, goc string, so map[string]string) *checker {
+	t.Helper()
+	c := &checker{
+		root:       goc,
+		khongPhat:  map[string]string{},
+		khongNghe:  map[string]string{},
+		chiOWorker: so,
+		khaiEvent:  map[string]string{},
+		noiPhat:    map[string][]string{},
+		noiNghe:    map[string][]string{},
+	}
+	if err := c.run(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return c
 }

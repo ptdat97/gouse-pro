@@ -193,6 +193,22 @@ func (h *ReleaseOnFulfillmentCancelled) EventTypes() []string {
 	return []string{eventbus.TypeFulfillmentCancelled}
 }
 
+// MaxEventVersion khai bên nhận này hiểu tới PHIÊN BẢN 2 của
+// `fulfillment.cancelled`.
+//
+// v2 (01/10/2026) thêm `order_line_id` cho mỗi dòng; bên nhận này KHÔNG dùng
+// nó — nó trả hàng về kho theo `(sku_id, quantity)`.
+//
+// Vẫn phải khai, vì ADR-0016 bắt MỌI bên nhận của một event nói rõ mình hiểu
+// tới đâu: thiếu một khai báo là dispatcher HOÃN event cho TẤT CẢ, và hàng
+// sẽ không được trả về kho vì một trường mà module này không đọc.
+func (h *ReleaseOnFulfillmentCancelled) MaxEventVersion(eventType string) int {
+	if eventType == eventbus.TypeFulfillmentCancelled {
+		return 2
+	}
+	return eventbus.DefaultMaxEventVersion
+}
+
 // fulfillmentCancelledPayload chỉ khai những trường handler này dùng.
 type fulfillmentCancelledPayload struct {
 	OrderID         string `json:"order_id"`

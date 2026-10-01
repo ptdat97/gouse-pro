@@ -239,3 +239,41 @@ func laTrungKhoa(err error) bool {
 	}
 	return pgErr.Code == "23505"
 }
+
+// TheoDongDon trả các khoản hoa hồng của một tập dòng đơn.
+//
+// Tập RỖNG trả danh sách rỗng mà không chạm database. Nếu để `= ANY('{}')`
+// đi xuống thì PostgreSQL trả 0 dòng — đúng kết quả — nhưng một lần sửa câu
+// SQL sau này làm mất điều kiện ấy sẽ đảo hoa hồng của toàn hệ thống. Chặn ở
+// Go là chặn ở chỗ đọc được.
+func (s *Store) TheoDongDon(
+	ctx context.Context, orderLineIDs []ids.ID,
+) ([]*domain.CommissionRecord, error) {
+	if len(orderLineIDs) == 0 {
+		return nil, nil
+	}
+
+	ma := make([]string, 0, len(orderLineIDs))
+	for _, id := range orderLineIDs {
+		if id.IsZero() {
+			continue
+		}
+		ma = append(ma, id.String())
+	}
+	if len(ma) == 0 {
+		return nil, nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+cotHoaHong+`
+		  FROM commission_record c
+		  JOIN attribution a ON a.id = c.attribution_id
+		 WHERE a.order_line_id = ANY($1)
+		 ORDER BY c.created_at`, ma)
+	if err != nil {
+		return nil, fmt.Errorf("affiliate: đọc hoa hồng theo dòng đơn: %w", err)
+	}
+	defer rows.Close()
+
+	return quetNhieu(rows)
+}

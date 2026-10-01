@@ -479,20 +479,49 @@ thích ngược": nó đúng theo nghĩa bên nhận cũ KHÔNG VỠ. Nhưng "kh
 với "làm đúng việc" là hai chuyện khác nhau, và im lặng là cách hỏng tệ
 nhất vì không ai biết để đi sửa.
 
-### 8.2. Trạng thái triển khai (20/08/2026)
+### 8.2. Trạng thái triển khai (01/10/2026)
 
 ```text
 ✅ Trường `event_version` — có ở cả Go (`Event.Version`) và outbox
-🔴 Không bên nhận nào ĐỌC version — mọi handler unmarshal thẳng
+✅ Bên nhận KHAI phiên bản mình hiểu: `MaxEventVersion(eventType) int`
+   12 bên nhận đã khai
+✅ Dispatcher HOÃN event mà có bên nhận chưa hiểu (ErrHoanLechPhienBan)
+✅ Bốn event đang ở phiên bản > 1:
+   checkout.completed       v9
+   cart.item_added          v2
+   fulfillment.progress…    v2
+   fulfillment.cancelled    v2   (01/10/2026, thêm order_line_id)
 🔴 Chưa có bên phát nào phát hai phiên bản song song
-🔴 Chưa có quy trình triển khai bắt buộc thứ tự bên nhận trước
 ```
 
-Nghĩa là cơ chế mới có phần KHUNG. Việc hoàn thiện nằm ở
-[backlog mục 2.8](../10-roadmap/backlog.md) (PH-7).
+Cơ chế này là ADR-0016, và nó thay cách giải quyết sự cố 19/08 ở trên: thay
+vì tin bên nhận cũ "bỏ qua trường lạ cho lành", dispatcher **giữ event lại**
+cho tới khi mọi bên nhận khai là hiểu được.
 
-Trước mắt, khi payload event đổi: **triển khai worker trước, API sau** —
-và kiểm tra không còn tiến trình worker cũ nào đang chạy.
+#### Cái giá đã chấp nhận, và nó đắt hơn nó trông
+
+**Thiếu MỘT khai báo là HOÃN cho TẤT CẢ.** Nên mỗi lần nâng phiên bản, MỌI
+bên nhận của event ấy phải sửa — kể cả bên không đọc trường mới.
+
+Đo thật, 01/10/2026: nâng `fulfillment.cancelled` lên v2 để thêm
+`order_line_id` cho `affiliate`. `inventory.release_on_fulfillment_cancelled`
+không dùng trường ấy — nó trả hàng về kho theo `(sku_id, quantity)` — nhưng
+vẫn phải khai `MaxEventVersion` ≥ 2, nếu không **hàng không được trả về kho**
+vì một trường module ấy không đọc.
+
+Đó cũng là lý do thêm trường vào một event ĐANG CHẠY đắt hơn nhiều so với
+việc thêm event mới, và là lý do `affiliate` đọc dòng hàng qua cổng công khai
+của `order` thay vì đòi `order.paid` mang thêm dữ liệu (xem ADR-0021).
+
+#### Hàng rào này từng không có bài test nào đi qua
+
+Tới 01/10/2026, bộ bên nhận của test tích hợp thiếu
+`inventory.NewReleaseHandler` — bên nhận duy nhất của `fulfillment.cancelled`
+trước khi affiliate xuất hiện. Nên phép thử "bỏ khai báo phiên bản đi, bài
+test có đỏ không?" trả lời **không đỏ**, và lý do là bên nhận ấy chưa bao giờ
+chạy ở lớp test. Xem P3-86.
+
+Khi payload event đổi, vẫn: **triển khai worker trước, API sau**.
 
 ---
 

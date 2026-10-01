@@ -42,6 +42,20 @@ import (
 // cần phát event, để không có bài nào chạy với bộ bên nhận khác production.
 func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	bus.Subscribe(inventory.NewCommitHandler(a.mods.inventory, log))
+
+	// ĐƯỜNG RA của kho — thiếu ở bộ này tới 01/10/2026.
+	//
+	// Worker đăng ký nó từ lâu; bộ bên nhận của test thì không, và không
+	// chú thích nào nói vì sao. Hệ quả: hủy đơn thực hiện ở MỌI bài test
+	// lớp này không bao giờ trả hàng về kho, nên lỗi "tồn kho đứng nguyên
+	// 15 khả dụng / 5 cam kết" — lỗi mà `order/events.go` mô tả kèm lần
+	// kiểm chứng bằng đơn thật — không có bài nào ở đây bắt được.
+	//
+	// Tìm ra khi phá hàng rào phiên bản ADR-0016: bỏ `MaxEventVersion` của
+	// chính bên nhận này mà không bài nào đỏ, vì nó chưa từng chạy ở đây.
+	bus.Subscribe(inventory.NewReleaseHandler(
+		a.mods.inventory, &sellerOwner{sellers: a.mods.seller}, log))
+
 	bus.Subscribe(fulfillment.NewSplitHandler(a.mods.fulfillment, log))
 	bus.Subscribe(order.NewProgressHandler(a.mods.order, log))
 	bus.Subscribe(payment.NewRevenueHandler(
@@ -72,16 +86,16 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 		bus.Subscribe(notification.NewOrderNotifier(a.mods.notification, log))
 	}
 
-	// Hoa hồng creator: quy công khi tiền về, đảo khi đơn hủy, mở khóa khi
-	// hết hạn đổi trả.
+	// Hoa hồng creator — BỐN bên nhận, đi cùng nhau.
 	//
-	// BA bên nhận đi cùng nhau. Đăng ký thiếu một cái sẽ cho một hệ thống
-	// TRÔNG NHƯ chạy: quy công có, nhưng hoặc nền tảng trả hoa hồng cho đơn
-	// đã hủy, hoặc mọi khoản đứng ở CHỜ ĐẾN HẠN vĩnh viễn. Cả hai đều im
-	// lặng, và cả hai đều là tiền.
+	// Đăng ký thiếu một cái cho một hệ thống TRÔNG NHƯ chạy: quy công có,
+	// nhưng hoặc nền tảng trả hoa hồng cho đơn đã hủy, hoặc khoản hoa hồng
+	// đứng ở CHỜ ĐẾN HẠN vĩnh viễn. Cả hai đều im lặng, và cả hai đều là
+	// tiền.
 	if a.mods.affiliate != nil {
 		bus.Subscribe(affiliate.NewQuyCongHandler(a.mods.affiliate, log))
 		bus.Subscribe(affiliate.NewDaoHandler(a.mods.affiliate, log))
+		bus.Subscribe(affiliate.NewDaoDonThucHienHandler(a.mods.affiliate, log))
 		bus.Subscribe(affiliate.NewMoKhoaHandler(a.mods.affiliate, log))
 	}
 }

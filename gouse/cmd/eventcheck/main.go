@@ -21,9 +21,14 @@
 //	R1  khai mà KHÔNG AI PHÁT   một cái tên không có sự kiện đằng sau
 //	R2  khai mà KHÔNG AI NGHE   một sự thật không ai hành động
 //	R3  NGHE mà không ai phát   bên nhận chết, chờ một event không tới
+//	R4  BỘ BÊN NHẬN lệch nhau   test chạy với hệ thống khác production
 //
 // R3 nghiêm trọng nhất và KHÔNG có ngoại lệ: một bên nhận không bao giờ
 // chạy là mã người ta tin là đang chạy.
+//
+// R4 gác tầng NỐI DÂY thay vì hợp đồng event: xem `bo_ben_nhan.go`. Nó ra
+// đời 01/10/2026, sau khi một phép phá KHÔNG ĐỎ cho thấy bộ bên nhận của
+// test tích hợp thiếu đường ra của kho suốt nhiều tháng (P3-86).
 //
 // R1 và R2 có ngoại lệ hợp lệ, và mỗi ngoại lệ phải có LÝ DO trong sổ
 // `soEvent` — cùng khuôn với các sổ của `apicheck`. Miễn trừ phải là một
@@ -51,14 +56,7 @@ func main() {
 	lietKe := flag.Bool("liet-ke", false, "in bảng event rồi thoát")
 	flag.Parse()
 
-	c := &checker{
-		root:      *root,
-		khongPhat: khongAiPhat,
-		khongNghe: khongAiNghe,
-		khaiEvent: map[string]string{},
-		noiPhat:   map[string][]string{},
-		noiNghe:   map[string][]string{},
-	}
+	c := moiChecker(*root)
 	if err := c.run(); err != nil {
 		fmt.Fprintln(os.Stderr, "eventcheck:", err)
 		os.Exit(2)
@@ -74,12 +72,36 @@ func main() {
 	}
 }
 
+// moiChecker dựng checker với BỘ SỔ THẬT của dự án.
+//
+// Một hàm dựng duy nhất, dùng bởi `main` và bởi `TestDuAnThatSach`. Dựng
+// bằng tay ở hai chỗ là hai chỗ để quên một sổ — và nó đã xảy ra: thêm sổ
+// của R4 làm bài test repo thật đỏ vì nó dựng riêng và không có sổ ấy.
+func moiChecker(root string) *checker {
+	return &checker{
+		root:       root,
+		khongPhat:  khongAiPhat,
+		khongNghe:  khongAiNghe,
+		chiOWorker: benNhanChiOWorker,
+		khaiEvent:  map[string]string{},
+		noiPhat:    map[string][]string{},
+		noiNghe:    map[string][]string{},
+	}
+}
+
 type checker struct {
 	root string
 
 	// khongPhat và khongNghe là hai SỔ MIỄN TRỪ, khóa là tên event.
 	khongPhat map[string]string
 	khongNghe map[string]string
+
+	// chiOWorker là SỔ MIỄN TRỪ của R4, khóa là tên hàm tạo bên nhận.
+	//
+	// Là TRƯỜNG chứ không đọc thẳng biến gói, cùng lý do hai sổ trên: bộ
+	// test của công cụ đo phép đối chiếu, không đo nội dung sổ của dự án
+	// thật — nên nó truyền sổ RỖNG vào.
+	chiOWorker map[string]string
 
 	// khaiEvent: tên hằng (TypeOrderPlaced) -> giá trị ("order.placed").
 	khaiEvent map[string]string
@@ -89,6 +111,9 @@ type checker struct {
 	noiNghe map[string][]string
 
 	viPham []string
+
+	// soBenNhanWorker là số bên nhận worker đăng ký — chỉ để in báo cáo.
+	soBenNhanWorker int
 }
 
 func (c *checker) run() error {
@@ -103,7 +128,7 @@ func (c *checker) run() error {
 		return err
 	}
 	c.doiChieu()
-	return nil
+	return c.doiChieuBoBenNhan()
 }
 
 // reTenEvent khớp dạng `mien.su_kien` — quy ước đặt tên của eventbus.
@@ -364,7 +389,9 @@ func (c *checker) report(verbose bool) {
 
 	if len(c.viPham) == 0 {
 		fmt.Printf("eventcheck: OK — %d loại event, mọi loại đều có nơi phát "+
-			"và bên nghe (hoặc đã khai lý do)\n", len(c.khaiEvent))
+			"và bên nghe (hoặc đã khai lý do) · %d bên nhận của worker đều "+
+			"có trong bộ của test (hoặc đã khai lý do)\n",
+			len(c.khaiEvent), c.soBenNhanWorker)
 		return
 	}
 	for _, v := range c.viPham {

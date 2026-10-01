@@ -209,8 +209,7 @@ type PlaceOrderLine struct {
 
 	CommissionRate types.BasisPoints
 
-	AttributedCreatorID   ids.ID
-	CreatorCommissionRate types.BasisPoints
+	AttributedCreatorID ids.ID
 
 	// Adjustments đã được PHÂN BỔ về từng dòng ở tầng trên.
 	//
@@ -306,17 +305,16 @@ func (s *Service) PlaceOrder(ctx context.Context, in PlaceOrderInput) (*PlaceOrd
 	lines := make([]*domain.Line, 0, len(in.Lines))
 	for i, src := range in.Lines {
 		l, err := domain.NewLine(domain.NewLineParams{
-			OfferID:               src.OfferID,
-			SKUID:                 src.SKUID,
-			SellerID:              src.SellerID,
-			ProductName:           src.ProductName,
-			VariantDescription:    src.VariantDescription,
-			UnitPrice:             src.UnitPrice,
-			Quantity:              src.Quantity,
-			CommissionRate:        src.CommissionRate,
-			AttributedCreatorID:   src.AttributedCreatorID,
-			CreatorCommissionRate: src.CreatorCommissionRate,
-			Now:                   now,
+			OfferID:             src.OfferID,
+			SKUID:               src.SKUID,
+			SellerID:            src.SellerID,
+			ProductName:         src.ProductName,
+			VariantDescription:  src.VariantDescription,
+			UnitPrice:           src.UnitPrice,
+			Quantity:            src.Quantity,
+			CommissionRate:      src.CommissionRate,
+			AttributedCreatorID: src.AttributedCreatorID,
+			Now:                 now,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("order: dòng hàng %d: %w", i+1, err)
