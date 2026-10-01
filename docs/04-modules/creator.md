@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Growth |
 | **Phân loại** | **Core** |
+| **Tầng (microkernel)** | **EXTENSION — chưa dựng** |
 | **Giai đoạn** | Phase 2 |
 
 ---

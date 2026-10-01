@@ -28,6 +28,83 @@ Mục 2 ("không thuộc trách nhiệm") quan trọng ngang mục 1 — phần 
 
 ---
 
+## Hai trục phân loại, và chúng KHÔNG mâu thuẫn
+
+Mỗi tài liệu module có hai hàng dễ nhìn tưởng là nói ngược nhau:
+
+```text
+| Phân loại           | Core                  |   ← trục GIÁ TRỊ KINH DOANH
+| Tầng (microkernel)  | EXTENSION — đã dựng   |   ← trục ĐỘ ỔN ĐỊNH
+```
+
+Ví dụ trên là `affiliate` thật. Nó **Core** và **EXTENSION** cùng lúc, và cả
+hai đều đúng:
+
+| Trục | Câu hỏi | Giá trị |
+|---|---|---|
+| `Phân loại` | Nó có phải lợi thế cạnh tranh của doanh nghiệp? | Core · Supporting · Generic |
+| `Tầng (microkernel)` | Tháo nó ra thì khách còn mua được hàng? | KERNEL · EXTENSION · CHƯA XẾP ĐƯỢC |
+
+Hoa hồng creator **là** lợi thế cạnh tranh (Core), và tháo nó ra thì khách
+**vẫn** mua được hàng (EXTENSION). Trộn hai trục lại sẽ dẫn tới một trong hai
+sai lầm:
+
+```text
+coi Core là KERNEL     → nhồi logic hoa hồng creator vào order
+                         (đã chặn: P3-83 bỏ order_line.creator_commission_rate)
+
+coi EXTENSION là phụ   → làm nó cẩu thả, dù nó là chỗ sinh tiền
+```
+
+Một `Phân loại: Supporting` nằm trong KERNEL cũng bình thường: `cart` không
+phải lợi thế cạnh tranh, nhưng tháo nó ra thì không ai mua được gì.
+
+Hàng `Tầng (microkernel)` là **nguồn sự thật** của phân loại ấy — `cmd/archcheck`
+R10 đọc chính nó, cùng cách R6 đọc mục "Dữ liệu sở hữu". Không có sổ phân
+loại nào trong mã.
+
+Hệ quả, và nó là chủ ý:
+
+```text
+tài liệu MẤT hàng ấy            archcheck LỖI khởi động, không phải vi phạm
+tài liệu ghi giá trị LẠ         archcheck LỖI khởi động
+tài liệu khai KERNEL mà module  R10c ĐỎ — đó là hình dạng một extension
+  ngoài đường mua hàng và
+  không ai import
+tài liệu khai EXTENSION mà      R10a ĐỎ — tháo nó ra sẽ làm bên kia
+  có module import nó             không biên dịch được
+```
+
+Nghĩa là **thêm một module mà không trả lời "tháo nó ra thì mất gì" thì CI
+không chạy qua được.**
+
+Xem [../03-architecture/microkernel.md](../03-architecture/microkernel.md) và
+[ADR-0022](../adr/0022-microkernel-kernel-on-dinh.md).
+
+### Bảng tra nhanh theo tầng
+
+```text
+KERNEL — đường mua hàng (11)
+    cart · catalog · checkout · fulfillment · inventory
+    marketplace · order · payment · product · promotion · seller
+
+KERNEL — năng lực cắt ngang (2)
+    identity · customer
+
+EXTENSION — đã dựng (6)
+    affiliate · return · notification · analytics
+    recommendation · supply-chain
+
+EXTENSION — chưa dựng (8)
+    campaign · content · creator · loyalty
+    manufacturing · procurement · quality · warehouse
+
+CHƯA XẾP ĐƯỢC (1)
+    pricing — xem P3-79
+```
+
+---
+
 ## Danh sách module theo tầng
 
 ### Tầng nền

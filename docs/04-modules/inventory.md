@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Inventory |
 | **Phân loại** | Supporting (nhưng ràng buộc kỹ thuật cao) |
+| **Tầng (microkernel)** | **KERNEL — đường mua hàng** |
 | **Giai đoạn** | MVP |
 
 ---

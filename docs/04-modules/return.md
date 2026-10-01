@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Commerce |
 | **Phân loại** | Supporting (**nhưng quan trọng đặc biệt với thời trang**) |
+| **Tầng (microkernel)** | **EXTENSION — đã dựng** |
 | **Giai đoạn** | Phase 2 |
 
 ---

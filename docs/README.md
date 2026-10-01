@@ -22,30 +22,48 @@ Tài liệu được xây dựng theo thứ tự **nghiệp vụ trước, kỹ 
 
 ## Kiến trúc tổng thể (một hình duy nhất)
 
+Gouse là một **microkernel thương mại điện tử**: kernel ổn định, mọi mô hình
+kinh doanh là tính năng bổ sung dựng bên ngoài nó.
+
 ```text
                       NGƯỜI DÙNG
                           │
-                          ▼
                     Next.js UI
               (Chỉ trình bày — Presentation only)
                           │
                     HTTP / API
-                          │
                           ▼
-                  ┌───────────────┐
-                  │  Go Backend   │
-                  │               │
-                  │ Business Core │
-                  │ Domain Logic  │
-                  │ Application   │
-                  │ API           │
-                  │ Workflows     │
-                  └───────────────┘
+  ┌──────────────── GO BACKEND (một binary) ────────────────┐
+  │                                                         │
+  │   ┌──────────── EXTENSION — tháo ra được ───────────┐   │
+  │   │  affiliate · returns · notification             │   │
+  │   │  analytics · recommendation · supplychain       │   │
+  │   └───────────────────────┬─────────────────────────┘   │
+  │                           │ event · cổng công khai      │
+  │                           ▼   (MỘT chiều)               │
+  │   ┌──────────────── KERNEL — ổn định ───────────────┐   │
+  │   │  đường mua hàng:  cart catalog checkout          │   │
+  │   │    fulfillment inventory marketplace order       │   │
+  │   │    payment product promotion seller              │   │
+  │   │  cắt ngang:  identity customer                   │   │
+  │   └──────────────────────────────────────────────────┘   │
+  │                           │                              │
+  │   ┌──────────────── PLATFORM ───────────────────────┐   │
+  │   │  eventbus database opsconfig audit token metrics │   │
+  │   └──────────────────────────────────────────────────┘   │
+  └─────────────────────────────────────────────────────────┘
                           │
               ┌───────────┼───────────┐
               ▼           ▼           ▼
           Database     Storage    External APIs
 ```
+
+Mũi tên chỉ đi **xuống**: extension đọc kernel, kernel KHÔNG biết extension
+tồn tại. Ranh giới ấy ĐO được và được cưỡng chế bằng `cmd/archcheck` R10.
+
+Chi tiết: [03-architecture/microkernel.md](03-architecture/microkernel.md) ·
+lý do: [ADR-0022](adr/0022-microkernel-kernel-on-dinh.md) · ranh giới đo
+được: [ADR-0021](adr/0021-ranh-gioi-commerce-kernel.md).
 
 ## Tài liệu nói gì, code nói gì
 
@@ -67,6 +85,8 @@ người đọc sau.
 - Go backend là nơi duy nhất sở hữu domain logic, dữ liệu và giao dịch.
 - Bắt đầu bằng **Modular Monolith**, không phải microservices.
 - Mọi năng lực đều được lộ ra qua API trước (API First).
+- **Kernel ổn định; mô hình kinh doanh là EXTENSION.** Kernel chở định danh,
+  extension sở hữu ý nghĩa. Không `if marketplace`, không `if livestream`.
 
 ## ARCHITECTURE FREEZE
 
@@ -102,10 +122,39 @@ Khả năng tương lai  →  Trừu tượng hóa mới
 ✗ plugin system              ✗ rule engine tổng quát
 ✗ GraphQL                    ✗ message broker
 ✗ gRPC                       ✗ service extraction
-✗ generic abstraction        ✗ module mới
+✗ generic abstraction        ✗ module KERNEL mới
 ```
 
 Trừ khi **triển khai thực tế** chứng minh là cần, và có ADR.
+
+### Một ngoại lệ: module EXTENSION mới ĐƯỢC phép
+
+Dòng `✗ module mới` của bản trước đã đổi thành `✗ module KERNEL mới`, theo
+[ADR-0022](adr/0022-microkernel-kernel-on-dinh.md).
+
+Lý do: hai phép thử đã chạy (chặng 1 và 2 của ADR-0021) cho thấy dựng một
+extension thật tốn **7 dòng** ở kernel, và 9 trong 20 module hiện tại không
+bên nào import — tức chúng thật sự tháo ra được. Lệnh cấm cũ làm người đọc
+tài liệu và người đọc ADR-0021 nhận hai câu trả lời ngược nhau.
+
+Điều kiện — cả năm, không chọn bốn:
+
+```text
+1. Tài liệu `docs/04-modules/<ten>.md` khai HAI thứ TRƯỚC khi viết mã:
+     | **Tầng (microkernel)** | EXTENSION — đã dựng |
+     mục "N. Dữ liệu sở hữu" kèm khối SQL
+                                       archcheck ĐỎ nếu thiếu
+2. KHÔNG module nào import nó         archcheck R10a
+3. Chỉ chạm bảng CỦA MÌNH             archcheck R6
+4. Nhận dữ liệu qua event, hoặc đọc qua cổng công khai của kernel
+```
+
+Câu *"tháo nó ra thì mất gì"* chính là tiêu chí phân loại, và viết nó vào tài
+liệu buộc người thêm module phải trả lời nó.
+
+`✗ plugin system` **vẫn đúng** và không bỏ: microkernel ở đây là cách phân
+tầng, không phải cơ chế nạp mã lúc chạy. Không `Registry`, không vòng đời
+module — ADR-0021 đã từ chối cả hai, *"tới khi có người dùng thứ hai"*.
 
 ### Không mở rộng domain
 
@@ -116,10 +165,12 @@ Commerce · Marketplace · Inventory · Financial
 Growth · Supply Chain · Platform
 ```
 
-Không tạo bounded context hay module mới trong giai đoạn này. Tính năng
-chưa cần cho MVP được đánh dấu `FUTURE` trong
-[10-roadmap/backlog.md](10-roadmap/backlog.md) mục 6, **không triển khai
-thêm**.
+Không tạo bounded context mới, và không tạo module KERNEL mới. Module
+EXTENSION thì được, theo điều kiện ở mục trên — một extension nằm trong một
+bounded context đã có, nó không mở rộng domain.
+
+Tính năng chưa cần cho MVP được đánh dấu `FUTURE` trong
+[10-roadmap/backlog.md](10-roadmap/backlog.md) mục 6.
 
 ### Điều VẪN nên làm
 
@@ -161,21 +212,37 @@ Mục tiêu duy nhất:
 
 ### Khoảng trống thật, đo từ code
 
-```text
-Module MVP có logic nghiệp vụ    17/17
-Module có tầng HTTP               3/17
-Operation trong OpenAPI          71
-Operation đã cài đặt             10   (14%)
-```
-
-Domain, application, infrastructure, PostgreSQL, event bus, test — đều đã
-có. Thứ thiếu là đường nối chúng ra ngoài:
+Đo lại 01/10/2026 bằng `cmd/archcheck -v` và `cmd/apicheck`:
 
 ```text
-Application  →  HTTP Handler  →  OpenAPI  →  API thật  →  Next.js
-                     ▲
-              ĐÂY là chỗ nghẽn
+Module trong mã                        20
+  kernel                               13   (11 đường mua hàng + 2 cắt ngang)
+  extension                             6
+  chưa xếp được                         1   (pricing — P3-79)
+Module có tầng HTTP                    14/20
+Thao tác trong OpenAPI                100
+Tuyến HTTP khớp đặc tả                 89   (15 hoãn, đã khai)
 ```
+
+Chỗ nghẽn cũ — *"3/17 có tầng HTTP, 10/71 operation"* của 15/08/2026 — đã
+hết. Đường `Application → HTTP → OpenAPI → Next.js` nay thông cho phần lớn
+hệ thống.
+
+Chỗ nghẽn hiện tại nằm ở **cuối chuỗi tiền và hàng**, không ở đường nối:
+
+```text
+fulfillment_order trên database phát triển, đo 01/10/2026:
+  PENDING       3260      nhà bán chưa bấm gì
+  HANDED_OVER     37      đã rời kho, chưa ai xác nhận đã giao
+  COMPLETED        1      đi hết chuỗi — đúng MỘT đơn, do test tích hợp
+
+pricing.price_constraint có mục đích ghi rõ mà không ai đọc (P3-79)
+attribution.content_id luôn rỗng — order_line không có cột nội dung (P3-84)
+```
+
+Con số 3260/37/1 là dữ liệu phát triển, không phải production — nhưng nó cho
+thấy đoạn CUỐI của chuỗi chưa có ai đi qua nhiều lần, nên nó là đoạn ít bằng
+chứng nhất.
 
 ### Định nghĩa "xong"
 
@@ -205,7 +272,7 @@ FUTURE. Đừng tạo backlog thứ hai.
 | 01-business | Hoàn thành | Định nghĩa tác nhân nghiệp vụ |
 | 02-domain | Hoàn thành | Là "hợp đồng" của toàn hệ thống |
 | 03-architecture | Hoàn thành | Quy tắc bắt buộc khi code |
-| 04-modules | Hoàn thành | 28 module (MVP 16 · Phase 2 +7 · Phase 3 +5) |
+| 04-modules | Hoàn thành | 28 tài liệu · 20 module có mã · mỗi tài liệu ghi TẦNG của nó |
 | 05-data | Hoàn thành | |
 | 06-api | Hoàn thành | |
 | 07-workflows | Hoàn thành | |
@@ -213,34 +280,41 @@ FUTURE. Đừng tạo backlog thứ hai.
 | 09-operations | Hoàn thành | |
 | 10-roadmap | Hoàn thành | |
 | 11-oss | Hoàn thành | 12 dự án + 2 mô hình kinh doanh |
-| adr | Hoàn thành | 11 ADR — ADR-0006 và ADR-0010 có mục "trạng thái triển khai" |
+| adr | Hoàn thành | 22 ADR — ADR-0006 và ADR-0010 có mục "trạng thái triển khai" |
 
 **Tài liệu kiến trúc đã ĐÓNG BĂNG.** Bảng trên không còn là việc phải làm —
 nó chỉ để tra cứu. Việc phải làm nằm ở
 [10-roadmap/backlog.md](10-roadmap/backlog.md).
 
-**Đối chiếu với code (15/08/2026):** 17/17 module MVP đã có logic nghiệp vụ,
-nhưng chỉ **3/17 có tầng HTTP** (catalog · product · identity) và **10/71
-operation** dùng được. Đây là khoảng cách giữa "đã thiết kế" và "chạy được".
+**Đối chiếu với code (01/10/2026):** 14/20 module có tầng HTTP, 89/100 thao
+tác đặc tả có tuyến thật. Khoảng cách "đã thiết kế" vs "chạy được" của
+15/08/2026 — *3/17 HTTP, 10/71 operation* — đã đóng.
+
 Chi tiết: [10-roadmap/backlog.md](10-roadmap/backlog.md) (việc còn lại) ·
 [10-roadmap/todo.md](10-roadmap/todo.md) (việc đã làm).
 
-Ba chỗ tài liệu đã được sửa cho khớp code thật, kèm lý do:
+Những chỗ tài liệu đã được sửa cho khớp code thật, kèm lý do:
 
 | Tài liệu | Giả định ban đầu | Thực tế | Ghi ở |
 |---|---|---|---|
 | ADR-0010 | Dùng `sqlc` sinh code | `pgx` + SQL viết tay | ADR-0010 mục cuối |
 | 05-data | Định danh kiểu `UUID` | `TEXT` + ULID có tiền tố | data-model.md mục 1.1 |
 | 05-data | Tách 7 schema PostgreSQL | Dùng `public`, hoãn tới khi tách service | database.md mục 3 |
+| 02-domain | "Không bên nhận nào đọc event version" | 12 bên nhận khai, 4 event ở v > 1 | domain-events.md mục 8.2 |
+| 04-modules/affiliate | Nghe `order.placed` và `return.refunded` | Cả hai KHÔNG tồn tại | affiliate.md mục 9.2 |
+| README (chính file này) | `✗ module mới` | module EXTENSION được, có điều kiện | ADR-0022 |
 
 ## Đặc tả OpenAPI
 
 Hợp đồng API nằm ở [`/api/openapi.yaml`](../gouse/api/README.md) — **nguồn sự thật duy nhất**, được cập nhật cùng pull request với thay đổi code.
 
 ```text
-71 operation · 0 lỗi lint · sinh kiểu TypeScript thành công
-10 đã cài đặt · 46 MVP còn lại · 15 hoãn sang Phase 2/3
+100 thao tác · 0 lỗi lint · sinh kiểu TypeScript thành công
+ 89 có tuyến thật · 15 hoãn sang Phase 2/3 (đã khai lý do)
 ```
+
+`cmd/apicheck` gác bốn tầng hợp đồng: tuyến ⇄ đặc tả · header ⇄ CORS ·
+enum ⇄ hằng số Go · DTO ⇄ schema phản hồi.
 
 **API-first phải trở thành API thật.** Trạng thái từng operation
 (`DESIGNED` / `IMPLEMENTED` / `TESTED` / `INTEGRATED`) ở

@@ -19,6 +19,25 @@ Dễ viết, khó bảo trì           Kỷ luật cao, dễ tiến hóa   Phứ
 
 ---
 
+### 1.1. "Modular monolith" nói về ĐÓNG GÓI, không về phân tầng
+
+Hai từ ấy trả lời câu *triển khai thế nào*: một binary, nhiều module, hàng
+rào `internal/` của Go.
+
+Câu *phân tầng thế nào* — module nào ổn định, module nào đổi theo mô hình
+kinh doanh — do **microkernel** trả lời, và nó là một trục khác:
+
+```text
+Modular monolith   TRIỂN KHAI   một binary, ranh giới biên dịch
+Microkernel        PHÂN TẦNG    kernel ổn định + extension
+```
+
+Dùng cả hai là đúng; chúng không loại trừ nhau. Xem
+[microkernel.md](microkernel.md) và
+[ADR-0022](../adr/0022-microkernel-kernel-on-dinh.md).
+
+---
+
 ## 2. Vì sao chọn cách này
 
 Xem đầy đủ tại [ADR-0001](../adr/0001-modular-monolith.md). Tóm tắt:
@@ -421,6 +440,8 @@ Cần theo dõi và xử lý ngay khi thấy:
 ---
 
 ## 11. Tài liệu liên quan
+
+- [microkernel.md](microkernel.md) — trục ổn định: kernel vs extension
 
 - [dependency-rules.md](dependency-rules.md) — ma trận phụ thuộc chi tiết
 - [module-boundaries.md](module-boundaries.md) — interface công khai từng module

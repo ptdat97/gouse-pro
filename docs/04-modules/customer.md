@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Commerce |
 | **Phân loại** | Supporting |
+| **Tầng (microkernel)** | **KERNEL — năng lực cắt ngang** |
 | **Giai đoạn** | MVP |
 
 ---

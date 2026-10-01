@@ -23,13 +23,8 @@ func main() {
 	)
 	flag.Parse()
 
-	c := &checker{
-		root:       *root,
-		modulePath: *modulePath,
-		verbose:    *verbose,
-		imports:    make(map[string][]string),
-		pkgFiles:   make(map[string][]string),
-	}
+	c := moiChecker(*root, *modulePath)
+	c.verbose = *verbose
 
 	if err := c.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "archcheck: %v\n", err)
@@ -42,15 +37,43 @@ func main() {
 	}
 }
 
+// moiChecker dựng checker với BỘ SỔ THẬT của dự án.
+//
+// Một hàm dựng duy nhất, dùng bởi `main` và bởi bài test chạy trên repo
+// thật. Dựng bằng tay ở hai chỗ là hai chỗ để quên một sổ.
+func moiChecker(root, modulePath string) *checker {
+	return &checker{
+		root:       root,
+		modulePath: modulePath,
+		goc:        moduleGoc,
+		catNgang:   nangLucCatNgang,
+		imports:    make(map[string][]string),
+		pkgFiles:   make(map[string][]string),
+	}
+}
+
 type checker struct {
 	root       string
 	modulePath string
 	verbose    bool
 
+	// Cấu hình R10 — microkernel. Là TRƯỜNG chứ không đọc thẳng biến gói,
+	// cùng lý do các sổ của `cmd/eventcheck`: bộ test của công cụ đo phép
+	// đối chiếu, không đo nội dung sổ của dự án thật.
+	//
+	// `goc` RỖNG tắt R10 hoàn toàn — dự án giả của bộ test không có module
+	// `checkout`, và một dự án giả ba module không có kernel để mà gác.
+	goc      string
+	catNgang map[string]string
+
 	imports    map[string][]string // package → danh sách import nội bộ
 	pkgFiles   map[string][]string // package → file thuộc package
 	violations []Violation
 	filesRead  int
+
+	// soKernel và soExtension chỉ để in báo cáo ở chế độ -v.
+	soKernel    int
+	soExtension int
 }
 
 func (c *checker) run() error {
@@ -66,6 +89,12 @@ func (c *checker) run() error {
 	// nó trả LỖI (không phải vi phạm) khi tài liệu thiếu hoặc mâu thuẫn:
 	// không có bảng sở hữu đáng tin thì không kiểm được gì.
 	if err := c.kiemSoHuuBang(); err != nil {
+		return err
+	}
+
+	// R10 — microkernel. Chạy SAU R5 vì nó dùng cùng đồ thị module, và sau
+	// R6 vì một lược đồ sai làm phân loại kernel/extension vô nghĩa.
+	if err := c.kiemMicrokernel(); err != nil {
 		return err
 	}
 	return nil
@@ -269,6 +298,8 @@ func (c *checker) checkDependencyCycles() {
 func (c *checker) report() {
 	if c.verbose {
 		fmt.Printf("Đã đọc %d file Go, %d package nội bộ\n", c.filesRead, len(c.pkgFiles))
+		fmt.Printf("R10 microkernel: %d module kernel · %d extension\n",
+			c.soKernel, c.soExtension)
 	}
 
 	if len(c.violations) == 0 {

@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Marketplace |
 | **Phân loại** | Supporting |
+| **Tầng (microkernel)** | **KERNEL — đường mua hàng** |
 | **Giai đoạn** | MVP |
 
 ---

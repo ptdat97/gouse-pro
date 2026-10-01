@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Financial |
 | **Phân loại** | **Core** (ledger) / Generic (cổng thanh toán) |
+| **Tầng (microkernel)** | **KERNEL — đường mua hàng** |
 | **Giai đoạn** | MVP |
 
 ---

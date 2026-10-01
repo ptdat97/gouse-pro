@@ -7724,6 +7724,97 @@ khuôn `cmd/eventcheck` đang làm cho event.
 
 ---
 
+### P3-87 — hướng microkernel: tài liệu và danh sách đóng băng nói ngược nhau
+
+`docs/README.md` có `ARCHITECTURE FREEZE` với dòng `✗ module mới`.
+[ADR-0021](../adr/0021-ranh-gioi-commerce-kernel.md) thì lấy việc DỰNG module
+mới (`affiliate`) làm phép thử nghiệm thu.
+
+Một người đọc tài liệu rồi đi dựng extension gặp một lệnh cấm; một người đọc
+ADR-0021 rồi làm đúng thế thì được khen. Mâu thuẫn ấy quyết định câu trả lời
+cho mọi yêu cầu tính năng sắp tới, nên nó không phải chuyện nhỏ.
+
+#### Đã làm 01/10/2026 — ADR-0022
+
+```text
+✗ module mới            →   ✗ module KERNEL mới
+                            ✓ module EXTENSION mới (có điều kiện)
+✗ plugin system         →   GIỮ NGUYÊN
+```
+
+Giữ `✗ plugin system` vì microkernel ở đây là cách PHÂN TẦNG, không phải cơ
+chế nạp mã lúc chạy: không `Registry`, không vòng đời module — ADR-0021 đã từ
+chối cả hai.
+
+Tài liệu đã sửa:
+
+```text
+docs/adr/0022-…                   MỚI — quyết định và lý do
+docs/03-architecture/microkernel.md  MỚI — bảng tra đầy đủ
+docs/README.md                    sơ đồ một hình · danh sách đóng băng
+                                  · con số lạc hậu
+docs/03-architecture/architecture.md       §1.1 hai trục phân chia
+docs/03-architecture/modular-monolith.md   §1.1 đóng gói vs phân tầng
+docs/03-architecture/dependency-rules.md   §4.1 + §9 R10
+docs/04-modules/*.md (28 file)    hàng `**Tầng (microkernel)**`
+docs/04-modules/README.md         hai trục KHÔNG mâu thuẫn
+```
+
+#### Con số lạc hậu đã sửa trong README
+
+```text                       trước            sau (đo 01/10/2026)
+module có tầng HTTP           3/17             14/20
+thao tác API cài đặt          10/71            89/100
+số ADR                        11               22
+```
+
+#### Và R10 — vì một quy tắc không ai cưỡng chế là quy tắc sẽ bị phá
+
+Tài liệu khai "kernel không import extension", nên phải có hàng rào. R5 chặn
+phụ thuộc VÒNG nhưng không chặn `checkout → notification`: đồ thị ấy vẫn là
+DAG.
+
+**Bản đầu của R10 SAI, theo cách đáng ghi.** Nó suy tập extension bằng bao
+đóng từ `checkout` — cái gì ngoài bao đóng là extension. Phép phá đầu tiên
+cho thấy nó vô dụng: thêm `checkout → notification` thì `notification` vào
+bao đóng, tức thành kernel, tức công cụ báo `OK`.
+
+> Một quy tắc suy ra ranh giới TỪ thứ nó đang gác thì không gác được gì.
+
+**Bản thứ hai vẫn còn một lỗi.** Phép phá "dựng module mới chưa phân loại"
+không đỏ: tập module lấy từ `c.imports`, nên một module chỉ có `public.go`
+không import gì thì vô hình — đúng lúc quy tắc cần kêu nhất. Chuyển sang
+`c.pkgFiles`.
+
+**Bản thứ ba tạo ra một nguồn sự thật THỨ HAI:** ba sổ trong
+`cmd/archcheck/microkernel.go` *và* hàng `Tầng (microkernel)` trong tài liệu
+module. Đúng dạng lỗi dự án này gác ở mọi chỗ khác. Bỏ sổ, đọc tài liệu —
+cùng khuôn R6.
+
+Bản cuối:
+
+```text
+R10a   tài liệu khai EXTENSION mà có bên import  → ĐỎ
+R10c   tài liệu khai KERNEL mà module nằm ngoài đường mua hàng VÀ
+       không ai import → đó là hình dạng extension, phân loại đã cũ
+LỖI    tài liệu thiếu hàng tầng, hoặc ghi giá trị lạ
+```
+
+Sổ Go duy nhất còn lại: `nangLucCatNgang` cho `identity` và `customer` —
+chỗ DUY NHẤT R10 dựa vào phán đoán. Thiếu một dòng ở đó thì R10c đỏ với
+chính module ấy.
+
+Tám bài test ở `cmd/archcheck/integration_test.go`, và `TestSelfCheck` đổi
+sang `moiChecker` để R10 chạy trong `go test` chứ không chỉ khi gọi tay.
+
+#### Việc còn lại
+
+`pricing` vẫn CHƯA XẾP ĐƯỢC (P3-79). R10 không kết luận gì về nó — xếp sai
+còn tệ hơn để trống, vì một module gán nhãn "kernel" sẽ được người sau tin là
+ổn định.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

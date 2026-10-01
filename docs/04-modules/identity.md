@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Platform |
 | **Phân loại** | Generic |
+| **Tầng (microkernel)** | **KERNEL — năng lực cắt ngang** |
 | **Giai đoạn** | MVP |
 
 ---

@@ -155,6 +155,32 @@ Ba module này ở **tầng đáy**. Chúng không được gọi module nghiệ
 | `kernel/*` | Bất kỳ thứ gì | Kernel chỉ dùng thư viện chuẩn |
 | Bất kỳ module | `domain/` của module khác | Chỉ qua public.go |
 | Bất kỳ module | Bảng database của module khác | Nguyên tắc P5 |
+| **Bất kỳ module** | **Module EXTENSION** | **Microkernel — xem dưới (R10a)** |
+
+### 4.1. Không ai được import một EXTENSION
+
+Hàng cuối bảng trên là quy tắc microkernel, và nó bao trùm ba hàng
+`identity` / `notification` / `analytics` ở đầu bảng theo một cách tổng quát
+hơn.
+
+```text
+EXTENSION đã khai:  affiliate · returns · notification
+                    analytics · recommendation · supplychain
+```
+
+Tháo một extension ra phải chỉ mất TÍNH NĂNG của nó. Một dòng
+`import ".../modules/notification"` ở bất kỳ đâu làm câu ấy sai: sau dòng đó,
+tháo `notification` ra làm module kia không biên dịch được.
+
+Phát biểu theo chiều "không ai được import" chứ không "kernel không được
+import" có chủ ý — nó cũng chặn **extension import extension**, thứ làm hai
+extension dính nhau rồi không tháo riêng được cái nào.
+
+Chiều NGƯỢC lại được phép: extension đọc kernel qua cổng công khai, hoặc nhận
+dữ liệu qua event. `affiliate` import `order` là đúng.
+
+Xem [microkernel.md](microkernel.md) và
+[ADR-0022](../adr/0022-microkernel-kernel-on-dinh.md).
 
 ### Ví dụ vi phạm điển hình và cách sửa
 
@@ -383,6 +409,7 @@ Kiểm tra 5  R5  ✓ cmd/archcheck  (đồ thị là DAG)
 Kiểm tra 6  R6  ✓ cmd/archcheck  (thêm 25/09/2026)
 Kiểm tra 7  R7  ✓ cmd/archcheck
 Kiểm tra 8  R9  ✓ cmd/archcheck  (thêm 25/09/2026)
+Kiểm tra 9  R10 ✓ cmd/archcheck  (thêm 01/10/2026 — microkernel)
 ```
 
 **Về R9 và một hàng rào từng hứa mà không kiểm.** R2 nói *"domain chỉ
@@ -414,6 +441,36 @@ Bảng thuộc `internal/platform` (`audit_log`, `event_outbox`,
 `event_processed`, `ops_config`, `webhook_event`) thì mọi module được chạm:
 đó là hạ tầng dùng chung, không mang khái niệm nghiệp vụ nào để rò rỉ.
 
+**Về R10 — microkernel.** R5 chặn phụ thuộc VÒNG. Nó KHÔNG chặn một phụ
+thuộc một chiều `checkout → notification`: đồ thị ấy vẫn là DAG, nên R5 im
+lặng cho qua, và ranh giới microkernel bị phá mà không vi phạm quy tắc nào
+hiện có.
+
+R10 gồm ba phần:
+
+```text
+R10a  module tài liệu khai EXTENSION phải KHÔNG BÊN NÀO import
+R10c  tài liệu khai KERNEL mà module nằm ngoài đường mua hàng VÀ không ai
+      import → đó là hình dạng một extension, phân loại đã cũ
+LỖI   tài liệu module thiếu hàng tầng, hoặc ghi một giá trị lạ
+```
+
+**Bản đầu của R10 là một lập luận VÒNG, và phép phá đã lộ nó ra.** Bản đầu
+suy tập extension bằng bao đóng phụ thuộc từ `checkout` — cái gì ngoài bao
+đóng là extension. Thêm `checkout → notification` thì `notification` vào bao
+đóng, tức thành kernel, tức công cụ báo `OK`.
+
+> Một quy tắc suy ra ranh giới TỪ thứ nó đang gác thì không gác được gì.
+
+Bản hiện tại tách hai việc: **phân loại là QUYẾT ĐỊNH** — hàng
+`| **Tầng (microkernel)** | … |` ở bảng đầu `docs/04-modules/<module>.md`,
+cùng nguồn sự thật với R6 — còn **tính nhất quán là phép ĐO**, và R10a/R10c
+đo nó.
+
+Chỉ còn MỘT sổ trong Go: `nangLucCatNgang`, cho hai module tài liệu xếp
+KERNEL mà nằm ngoài đường mua hàng (`identity`, `customer`). Thiếu một dòng ở
+đó thì R10c đỏ với chính module ấy, nên sổ không mục trong im lặng.
+
 **Nguyên tắc:** kiểm tra phải chạy nhanh (< 30 giây) để không ai muốn bỏ qua nó.
 
 ---
@@ -434,6 +491,8 @@ Bảng thuộc `internal/platform` (`audit_log`, `event_outbox`,
 ---
 
 ## 11. Tài liệu liên quan
+
+- [microkernel.md](microkernel.md) — kernel ổn định vs extension, và R10
 
 - [modular-monolith.md](modular-monolith.md) — cấu trúc module
 - [module-boundaries.md](module-boundaries.md) — interface công khai chi tiết

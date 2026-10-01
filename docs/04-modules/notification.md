@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Platform |
 | **Phân loại** | Generic |
+| **Tầng (microkernel)** | **EXTENSION — đã dựng** |
 | **Giai đoạn** | MVP |
 
 ---

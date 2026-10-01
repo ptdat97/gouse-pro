@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Commerce |
 | **Phân loại** | Supporting (có thể thành Core nếu làm định giá động) |
+| **Tầng (microkernel)** | **CHƯA XẾP ĐƯỢC** |
 | **Giai đoạn** | MVP |
 
 ---

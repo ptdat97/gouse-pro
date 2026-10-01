@@ -63,6 +63,39 @@ ARCHITECTURE FROZEN — 15/08/2026
         └──────────┘   └───────────┘   └──────────────┘
 ```
 
+### 1.1. Hai trục phân chia, đừng trộn chúng
+
+Sơ đồ trên chia theo **TẦNG KỸ THUẬT** — interfaces → application → domain ←
+infrastructure. Đó là một trục.
+
+Trục thứ hai là **ĐỘ ỔN ĐỊNH**: module nào không đổi theo mô hình kinh doanh,
+module nào có. Trục ấy cắt ngang cả bốn tầng trên:
+
+```text
+                ┌──────── EXTENSION ────────┐
+                │  tháo ra → mất TÍNH NĂNG  │
+                │  affiliate · returns      │
+                │  notification · analytics │
+                │  recommendation           │
+                │  supplychain              │
+                └─────────────┬─────────────┘
+                              │ event · cổng công khai
+                              ▼  (MỘT chiều)
+      ┌──────────────────── KERNEL ────────────────────┐
+      │  đường mua hàng — bao đóng của checkout        │
+      │    cart catalog checkout fulfillment inventory │
+      │    marketplace order payment product           │
+      │    promotion seller                            │
+      │  năng lực cắt ngang — identity customer        │
+      └────────────────────────────────────────────────┘
+```
+
+Mỗi module — kernel hay extension — vẫn có đủ bốn tầng kỹ thuật bên trong.
+
+Trục này là nội dung của [ADR-0022](../adr/0022-microkernel-kernel-on-dinh.md),
+và bảng tra đầy đủ nằm ở [microkernel.md](microkernel.md). Nó được cưỡng chế
+bằng `cmd/archcheck` R10.
+
 ---
 
 ## 2. Phân định trách nhiệm giữa Next.js và Go
@@ -407,6 +440,7 @@ Kiến trúc chuẩn bị sẵn các điểm sau để tiến hóa mà không ph
 
 | Điểm | Chuẩn bị bằng cách | Cho phép sau này |
 |---|---|---|
+| **Mô hình kinh doanh mới** | **kernel ổn định + extension (ADR-0022)** | **creator · livestream · campaign · loyalty, mỗi cái một module, không sửa kernel** |
 | Tách service | Ranh giới module nghiêm ngặt, event contract | Trích xuất module thành service |
 | Đổi cổng thanh toán | Port `PaymentGateway` | Thêm/đổi PSP |
 | Đổi đơn vị vận chuyển | Port `ShippingProvider` | Nhiều đối tác song song |
@@ -420,6 +454,7 @@ Kiến trúc chuẩn bị sẵn các điểm sau để tiến hóa mà không ph
 
 ## 9. Tài liệu liên quan
 
+- [microkernel.md](microkernel.md) — kernel ổn định, business là tính năng bổ sung
 - [modular-monolith.md](modular-monolith.md) — chi tiết cấu trúc module
 - [dependency-rules.md](dependency-rules.md) — quy tắc phụ thuộc bắt buộc
 - [module-boundaries.md](module-boundaries.md) — ranh giới và interface công khai

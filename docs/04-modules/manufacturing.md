@@ -4,6 +4,7 @@
 |---|---|
 | **Bounded Context** | Supply Chain |
 | **Phân loại** | **Core** |
+| **Tầng (microkernel)** | **EXTENSION — chưa dựng** |
 | **Giai đoạn** | Phase 3 |
 
 ---
