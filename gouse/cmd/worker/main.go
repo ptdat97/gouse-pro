@@ -574,10 +574,10 @@ func run() error {
 	// bên ĐẢO THEO DÒNG thì hoa hồng của dòng bị hủy đứng ở CHỜ ĐẾN HẠN
 	// mãi mãi — không ai thấy. Thiếu bên MỞ KHÓA thì creator không bao giờ
 	// được chi.
-	bus.Subscribe(affiliate.NewQuyCongHandler(affiliateModule, log))
-	bus.Subscribe(affiliate.NewDaoHandler(affiliateModule, log))
-	bus.Subscribe(affiliate.NewDaoDonThucHienHandler(affiliateModule, log))
-	bus.Subscribe(affiliate.NewMoKhoaHandler(affiliateModule, log))
+	bus.Subscribe(affiliate.NewAttributeHandler(affiliateModule, log))
+	bus.Subscribe(affiliate.NewReverseHandler(affiliateModule, log))
+	bus.Subscribe(affiliate.NewReverseOnFulfillmentHandler(affiliateModule, log))
+	bus.Subscribe(affiliate.NewUnlockHandler(affiliateModule, log))
 
 	jobs := []job{
 		{

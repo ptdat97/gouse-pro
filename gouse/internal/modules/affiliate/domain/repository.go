@@ -17,22 +17,22 @@ import (
 type Repo interface {
 	// Luu ghi bản quy công và khoản hoa hồng của nó.
 	//
-	// Trả ErrDaQuyCong khi dòng đơn đã có bản quy công. Đó KHÔNG phải lỗi
+	// Trả ErrAlreadyAttributed khi dòng đơn đã có bản quy công. Đó KHÔNG phải lỗi
 	// hệ thống: `order.paid` giao ít nhất một lần. Phát hiện ở tầng
 	// DATABASE (UNIQUE) chứ không phải bằng một lượt đọc trước, vì hai
 	// lượt worker chồng nhau đều thấy "chưa quy công".
-	Luu(ctx context.Context, a *Attribution, c *CommissionRecord) error
+	Save(ctx context.Context, a *Attribution, c *CommissionRecord) error
 
-	// TheoDonVaNhaBan trả các khoản hoa hồng của một đơn.
+	// ByOrderAndSeller trả các khoản hoa hồng của một đơn.
 	//
 	// `sellerID` rỗng nghĩa là MỌI nhà bán — dùng khi đảo cả đơn. Khác
 	// rỗng thì chỉ dòng của nhà bán ấy, đúng hình dạng khóa mà
 	// `fulfillment_order.completed` mang tới.
-	TheoDonVaNhaBan(
+	ByOrderAndSeller(
 		ctx context.Context, orderID, sellerID ids.ID,
 	) ([]*CommissionRecord, error)
 
-	// TheoDongDon trả các khoản hoa hồng của một TẬP dòng đơn.
+	// ByOrderLines trả các khoản hoa hồng của một TẬP dòng đơn.
 	//
 	// Nhận cả tập chứ không một dòng mỗi lượt: hủy một đơn thực hiện hủy
 	// nhiều dòng cùng lúc, và một lượt đọc cho N dòng thay vì N lượt đọc
@@ -41,11 +41,11 @@ type Repo interface {
 	// Tập rỗng trả danh sách rỗng, KHÔNG phải mọi bản ghi: đơn thực hiện cũ
 	// có `order_line_id` rỗng, và một câu truy vấn không điều kiện ở đó sẽ
 	// đảo hoa hồng của toàn hệ thống.
-	TheoDongDon(
+	ByOrderLines(
 		ctx context.Context, orderLineIDs []ids.ID,
 	) ([]*CommissionRecord, error)
 
-	// KHÔNG có `TheoCreator` (lịch sử hoa hồng của một creator).
+	// KHÔNG có `ByCreator` (lịch sử hoa hồng của một creator).
 	//
 	// Nó cần một màn hình cho creator, mà module `creator` là Phase 2.
 	// Khai một hàm chưa ai gọi là đúng dạng lỗi `cmd/eventcheck` đang gác ở
@@ -53,14 +53,14 @@ type Repo interface {
 	// có bên gọi thật.
 
 	// CapNhat ghi lại trạng thái đã đổi của một khoản hoa hồng.
-	CapNhat(ctx context.Context, c *CommissionRecord) error
+	Update(ctx context.Context, c *CommissionRecord) error
 
-	// TongTheoCreator là tổng tiền theo từng trạng thái của một creator.
+	// TotalsByCreator là tổng tiền theo từng trạng thái của một creator.
 	//
 	// Tính bằng SQL chứ không tải hết bản ghi rồi cộng ở Go: một creator
 	// bán tốt sẽ có hàng nghìn dòng, và số dư là thứ hiện trên mọi lần mở
 	// trang.
-	TongTheoCreator(
+	TotalsByCreator(
 		ctx context.Context, creatorID ids.ID,
-	) (map[TrangThaiHoaHong]int64, error)
+	) (map[CommissionStatus]int64, error)
 }

@@ -28,9 +28,9 @@ type OrderPort interface {
 
 type orderAdapter struct{ api OrderPort }
 
-var _ application.DonPort = (*orderAdapter)(nil)
+var _ application.OrderLinesPort = (*orderAdapter)(nil)
 
-// DongDonQuyCong đọc dòng hàng của đơn và dịch sang dữ liệu thuần.
+// AttributableLines đọc dòng hàng của đơn và dịch sang dữ liệu thuần.
 //
 // # Phép dịch quan trọng nhất ở đây: TÁCH khoản khuyến mãi
 //
@@ -43,9 +43,9 @@ var _ application.DonPort = (*orderAdapter)(nil)
 // LỌC theo loại ở đây, không ở miền: `order.AdjustmentPromotion` là hằng số
 // CỦA MODULE ORDER, và miền affiliate không được biết tên các loại khoản
 // điều chỉnh của module khác.
-func (a *orderAdapter) DongDonQuyCong(
+func (a *orderAdapter) AttributableLines(
 	ctx context.Context, orderID string,
-) ([]application.DongDon, error) {
+) ([]application.OrderLine, error) {
 	view, err := a.api.GetOrder(ctx, orderID)
 	if err != nil {
 		return nil, err
@@ -54,21 +54,21 @@ func (a *orderAdapter) DongDonQuyCong(
 		return nil, fmt.Errorf("affiliate: không đọc được đơn %s", orderID)
 	}
 
-	out := make([]application.DongDon, 0, len(view.Lines))
+	out := make([]application.OrderLine, 0, len(view.Lines))
 	for _, l := range view.Lines {
-		d := application.DongDon{
+		d := application.OrderLine{
 			OrderLineID: l.ID,
 			SellerID:    l.SellerID,
 			CreatorID:   l.AttributedCreatorID,
 			ContentID:   l.AttributedContentID,
-			TienHang:    l.LineTotal.Value,
+			LineAmount:  l.LineTotal.Value,
 			Currency:    l.LineTotal.Currency,
 
 			// Dòng đã hủy hoặc đã hoàn: KHÔNG quy công. `ACTIVE` là trạng
 			// thái duy nhất có doanh thu — liệt kê theo hướng đóng, nên một
 			// trạng thái mới của module order mặc định là không quy công
 			// chứ không phải quy công nhầm.
-			DaHuy: l.Status != order.LineStatusActive,
+			Cancelled: l.Status != order.LineStatusActive,
 		}
 
 		for _, adj := range l.Adjustments {

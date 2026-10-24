@@ -117,10 +117,10 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	// đứng ở CHỜ ĐẾN HẠN vĩnh viễn. Cả hai đều im lặng, và cả hai đều là
 	// tiền.
 	if a.mods.affiliate != nil {
-		bus.Subscribe(affiliate.NewQuyCongHandler(a.mods.affiliate, log))
-		bus.Subscribe(affiliate.NewDaoHandler(a.mods.affiliate, log))
-		bus.Subscribe(affiliate.NewDaoDonThucHienHandler(a.mods.affiliate, log))
-		bus.Subscribe(affiliate.NewMoKhoaHandler(a.mods.affiliate, log))
+		bus.Subscribe(affiliate.NewAttributeHandler(a.mods.affiliate, log))
+		bus.Subscribe(affiliate.NewReverseHandler(a.mods.affiliate, log))
+		bus.Subscribe(affiliate.NewReverseOnFulfillmentHandler(a.mods.affiliate, log))
+		bus.Subscribe(affiliate.NewUnlockHandler(a.mods.affiliate, log))
 	}
 }
 

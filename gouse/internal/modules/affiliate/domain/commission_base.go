@@ -2,7 +2,7 @@ package domain
 
 import "github.com/fashion-commerce/platform/internal/kernel/money"
 
-// TienGocTinhHoaHong là số tiền mà tỷ lệ hoa hồng áp lên.
+// CommissionBase là số tiền mà tỷ lệ hoa hồng áp lên.
 //
 //	tiền hàng + các khoản KHUYẾN MÃI đã phân bổ cho dòng
 //
@@ -26,10 +26,10 @@ import "github.com/fashion-commerce/platform/internal/kernel/money"
 // lệch một đồng. Hoa hồng ÂM nghĩa là đòi tiền lại của creator qua một
 // đường không ai thiết kế — kẹp về 0 là không trả gì, và đó là câu trả lời
 // đúng cho một dòng khách không trả tiền.
-func TienGocTinhHoaHong(tienHang money.Money, khuyenMai []money.Money) money.Money {
-	goc := tienHang
-	for _, km := range khuyenMai {
-		sum, err := goc.Add(km)
+func CommissionBase(lineAmount money.Money, discounts []money.Money) money.Money {
+	base := lineAmount
+	for _, km := range discounts {
+		sum, err := base.Add(km)
 		if err != nil {
 			// Khác đơn vị tiền: BỎ QUA khoản ấy thay vì tính sai.
 			//
@@ -38,11 +38,11 @@ func TienGocTinhHoaHong(tienHang money.Money, khuyenMai []money.Money) money.Mon
 			// một khoản hơi cao — còn hơn cộng một con số vô nghĩa.
 			continue
 		}
-		goc = sum
+		base = sum
 	}
 
-	if goc.IsNegative() {
-		return money.Zero(tienHang.Currency())
+	if base.IsNegative() {
+		return money.Zero(lineAmount.Currency())
 	}
-	return goc
+	return base
 }

@@ -267,7 +267,7 @@ CREATE INDEX idx_attribution_order ON attribution (order_id);
 ```go
 // internal/modules/affiliate/public.go
 type API interface {
-    SoDuCreator(ctx, creatorID string) (map[string]int64, error)
+    CreatorBalance(ctx, creatorID string) (map[string]int64, error)
 }
 ```
 
@@ -279,7 +279,7 @@ Không module nào gọi mặt này. Nó tồn tại vì bài test tích hợp c
 để khẳng định TIỀN, và một mặt công khai có bên gọi thật là mặt duy nhất
 chứng minh được là đúng.
 
-`TheoCreator` (lịch sử hoa hồng của một creator) đã bị BỎ khỏi cổng kho lưu
+`ByCreator` (lịch sử hoa hồng của một creator) đã bị BỎ khỏi cổng kho lưu
 trữ: nó cần một màn hình cho creator, mà module `creator` là Phase 2. Bày ra
 một hàm chưa ai gọi là tạo trước thứ phải bảo trì.
 

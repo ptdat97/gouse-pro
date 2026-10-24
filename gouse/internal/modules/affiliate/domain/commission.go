@@ -9,20 +9,20 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 )
 
-// TrangThaiHoaHong là trạng thái của một khoản hoa hồng creator.
+// CommissionStatus là trạng thái của một khoản hoa hồng creator.
 //
 //	PENDING    đã quy công, CHƯA được chi — đơn còn trong hạn đổi trả
 //	AVAILABLE  hết hạn đổi trả, vào được đợt chi trả
 //	REVERSED   đã đảo vì đơn hủy hoặc hoàn hàng
-type TrangThaiHoaHong string
+type CommissionStatus string
 
 const (
-	HoaHongChoDenHan TrangThaiHoaHong = "PENDING"
-	HoaHongRutDuoc   TrangThaiHoaHong = "AVAILABLE"
-	HoaHongDaDao     TrangThaiHoaHong = "REVERSED"
+	CommissionPending   CommissionStatus = "PENDING"
+	CommissionAvailable CommissionStatus = "AVAILABLE"
+	CommissionReversed  CommissionStatus = "REVERSED"
 )
 
-// TyLeMacDinh là tỷ lệ hoa hồng creator khi chưa có chiến dịch.
+// DefaultRate là tỷ lệ hoa hồng creator khi chưa có chiến dịch.
 //
 // # Vì sao một HẰNG SỐ trong miền này
 //
@@ -38,21 +38,21 @@ const (
 //	                       không nên bắt platform biết về hoa hồng creator
 //	bảng riêng + màn hình  đúng đích, nhưng cần admin UI mà chưa ai yêu cầu
 //
-// Khi `campaign` ra đời, nó truyền tỷ lệ vào `TaoAttributionParams.Rate` và
+// Khi `campaign` ra đời, nó truyền tỷ lệ vào `NewAttributionParams.Rate` và
 // hằng số này thành mặc định cho đường không qua chiến dịch. Không có gì
 // phải xóa.
 //
 // 500 điểm cơ bản = 5%.
-const TyLeMacDinh = 500
+const DefaultRate = 500
 
-// BenChiuMacDinh: nền tảng chịu chi phí hoa hồng khi chưa có chiến dịch.
+// DefaultCostBearer: nền tảng chịu chi phí hoa hồng khi chưa có chiến dịch.
 //
 // affiliate.md mục 5: chiến dịch do nền tảng khởi xướng thì nền tảng chịu.
 // Không có chiến dịch nào thì đây là trường hợp ấy.
 //
 // Đoán sang nhà bán sẽ là lấy tiền của người ngoài công ty — cùng lý do
-// `checkout.ApplyDiscount` mặc định `BenChiuNenTang`.
-const BenChiuMacDinh = BenChiuNenTang
+// `checkout.ApplyDiscount` mặc định `CostBearerPlatform`.
+const DefaultCostBearer = CostBearerPlatform
 
 // CommissionRecord là TRẠNG THÁI của một khoản hoa hồng.
 //
@@ -64,21 +64,21 @@ type CommissionRecord struct {
 	creatorID     ids.ID
 
 	amount money.Money
-	status TrangThaiHoaHong
+	status CommissionStatus
 
-	lyDoDao string
-	daoLuc  time.Time
+	reversedReason string
+	reversedAt     time.Time
 
-	taoLuc     time.Time
-	capNhatLuc time.Time
+	createdAt time.Time
+	updatedAt time.Time
 }
 
-// TaoHoaHong dựng khoản hoa hồng từ một bản quy công.
+// NewCommission dựng khoản hoa hồng từ một bản quy công.
 //
 // Số tiền LẤY TỪ `Attribution.HoaHong()`, không nhận từ bên gọi: tỷ lệ và
 // tiền gốc đã đóng băng ở đó, và một con số tiền thứ hai tính ở chỗ khác là
 // một chỗ để lệch.
-func TaoHoaHong(a *Attribution, now time.Time) (*CommissionRecord, error) {
+func NewCommission(a *Attribution, now time.Time) (*CommissionRecord, error) {
 	id, err := ids.New(ids.PrefixCommissionRecord)
 	if err != nil {
 		return nil, err
@@ -91,35 +91,35 @@ func TaoHoaHong(a *Attribution, now time.Time) (*CommissionRecord, error) {
 		id:            id,
 		attributionID: a.ID(),
 		creatorID:     a.CreatorID(),
-		amount:        a.HoaHong(),
+		amount:        a.Commission(),
 
 		// Bắt đầu ở CHỜ ĐẾN HẠN, không phải rút được (quy tắc 4).
 		//
 		// Hoa hồng chỉ rút được sau khi hết hạn đổi trả, giống số dư nhà
 		// bán. Nhờ đó phần lớn hoàn hàng xảy ra TRƯỚC khi tiền được chi, và
 		// việc đảo ngược không phải đòi lại tiền đã trả.
-		status:     HoaHongChoDenHan,
-		taoLuc:     now,
-		capNhatLuc: now,
+		status:    CommissionPending,
+		createdAt: now,
+		updatedAt: now,
 	}, nil
 }
 
-// ChuyenSangRutDuoc chuyển khoản hoa hồng sang trạng thái chi được.
+// MarkAvailable chuyển khoản hoa hồng sang trạng thái chi được.
 //
-// `daHetHanDoiTra` do bên gọi quyết định: hạn đổi trả là cấu hình nghiệp vụ
+// `returnWindowPassed` do bên gọi quyết định: hạn đổi trả là cấu hình nghiệp vụ
 // mà module `fulfillment` sở hữu, và affiliate không được tự đoán nó.
-func (c *CommissionRecord) ChuyenSangRutDuoc(daHetHanDoiTra bool, now time.Time) error {
-	if c.status == HoaHongDaDao {
-		return ErrDaDao
+func (c *CommissionRecord) MarkAvailable(returnWindowPassed bool, now time.Time) error {
+	if c.status == CommissionReversed {
+		return ErrAlreadyReversed
 	}
-	if !daHetHanDoiTra {
-		return ErrChuaHetHanTra
+	if !returnWindowPassed {
+		return ErrReturnWindowOpen
 	}
-	if c.status == HoaHongRutDuoc {
+	if c.status == CommissionAvailable {
 		return nil // idempotent
 	}
 
-	c.status = HoaHongRutDuoc
+	c.status = CommissionAvailable
 	c.touch(now)
 	return nil
 }
@@ -130,20 +130,20 @@ func (c *CommissionRecord) ChuyenSangRutDuoc(daHetHanDoiTra bool, now time.Time)
 // trong kiểm toán — cùng quy tắc với bút toán điều chỉnh của payment.
 //
 // Idempotent: `order.cancelled` giao ít nhất một lần.
-func (c *CommissionRecord) Dao(lyDo string, now time.Time) error {
-	if lyDo == "" {
-		return ErrThieuLyDoDao
+func (c *CommissionRecord) Reverse(reason string, now time.Time) error {
+	if reason == "" {
+		return ErrReverseReasonRequired
 	}
-	if c.status == HoaHongDaDao {
+	if c.status == CommissionReversed {
 		return nil // idempotent
 	}
 
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	c.status = HoaHongDaDao
-	c.lyDoDao = lyDo
-	c.daoLuc = now
+	c.status = CommissionReversed
+	c.reversedReason = reason
+	c.reversedAt = now
 	c.touch(now)
 	return nil
 }
@@ -152,33 +152,33 @@ func (c *CommissionRecord) touch(now time.Time) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	c.capNhatLuc = now
+	c.updatedAt = now
 }
 
 // RestoreCommissionParams dựng lại từ kho lưu trữ.
 type RestoreCommissionParams struct {
-	ID            ids.ID
-	AttributionID ids.ID
-	CreatorID     ids.ID
-	Amount        money.Money
-	Status        TrangThaiHoaHong
-	LyDoDao       string
-	DaoLuc        time.Time
-	TaoLuc        time.Time
-	CapNhatLuc    time.Time
+	ID             ids.ID
+	AttributionID  ids.ID
+	CreatorID      ids.ID
+	Amount         money.Money
+	Status         CommissionStatus
+	ReversedReason string
+	ReversedAt     time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func RestoreCommission(p RestoreCommissionParams) *CommissionRecord {
 	return &CommissionRecord{
-		id:            p.ID,
-		attributionID: p.AttributionID,
-		creatorID:     p.CreatorID,
-		amount:        p.Amount,
-		status:        p.Status,
-		lyDoDao:       p.LyDoDao,
-		daoLuc:        p.DaoLuc,
-		taoLuc:        p.TaoLuc,
-		capNhatLuc:    p.CapNhatLuc,
+		id:             p.ID,
+		attributionID:  p.AttributionID,
+		creatorID:      p.CreatorID,
+		amount:         p.Amount,
+		status:         p.Status,
+		reversedReason: p.ReversedReason,
+		reversedAt:     p.ReversedAt,
+		createdAt:      p.CreatedAt,
+		updatedAt:      p.UpdatedAt,
 	}
 }
 
@@ -186,11 +186,11 @@ func (c *CommissionRecord) ID() ids.ID               { return c.id }
 func (c *CommissionRecord) AttributionID() ids.ID    { return c.attributionID }
 func (c *CommissionRecord) CreatorID() ids.ID        { return c.creatorID }
 func (c *CommissionRecord) Amount() money.Money      { return c.amount }
-func (c *CommissionRecord) Status() TrangThaiHoaHong { return c.status }
-func (c *CommissionRecord) LyDoDao() string          { return c.lyDoDao }
-func (c *CommissionRecord) DaoLuc() time.Time        { return c.daoLuc }
-func (c *CommissionRecord) TaoLuc() time.Time        { return c.taoLuc }
-func (c *CommissionRecord) CapNhatLuc() time.Time    { return c.capNhatLuc }
+func (c *CommissionRecord) Status() CommissionStatus { return c.status }
+func (c *CommissionRecord) ReversedReason() string   { return c.reversedReason }
+func (c *CommissionRecord) ReversedAt() time.Time    { return c.reversedAt }
+func (c *CommissionRecord) CreatedAt() time.Time     { return c.createdAt }
+func (c *CommissionRecord) UpdatedAt() time.Time     { return c.updatedAt }
 
 // mustRate để infrastructure dựng lại tỷ lệ đã lưu.
 //

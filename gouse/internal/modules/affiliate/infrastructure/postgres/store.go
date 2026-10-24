@@ -35,7 +35,7 @@ var _ domain.Repo = (*Store)(nil)
 // Một bản quy công không kèm khoản tiền là một lời hứa không có số; một
 // khoản tiền không kèm bản quy công là một số không giải thích được. Nửa
 // này thành công mà nửa kia thất bại là trạng thái không được phép tồn tại.
-func (s *Store) Luu(
+func (s *Store) Save(
 	ctx context.Context, a *domain.Attribution, c *domain.CommissionRecord,
 ) error {
 	tx, err := s.pool.Begin(ctx)
@@ -53,7 +53,7 @@ func (s *Store) Luu(
 		a.ID().String(), a.OrderID().String(), a.OrderLineID().String(),
 		a.SellerID().String(), a.CreatorID().String(), a.ContentID().String(),
 		int(a.Rate().Value()), a.Base().Amount(), string(a.Base().Currency()),
-		string(a.BenChiu()), string(a.MoHinh()), a.TaoLuc())
+		string(a.CostBearer()), string(a.Model()), a.CreatedAt())
 	if err != nil {
 		// UNIQUE (order_line_id): dòng này đã được quy công.
 		//
@@ -61,8 +61,8 @@ func (s *Store) Luu(
 		// nhất một lần, và hai lượt worker chồng nhau đều thấy "chưa quy
 		// công" nếu chỉ kiểm ở tầng ứng dụng. Kết quả sẽ là creator nhận
 		// hoa hồng gấp đôi.
-		if laTrungKhoa(err) {
-			return domain.ErrDaQuyCong
+		if isDuplicateKey(err) {
+			return domain.ErrAlreadyAttributed
 		}
 		return fmt.Errorf("affiliate: ghi quy công: %w", err)
 	}
@@ -74,10 +74,10 @@ func (s *Store) Luu(
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 		c.ID().String(), c.AttributionID().String(), c.CreatorID().String(),
 		c.Amount().Amount(), string(c.Amount().Currency()), string(c.Status()),
-		c.LyDoDao(), nullTime(c.DaoLuc()), c.TaoLuc(), c.CapNhatLuc())
+		c.ReversedReason(), nullTime(c.ReversedAt()), c.CreatedAt(), c.UpdatedAt())
 	if err != nil {
-		if laTrungKhoa(err) {
-			return domain.ErrDaQuyCong
+		if isDuplicateKey(err) {
+			return domain.ErrAlreadyAttributed
 		}
 		return fmt.Errorf("affiliate: ghi khoản hoa hồng: %w", err)
 	}
@@ -88,27 +88,27 @@ func (s *Store) Luu(
 	return nil
 }
 
-// cotHoaHong là danh sách cột dùng cho mọi truy vấn đọc khoản hoa hồng.
+// commissionColumns là danh sách cột dùng cho mọi truy vấn đọc khoản hoa hồng.
 //
 // Một chuỗi dùng lại thay vì gõ lại ở từng truy vấn: thêm một cột mà quên
-// một chỗ đọc là lỗi `scanHoaHong` không bắt được — thứ tự vẫn khớp, chỉ
+// một chỗ đọc là lỗi `scanCommission` không bắt được — thứ tự vẫn khớp, chỉ
 // thiếu dữ liệu.
-const cotHoaHong = `c.id, c.attribution_id, c.creator_id, c.amount,
+const commissionColumns = `c.id, c.attribution_id, c.creator_id, c.amount,
 	c.currency, c.status, c.reversed_reason, c.reversed_at,
 	c.created_at, c.updated_at`
 
-// TheoDonVaNhaBan trả các khoản hoa hồng của một đơn.
+// ByOrderAndSeller trả các khoản hoa hồng của một đơn.
 //
 // NỐI qua `attribution` vì `commission_record` không giữ mã đơn: mã đơn là
 // thuộc tính của việc QUY CÔNG, và chép nó sang bảng trạng thái sẽ là hai
 // chỗ phải cùng đúng.
-func (s *Store) TheoDonVaNhaBan(
+func (s *Store) ByOrderAndSeller(
 	ctx context.Context, orderID, sellerID ids.ID,
 ) ([]*domain.CommissionRecord, error) {
 	// `$2 = ''` chọn MỌI nhà bán. Một truy vấn thay vì hai nhánh chuỗi SQL
 	// nối tay — chuỗi nối tay là chỗ lỗ SQL injection hay xuất hiện.
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+cotHoaHong+`
+		SELECT `+commissionColumns+`
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
 		 WHERE a.order_id = $1
@@ -128,14 +128,14 @@ func (s *Store) TheoDonVaNhaBan(
 // KHÔNG sửa `amount`: số tiền đến từ bản quy công bất biến, nên một câu
 // UPDATE chạm được vào nó là một đường sửa tiền đã hứa. Cột duy nhất có
 // nghĩa ở đây là trạng thái và lý do đảo.
-func (s *Store) CapNhat(ctx context.Context, c *domain.CommissionRecord) error {
+func (s *Store) Update(ctx context.Context, c *domain.CommissionRecord) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE commission_record
 		   SET status = $2, reversed_reason = $3, reversed_at = $4,
 		       updated_at = $5
 		 WHERE id = $1`,
-		c.ID().String(), string(c.Status()), c.LyDoDao(),
-		nullTime(c.DaoLuc()), c.CapNhatLuc())
+		c.ID().String(), string(c.Status()), c.ReversedReason(),
+		nullTime(c.ReversedAt()), c.UpdatedAt())
 	if err != nil {
 		return fmt.Errorf("affiliate: cập nhật hoa hồng: %w", err)
 	}
@@ -145,9 +145,9 @@ func (s *Store) CapNhat(ctx context.Context, c *domain.CommissionRecord) error {
 	return nil
 }
 
-func (s *Store) TongTheoCreator(
+func (s *Store) TotalsByCreator(
 	ctx context.Context, creatorID ids.ID,
-) (map[domain.TrangThaiHoaHong]int64, error) {
+) (map[domain.CommissionStatus]int64, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT status, COALESCE(SUM(amount), 0)
 		  FROM commission_record
@@ -163,10 +163,10 @@ func (s *Store) TongTheoCreator(
 	//
 	// Bên đọc hiện "Chờ đến hạn: —" khi khóa không tồn tại và "0 ₫" khi có;
 	// hai cách hiện cho cùng một sự thật là chỗ để nghi ngờ dữ liệu.
-	out := map[domain.TrangThaiHoaHong]int64{
-		domain.HoaHongChoDenHan: 0,
-		domain.HoaHongRutDuoc:   0,
-		domain.HoaHongDaDao:     0,
+	out := map[domain.CommissionStatus]int64{
+		domain.CommissionPending:   0,
+		domain.CommissionAvailable: 0,
+		domain.CommissionReversed:  0,
 	}
 	for rows.Next() {
 		var (
@@ -176,7 +176,7 @@ func (s *Store) TongTheoCreator(
 		if err := rows.Scan(&st, &sum); err != nil {
 			return nil, fmt.Errorf("affiliate: đọc tổng hoa hồng: %w", err)
 		}
-		out[domain.TrangThaiHoaHong(st)] = sum
+		out[domain.CommissionStatus(st)] = sum
 	}
 	return out, rows.Err()
 }
@@ -184,7 +184,7 @@ func (s *Store) TongTheoCreator(
 func quetNhieu(rows pgx.Rows) ([]*domain.CommissionRecord, error) {
 	var out []*domain.CommissionRecord
 	for rows.Next() {
-		c, err := scanHoaHong(rows)
+		c, err := scanCommission(rows)
 		if err != nil {
 			return nil, fmt.Errorf("affiliate: đọc khoản hoa hồng: %w", err)
 		}
@@ -193,34 +193,34 @@ func quetNhieu(rows pgx.Rows) ([]*domain.CommissionRecord, error) {
 	return out, rows.Err()
 }
 
-func scanHoaHong(row interface{ Scan(...any) error }) (*domain.CommissionRecord, error) {
+func scanCommission(row interface{ Scan(...any) error }) (*domain.CommissionRecord, error) {
 	var (
 		id, attrID, creatorID string
 		amount                int64
 		currency, status      string
-		lyDoDao               string
-		daoLuc                *time.Time
-		taoLuc, capNhatLuc    time.Time
+		reversedReason        string
+		reversedAt            *time.Time
+		createdAt, updatedAt  time.Time
 	)
 	if err := row.Scan(
 		&id, &attrID, &creatorID, &amount, &currency, &status,
-		&lyDoDao, &daoLuc, &taoLuc, &capNhatLuc,
+		&reversedReason, &reversedAt, &createdAt, &updatedAt,
 	); err != nil {
 		return nil, err
 	}
 
 	p := domain.RestoreCommissionParams{
-		ID:            ids.ID(id),
-		AttributionID: ids.ID(attrID),
-		CreatorID:     ids.ID(creatorID),
-		Amount:        money.MustNew(amount, money.Currency(currency)),
-		Status:        domain.TrangThaiHoaHong(status),
-		LyDoDao:       lyDoDao,
-		TaoLuc:        taoLuc,
-		CapNhatLuc:    capNhatLuc,
+		ID:             ids.ID(id),
+		AttributionID:  ids.ID(attrID),
+		CreatorID:      ids.ID(creatorID),
+		Amount:         money.MustNew(amount, money.Currency(currency)),
+		Status:         domain.CommissionStatus(status),
+		ReversedReason: reversedReason,
+		CreatedAt:      createdAt,
+		UpdatedAt:      updatedAt,
 	}
-	if daoLuc != nil {
-		p.DaoLuc = *daoLuc
+	if reversedAt != nil {
+		p.ReversedAt = *reversedAt
 	}
 	return domain.RestoreCommission(p), nil
 }
@@ -232,7 +232,7 @@ func nullTime(t time.Time) *time.Time {
 	return &t
 }
 
-func laTrungKhoa(err error) bool {
+func isDuplicateKey(err error) bool {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
 		return false
@@ -240,13 +240,13 @@ func laTrungKhoa(err error) bool {
 	return pgErr.Code == "23505"
 }
 
-// TheoDongDon trả các khoản hoa hồng của một tập dòng đơn.
+// ByOrderLines trả các khoản hoa hồng của một tập dòng đơn.
 //
 // Tập RỖNG trả danh sách rỗng mà không chạm database. Nếu để `= ANY('{}')`
 // đi xuống thì PostgreSQL trả 0 dòng — đúng kết quả — nhưng một lần sửa câu
 // SQL sau này làm mất điều kiện ấy sẽ đảo hoa hồng của toàn hệ thống. Chặn ở
 // Go là chặn ở chỗ đọc được.
-func (s *Store) TheoDongDon(
+func (s *Store) ByOrderLines(
 	ctx context.Context, orderLineIDs []ids.ID,
 ) ([]*domain.CommissionRecord, error) {
 	if len(orderLineIDs) == 0 {
@@ -265,7 +265,7 @@ func (s *Store) TheoDongDon(
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+cotHoaHong+`
+		SELECT `+commissionColumns+`
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
 		 WHERE a.order_line_id = ANY($1)

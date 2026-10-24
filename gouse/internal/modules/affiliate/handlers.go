@@ -8,7 +8,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
-// QuyCongKhiDaTraTien quy công đơn cho creator khi tiền của đơn đã về.
+// AttributeOnOrderPaid quy công đơn cho creator khi tiền của đơn đã về.
 //
 // # Vì sao lúc TIỀN VỀ, không lúc đặt đơn
 //
@@ -30,25 +30,25 @@ import (
 //
 // Chiều extension → kernel là chiều được phép của ADR-0021. Chiều ngược lại
 // thì không, và không có ở đây: module order không biết module này tồn tại.
-type QuyCongKhiDaTraTien struct {
+type AttributeOnOrderPaid struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewQuyCongHandler(m *Module, log *slog.Logger) *QuyCongKhiDaTraTien {
+func NewAttributeHandler(m *Module, log *slog.Logger) *AttributeOnOrderPaid {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &QuyCongKhiDaTraTien{module: m, log: log}
+	return &AttributeOnOrderPaid{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*QuyCongKhiDaTraTien)(nil)
+var _ eventbus.Handler = (*AttributeOnOrderPaid)(nil)
 
-func (h *QuyCongKhiDaTraTien) Name() string {
+func (h *AttributeOnOrderPaid) Name() string {
 	return "affiliate.quy_cong_khi_da_tra_tien"
 }
 
-func (h *QuyCongKhiDaTraTien) EventTypes() []string {
+func (h *AttributeOnOrderPaid) EventTypes() []string {
 	return []string{eventbus.TypeOrderPaid}
 }
 
@@ -61,28 +61,28 @@ type orderPaidPayload struct {
 // IDEMPOTENT: `UNIQUE (order_line_id)` chặn ở tầng database, và tầng
 // application coi việc trùng là THÀNH CÔNG. Lượt thứ hai đếm mọi dòng vào
 // "đã bỏ qua".
-func (h *QuyCongKhiDaTraTien) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *AttributeOnOrderPaid) Handle(ctx context.Context, e eventbus.Event) error {
 	var p orderPaidPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("affiliate: đọc dữ liệu event order.paid: %w", err)
 	}
 
-	kq, err := h.module.svc.QuyCongDon(ctx, p.OrderID)
+	kq, err := h.module.svc.AttributeOrder(ctx, p.OrderID)
 	if err != nil {
 		return fmt.Errorf("affiliate: quy công đơn %s: %w", p.OrderID, err)
 	}
-	if kq.DaQuyCong > 0 {
+	if kq.Attributed > 0 {
 		h.log.InfoContext(ctx, "đã quy công đơn cho creator",
 			"order_id", p.OrderID,
-			"so_dong_quy_cong", kq.DaQuyCong,
-			"so_dong_bo_qua", kq.DaBoQua)
+			"so_dong_quy_cong", kq.Attributed,
+			"so_dong_bo_qua", kq.Skipped)
 	}
 	return nil
 }
 
 // ---------------------------------------------------------------- Đảo
 
-// DaoKhiHuyDon đảo hoa hồng khi đơn bị hủy.
+// ReverseOnOrderCancelled đảo hoa hồng khi đơn bị hủy.
 //
 // affiliate.md quy tắc 5. Không có bên nhận này thì hủy đơn để lại một khoản
 // hoa hồng CHỜ ĐẾN HẠN cho doanh thu không còn tồn tại, và tới kỳ chi trả
@@ -92,23 +92,23 @@ func (h *QuyCongKhiDaTraTien) Handle(ctx context.Context, e eventbus.Event) erro
 // thực hiện bị hủy không bao giờ phát `fulfillment_order.completed`, nên
 // khoản hoa hồng của dòng ấy đứng ở CHỜ ĐẾN HẠN mãi mãi — không đảo, không
 // mở khóa. Một dòng rác trong bảng tiền, và nó im lặng. Xem P3-85.
-type DaoKhiHuyDon struct {
+type ReverseOnOrderCancelled struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewDaoHandler(m *Module, log *slog.Logger) *DaoKhiHuyDon {
+func NewReverseHandler(m *Module, log *slog.Logger) *ReverseOnOrderCancelled {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &DaoKhiHuyDon{module: m, log: log}
+	return &ReverseOnOrderCancelled{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*DaoKhiHuyDon)(nil)
+var _ eventbus.Handler = (*ReverseOnOrderCancelled)(nil)
 
-func (h *DaoKhiHuyDon) Name() string { return "affiliate.dao_khi_huy_don" }
+func (h *ReverseOnOrderCancelled) Name() string { return "affiliate.dao_khi_huy_don" }
 
-func (h *DaoKhiHuyDon) EventTypes() []string {
+func (h *ReverseOnOrderCancelled) EventTypes() []string {
 	return []string{eventbus.TypeOrderCancelled}
 }
 
@@ -122,34 +122,34 @@ type orderCancelledPayload struct {
 // Lý do lấy từ payload chứ không bịa một câu cố định: `order.cancelled` đã
 // mang nó, và một khoản tiền biến mất kèm đúng lý do của nó là điều kiện để
 // giải thích được lúc đối soát.
-func (h *DaoKhiHuyDon) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *ReverseOnOrderCancelled) Handle(ctx context.Context, e eventbus.Event) error {
 	var p orderCancelledPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("affiliate: đọc dữ liệu event order.cancelled: %w", err)
 	}
 
-	lyDo := p.Reason
-	if lyDo == "" {
+	reason := p.Reason
+	if reason == "" {
 		// Miền BẮT BUỘC có lý do, nên không được để rỗng đi xuống. Câu này
 		// nói đúng thứ đã biết: đơn bị hủy, còn vì sao thì payload không
 		// nói.
-		lyDo = "đơn bị hủy (event không nêu lý do)"
+		reason = "đơn bị hủy (event không nêu lý do)"
 	}
 
-	n, err := h.module.svc.DaoTheoDon(ctx, p.OrderID, lyDo)
+	n, err := h.module.svc.ReverseByOrder(ctx, p.OrderID, reason)
 	if err != nil {
 		return fmt.Errorf("affiliate: đảo hoa hồng của đơn %s: %w", p.OrderID, err)
 	}
 	if n > 0 {
 		h.log.InfoContext(ctx, "đã đảo hoa hồng creator vì đơn bị hủy",
-			"order_id", p.OrderID, "so_khoan", n, "ly_do", lyDo)
+			"order_id", p.OrderID, "so_khoan", n, "ly_do", reason)
 	}
 	return nil
 }
 
 // ---------------------------------------------------------------- Mở khóa
 
-// MoKhoaKhiHetHanDoiTra chuyển hoa hồng sang RÚT ĐƯỢC.
+// UnlockOnReturnWindowPassed chuyển hoa hồng sang RÚT ĐƯỢC.
 //
 // # Vì sao nghe `fulfillment_order.completed`
 //
@@ -165,25 +165,25 @@ func (h *DaoKhiHuyDon) Handle(ctx context.Context, e eventbus.Event) error {
 // công LƯU LẠI `seller_id`: một đơn nhiều nhà bán hết hạn theo từng nhà bán,
 // và mở khóa cả đơn khi nhà bán đầu tiên giao xong là trả tiền cho hàng còn
 // trong hạn trả.
-type MoKhoaKhiHetHanDoiTra struct {
+type UnlockOnReturnWindowPassed struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewMoKhoaHandler(m *Module, log *slog.Logger) *MoKhoaKhiHetHanDoiTra {
+func NewUnlockHandler(m *Module, log *slog.Logger) *UnlockOnReturnWindowPassed {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &MoKhoaKhiHetHanDoiTra{module: m, log: log}
+	return &UnlockOnReturnWindowPassed{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*MoKhoaKhiHetHanDoiTra)(nil)
+var _ eventbus.Handler = (*UnlockOnReturnWindowPassed)(nil)
 
-func (h *MoKhoaKhiHetHanDoiTra) Name() string {
+func (h *UnlockOnReturnWindowPassed) Name() string {
 	return "affiliate.mo_khoa_khi_het_han_doi_tra"
 }
 
-func (h *MoKhoaKhiHetHanDoiTra) EventTypes() []string {
+func (h *UnlockOnReturnWindowPassed) EventTypes() []string {
 	return []string{eventbus.TypeFulfillmentCompleted}
 }
 
@@ -192,14 +192,14 @@ type fulfillmentCompletedPayload struct {
 	SellerID string `json:"seller_id"`
 }
 
-func (h *MoKhoaKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *UnlockOnReturnWindowPassed) Handle(ctx context.Context, e eventbus.Event) error {
 	var p fulfillmentCompletedPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf(
 			"affiliate: đọc dữ liệu event fulfillment_order.completed: %w", err)
 	}
 
-	n, err := h.module.svc.MoKhoaTheoDon(ctx, p.OrderID, p.SellerID)
+	n, err := h.module.svc.UnlockByOrder(ctx, p.OrderID, p.SellerID)
 	if err != nil {
 		return fmt.Errorf("affiliate: mở khóa hoa hồng của đơn %s: %w",
 			p.OrderID, err)
@@ -213,9 +213,9 @@ func (h *MoKhoaKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event) er
 
 // ------------------------------------------- Đảo khi hủy TỪNG PHẦN
 
-// DaoKhiHuyDonThucHien đảo hoa hồng của những dòng mà nhà bán không giao nữa.
+// ReverseOnFulfillmentCancelled đảo hoa hồng của những dòng mà nhà bán không giao nữa.
 //
-// # Vì sao `DaoKhiHuyDon` không đủ
+// # Vì sao `ReverseOnOrderCancelled` không đủ
 //
 // Nó nghe `order.cancelled`, và event ấy chỉ phát khi hủy CẢ đơn. Đường hủy
 // TỪNG PHẦN đi như sau, và tới 01/10/2026 không chỗ nào affiliate nghe được:
@@ -232,25 +232,25 @@ func (h *MoKhoaKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event) er
 //
 // Đảo theo DÒNG, không theo đơn: nhà bán còn lại vẫn đang giao bình thường,
 // và hoa hồng của họ không được chạm tới.
-type DaoKhiHuyDonThucHien struct {
+type ReverseOnFulfillmentCancelled struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewDaoDonThucHienHandler(m *Module, log *slog.Logger) *DaoKhiHuyDonThucHien {
+func NewReverseOnFulfillmentHandler(m *Module, log *slog.Logger) *ReverseOnFulfillmentCancelled {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &DaoKhiHuyDonThucHien{module: m, log: log}
+	return &ReverseOnFulfillmentCancelled{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*DaoKhiHuyDonThucHien)(nil)
+var _ eventbus.Handler = (*ReverseOnFulfillmentCancelled)(nil)
 
-func (h *DaoKhiHuyDonThucHien) Name() string {
+func (h *ReverseOnFulfillmentCancelled) Name() string {
 	return "affiliate.dao_khi_huy_don_thuc_hien"
 }
 
-func (h *DaoKhiHuyDonThucHien) EventTypes() []string {
+func (h *ReverseOnFulfillmentCancelled) EventTypes() []string {
 	return []string{eventbus.TypeFulfillmentCancelled}
 }
 
@@ -261,7 +261,7 @@ func (h *DaoKhiHuyDonThucHien) EventTypes() []string {
 // dòng cùng SKU với hai creator khác nhau, nên gộp theo SKU sẽ đảo sai.
 //
 // Trường ấy thêm ở v2 (01/10/2026), cùng lúc với bên nhận này.
-func (h *DaoKhiHuyDonThucHien) MaxEventVersion(eventType string) int {
+func (h *ReverseOnFulfillmentCancelled) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeFulfillmentCancelled {
 		return 2
 	}
@@ -278,7 +278,7 @@ type fulfillmentCancelledPayload struct {
 	} `json:"lines"`
 }
 
-func (h *DaoKhiHuyDonThucHien) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *ReverseOnFulfillmentCancelled) Handle(ctx context.Context, e eventbus.Event) error {
 	var p fulfillmentCancelledPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf(
@@ -309,12 +309,12 @@ func (h *DaoKhiHuyDonThucHien) Handle(ctx context.Context, e eventbus.Event) err
 	// Lý do nêu rõ ĐƠN THỰC HIỆN nào, không chỉ "bị hủy": lúc đối soát,
 	// "đơn thực hiện FC-FO-000123 bị hủy" tra ra được chuyện đã xảy ra, còn
 	// "đơn bị hủy" thì không.
-	lyDo := "đơn thực hiện " + p.FONumber + " bị hủy"
+	reason := "đơn thực hiện " + p.FONumber + " bị hủy"
 	if p.FONumber == "" {
-		lyDo = "đơn thực hiện " + p.FulfillmentID + " bị hủy"
+		reason = "đơn thực hiện " + p.FulfillmentID + " bị hủy"
 	}
 
-	n, err := h.module.svc.DaoTheoDongDon(ctx, ma, lyDo)
+	n, err := h.module.svc.ReverseByOrderLines(ctx, ma, reason)
 	if err != nil {
 		return fmt.Errorf("affiliate: đảo hoa hồng của %d dòng đơn: %w",
 			len(ma), err)

@@ -64,11 +64,11 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	svc, err := application.NewService(application.Deps{
-		Repo:  affiliatepg.NewStore(cfg.DB.Pool()),
-		Don:   &orderAdapter{api: cfg.Order},
-		Log:   log,
-		Clock: cfg.Clock,
-		TyLe:  cfg.TyLe,
+		Repo:   affiliatepg.NewStore(cfg.DB.Pool()),
+		Orders: &orderAdapter{api: cfg.Order},
+		Log:    log,
+		Clock:  cfg.Clock,
+		TyLe:   cfg.TyLe,
 	})
 	if err != nil {
 		return nil, err
@@ -79,10 +79,10 @@ func New(cfg Config) (*Module, error) {
 
 // ---------------------------------------------------------------- API
 
-func (m *Module) SoDuCreator(
+func (m *Module) CreatorBalance(
 	ctx context.Context, creatorID string,
 ) (map[string]int64, error) {
-	tong, err := m.svc.SoDuCreator(ctx, creatorID)
+	tong, err := m.svc.CreatorBalance(ctx, creatorID)
 	if err != nil {
 		return nil, err
 	}

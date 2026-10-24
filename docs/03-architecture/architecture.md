@@ -455,6 +455,7 @@ Kiến trúc chuẩn bị sẵn các điểm sau để tiến hóa mà không ph
 ## 9. Tài liệu liên quan
 
 - [microkernel.md](microkernel.md) — kernel ổn định, business là tính năng bổ sung
+- [quy-uoc-dat-ten.md](quy-uoc-dat-ten.md) — định danh tiếng Anh, chú thích tiếng Việt
 - [modular-monolith.md](modular-monolith.md) — chi tiết cấu trúc module
 - [dependency-rules.md](dependency-rules.md) — quy tắc phụ thuộc bắt buộc
 - [module-boundaries.md](module-boundaries.md) — ranh giới và interface công khai

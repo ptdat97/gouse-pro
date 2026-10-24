@@ -6578,7 +6578,7 @@ Nhưng màn hình hiện một số âm trần trụi. Số dư âm là trạng 
 hàng của đơn đã giải phóng sẽ trừ vào phần đang chờ — nên nay nó được giải
 thích tại chỗ thay vì để nhà bán đoán là hệ thống hỏng.
 
-**Giải phóng KHÔNG kiểm số dư đang chờ.** `ChuyenSangRutDuoc` nhận số tiền
+**Giải phóng KHÔNG kiểm số dư đang chờ.** `MarkAvailable` nhận số tiền
 từ bên gọi và không đối chiếu với `SELLER_PAYABLE` hiện có, nên nó đẩy số
 dư xuống âm mà không một tiếng động. Ở luồng đúng thì không xảy ra — tiền
 được ghi có vào payable lúc đặt đơn. Nhưng không gì cưỡng chế điều đó.
@@ -7541,14 +7541,14 @@ việc dạy kernel về hoa hồng.
 nghe checkout.completed thay order.paid  → "đơn CHƯA trả tiền đã có 1 bản
    (kèm MaxEventVersion 9)                  quy công, cần 0"
 OrderLineView.AttributedCreatorID = ""   → "0 bản quy công, cần 1"
-TienGocTinhHoaHong bỏ vòng trừ giảm giá  → 6 bài đỏ
-TienGocTinhHoaHong bỏ phép kẹp về 0      → TestTienGocKepVe0 đỏ
-MoKhoaTheoDon(orderID, "")               → "hoa hồng của nhà bán CHƯA giao
+CommissionBase bỏ vòng trừ giảm giá  → 6 bài đỏ
+CommissionBase bỏ phép kẹp về 0      → TestBaseClampsToZero đỏ
+UnlockByOrder(orderID, "")               → "hoa hồng của nhà bán CHƯA giao
                                             xong đã AVAILABLE"
 ```
 
 Phép thứ ba đáng ghi riêng: nó ĐỎ KHÔNG ĐƯỢC ở lần chạy đầu — hàm
-`TienGocTinhHoaHong` chưa có bài nào gác, dù nó là phép tính quyết định số
+`CommissionBase` chưa có bài nào gác, dù nó là phép tính quyết định số
 tiền trả creator. Sáu bài ở `tien_goc_test.go` được viết SAU khi phép phá
 cho thấy hàng rào không tồn tại.
 
@@ -7653,8 +7653,8 @@ order/module.go        phân giải mã + bày ra ở view
 order/store            INSERT $14 + SELECT
 checkout/application   PlaceOrderLine.AttributedContentID
 checkout/adapters.go   chở từ `l.SourceContentID()`
-affiliate/adapters.go  đọc vào `DongDon.ContentID`
-affiliate/application  truyền vào `TaoAttributionParams.ContentID`
+affiliate/adapters.go  đọc vào `OrderLine.ContentID`
+affiliate/application  truyền vào `NewAttributionParams.ContentID`
 ```
 
 Khoảng BẢY dòng mã ở kernel, đúng loại ADR-0022 cho phép (kernel CHỞ ĐỊNH
@@ -7688,7 +7688,7 @@ tới `order_line` mà đánh rơi ở adapter chỉ lộ ra ở bài sau.
 
 ### P3-85 — ĐÃ LÀM 01/10/2026 — hủy TỪNG PHẦN để hoa hồng creator mắc ở `PENDING` vĩnh viễn
 
-`affiliate.DaoKhiHuyDon` nghe `order.cancelled`, và event ấy chỉ phát từ
+`affiliate.ReverseOnOrderCancelled` nghe `order.cancelled`, và event ấy chỉ phát từ
 `CancelWithReason` — tức hủy CẢ đơn.
 
 Đường hủy TỪNG PHẦN thật sự chạy như sau, và nó không đi qua chỗ nào affiliate
@@ -7713,7 +7713,7 @@ Hai điều đáng ghi, đã kiểm trên mã:
   dòng ấy đứng ở `PENDING` **mãi mãi**: không đảo, không mở khóa. Một dòng rác
   trong bảng tiền, và nó im lặng.
 
-`affiliate.DaoTheoDon` hiện đảo theo `order_id`, tức đảo CẢ đơn — dùng nó cho
+`affiliate.ReverseByOrder` hiện đảo theo `order_id`, tức đảo CẢ đơn — dùng nó cho
 hủy từng phần sẽ đảo luôn hoa hồng của nhà bán vẫn đang giao.
 
 #### Đã làm
@@ -7723,8 +7723,8 @@ fulfillment.cancelled  →  v2, mỗi dòng mang thêm `order_line_id`
 CancelledLine          →  thêm OrderLineID (FOLine đã có sẵn)
 inventory              →  khai MaxEventVersion = 2 (KHÔNG dùng trường mới)
 affiliate              →  bên nhận thứ TƯ: dao_khi_huy_don_thuc_hien
-Service.DaoTheoDongDon →  đảo theo TẬP dòng đơn
-Repo.TheoDongDon       →  đọc hoa hồng theo `order_line_id = ANY($1)`
+Service.ReverseByOrderLines →  đảo theo TẬP dòng đơn
+Repo.ByOrderLines       →  đọc hoa hồng theo `order_line_id = ANY($1)`
 ```
 
 `order_line_id` KHÔNG dùng `omitempty`: một trường biến mất khi rỗng buộc
@@ -7745,7 +7745,7 @@ chuyện đã xảy ra.
 ```text
 bỏ đăng ký bên nhận mới       → "nhà bán hủy mà hoa hồng vẫn PENDING"
                                  (tái hiện ĐÚNG lỗi gốc)
-dùng DaoTheoDon(order_id)     → "hoa hồng của nhà bán VẪN ĐANG GIAO đã
+dùng ReverseByOrder(order_id)     → "hoa hồng của nhà bán VẪN ĐANG GIAO đã
                                  thành REVERSED"
 bỏ order_line_id khỏi payload → như phép 1
 ```

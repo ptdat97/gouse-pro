@@ -655,7 +655,7 @@ func (a *apiTest) trangThaiHoaHongTheoNhaBan(
 // CHỜ ĐẾN HẠN **mãi mãi**: không đảo, không chi, không ai thấy.
 //
 // Bài này đòi hai điều cùng lúc, và điều thứ hai mới là chỗ dễ sai: dòng của
-// nhà bán CÒN LẠI không được chạm tới. `DaoTheoDon` đảo theo `order_id`, nên
+// nhà bán CÒN LẠI không được chạm tới. `ReverseByOrder` đảo theo `order_id`, nên
 // dùng nó cho việc này sẽ xanh ở nửa đầu và sai ở nửa sau.
 func TestHuyDonThucHienThiDaoHoaHongCuaDongDo(t *testing.T) {
 	a := newAPITest(t)

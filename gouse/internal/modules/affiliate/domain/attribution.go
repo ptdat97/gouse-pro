@@ -29,42 +29,42 @@ import (
 var (
 	ErrNotFound = errors.New("affiliate: không tìm thấy bản ghi")
 
-	// ErrDaQuyCong khi một dòng đơn đã được quy công.
+	// ErrAlreadyAttributed khi một dòng đơn đã được quy công.
 	//
 	// KHÔNG phải lỗi hệ thống: `order.paid` giao ít nhất một lần, nên bên
 	// nhận thấy cùng một đơn hai lần là chuyện thường. Bên gọi coi đây là
 	// THÀNH CÔNG và bỏ qua.
-	ErrDaQuyCong = errors.New("affiliate: dòng đơn này đã được quy công")
+	ErrAlreadyAttributed = errors.New("affiliate: dòng đơn này đã được quy công")
 
-	ErrThieuCreator  = errors.New("affiliate: thiếu định danh creator")
-	ErrThieuDongDon  = errors.New("affiliate: thiếu định danh dòng đơn")
-	ErrTienGocAm     = errors.New("affiliate: tiền gốc tính hoa hồng không được âm")
-	ErrBenChiuLa     = errors.New("affiliate: bên chịu chi phí không hợp lệ")
-	ErrThieuLyDoDao  = errors.New("affiliate: đảo quy công bắt buộc phải nêu lý do")
-	ErrDaDao         = errors.New("affiliate: khoản hoa hồng này đã bị đảo")
-	ErrChuaHetHanTra = errors.New("affiliate: chưa hết hạn đổi trả, chưa được chuyển sang rút được")
+	ErrMissingCreator        = errors.New("affiliate: thiếu định danh creator")
+	ErrMissingOrderLine      = errors.New("affiliate: thiếu định danh dòng đơn")
+	ErrNegativeBase          = errors.New("affiliate: tiền gốc tính hoa hồng không được âm")
+	ErrInvalidCostBearer     = errors.New("affiliate: bên chịu chi phí không hợp lệ")
+	ErrReverseReasonRequired = errors.New("affiliate: đảo quy công bắt buộc phải nêu lý do")
+	ErrAlreadyReversed       = errors.New("affiliate: khoản hoa hồng này đã bị đảo")
+	ErrReturnWindowOpen      = errors.New("affiliate: chưa hết hạn đổi trả, chưa được chuyển sang rút được")
 )
 
 // BenChiu là bên gánh chi phí hoa hồng creator.
 //
 // affiliate.md mục 5: *"Phải được ghi rõ trong Campaign, không mặc định"*.
 // Tới khi có module `campaign`, mặc định là nền tảng chịu — xem
-// `BenChiuMacDinh`.
-type BenChiu string
+// `DefaultCostBearer`.
+type CostBearer string
 
 const (
-	BenChiuNenTang BenChiu = "PLATFORM"
-	BenChiuNhaBan  BenChiu = "SELLER"
+	CostBearerPlatform CostBearer = "PLATFORM"
+	CostBearerSeller   CostBearer = "SELLER"
 )
 
-func (b BenChiu) HopLe() bool {
-	return b == BenChiuNenTang || b == BenChiuNhaBan
+func (b CostBearer) Valid() bool {
+	return b == CostBearerPlatform || b == CostBearerSeller
 }
 
-// MoHinhQuyCong là cách chọn creator khi có nhiều người trong chuỗi.
-type MoHinhQuyCong string
+// AttributionModel là cách chọn creator khi có nhiều người trong chuỗi.
+type AttributionModel string
 
-// MoHinhLastClick: creator của click GẦN NHẤT nhận toàn bộ.
+// AttributionModelLastClick: creator của click GẦN NHẤT nhận toàn bộ.
 //
 // Quyết định khởi điểm của affiliate.md mục 3.3. Ghi vào từng bản quy công
 // vì đổi mô hình sau này phải giải thích được số cũ tính theo cách nào.
@@ -73,7 +73,7 @@ type MoHinhQuyCong string
 // `cart.Item.setSource` giữ nguồn của lần thêm GẦN NHẤT (cart.md mục 6), và
 // chuỗi giỏ→phiên→đơn chở đúng một creator. Nên "last click" ở đây là mô tả
 // thứ đã xảy ra, không phải phép tính của module này.
-const MoHinhLastClick MoHinhQuyCong = "LAST_CLICK"
+const AttributionModelLastClick AttributionModel = "LAST_CLICK"
 
 // Attribution là một bản quy công — BẤT BIẾN sau khi tạo.
 //
@@ -99,15 +99,15 @@ type Attribution struct {
 	creatorID ids.ID
 	contentID ids.ID
 
-	rate    types.BasisPoints
-	base    money.Money
-	benChiu BenChiu
-	moHinh  MoHinhQuyCong
-	taoLuc  time.Time
+	rate       types.BasisPoints
+	base       money.Money
+	costBearer CostBearer
+	model      AttributionModel
+	createdAt  time.Time
 }
 
-// TaoAttributionParams là dữ liệu quy công một dòng đơn.
-type TaoAttributionParams struct {
+// NewAttributionParams là dữ liệu quy công một dòng đơn.
+type NewAttributionParams struct {
 	OrderID     ids.ID
 	OrderLineID ids.ID
 	SellerID    ids.ID
@@ -121,23 +121,23 @@ type TaoAttributionParams struct {
 	Rate types.BasisPoints
 	Base money.Money
 
-	BenChiu BenChiu
-	Now     time.Time
+	CostBearer CostBearer
+	Now        time.Time
 }
 
-// TaoAttribution dựng một bản quy công mới.
-func TaoAttribution(p TaoAttributionParams) (*Attribution, error) {
+// NewAttribution dựng một bản quy công mới.
+func NewAttribution(p NewAttributionParams) (*Attribution, error) {
 	if p.CreatorID.IsZero() {
-		return nil, ErrThieuCreator
+		return nil, ErrMissingCreator
 	}
 	if p.OrderLineID.IsZero() {
-		return nil, ErrThieuDongDon
+		return nil, ErrMissingOrderLine
 	}
 	if p.Base.Amount() < 0 {
-		return nil, fmt.Errorf("%w: %s", ErrTienGocAm, p.Base)
+		return nil, fmt.Errorf("%w: %s", ErrNegativeBase, p.Base)
 	}
-	if !p.BenChiu.HopLe() {
-		return nil, fmt.Errorf("%w: %q", ErrBenChiuLa, p.BenChiu)
+	if !p.CostBearer.Valid() {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidCostBearer, p.CostBearer)
 	}
 
 	id, err := ids.New(ids.PrefixAttribution)
@@ -158,9 +158,9 @@ func TaoAttribution(p TaoAttributionParams) (*Attribution, error) {
 		contentID:   p.ContentID,
 		rate:        p.Rate,
 		base:        p.Base,
-		benChiu:     p.BenChiu,
-		moHinh:      MoHinhLastClick,
-		taoLuc:      now,
+		costBearer:  p.CostBearer,
+		model:       AttributionModelLastClick,
+		createdAt:   now,
 	}, nil
 }
 
@@ -169,7 +169,7 @@ func TaoAttribution(p TaoAttributionParams) (*Attribution, error) {
 // Tính ở đây chứ không nhận từ bên gọi: hai nguồn cho cùng một con số tiền
 // sớm muộn sẽ lệch nhau. Và vì cả tỷ lệ lẫn tiền gốc đều đóng băng, phép
 // tính này cho cùng kết quả mãi mãi — đó là điều kiện để đối soát lại được.
-func (a *Attribution) HoaHong() money.Money {
+func (a *Attribution) Commission() money.Money {
 	return a.base.ApplyRate(a.rate, money.RoundHalfUp)
 }
 
@@ -183,9 +183,9 @@ type RestoreAttributionParams struct {
 	ContentID   ids.ID
 	Rate        types.BasisPoints
 	Base        money.Money
-	BenChiu     BenChiu
-	MoHinh      MoHinhQuyCong
-	TaoLuc      time.Time
+	CostBearer  CostBearer
+	Model       AttributionModel
+	CreatedAt   time.Time
 }
 
 func RestoreAttribution(p RestoreAttributionParams) *Attribution {
@@ -198,9 +198,9 @@ func RestoreAttribution(p RestoreAttributionParams) *Attribution {
 		contentID:   p.ContentID,
 		rate:        p.Rate,
 		base:        p.Base,
-		benChiu:     p.BenChiu,
-		moHinh:      p.MoHinh,
-		taoLuc:      p.TaoLuc,
+		costBearer:  p.CostBearer,
+		model:       p.Model,
+		createdAt:   p.CreatedAt,
 	}
 }
 
@@ -212,6 +212,6 @@ func (a *Attribution) CreatorID() ids.ID       { return a.creatorID }
 func (a *Attribution) ContentID() ids.ID       { return a.contentID }
 func (a *Attribution) Rate() types.BasisPoints { return a.rate }
 func (a *Attribution) Base() money.Money       { return a.base }
-func (a *Attribution) BenChiu() BenChiu        { return a.benChiu }
-func (a *Attribution) MoHinh() MoHinhQuyCong   { return a.moHinh }
-func (a *Attribution) TaoLuc() time.Time       { return a.taoLuc }
+func (a *Attribution) CostBearer() CostBearer  { return a.costBearer }
+func (a *Attribution) Model() AttributionModel { return a.model }
+func (a *Attribution) CreatedAt() time.Time    { return a.createdAt }

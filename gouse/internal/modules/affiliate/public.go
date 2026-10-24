@@ -16,7 +16,7 @@
 //
 // # Mặt công khai này CỐ Ý nhỏ
 //
-// Chỉ có `New`, `Config`, hai bên nhận event, và `SoDuCreator`. Không có
+// Chỉ có `New`, `Config`, hai bên nhận event, và `CreatorBalance`. Không có
 // hàm nào cho module khác gọi, vì chưa module nào cần gọi. Bày ra một API
 // chưa ai dùng là tạo trước thứ phải bảo trì — và dự án này đã gặp bốn hằng
 // số event không ai phát (P3-76).
@@ -30,9 +30,9 @@ import (
 
 // TrangThai là trạng thái của một khoản hoa hồng, dưới dạng chuỗi.
 const (
-	TrangThaiChoDenHan = string(domain.HoaHongChoDenHan)
-	TrangThaiRutDuoc   = string(domain.HoaHongRutDuoc)
-	TrangThaiDaDao     = string(domain.HoaHongDaDao)
+	StatusPending   = string(domain.CommissionPending)
+	StatusAvailable = string(domain.CommissionAvailable)
+	StatusReversed  = string(domain.CommissionReversed)
 )
 
 // API là mặt công khai của module affiliate.
@@ -41,9 +41,9 @@ const (
 // để một module khác tạo ra một khoản hoa hồng — quy công chỉ sinh ra từ một
 // đơn đã thanh toán.
 type API interface {
-	// SoDuCreator là tổng tiền hoa hồng theo từng trạng thái.
+	// CreatorBalance là tổng tiền hoa hồng theo từng trạng thái.
 	//
 	// MỌI trạng thái có mặt kể cả khi bằng 0, nên bên đọc không phải phân
 	// biệt "không có khóa" với "bằng không".
-	SoDuCreator(ctx context.Context, creatorID string) (map[string]int64, error)
+	CreatorBalance(ctx context.Context, creatorID string) (map[string]int64, error)
 }
