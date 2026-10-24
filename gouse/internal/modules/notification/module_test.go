@@ -109,12 +109,12 @@ func sendReq(eventID, template, recipient string) notification.SendRequest {
 //
 // Bộ phận hỗ trợ cần trả lời "chúng tôi đã gửi email tới đâu" khi khách
 // nói không nhận được.
-func TestGuiVaGhiLog(t *testing.T) {
+func TestSendWritesLog(t *testing.T) {
 	sender := &recordingSender{}
 	m, _ := newModule(t, sender)
 	ctx := context.Background()
 
-	req := sendReq("evt-1", notification.TemplateOrderConfirmed, "khach@example.com")
+	req := sendReq("evt-1", notification.TemplateOrderConfirmed, "customer@example.com")
 	if err := m.Send(ctx, req); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -145,12 +145,12 @@ func TestGuiVaGhiLog(t *testing.T) {
 //
 // Mô hình at-least-once nghĩa là event SẼ được phát lại. Khách nhận ba
 // email "đơn đã đặt" sẽ gọi tổng đài hỏi mình bị tính tiền mấy lần.
-func TestGuiHaiLanChiMotEmail(t *testing.T) {
+func TestTwoSendsProduceOneEmail(t *testing.T) {
 	sender := &recordingSender{}
 	m, _ := newModule(t, sender)
 	ctx := context.Background()
 
-	req := sendReq("evt-trung", notification.TemplateOrderConfirmed, "khach@example.com")
+	req := sendReq("evt-trung", notification.TemplateOrderConfirmed, "customer@example.com")
 
 	if err := m.Send(ctx, req); err != nil {
 		t.Fatalf("lần gửi 1: %v", err)
@@ -169,12 +169,12 @@ func TestGuiHaiLanChiMotEmail(t *testing.T) {
 //
 // Kiểm tra trước khi ghi không chặn được: hai worker cùng đọc thấy "chưa
 // gửi" rồi cùng gửi. Ràng buộc UNIQUE ở database là thứ chặn thật.
-func TestGuiSongSongChiMotEmail(t *testing.T) {
+func TestConcurrentSendsProduceOneEmail(t *testing.T) {
 	sender := &recordingSender{}
 	m, _ := newModule(t, sender)
 	ctx := context.Background()
 
-	req := sendReq("evt-song-song", notification.TemplateOrderConfirmed, "khach@example.com")
+	req := sendReq("evt-song-song", notification.TemplateOrderConfirmed, "customer@example.com")
 
 	const n = 10
 	var (
@@ -204,7 +204,7 @@ func TestGuiSongSongChiMotEmail(t *testing.T) {
 // Khách vãng lai không nhập email là chuyện bình thường. Trả lỗi sẽ khiến
 // event bị thử lại vô ích rồi rơi vào dead letter, và cảnh báo vận hành
 // kêu vì việc hoàn toàn bình thường.
-func TestThieuDiaChiThiBoQuaKhongBaoLoi(t *testing.T) {
+func TestMissingAddressIsSkippedNotFailed(t *testing.T) {
 	sender := &recordingSender{}
 	m, _ := newModule(t, sender)
 	ctx := context.Background()
@@ -240,13 +240,13 @@ func TestThieuDiaChiThiBoQuaKhongBaoLoi(t *testing.T) {
 //
 // Bỏ qua là quyết định CÓ CHỦ Ý; thất bại là sự cố. Gộp chung sẽ làm cảnh
 // báo vận hành kêu vì những việc bình thường, và rồi không ai đọc cảnh báo.
-func TestPhanBietBoQuaVaThatBai(t *testing.T) {
+func TestSkippedIsNotFailed(t *testing.T) {
 	// Nhà cung cấp luôn lỗi.
 	sender := &recordingSender{failTimes: 100}
 	m, _ := newModule(t, sender)
 	ctx := context.Background()
 
-	req := sendReq("evt-that-bai", notification.TemplateOrderConfirmed, "khach@example.com")
+	req := sendReq("evt-that-bai", notification.TemplateOrderConfirmed, "customer@example.com")
 
 	// Thất bại thì TRẢ LỖI — bên gọi cần biết để thử lại.
 	if err := m.Send(ctx, req); err == nil {
@@ -278,7 +278,7 @@ func TestPhanBietBoQuaVaThatBai(t *testing.T) {
 //
 // Module này KHÔNG gọi module nghiệp vụ nào — tên sản phẩm và email đều
 // đến từ payload event.
-func TestEventDatHangSinhEmailXacNhan(t *testing.T) {
+func TestOrderPlacedSendsConfirmationEmail(t *testing.T) {
 	sender := &recordingSender{}
 	m, pool := newModule(t, sender)
 	ctx := context.Background()
@@ -294,7 +294,7 @@ func TestEventDatHangSinhEmailXacNhan(t *testing.T) {
 		map[string]any{
 			"order_id":     orderID,
 			"order_number": "FC-2026-08-001234",
-			"guest_email":  "khach@example.com",
+			"guest_email":  "customer@example.com",
 			"currency":     "VND",
 			"reservations": []map[string]any{
 				{"product_name": "Áo sơ mi linen", "quantity": 2, "line_total": 598000},
@@ -316,8 +316,8 @@ func TestEventDatHangSinhEmailXacNhan(t *testing.T) {
 	}
 
 	sent := sender.last()
-	if sent.Recipient() != "khach@example.com" {
-		t.Errorf("người nhận = %q, mong khach@example.com", sent.Recipient())
+	if sent.Recipient() != "customer@example.com" {
+		t.Errorf("người nhận = %q, mong customer@example.com", sent.Recipient())
 	}
 
 	// Nội dung phải chứa mã đơn và TÊN SẢN PHẨM ĐÃ ĐÓNG BĂNG.
@@ -341,7 +341,7 @@ func TestEventDatHangSinhEmailXacNhan(t *testing.T) {
 //
 // Gửi email cho mọi bước (đã xác nhận, đang lấy hàng, đã đóng gói) là làm
 // phiền khách — họ chỉ quan tâm ba mốc: hàng đã đi, đã tới, hoặc bị hủy.
-func TestChiGuiEmailOBaMocGiaoHang(t *testing.T) {
+func TestEmailsOnlyAtThreeDeliveryMilestones(t *testing.T) {
 	sender := &recordingSender{}
 	m, pool := newModule(t, sender)
 	ctx := context.Background()
@@ -362,7 +362,7 @@ func TestChiGuiEmailOBaMocGiaoHang(t *testing.T) {
 				"fo_number":       "FC-2026-08-001234-A",
 				"new_status":      status,
 				"tracking_number": "GHN123456",
-				"email":           "khach@example.com",
+				"email":           "customer@example.com",
 			})
 		if err != nil {
 			t.Fatalf("NewEvent: %v", err)
@@ -411,7 +411,7 @@ func TestChiGuiEmailOBaMocGiaoHang(t *testing.T) {
 }
 
 // PHÁT LẠI EVENT không gửi email lần hai.
-func TestPhatLaiEventKhongGuiHaiLan(t *testing.T) {
+func TestRedeliveryDoesNotSendTwice(t *testing.T) {
 	sender := &recordingSender{}
 	m, pool := newModule(t, sender)
 	ctx := context.Background()
@@ -426,7 +426,7 @@ func TestPhatLaiEventKhongGuiHaiLan(t *testing.T) {
 		map[string]any{
 			"order_id":     ids.MustNew(ids.PrefixOrder).String(),
 			"order_number": "FC-2026-08-000001",
-			"guest_email":  "khach@example.com",
+			"guest_email":  "customer@example.com",
 			"reservations": []map[string]any{
 				{"product_name": "Áo sơ mi", "quantity": 1, "line_total": 299000},
 			},
@@ -458,11 +458,11 @@ func TestPhatLaiEventKhongGuiHaiLan(t *testing.T) {
 //
 // Luồng nghiệp vụ phải chạy được đầu-cuối trước khi nền tảng ký hợp đồng
 // với nhà cung cấp dịch vụ email.
-func TestKhongCauHinhBoGuiVanChayDuoc(t *testing.T) {
+func TestRunsWithoutConfiguredSender(t *testing.T) {
 	m, _ := newModule(t, nil)
 	ctx := context.Background()
 
-	req := sendReq("evt-log", notification.TemplateOrderConfirmed, "khach@example.com")
+	req := sendReq("evt-log", notification.TemplateOrderConfirmed, "customer@example.com")
 	if err := m.Send(ctx, req); err != nil {
 		t.Fatalf("bộ ghi-log phải gửi được: %v", err)
 	}

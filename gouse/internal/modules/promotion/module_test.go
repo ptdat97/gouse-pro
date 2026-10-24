@@ -114,7 +114,7 @@ func validate(
 //
 // Một mã giảm 90% do gõ nhầm sẽ có hiệu lực tức thì nếu mặc định là
 // ACTIVE — và không có bước nào để ai đó nhìn lại trước khi khách dùng.
-func TestKhuyenMaiMoiTaoLaBanNhap(t *testing.T) {
+func TestNewPromotionIsDraft(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -149,7 +149,7 @@ func TestKhuyenMaiMoiTaoLaBanNhap(t *testing.T) {
 //
 // Khách gõ "sale10" và " SALE10 " phải ra CÙNG một mã — không thì họ nghĩ
 // mã hỏng và gọi tổng đài.
-func TestMaChuanHoa(t *testing.T) {
+func TestCodeIsNormalized(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -175,7 +175,7 @@ func TestMaChuanHoa(t *testing.T) {
 //
 // 10% của 999.999đ tính bằng float ra 99999.90000000001. Làm tròn LÊN sẽ
 // khiến tổng giảm giá của nhiều dòng vượt quá mức đã hứa.
-func TestGiamPhanTramLaSoNguyen(t *testing.T) {
+func TestPercentDiscountIsInteger(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	setup(t, m, basePromo(), "SALE10")
@@ -203,7 +203,7 @@ func TestGiamPhanTramLaSoNguyen(t *testing.T) {
 // Đây là chặn trên quan trọng nhất: giảm nhiều hơn giá trị đơn nghĩa là
 // nền tảng TRẢ TIỀN cho khách để họ mua hàng. Một lỗi cấu hình — mã giảm
 // 500.000đ dùng cho đơn 200.000đ — là đủ.
-func TestKhongGiamQuaGiaTriDon(t *testing.T) {
+func TestDiscountNeverExceedsOrderTotal(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	req := basePromo()
@@ -227,7 +227,7 @@ func TestKhongGiamQuaGiaTriDon(t *testing.T) {
 // TRẦN GIẢM GIÁ: "giảm 50%, tối đa 100.000đ".
 //
 // Không có nó, một đơn 10 triệu được giảm 5 triệu.
-func TestTranGiamGia(t *testing.T) {
+func TestDiscountCap(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	req := basePromo()
@@ -289,7 +289,7 @@ func TestMienPhiShipTheoNguong(t *testing.T) {
 }
 
 // GIỚI HẠN LƯỢT TOÀN CỤC, và mã tự chuyển sang EXHAUSTED.
-func TestGioiHanLuotToanCuc(t *testing.T) {
+func TestGlobalUseLimit(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -324,7 +324,7 @@ func TestGioiHanLuotToanCuc(t *testing.T) {
 //
 // Thiếu nó thì một người dùng mã "giảm 100k cho khách mới" được vô số lần
 // bằng cách tạo đơn liên tục.
-func TestGioiHanLuotMoiKhach(t *testing.T) {
+func TestPerCustomerUseLimit(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -332,12 +332,12 @@ func TestGioiHanLuotMoiKhach(t *testing.T) {
 	req.MaxUsesPerCustomer = 1
 	setup(t, m, req, "SALE10")
 
-	khachA := ids.MustNew(ids.PrefixCustomer).String()
-	khachB := ids.MustNew(ids.PrefixCustomer).String()
+	customerA := ids.MustNew(ids.PrefixCustomer).String()
+	customerB := ids.MustNew(ids.PrefixCustomer).String()
 
 	if err := m.RecordUsage(ctx, promotion.RecordUsageRequest{
 		Code:       "SALE10",
-		CustomerID: khachA,
+		CustomerID: customerA,
 		OrderID:    ids.MustNew(ids.PrefixOrder).String(),
 		Discount:   50_000,
 	}); err != nil {
@@ -347,7 +347,7 @@ func TestGioiHanLuotMoiKhach(t *testing.T) {
 	// Khách A hết lượt.
 	_, err := m.ValidateCoupon(ctx, promotion.ValidateRequest{
 		Code:       "SALE10",
-		CustomerID: khachA,
+		CustomerID: customerA,
 		OrderTotal: 500_000,
 	})
 	if !errors.Is(err, promotion.ErrCustomerLimitReached) {
@@ -357,7 +357,7 @@ func TestGioiHanLuotMoiKhach(t *testing.T) {
 	// Khách B vẫn dùng được.
 	if _, err := m.ValidateCoupon(ctx, promotion.ValidateRequest{
 		Code:       "SALE10",
-		CustomerID: khachB,
+		CustomerID: customerB,
 		OrderTotal: 500_000,
 	}); err != nil {
 		t.Fatalf("khách B: %v", err)
@@ -420,7 +420,7 @@ func TestNganSachChanChiPhi(t *testing.T) {
 //
 // Thời điểm kết thúc là HẾT HẠN, không phải còn dùng được. Lệch một giây
 // là mã sống thêm một giây sau khi chiến dịch đã đóng.
-func TestKhuyenMaiHetHan(t *testing.T) {
+func TestPromotionExpired(t *testing.T) {
 	clock := newClock()
 	m, _ := newModule(t, clock)
 	ctx := context.Background()
@@ -446,7 +446,7 @@ func TestKhuyenMaiHetHan(t *testing.T) {
 // KHUYẾN MÃI CHƯA BẮT ĐẦU trả lỗi RIÊNG.
 //
 // Báo "hết hạn" cho mã chưa bắt đầu khiến khách bỏ đi thay vì quay lại.
-func TestKhuyenMaiChuaBatDau(t *testing.T) {
+func TestPromotionNotStartedYet(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	req := basePromo()
@@ -463,7 +463,7 @@ func TestKhuyenMaiChuaBatDau(t *testing.T) {
 //
 // Không có nó, khuyến mãi hết hạn vẫn mang trạng thái ACTIVE và chỉ bị
 // chặn bởi phép so sánh thời gian.
-func TestWorkerHetHanDoiTrangThai(t *testing.T) {
+func TestWorkerExpiresPromotionStatus(t *testing.T) {
 	clock := newClock()
 	m, _ := newModule(t, clock)
 	ctx := context.Background()
@@ -502,7 +502,7 @@ func TestWorkerHetHanDoiTrangThai(t *testing.T) {
 //
 // Handler event xử lý lại cùng một event là chuyện bình thường. Ghi hai
 // lần nghĩa là ngân sách bị trừ hai lần cho MỘT đơn.
-func TestGhiNhanSuDungIdempotent(t *testing.T) {
+func TestRecordUseIsIdempotent(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -545,7 +545,7 @@ func TestGhiNhanSuDungIdempotent(t *testing.T) {
 //
 // Kiểm tra "đã ghi chưa" ở tầng ứng dụng KHÔNG cứu được — mười request
 // cùng đọc thấy chưa có. Chỉ ràng buộc UNIQUE (coupon_id, order_id) chặn.
-func TestDuaNhauGhiNhanCungDon(t *testing.T) {
+func TestConcurrentRecordsForSameOrder(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -592,7 +592,7 @@ func TestDuaNhauGhiNhanCungDon(t *testing.T) {
 // Một mã đang chạy quảng cáo có hàng trăm người cùng áp trong một giây, và
 // MỖI lượt đều tăng used_count. Không có khóa lạc quan thì bộ đếm thấp hơn
 // số lượt thật — mã giới hạn 100 lượt sẽ được dùng vài trăm lần.
-func TestKhoaLacQuanChanMatBoDem(t *testing.T) {
+func TestOptimisticLockPreventsLostCounter(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -650,7 +650,7 @@ func TestKhoaLacQuanChanMatBoDem(t *testing.T) {
 //
 // Không giải phóng thì mã hết lượt vì những đơn không bao giờ thành — và
 // chiến dịch kết thúc sớm hơn dự tính.
-func TestHuyDonGiaiPhongLuot(t *testing.T) {
+func TestOrderCancelReleasesUse(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -751,7 +751,7 @@ func TestGiaiPhongIdempotent(t *testing.T) {
 //
 // Khách trả một món → hoàn giá dòng TRỪ phần giảm đã phân bổ. Không lưu
 // lại thì nền tảng hoàn nhiều hơn đã thu.
-func TestPhanBoGiamGiaXuongDongHang(t *testing.T) {
+func TestDiscountIsAllocatedToLines(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -786,7 +786,7 @@ func TestPhanBoGiamGiaXuongDongHang(t *testing.T) {
 // 100đ chia cho 3 dòng bằng nhau = 33,33đ mỗi dòng. Cắt xuống thành 33 là
 // mất 1đ; với hàng triệu đơn, chỗ mất đó thành tiền thật và không có bút
 // toán nào giải thích.
-func TestPhanBoChiaKhongHetKhongMatTien(t *testing.T) {
+func TestAllocationLosesNoMoneyOnRemainder(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -917,7 +917,7 @@ func TestAiChiuChiPhiKhuyenMai(t *testing.T) {
 // TỶ LỆ CHIA PHẢI CỘNG ĐÚNG 100%.
 //
 // Lệch một điểm cơ bản là một khoản tiền KHÔNG AI CHỊU.
-func TestTyLeChiaPhaiCong100(t *testing.T) {
+func TestSplitRatesMustSumTo100(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -933,7 +933,7 @@ func TestTyLeChiaPhaiCong100(t *testing.T) {
 }
 
 // MÃ RIÊNG CHỈ DÀNH CHO MỘT KHÁCH.
-func TestMaRiengChiDanhChoMotKhach(t *testing.T) {
+func TestPrivateCodeIsForOneCustomerOnly(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -945,20 +945,20 @@ func TestMaRiengChiDanhChoMotKhach(t *testing.T) {
 		t.Fatalf("ActivatePromotion: %v", err)
 	}
 
-	chuNhan := ids.MustNew(ids.PrefixCustomer).String()
-	nguoiKhac := ids.MustNew(ids.PrefixCustomer).String()
+	owner := ids.MustNew(ids.PrefixCustomer).String()
+	otherCustomer := ids.MustNew(ids.PrefixCustomer).String()
 
 	if _, err := m.CreateCoupon(ctx, promotion.CreateCouponRequest{
 		PromotionID: p.ID,
 		Code:        "XINLOI50",
-		CustomerID:  chuNhan,
+		CustomerID:  owner,
 	}); err != nil {
 		t.Fatalf("CreateCoupon: %v", err)
 	}
 
 	if _, err := m.ValidateCoupon(ctx, promotion.ValidateRequest{
 		Code:       "XINLOI50",
-		CustomerID: chuNhan,
+		CustomerID: owner,
 		OrderTotal: 500_000,
 	}); err != nil {
 		t.Fatalf("chủ nhân dùng mã: %v", err)
@@ -966,7 +966,7 @@ func TestMaRiengChiDanhChoMotKhach(t *testing.T) {
 
 	_, err = m.ValidateCoupon(ctx, promotion.ValidateRequest{
 		Code:       "XINLOI50",
-		CustomerID: nguoiKhac,
+		CustomerID: otherCustomer,
 		OrderTotal: 500_000,
 	})
 	if !errors.Is(err, promotion.ErrWrongCustomer) {
@@ -975,7 +975,7 @@ func TestMaRiengChiDanhChoMotKhach(t *testing.T) {
 }
 
 // MÃ CỦA GIAN HÀNG KHÔNG ÁP CHO GIAN HÀNG KHÁC.
-func TestMaCuaGianHangKhongApChoGianHangKhac(t *testing.T) {
+func TestSellerCodeDoesNotApplyToOtherSeller(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1009,7 +1009,7 @@ func TestMaCuaGianHangKhongApChoGianHangKhac(t *testing.T) {
 //
 // "Giảm 0đ" qua mọi kiểm tra, khách áp được, và không giảm gì cả — rồi bộ
 // phận hỗ trợ nhận khiếu nại "mã của tôi không hoạt động".
-func TestTuChoiKhuyenMaiKhongCoNghia(t *testing.T) {
+func TestRejectsMeaninglessPromotion(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1060,7 +1060,7 @@ func TestTamDungChanApMa(t *testing.T) {
 }
 
 // MÃ KHÔNG TỒN TẠI trả lỗi riêng, không phải lỗi chung.
-func TestMaKhongTonTai(t *testing.T) {
+func TestUnknownCode(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	if _, err := validate(m, "KHONGTONTAI", 500_000); !errors.Is(err, promotion.ErrCouponNotFound) {

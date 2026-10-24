@@ -27,28 +27,28 @@ import (
 // Đo trên dữ liệu thật ngày 11/09: 1 đơn dùng mã, 0 lượt được ghi, bộ đếm
 // của chương trình vẫn bằng 0.
 
-// GhiLuotDungKhiHoanTat ghi nhận một lượt dùng mã khi phiên thanh toán xong.
-type GhiLuotDungKhiHoanTat struct {
+// RecordUseOnCheckoutCompleted ghi nhận một lượt dùng mã khi phiên thanh toán xong.
+type RecordUseOnCheckoutCompleted struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewGhiLuotDungHandler(m *Module, log *slog.Logger) *GhiLuotDungKhiHoanTat {
-	return &GhiLuotDungKhiHoanTat{module: m, log: log}
+func NewRecordUseHandler(m *Module, log *slog.Logger) *RecordUseOnCheckoutCompleted {
+	return &RecordUseOnCheckoutCompleted{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*GhiLuotDungKhiHoanTat)(nil)
+var _ eventbus.Handler = (*RecordUseOnCheckoutCompleted)(nil)
 
-func (h *GhiLuotDungKhiHoanTat) Name() string {
+func (h *RecordUseOnCheckoutCompleted) Name() string {
 	return "promotion.ghi_luot_dung_khi_hoan_tat"
 }
 
-func (h *GhiLuotDungKhiHoanTat) EventTypes() []string {
+func (h *RecordUseOnCheckoutCompleted) EventTypes() []string {
 	return []string{eventbus.TypeCheckoutCompleted}
 }
 
 // MaxEventVersion: cần phiên bản 7 để có `coupon_code`.
-func (h *GhiLuotDungKhiHoanTat) MaxEventVersion(eventType string) int {
+func (h *RecordUseOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
 		return 9
 	}
@@ -67,7 +67,7 @@ type luotDungPayload struct {
 //
 // IDEMPOTENT theo đơn: `RecordUsage` trả nil khi lượt đã ghi, nên event
 // phát lại không đếm hai lần.
-func (h *GhiLuotDungKhiHoanTat) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *RecordUseOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event) error {
 	var p luotDungPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
@@ -91,7 +91,7 @@ func (h *GhiLuotDungKhiHoanTat) Handle(ctx context.Context, e eventbus.Event) er
 	return nil
 }
 
-// GiaiPhongLuotKhiHuyDon trả lại lượt dùng khi đơn bị hủy.
+// ReleaseUseOnOrderCancelled trả lại lượt dùng khi đơn bị hủy.
 //
 // # Vì sao cần
 //
@@ -99,34 +99,34 @@ func (h *GhiLuotDungKhiHoanTat) Handle(ctx context.Context, e eventbus.Event) er
 // một lượt mỗi khách thì họ mất luôn quyền dùng. Và ngân sách khuyến mãi
 // bị trừ cho một đơn không còn tồn tại, nên chương trình cạn sớm hơn thực
 // tế.
-type GiaiPhongLuotKhiHuyDon struct {
+type ReleaseUseOnOrderCancelled struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewGiaiPhongLuotHandler(m *Module, log *slog.Logger) *GiaiPhongLuotKhiHuyDon {
-	return &GiaiPhongLuotKhiHuyDon{module: m, log: log}
+func NewReleaseUseHandler(m *Module, log *slog.Logger) *ReleaseUseOnOrderCancelled {
+	return &ReleaseUseOnOrderCancelled{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*GiaiPhongLuotKhiHuyDon)(nil)
+var _ eventbus.Handler = (*ReleaseUseOnOrderCancelled)(nil)
 
-func (h *GiaiPhongLuotKhiHuyDon) Name() string {
+func (h *ReleaseUseOnOrderCancelled) Name() string {
 	return "promotion.giai_phong_luot_khi_huy_don"
 }
 
-func (h *GiaiPhongLuotKhiHuyDon) EventTypes() []string {
+func (h *ReleaseUseOnOrderCancelled) EventTypes() []string {
 	return []string{eventbus.TypeOrderCancelled}
 }
 
-type huyDonLuotPayload struct {
+type orderCancelledPayload struct {
 	OrderID string `json:"order_id"`
 }
 
 // Handle giải phóng lượt của đơn bị hủy.
 //
 // IDEMPOTENT: đơn không có lượt nào thì trả 0 và không phải lỗi.
-func (h *GiaiPhongLuotKhiHuyDon) Handle(ctx context.Context, e eventbus.Event) error {
-	var p huyDonLuotPayload
+func (h *ReleaseUseOnOrderCancelled) Handle(ctx context.Context, e eventbus.Event) error {
+	var p orderCancelledPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
 	}

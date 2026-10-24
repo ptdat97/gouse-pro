@@ -25,8 +25,8 @@ func TestHaiBanHangDongYPhaiTrungNhau(t *testing.T) {
 		notif string
 		khach customerdom.ConsentType
 	}{
-		{notifdom.DongYEmailMarketing, customerdom.ConsentMarketingEmail},
-		{notifdom.DongYSMSMarketing, customerdom.ConsentMarketingSMS},
+		{notifdom.ConsentEmailMarketing, customerdom.ConsentMarketingEmail},
+		{notifdom.ConsentSMSMarketing, customerdom.ConsentMarketingSMS},
 	} {
 		if c.notif != string(c.khach) {
 			t.Errorf("notification dùng %q, customer dùng %q — "+

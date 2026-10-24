@@ -413,7 +413,7 @@ func run() error {
 
 		// Khách ĐÃ ĐĂNG KÝ không gõ email vào ô thanh toán, nên payload
 		// event không mang địa chỉ của họ — xem `notification.KhachPort`.
-		Khach: notification.KhachPortFunc{
+		Customer: notification.CustomerPortFunc{
 			Email: func(ctx context.Context, customerID string) (string, error) {
 				v, err := khachModule.GetCustomer(ctx, customerID)
 				if err != nil {
@@ -424,7 +424,7 @@ func run() error {
 
 			// Đồng ý hỏi LÚC GỬI, không tin payload event: khách rút đồng
 			// ý sau khi event được phát thì thư vẫn phải dừng lại.
-			DongY: func(ctx context.Context, customerID, loai string) (bool, error) {
+			Consent: func(ctx context.Context, customerID, loai string) (bool, error) {
 				return khachModule.HasConsent(ctx, customerID, loai)
 			},
 		},
@@ -558,8 +558,8 @@ func run() error {
 	// tiết sản phẩm chỉ đọc read model và không bao giờ chờ module khác.
 	bus.Subscribe(recommendation.NewSizeObservationHandler(recommendationModule, log))
 
-	bus.Subscribe(promotion.NewGhiLuotDungHandler(promotionModule, log))
-	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(promotionModule, log))
+	bus.Subscribe(promotion.NewRecordUseHandler(promotionModule, log))
+	bus.Subscribe(promotion.NewReleaseUseHandler(promotionModule, log))
 
 	// Quy công đơn cho creator, và ba đầu kia của vòng đời khoản hoa hồng.
 	//

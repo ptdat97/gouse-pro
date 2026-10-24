@@ -287,7 +287,7 @@ func (g *guiXacMinhEmail) GuiXacMinhEmail(
 	return g.api.Send(ctx, notification.SendRequest{
 		Channel:   "EMAIL",
 		Category:  "TRANSACTIONAL",
-		Template:  notification.TemplateXacMinhEmail,
+		Template:  notification.TemplateVerifyEmail,
 		Recipient: email,
 		UserID:    userID,
 		Subject:   "Xác minh địa chỉ email của bạn",

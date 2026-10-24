@@ -63,6 +63,26 @@ module, không truyền `.`:
 hai thái cực. Đã lùi và làm lại có giới hạn.
 ```
 
+### Đích đổi tên cũng phải tránh TÊN ĐÃ CÓ trong cùng module
+
+Trước khi áp, so tập ĐÍCH với tập định danh đang có của module. `notification`
+có bốn chỗ va: `err`, `channel`, `reason`, `sent` đều đã tồn tại, nên
+`loi`/`kenh`/`lyDo`/`daGui` phải nhận tên khác (`failure`, `channelName`,
+`skipReason`, `wasSent`).
+
+`gofmt -r` sẽ đổi mọi định danh cùng tên trong cây được truyền vào, nên một
+đích trùng trong CÙNG phạm vi tạo khai báo trùng — lỗi biên dịch, không phải
+lỗi im lặng, nhưng mất một lượt sửa.
+
+Trùng tên ở hai GÓI khác nhau thì không sao: `skipReason` là trường ở
+`domain` và biến cục bộ ở gói test — hai phạm vi, một tên, hợp lệ.
+
+### Trường của struct literal lồng nhau: regex không khớp được
+
+Đổi tên trường `DongY:` → `Consent:` trong `notification.CustomerPortFunc{…}`
+bằng regex `\{[^}]*?` KHÔNG chạy: literal chứa `func(){…}` nên dấu `}` đầu
+tiên kết thúc sớm. Khớp theo DÒNG kèm thụt lề chính xác thay vì theo khối.
+
 ### Method cài interface của module KHÁC thì GIỮ tên cũ
 
 Một adapter ở `internal/app` cài cổng do module khác khai. Đổi tên method ở
@@ -186,7 +206,9 @@ XONG   định danh DATABASE              migration 000062
 XONG   modules/affiliate               103 định danh
 XONG   modules/recommendation           42
 XONG   modules/supplychain              27
-CÒN    2329 định danh Go ở 17 module
+XONG   modules/notification             37
+XONG   modules/promotion                30
+CÒN    2273 định danh Go ở 15 module
 ```
 
 Đo lại bất cứ lúc nào bằng cách liệt kê định danh KHAI BÁO qua `go/ast` rồi

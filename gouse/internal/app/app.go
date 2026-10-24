@@ -352,7 +352,7 @@ func Build(
 			// Nối TRỄ: `customerModule` được dựng ở dưới (nó cần
 			// notification để gửi thư xác minh email). Closure đọc biến
 			// lúc GỌI, và mọi lời gọi đều xảy ra sau khi dựng xong.
-			Khach: notification.KhachPortFunc{
+			Customer: notification.CustomerPortFunc{
 				Email: func(ctx context.Context, customerID string) (string, error) {
 					if customerModule == nil {
 						return "", nil
@@ -363,7 +363,7 @@ func Build(
 					}
 					return v.Email, nil
 				},
-				DongY: func(ctx context.Context, customerID, loai string) (bool, error) {
+				Consent: func(ctx context.Context, customerID, loai string) (bool, error) {
 					if customerModule == nil {
 						return false, nil
 					}

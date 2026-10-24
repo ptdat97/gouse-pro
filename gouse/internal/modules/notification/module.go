@@ -13,7 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
-// KhachPort trả địa chỉ liên lạc của một khách hàng đã đăng ký.
+// CustomerPort trả địa chỉ liên lạc của một khách hàng đã đăng ký.
 //
 // # Vì sao module này cần biết tới khách hàng
 //
@@ -36,50 +36,50 @@ import (
 //
 // Nil thì module vẫn chạy: khách vãng lai vẫn nhận thư như cũ, khách đã
 // đăng ký bị ghi SKIPPED kèm lý do — đúng hành vi trước bản sửa này.
-type KhachPort interface {
-	// EmailCuaKhach trả email của hồ sơ khách. Chuỗi rỗng nghĩa là không
+type CustomerPort interface {
+	// CustomerEmail trả email của hồ sơ khách. Chuỗi rỗng nghĩa là không
 	// tra được, và đó KHÔNG phải lỗi cần chặn đường gửi.
-	EmailCuaKhach(ctx context.Context, customerID string) (string, error)
+	CustomerEmail(ctx context.Context, customerID string) (string, error)
 
-	// CoDongY cho biết khách CÓ ĐANG đồng ý nhận loại này không.
+	// HasConsent cho biết khách CÓ ĐANG đồng ý nhận loại này không.
 	//
 	// Hỏi lúc GỬI chứ không tin payload event: đồng ý có thể bị rút SAU
 	// khi event được phát, và gửi theo dữ liệu cũ nghĩa là gửi thư cho
 	// người vừa bấm hủy đăng ký.
-	CoDongY(ctx context.Context, customerID, loai string) (bool, error)
+	HasConsent(ctx context.Context, customerID, kind string) (bool, error)
 }
 
-// dongYTu dựng cổng tra đồng ý cho tầng application.
+// consentFrom dựng cổng tra đồng ý cho tầng application.
 //
-// Trả nil khi chưa nối `Khach`, và nil ở đó nghĩa là MỌI thông báo cần
+// Trả nil khi chưa nối `Customer`, và nil ở đó nghĩa là MỌI thông báo cần
 // đồng ý đều bị từ chối — thất bại theo hướng đóng.
-func dongYTu(k KhachPort) application.DongYPort {
+func consentFrom(k CustomerPort) application.ConsentPort {
 	if k == nil {
 		return nil
 	}
-	return dongYAdapter{k: k}
+	return consentAdapter{k: k}
 }
 
-type dongYAdapter struct{ k KhachPort }
+type consentAdapter struct{ k CustomerPort }
 
-func (a dongYAdapter) CoDongY(
-	ctx context.Context, customerID, loai string,
+func (a consentAdapter) HasConsent(
+	ctx context.Context, customerID, kind string,
 ) (bool, error) {
-	return a.k.CoDongY(ctx, customerID, loai)
+	return a.k.HasConsent(ctx, customerID, kind)
 }
 
-// KhachPortFunc nối dây bằng một hàm, cho phép nối TRỄ.
+// CustomerPortFunc nối dây bằng một hàm, cho phép nối TRỄ.
 //
 // Cần vì `internal/app` có vòng khởi tạo: `customer` nhận notification để
 // gửi thư xác minh email, nên nó được dựng SAU. Một closure đọc biến
 // module lúc GỌI thay vì lúc dựng gỡ được vòng đó mà không cần adapter
 // có trạng thái thay đổi được.
-type KhachPortFunc struct {
-	Email func(ctx context.Context, customerID string) (string, error)
-	DongY func(ctx context.Context, customerID, loai string) (bool, error)
+type CustomerPortFunc struct {
+	Email   func(ctx context.Context, customerID string) (string, error)
+	Consent func(ctx context.Context, customerID, kind string) (bool, error)
 }
 
-func (f KhachPortFunc) EmailCuaKhach(
+func (f CustomerPortFunc) CustomerEmail(
 	ctx context.Context, customerID string,
 ) (string, error) {
 	if f.Email == nil {
@@ -88,38 +88,38 @@ func (f KhachPortFunc) EmailCuaKhach(
 	return f.Email(ctx, customerID)
 }
 
-// CoDongY trả false khi chưa nối hàm: không chứng minh được đồng ý thì
+// HasConsent trả false khi chưa nối hàm: không chứng minh được đồng ý thì
 // không gửi.
-func (f KhachPortFunc) CoDongY(
-	ctx context.Context, customerID, loai string,
+func (f CustomerPortFunc) HasConsent(
+	ctx context.Context, customerID, kind string,
 ) (bool, error) {
-	if f.DongY == nil {
+	if f.Consent == nil {
 		return false, nil
 	}
-	return f.DongY(ctx, customerID, loai)
+	return f.Consent(ctx, customerID, kind)
 }
 
 // Module là cài đặt của API công khai.
 type Module struct {
-	svc   *application.Service
-	khach KhachPort
-	log   *slog.Logger
+	svc      *application.Service
+	customer CustomerPort
+	log      *slog.Logger
 }
 
-// emailNguoiNhan chọn địa chỉ gửi thư.
+// recipientEmail chọn địa chỉ gửi thư.
 //
 // Ưu tiên email khách tự gõ ở ô thanh toán: đó là địa chỉ họ CHỌN cho đơn
 // này, và với đơn đặt hộ thì nó khác email tài khoản.
-func (m *Module) emailNguoiNhan(
-	ctx context.Context, emailPhien, customerID string,
+func (m *Module) recipientEmail(
+	ctx context.Context, checkoutEmail, customerID string,
 ) string {
-	if emailPhien != "" {
-		return emailPhien
+	if checkoutEmail != "" {
+		return checkoutEmail
 	}
-	if m.khach == nil || customerID == "" {
+	if m.customer == nil || customerID == "" {
 		return ""
 	}
-	email, err := m.khach.EmailCuaKhach(ctx, customerID)
+	email, err := m.customer.CustomerEmail(ctx, customerID)
 	if err != nil {
 		// KHÔNG chặn đường gửi: tầng application đã ghi SKIPPED kèm lý do
 		// khi thiếu địa chỉ, nên sự việc vẫn có vết. Trả lỗi ở đây biến
@@ -154,8 +154,8 @@ type Config struct {
 
 	Clock application.Clock
 
-	// Khach để tra email của khách ĐÃ ĐĂNG KÝ — xem KhachPort.
-	Khach KhachPort
+	// Customer để tra email của khách ĐÃ ĐĂNG KÝ — xem CustomerPort.
+	Customer CustomerPort
 }
 
 // New khởi tạo module notification.
@@ -179,12 +179,12 @@ func New(cfg Config) (*Module, error) {
 		senders = []domain.Sender{logsender.New(log)}
 	}
 
-	return &Module{khach: cfg.Khach, log: log, svc: application.NewService(application.Deps{
+	return &Module{customer: cfg.Customer, log: log, svc: application.NewService(application.Deps{
 		Repo:    notificationpg.NewLogStore(cfg.DB.Pool()),
 		Senders: senders,
 		Clock:   cfg.Clock,
 		Log:     log,
-		DongY:   dongYTu(cfg.Khach),
+		Consent: consentFrom(cfg.Customer),
 	})}, nil
 }
 

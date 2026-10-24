@@ -76,17 +76,17 @@ func (c Category) RequiresConsent() bool {
 // và một hằng chung sẽ kéo cả module vào chỉ vì hai chuỗi. Cái giá là hai
 // bản có thể lệch — nên có một bài test ở tầng nối dây đối chiếu chúng.
 const (
-	DongYEmailMarketing = "MARKETING_EMAIL"
-	DongYSMSMarketing   = "MARKETING_SMS"
+	ConsentEmailMarketing = "MARKETING_EMAIL"
+	ConsentSMSMarketing   = "MARKETING_SMS"
 )
 
-// LoaiDongYCan trả loại đồng ý PHẢI CÓ trước khi gửi thông báo này.
+// RequiredConsent trả loại đồng ý PHẢI CÓ trước khi gửi thông báo này.
 //
 // # Ba kết quả, và cả ba đều phải xử lý khác nhau
 //
 //	can = false            không cần đồng ý — thư giao dịch, luôn gửi
-//	can = true, loai != "" phải hỏi `customer` về đúng loại đó
-//	can = true, loai == "" cần đồng ý nhưng KHÔNG CÓ loại nào để hỏi
+//	can = true, kind != "" phải hỏi `customer` về đúng loại đó
+//	can = true, kind == "" cần đồng ý nhưng KHÔNG CÓ loại nào để hỏi
 //
 // Trường hợp thứ ba là kênh chưa có loại đồng ý tương ứng (PUSH, IN_APP).
 // Nó phải thành TỪ CHỐI, không thành cho qua: không chứng minh được đồng ý
@@ -100,15 +100,15 @@ const (
 // nhắn khuyến mãi. `customer` quản lý hai loại đồng ý riêng cho đúng lý do
 // đó, và gộp chúng lại ở đây sẽ biến một lần tick ô email thành giấy phép
 // nhắn tin.
-func LoaiDongYCan(c Category, ch Channel) (loai string, can bool) {
+func RequiredConsent(c Category, ch Channel) (kind string, can bool) {
 	if !c.RequiresConsent() {
 		return "", false
 	}
 	switch ch {
 	case ChannelEmail:
-		return DongYEmailMarketing, true
+		return ConsentEmailMarketing, true
 	case ChannelSMS:
-		return DongYSMSMarketing, true
+		return ConsentSMSMarketing, true
 	default:
 		return "", true
 	}

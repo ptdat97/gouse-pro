@@ -31,7 +31,7 @@ type Service struct {
 	senders map[domain.Channel]domain.Sender
 	clock   Clock
 	log     *slog.Logger
-	dongY   DongYPort
+	consent ConsentPort
 }
 
 type Deps struct {
@@ -45,21 +45,21 @@ type Deps struct {
 	Clock Clock
 	Log   *slog.Logger
 
-	// DongY tra xem khách có đồng ý nhận loại thông báo này không.
+	// Consent tra xem khách có đồng ý nhận loại thông báo này không.
 	//
 	// Nil thì MỌI thông báo cần đồng ý đều bị từ chối — xem `Send`.
-	DongY DongYPort
+	Consent ConsentPort
 }
 
-// DongYPort tra sự đồng ý của khách.
+// ConsentPort tra sự đồng ý của khách.
 //
 // Khai ở đây chứ không nhận payload: mục 5 của
 // docs/04-modules/notification.md gọi đây là "ngoại lệ có kiểm soát duy
 // nhất" của quy tắc không-gọi-ngược, vì **đồng ý có thể bị rút SAU khi
 // event được phát**. Tin vào payload nghĩa là gửi thư cho người đã bấm
 // hủy đăng ký, bằng dữ liệu đúng tại thời điểm họ còn đồng ý.
-type DongYPort interface {
-	CoDongY(ctx context.Context, customerID, loai string) (bool, error)
+type ConsentPort interface {
+	HasConsent(ctx context.Context, customerID, kind string) (bool, error)
 }
 
 func NewService(d Deps) *Service {
@@ -78,7 +78,7 @@ func NewService(d Deps) *Service {
 	}
 
 	return &Service{
-		repo: d.Repo, senders: senders, clock: clock, log: log, dongY: d.DongY,
+		repo: d.Repo, senders: senders, clock: clock, log: log, consent: d.Consent,
 	}
 }
 
@@ -116,30 +116,30 @@ type SendInput struct {
 // Hai trường hợp đầu KHÔNG phải sự cố. Trả lỗi cho chúng sẽ khiến event bị
 // thử lại vô ích rồi rơi vào dead letter, và cảnh báo vận hành kêu vì
 // những việc hoàn toàn bình thường.
-// kiemDongY trả LÝ DO không được gửi, hoặc chuỗi rỗng khi được gửi.
+// checkConsent trả LÝ DO không được gửi, hoặc chuỗi rỗng khi được gửi.
 //
 // Trả lý do chứ không trả bool: nó đi thẳng vào `skip_reason` của nhật ký
 // gửi, và khách hỏi "sao tôi không nhận được thư" thì người trực phải trả
 // lời được bằng một câu, không phải bằng một lần đọc mã.
-func (s *Service) kiemDongY(ctx context.Context, customerID, loai string) string {
-	if loai == "" {
+func (s *Service) checkConsent(ctx context.Context, customerID, kind string) string {
+	if kind == "" {
 		return "kênh này chưa có loại đồng ý tương ứng"
 	}
-	if s.dongY == nil {
+	if s.consent == nil {
 		return "chưa nối cổng tra đồng ý"
 	}
 	if customerID == "" {
 		return "không biết người nhận là khách nào để tra đồng ý"
 	}
 
-	co, err := s.dongY.CoDongY(ctx, customerID, loai)
+	co, err := s.consent.HasConsent(ctx, customerID, kind)
 	if err != nil {
 		s.log.ErrorContext(ctx, "không tra được đồng ý, KHÔNG gửi",
-			"error", err, "customer_id", customerID, "loai", loai)
+			"error", err, "customer_id", customerID, "kind", kind)
 		return "không tra được đồng ý"
 	}
 	if !co {
-		return "khách chưa đồng ý nhận " + loai
+		return "khách chưa đồng ý nhận " + kind
 	}
 	return ""
 }
@@ -171,10 +171,10 @@ func (s *Service) Send(ctx context.Context, in SendInput) error {
 	// mã khách — đều là KHÔNG GỬI. "Không chứng minh được đồng ý" và
 	// "chắc chắn không đồng ý" dẫn tới cùng một hành động; chỉ "chắc chắn
 	// có đồng ý" mới mở đường.
-	if loai, can := domain.LoaiDongYCan(in.Category, in.Channel); can {
-		lyDo := s.kiemDongY(ctx, in.UserID, loai)
-		if lyDo != "" {
-			return s.recordSkip(ctx, params, lyDo)
+	if kind, can := domain.RequiredConsent(in.Category, in.Channel); can {
+		skipReason := s.checkConsent(ctx, in.UserID, kind)
+		if skipReason != "" {
+			return s.recordSkip(ctx, params, skipReason)
 		}
 	}
 

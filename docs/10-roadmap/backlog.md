@@ -4024,7 +4024,7 @@ không bao giờ thành công.
 
 **Lỗi MẤT CẬP NHẬT ở khuyến mãi — đã sửa (19/08).**
 
-Phát hiện nhờ một test đồng thời chập chờn: `TestKhoaLacQuanChanMatBoDem` đỏ
+Phát hiện nhờ một test đồng thời chập chờn: `TestOptimisticLockPreventsLostCounter` đỏ
 khi toàn bộ bộ test chạy song song, xanh khi chạy riêng. Không bỏ qua mà
 điều tra — và nó là lỗi thật, tái hiện được dưới tải.
 
