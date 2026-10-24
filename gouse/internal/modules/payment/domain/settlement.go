@@ -26,7 +26,7 @@ var (
 	//
 	// Tiền rời nền tảng thì phải có người chịu trách nhiệm, và vết kiểm
 	// toán không tạo ngược được. Ràng buộc tương ứng ở tầng database là
-	// `settlement_xac_nhan_phai_co_nguoi_ky` — hàng rào này báo lỗi rõ
+	// `settlement_confirmed_needs_signer` — hàng rào này báo lỗi rõ
 	// hơn, ràng buộc kia là chốt chặn cuối.
 	ErrThieuNguoiKy = errors.New(
 		"payment: bước này của đợt đối soát bắt buộc phải nêu người ký")

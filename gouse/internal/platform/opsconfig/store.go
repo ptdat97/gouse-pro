@@ -87,7 +87,7 @@ func (s *Store) NapLai(ctx context.Context) error {
 	}
 
 	rows, err := s.pool.Query(ctx,
-		`SELECT khoa, gia_tri FROM ops_config`)
+		`SELECT key, value FROM ops_config`)
 	if err != nil {
 		return fmt.Errorf("opsconfig: đọc tham số: %w", err)
 	}
@@ -175,7 +175,7 @@ func (s *Store) DanhSach(ctx context.Context) ([]GiaTri, error) {
 
 	if s != nil && s.pool != nil {
 		rows, err := s.pool.Query(ctx,
-			`SELECT khoa, gia_tri, sua_luc, sua_boi, ly_do FROM ops_config`)
+			`SELECT key, value, updated_at, updated_by, reason FROM ops_config`)
 		if err != nil {
 			return nil, fmt.Errorf("opsconfig: đọc tham số: %w", err)
 		}
@@ -294,7 +294,7 @@ func (s *Store) Dat(
 	cu := t.MacDinh
 	var doc float64
 	switch err := tx.QueryRow(ctx,
-		`SELECT gia_tri FROM ops_config WHERE khoa = $1`, in.Khoa).
+		`SELECT value FROM ops_config WHERE key = $1`, in.Khoa).
 		Scan(&doc); {
 	case err == nil:
 		cu = doc
@@ -311,13 +311,13 @@ func (s *Store) Dat(
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO ops_config (khoa, gia_tri, sua_luc, sua_boi, ly_do)
+		INSERT INTO ops_config (key, value, updated_at, updated_by, reason)
 		VALUES ($1, $2, now(), $3, $4)
-		ON CONFLICT (khoa) DO UPDATE
-		   SET gia_tri = EXCLUDED.gia_tri,
-		       sua_luc = EXCLUDED.sua_luc,
-		       sua_boi = EXCLUDED.sua_boi,
-		       ly_do   = EXCLUDED.ly_do`,
+		ON CONFLICT (key) DO UPDATE
+		   SET value = EXCLUDED.value,
+		       updated_at = EXCLUDED.updated_at,
+		       updated_by = EXCLUDED.updated_by,
+		       reason   = EXCLUDED.reason`,
 		in.Khoa, in.GiaTri, in.SuaBoi, in.LyDo); err != nil {
 		return fmt.Errorf("opsconfig: ghi tham số: %w", err)
 	}

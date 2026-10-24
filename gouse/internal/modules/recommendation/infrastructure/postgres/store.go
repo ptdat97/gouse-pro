@@ -20,9 +20,9 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // bình thường. Đếm hai lần sẽ làm một lần mua lấn át các quan sát khác.
 func (s *Store) Ghi(ctx context.Context, q domain.QuanSatMoi) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO quan_sat_size (
-			customer_id, brand_id, size, ket_qua,
-			nguon_loai, nguon_id, quan_sat_luc
+		INSERT INTO size_observation (
+			customer_id, brand_id, size, outcome,
+			source_type, source_id, observed_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7)
 		ON CONFLICT DO NOTHING`,
 		q.CustomerID.String(), q.BrandID.String(), q.Size, string(q.KetQua),
@@ -36,12 +36,12 @@ func (s *Store) Ghi(ctx context.Context, q domain.QuanSatMoi) error {
 // TheoKhachVaThuongHieu đọc quan sát của MỘT khách ở MỘT thương hiệu.
 //
 // `id` tăng dần theo thứ tự ghi, nên nó là thứ tự thời gian đủ dùng — và
-// nó KHÔNG bị hai quan sát cùng micro giây làm cho mơ hồ như `quan_sat_luc`.
+// nó KHÔNG bị hai quan sát cùng micro giây làm cho mơ hồ như `observed_at`.
 func (s *Store) TheoKhachVaThuongHieu(
 	ctx context.Context, customerID, brandID string,
 ) ([]domain.QuanSat, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT size, ket_qua, id FROM quan_sat_size
+		SELECT size, outcome, id FROM size_observation
 		 WHERE customer_id = $1 AND brand_id = $2
 		 ORDER BY id`, customerID, brandID)
 	if err != nil {

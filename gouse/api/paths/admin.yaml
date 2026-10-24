@@ -1742,7 +1742,7 @@ settlement_mark_paid:
       rào trạng thái cùng vết kiểm toán không phải viết lại.
 
       `paid_by` là bản ghi DUY NHẤT nói ai quyết định chuyển tiền ra khỏi nền
-      tảng. Ràng buộc `settlement_da_tra_phai_co_nguoi_ky` ở tầng database
+      tảng. Ràng buộc `settlement_paid_needs_signer` ở tầng database
       cưỡng chế nó.
 
       `409 CONFLICT` khi đợt KHÔNG ở `CONFIRMED`.

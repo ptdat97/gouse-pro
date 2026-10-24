@@ -330,8 +330,8 @@ lại.
 bán; bắt mọi bên đọc đi JOIN `audit_log` là biến một thuộc tính thành một
 truy vấn.
 
-Ràng buộc `settlement_xac_nhan_phai_co_nguoi_ky` và
-`settlement_da_tra_phai_co_nguoi_ky` ở tầng database là chốt chặn cuối: một
+Ràng buộc `settlement_confirmed_needs_signer` và
+`settlement_paid_needs_signer` ở tầng database là chốt chặn cuối: một
 câu UPDATE viết tay lúc xử lý sự cố cũng không ghi được `PAID` mà thiếu người
 ký.
 
@@ -558,7 +558,7 @@ với tiền thì phát hiện muộn không cứu được gì.
 | Bất biến | Chốt trong mã | Test gác |
 |---|---|---|
 | Σ DEBIT = Σ CREDIT mỗi bút toán | `domain.ErrUnbalanced` | `TestButToanKhongCanBangBiChan` |
-| …và ở tầng DATABASE, kể cả khi ghi bằng SQL thô | trigger `ledger_entry_phai_can_bang` (migration 000056) | `hang_rao_can_bang_test.go` |
+| …và ở tầng DATABASE, kể cả khi ghi bằng SQL thô | trigger `ledger_entry_must_balance` (migration 000056) | `hang_rao_can_bang_test.go` |
 | Chi trả ≤ số dư phải trả nhà bán | `ErrInsufficientBalance` | `TestKhongChiTraVuotSoDu` |
 | Ghi doanh thu idempotent theo đơn | khóa `revenue:<order>` | `TestPhatLaiEventKhongDemHaiLuot` (tầng event) · `TestGhiDoanhThuIdempotentTheoDon` (tầng use case) |
 | Tổng tiền KHÔNG cộng thuế (giá đã gồm VAT) | `Checkout.Total()` | `TestThueTinhTrenCaPhiVanChuyen` · `TestTongKhongCongThue` |

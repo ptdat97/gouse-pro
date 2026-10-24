@@ -40,8 +40,8 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 	ghi := func(size, ketQua, nguonID string) {
 		t.Helper()
 		if _, err := a.db.Pool().Exec(ctx, `
-			INSERT INTO quan_sat_size (customer_id, brand_id, size, ket_qua,
-			                           nguon_loai, nguon_id, quan_sat_luc)
+			INSERT INTO size_observation (customer_id, brand_id, size, outcome,
+			                           source_type, source_id, observed_at)
 			VALUES ($1,$2,$3,$4,'test',$5, now())`,
 			maKhach, maTH, size, ketQua, nguonID); err != nil {
 			t.Fatalf("ghi quan sát: %v", err)

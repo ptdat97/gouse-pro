@@ -19,7 +19,7 @@ func (a *apiTest) khoiPhucCauHinh(t *testing.T, khoa string) {
 	t.Helper()
 	t.Cleanup(func() {
 		if _, err := a.db.Pool().Exec(context.Background(),
-			`DELETE FROM ops_config WHERE khoa = $1`, khoa); err != nil {
+			`DELETE FROM ops_config WHERE key = $1`, khoa); err != nil {
 			t.Fatalf("khôi phục cấu hình %s: %v", khoa, err)
 		}
 		if err := a.mods.opsConfig.NapLai(context.Background()); err != nil {

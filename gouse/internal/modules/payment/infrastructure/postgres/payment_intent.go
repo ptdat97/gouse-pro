@@ -42,7 +42,7 @@ func (s *IntentStore) Create(ctx context.Context, p *domain.PaymentIntent) error
 		p.Amount().Amount(), string(p.Amount().Currency()),
 		p.PhuongThuc(), string(p.Status()),
 		p.NhaCungCap(), p.MaNhaCungCap(), p.LyDoThatBai(),
-		// nullTime: ràng buộc `payment_intent_captured_co_moc` đòi
+		// nullTime: ràng buộc `payment_intent_captured_has_time` đòi
 		// captured_at NULL khi chưa thu, nên giá trị zero của Go phải
 		// thành NULL chứ không phải mốc năm 1.
 		nullTime(p.CapturedAt()), p.CreatedAt(), p.UpdatedAt())
@@ -182,7 +182,7 @@ func (s *IntentStore) DemChoThuQuaHan(
 	ctx context.Context, truoc time.Time,
 ) (int, error) {
 	var n int
-	// Chỉ mục `payment_intent_cho_thu` phục vụ thẳng truy vấn này.
+	// Chỉ mục `payment_intent_awaiting_capture` phục vụ thẳng truy vấn này.
 	if err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM payment_intent
 		 WHERE status = 'REQUIRES_PAYMENT' AND created_at < $1`,

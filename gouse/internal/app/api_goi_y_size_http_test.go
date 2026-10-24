@@ -56,8 +56,8 @@ func TestGoiYSizeHienRaTrenHTTP(t *testing.T) {
 	}
 
 	if _, err := a.db.Pool().Exec(ctx, `
-		INSERT INTO quan_sat_size (customer_id, brand_id, size, ket_qua,
-		                           nguon_loai, nguon_id, quan_sat_luc)
+		INSERT INTO size_observation (customer_id, brand_id, size, outcome,
+		                           source_type, source_id, observed_at)
 		VALUES ($1,$2,$3,'DA_MUA','test','ord_test_goiy_http', now())`,
 		maKhach, maTH, size); err != nil {
 		t.Fatalf("ghi quan sát: %v", err)

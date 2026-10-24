@@ -1940,7 +1940,7 @@ export interface paths {
          *     rào trạng thái cùng vết kiểm toán không phải viết lại.
          *
          *     `paid_by` là bản ghi DUY NHẤT nói ai quyết định chuyển tiền ra khỏi nền
-         *     tảng. Ràng buộc `settlement_da_tra_phai_co_nguoi_ky` ở tầng database
+         *     tảng. Ràng buộc `settlement_paid_needs_signer` ở tầng database
          *     cưỡng chế nó.
          *
          *     `409 CONFLICT` khi đợt KHÔNG ở `CONFIRMED`.
@@ -3692,7 +3692,7 @@ export interface components {
              *
              *     Đây là bản ghi duy nhất nói ai quyết định chuyển tiền RA KHỎI nền
              *     tảng, nên nó BẮT BUỘC khi `paid_at` có mặt — ràng buộc
-             *     `settlement_da_tra_phai_co_nguoi_ky` ở tầng database cưỡng chế điều
+             *     `settlement_paid_needs_signer` ở tầng database cưỡng chế điều
              *     đó.
              */
             paid_by?: components["schemas"]["Id"];

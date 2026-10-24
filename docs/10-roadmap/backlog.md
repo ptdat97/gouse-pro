@@ -4990,7 +4990,7 @@ Nếu lần push này vẫn đỏ thì cần nội dung log — hoặc cài `gh`
 *"cơ chế giảm trực tiếp tỷ lệ hoàn hàng"*, và `dto.go` ghi lý do chưa điền
 là *"cần lịch sử mua hàng (Phase 2)"*. Từ 13/09 lý do đó hết đúng.
 
-**Lưu QUAN SÁT, không lưu kết luận.** Bảng `quan_sat_size` giữ
+**Lưu QUAN SÁT, không lưu kết luận.** Bảng `size_observation` giữ
 `(khách, thương hiệu, size, DA_MUA|CHAT|RONG)`. Không có cột "size gợi ý
 đã tính sẵn" — cùng lý do sổ cái lưu bút toán chứ không lưu số dư: quy tắc
 gợi ý SẼ đổi, và đổi quy tắc không được làm mất dữ liệu đã quan sát.
@@ -7208,7 +7208,7 @@ im lặng không kiểm gì vẫn in ra `OK`.
 
 Sửa theo: bốn bảng thật chưa ai khai đã vào tài liệu
 (`email_verification_token`, `fulfillment_order_line`, `price`,
-`quan_sat_size`), và `fulfillment_line` sửa thành
+`size_observation`), và `fulfillment_line` sửa thành
 `fulfillment_order_line` cho khớp bảng thật. Năm bảng của `platform` khai
 trong sổ `bangCuaPlatform` kèm lý do.
 
@@ -8042,7 +8042,7 @@ mặt nhà bán rò rỉ confirmed_by          → "định danh nhân viên kh�
                                            rời phạm vi quản trị"
 audit ghi RỜI, ngoài giao dịch          → 500 (ghi vết ngoài tx bị từ chối)
 UPDATE tay đặt PAID không người ký      → database TỪ CHỐI
-                                           (settlement_da_tra_phai_co_nguoi_ky)
+                                           (settlement_paid_needs_signer)
 ```
 
 Phép thứ hai lần đầu **không đỏ** — vì bản phá không BIÊN DỊCH được

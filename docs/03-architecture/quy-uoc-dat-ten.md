@@ -121,22 +121,56 @@ TestDaoIdempotentVaChanRutDuoc     →  TestReverseIsIdempotentAndBlocksAvailabl
 
 ```text
 chú thích và docs/**        tiếng Việt — xem mục 1
-tên cột và ràng buộc DB     `settlement_xac_nhan_phai_co_nguoi_ky`,
-                            `commission_dao_phai_co_ly_do`.
-                            Đổi cần MIGRATION và chúng được nhắc bằng chuỗi
-                            trong mã (`isUnique(err, "...")`) — một trục
-                            riêng, chưa quyết
 thẻ `json:`                 là HỢP ĐỒNG API, đổi là thay đổi phá vỡ
+khóa JSONB trong audit_log  `gia_tri_cu`, `gia_tri_moi`. KHÔNG đổi được:
+                            `audit_log` bất biến, trigger `audit_log_no_update`
+                            chặn UPDATE, nên dòng cũ sẽ mãi mang khóa cũ. Đổi
+                            nghĩa là bên đọc phải nhận CẢ HAI khóa vĩnh viễn
+khóa log có cấu trúc        `"ly_do"`, `"nha_cung_cap"` trong `slog`. Không
+                            phải lược đồ; chưa quyết
 tên file                    phần lớn còn tiếng Việt
                             (`ben_chiu_giam_gia.go`). Đổi khi nội dung file
                             đã đổi, như `tien_goc.go` → `commission_base.go`
 ```
 
+### Tên DB đã đổi — migration 000062 (24/10/2026)
+
+```text
+1 bảng    quan_sat_size → size_observation
+9 cột     ket_qua · nguon_loai · nguon_id · quan_sat_luc
+          khoa · gia_tri · sua_luc · sua_boi · ly_do
+4 ràng buộc CHECK
+5 chỉ mục
+1 hàm + 1 trigger   kiem_but_toan_can_bang → check_ledger_entry_balanced
+                    ledger_entry_phai_can_bang → ledger_entry_must_balance
+```
+
+**Migration MỚI, không sửa file cũ.** `migrate` theo dõi theo PHIÊN BẢN, nên
+sửa `000039_ops_config.up.sql` sẽ không chạy lại ở database đã áp nó — file
+và database sẽ nói hai chuyện khác nhau.
+
+**`ALTER FUNCTION ... RENAME TO` không đủ cho hàm:** nó đổi được tên nhưng
+không đổi được biến cục bộ trong thân (`so_dong`, `lech`), mà thân là chỗ
+người đọc thật sự đọc. Phải tạo hàm tên mới, trỏ trigger sang, rồi bỏ hàm cũ
+— thứ tự ấy giữ cho bất biến "mọi bút toán phải cân" không có khoảng trống
+nào.
+
+**PostgreSQL KHÔNG đổi tên chỉ mục khi đổi tên bảng.** Quên chúng để lại
+`quan_sat_size_khach_idx` trên một bảng không còn tên ấy.
+
+**Phân biệt CONSTRAINT với INDEX trước khi viết lệnh.** Bản đầu xếp
+`email_verification_token_con_hieu_luc` vào khối `RENAME CONSTRAINT`;
+PostgreSQL từ chối (`constraint ... does not exist`) vì nó là chỉ mục một
+phần. Migration chạy trong MỘT giao dịch nên không để lại trạng thái nửa
+chừng — kiểm bằng cách đọc lược đồ sau khi lỗi, rồi `force` về phiên bản
+trước và áp lại.
+
 ## 6. Tiến độ
 
 ```text
-XONG   internal/modules/affiliate      103 định danh
-CÒN    ~2370 định danh ở 19 module khác
+XONG   internal/modules/affiliate      103 định danh Go
+XONG   định danh DATABASE              migration 000062
+CÒN    ~2370 định danh Go ở 19 module khác
 ```
 
 Đo lại bất cứ lúc nào bằng cách liệt kê định danh KHAI BÁO qua `go/ast` rồi

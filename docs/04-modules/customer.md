@@ -235,7 +235,7 @@ theo mục 11, và bảng `customer_preference` vẫn KHÔNG tồn tại.
 
 Lý do thì đã đổi. Bản trước viết "chưa có gì ghi vào nó, vì module `return`
 chưa được xây". Module ấy nay **đã có** (`returns`, 27/08 lõi · 17/09 đủ
-luồng) và dữ liệu size ĐANG được ghi thật — vào bảng `quan_sat_size` của
+luồng) và dữ liệu size ĐANG được ghi thật — vào bảng `size_observation` của
 module `recommendation`, không phải vào đây.
 
 Đó là quyết định của [ADR-0019](../adr/0019-goi-y-size-thuoc-ve-dau.md):
