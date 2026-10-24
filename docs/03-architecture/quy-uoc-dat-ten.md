@@ -63,6 +63,20 @@ module, không truyền `.`:
 hai thái cực. Đã lùi và làm lại có giới hạn.
 ```
 
+### Method cài interface của module KHÁC thì GIỮ tên cũ
+
+Một adapter ở `internal/app` cài cổng do module khác khai. Đổi tên method ở
+adapter mà không đổi bên khai cổng làm nó không còn cài interface — và lỗi
+hiện ra ở chỗ GÁN, không ở chỗ sửa:
+
+```text
+goiYSizeAdapter does not implement producthttp.GoiYSizePort
+    (missing method GoiYSize)
+```
+
+Đã xảy ra 24/10/2026 với `GoiYSize`: cổng thuộc module `product` (chưa đổi
+tên), nên method của adapter giữ tên tiếng Việt kèm một chú thích nói vì sao.
+
 ### Đích đổi tên phải tránh TÊN GÓI
 
 ```text
@@ -168,9 +182,11 @@ trước và áp lại.
 ## 6. Tiến độ
 
 ```text
-XONG   internal/modules/affiliate      103 định danh Go
 XONG   định danh DATABASE              migration 000062
-CÒN    ~2370 định danh Go ở 19 module khác
+XONG   modules/affiliate               103 định danh
+XONG   modules/recommendation           42
+XONG   modules/supplychain              27
+CÒN    2329 định danh Go ở 17 module
 ```
 
 Đo lại bất cứ lúc nào bằng cách liệt kê định danh KHAI BÁO qua `go/ast` rồi

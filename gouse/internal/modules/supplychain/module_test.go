@@ -41,7 +41,7 @@ func newModule(t *testing.T) (*supplychain.Module, *pgxpool.Pool) {
 }
 
 // GHI TÍN HIỆU cơ bản, đọc lại đếm được.
-func TestGhiVaDemTinHieu(t *testing.T) {
+func TestRecordsAndCountsSignals(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -70,13 +70,13 @@ func TestGhiVaDemTinHieu(t *testing.T) {
 // BA TÍN HIỆU GIÁ TRỊ NHẤT: nhu cầu KHÔNG được đáp ứng.
 //
 // Đây là lý do module tồn tại từ MVP. Chúng không xuất hiện trong dữ liệu
-// bán hàng, nên nếu không ghi ngay thì mất vĩnh viễn:
+// bán hàng, nên nếu không ghi day thì mất vĩnh viễn:
 //
 //	Chỉ nhìn doanh số:  "Áo khoác bán 200" → nhu cầu là 200
 //	Thực tế:            bán 200, hết hàng từ tuần 3,
 //	                    1.500 lượt tìm sau khi hết,
 //	                    400 lượt đăng ký báo hàng → gần 800
-func TestGhiDuocNhuCauKhongDuocDapUng(t *testing.T) {
+func TestRecordsUnmetDemand(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -131,7 +131,7 @@ func TestGhiDuocNhuCauKhongDuocDapUng(t *testing.T) {
 //
 // Không có sku, product, category lẫn từ khóa thì tín hiệu không nói lên
 // điều gì và chỉ làm phồng bảng ghi nhiều nhất hệ thống.
-func TestTinHieuPhaiCoDoiTuong(t *testing.T) {
+func TestSignalNeedsASubject(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -145,7 +145,7 @@ func TestTinHieuPhaiCoDoiTuong(t *testing.T) {
 }
 
 // LOẠI TÍN HIỆU KHÔNG HỢP LỆ bị chặn.
-func TestLoaiTinHieuKhongHopLeBiChan(t *testing.T) {
+func TestInvalidSignalTypeIsRejected(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -159,7 +159,7 @@ func TestLoaiTinHieuKhongHopLeBiChan(t *testing.T) {
 }
 
 // GHI THEO LÔ: một đơn ba dòng sinh ba tín hiệu trong một lượt.
-func TestGhiTheoLo(t *testing.T) {
+func TestRecordsInBatch(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -187,7 +187,7 @@ func TestGhiTheoLo(t *testing.T) {
 // Đây là mắt xích hoàn thành bánh đà: hành vi của khách chảy ngược vào
 // việc lập kế hoạch sản xuất, mà module cart không cần biết supply-chain
 // tồn tại.
-func TestEventThemGioSinhTinHieu(t *testing.T) {
+func TestAddToCartEmitsSignal(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 
@@ -239,7 +239,7 @@ func TestEventThemGioSinhTinHieu(t *testing.T) {
 }
 
 // ĐẶT HÀNG QUA EVENT sinh tín hiệu ORDER cho từng dòng.
-func TestEventDatHangSinhTinHieu(t *testing.T) {
+func TestOrderPlacedEmitsSignal(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 
@@ -278,7 +278,7 @@ func TestEventDatHangSinhTinHieu(t *testing.T) {
 //
 // Mô hình at-least-once nghĩa là event SẼ được phát lại. Ghi hai lần nghĩa
 // là số liệu nhu cầu bị thổi phồng — và kế hoạch sản xuất theo đó sẽ thừa.
-func TestPhatLaiKhongGhiTinHieuHaiLan(t *testing.T) {
+func TestRedeliveryDoesNotRecordTwice(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 
@@ -324,7 +324,7 @@ func TestPhatLaiKhongGhiTinHieuHaiLan(t *testing.T) {
 //
 // Tín hiệu đi qua outbox nên có độ trễ. Tổng hợp theo tuần mà dùng thời
 // điểm ghi sẽ đẩy nhầm tín hiệu cuối tuần sang tuần sau.
-func TestGiuThoiDiemNghiepVuKhongPhaiThoiDiemGhi(t *testing.T) {
+func TestKeepsBusinessTimeNotWriteTime(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 
@@ -362,7 +362,7 @@ func TestGiuThoiDiemNghiepVuKhongPhaiThoiDiemGhi(t *testing.T) {
 	}
 }
 
-// TestEventHetHangSinhTinHieuStockout.
+// TestStockoutEventEmitsStockoutSignal.
 //
 // # Vì sao tín hiệu này quý hơn vẻ ngoài của nó
 //
@@ -379,7 +379,7 @@ func TestGiuThoiDiemNghiepVuKhongPhaiThoiDiemGhi(t *testing.T) {
 //
 // Kế hoạch sản xuất thiếu tín hiệu này sẽ liên tục làm thiếu đúng những
 // mặt hàng bán chạy nhất.
-func TestEventHetHangSinhTinHieuStockout(t *testing.T) {
+func TestStockoutEventEmitsStockoutSignal(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 
@@ -432,7 +432,7 @@ func TestEventHetHangSinhTinHieuStockout(t *testing.T) {
 	}
 }
 
-// TestEventTraHangSinhTinHieuKemLyDo.
+// TestReturnEventEmitsSignalWithReason.
 //
 // # Vì sao trả hàng là tín hiệu NHU CẦU, không chỉ là chi phí
 //
@@ -440,10 +440,10 @@ func TestEventHetHangSinhTinHieuStockout(t *testing.T) {
 // phẩm: "size nhỏ" lặp lại trên một mã nghĩa là bảng size của mã đó sai,
 // và sửa bảng size rẻ hơn nhiều so với chịu tỷ lệ hoàn cao mãi.
 //
-// Con số ấy chỉ gom được khi lý do được CHUẨN HÓA — "áo bé quá" viết tự do
+// Con số ấy chỉ coalesced được khi lý do được CHUẨN HÓA — "áo bé quá" viết tự do
 // thì không cộng được với "chật". Nên bài này kiểm cả việc mã lý do TỚI
 // ĐƯỢC metadata của tín hiệu, không chỉ việc tín hiệu tồn tại.
-func TestEventTraHangSinhTinHieuKemLyDo(t *testing.T) {
+func TestReturnEventEmitsSignalWithReason(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 
@@ -451,7 +451,7 @@ func TestEventTraHangSinhTinHieuKemLyDo(t *testing.T) {
 	bus := eventbus.NewDispatcher(pool, log)
 	bus.Subscribe(supplychain.NewSignalHandler(m))
 
-	skuNho := ids.MustNew(ids.PrefixSKU).String()
+	skuTooSmall := ids.MustNew(ids.PrefixSKU).String()
 	skuKhac := ids.MustNew(ids.PrefixSKU).String()
 
 	e, err := eventbus.NewEvent(
@@ -460,7 +460,7 @@ func TestEventTraHangSinhTinHieuKemLyDo(t *testing.T) {
 		map[string]any{
 			"order_id": ids.MustNew(ids.PrefixOrder).String(),
 			"lines": []map[string]any{
-				{"sku_id": skuNho, "quantity": 1, "reason_code": "SIZE_TOO_SMALL"},
+				{"sku_id": skuTooSmall, "quantity": 1, "reason_code": "SIZE_TOO_SMALL"},
 				{"sku_id": skuKhac, "quantity": 2, "reason_code": "NOT_AS_DESCRIBED"},
 			},
 		})
@@ -490,7 +490,7 @@ func TestEventTraHangSinhTinHieuKemLyDo(t *testing.T) {
 	var lyDo string
 	if err := pool.QueryRow(ctx, `
 		SELECT metadata->>'reason_code' FROM demand_signal
-		 WHERE signal_type = 'RETURN' AND sku_id = $1`, skuNho).
+		 WHERE signal_type = 'RETURN' AND sku_id = $1`, skuTooSmall).
 		Scan(&lyDo); err != nil {
 		t.Fatalf("đọc lý do: %v", err)
 	}
@@ -533,10 +533,10 @@ func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
 	bus := eventbus.NewDispatcher(pool, log)
 	bus.Subscribe(supplychain.NewSignalHandler(m))
 
-	spXinBao := ids.MustNew(ids.PrefixProduct).String()
+	productNotifyRequest := ids.MustNew(ids.PrefixProduct).String()
 	spChiThich := ids.MustNew(ids.PrefixProduct).String()
 
-	phat := func(productID string, muonBao bool) {
+	publish := func(productID string, muonBao bool) {
 		t.Helper()
 		e, err := eventbus.NewEvent(
 			eventbus.TypeWishlistItemAdded, eventbus.AggregateCustomer,
@@ -555,13 +555,13 @@ func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
 		}
 	}
 
-	phat(spXinBao, true)
-	phat(spChiThich, false)
+	publish(productNotifyRequest, true)
+	publish(spChiThich, false)
 	if _, err := bus.DispatchBatch(ctx, 10); err != nil {
 		t.Fatalf("DispatchBatch: %v", err)
 	}
 
-	dem := func(loai, productID string) int {
+	count := func(loai, productID string) int {
 		t.Helper()
 		var n int
 		if err := pool.QueryRow(ctx, `
@@ -574,20 +574,20 @@ func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
 	}
 
 	// Món xin báo: CẢ HAI tín hiệu.
-	if got := dem("WISHLIST", spXinBao); got != 1 {
+	if got := count("WISHLIST", productNotifyRequest); got != 1 {
 		t.Errorf("món xin báo có %d tín hiệu WISHLIST, cần 1", got)
 	}
-	if got := dem("NOTIFY_REQUEST", spXinBao); got != 1 {
+	if got := count("NOTIFY_REQUEST", productNotifyRequest); got != 1 {
 		t.Errorf("món xin báo có %d tín hiệu NOTIFY_REQUEST, cần 1 — đây "+
 			"là một trong ba tín hiệu quý nhất, và lời hứa 'có hàng là tôi "+
 			"mua' bị mất", got)
 	}
 
 	// Món chỉ thích: CHỈ MỘT.
-	if got := dem("WISHLIST", spChiThich); got != 1 {
+	if got := count("WISHLIST", spChiThich); got != 1 {
 		t.Errorf("món chỉ thích có %d tín hiệu WISHLIST, cần 1", got)
 	}
-	if got := dem("NOTIFY_REQUEST", spChiThich); got != 0 {
+	if got := count("NOTIFY_REQUEST", spChiThich); got != 0 {
 		t.Errorf("món KHÔNG xin báo mà có %d tín hiệu NOTIFY_REQUEST — "+
 			"gộp hai mức cam kết lại thì không còn phân biệt được", got)
 	}
@@ -598,7 +598,7 @@ func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
 	var sku string
 	if err := pool.QueryRow(ctx, `
 		SELECT sku_id FROM demand_signal
-		 WHERE signal_type = 'WISHLIST' AND product_id = $1`, spXinBao).
+		 WHERE signal_type = 'WISHLIST' AND product_id = $1`, productNotifyRequest).
 		Scan(&sku); err != nil {
 		t.Fatalf("đọc sku_id: %v", err)
 	}
@@ -607,12 +607,12 @@ func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
 	}
 }
 
-// TestTinHieuGomChayLaiKhongDemHaiLan.
+// TestCoalescedSignalRerunDoesNotDoubleCount.
 //
 // # Tính chất quan trọng nhất của tín hiệu GOM
 //
 // Lượt xem có khối lượng lớn hơn mọi tín hiệu khác hai bậc, nên chúng được
-// GOM theo ngày × sản phẩm thay vì ghi 1:1. Một dòng gom không phải "một
+// GOM theo ngày × sản phẩm thay vì ghi 1:1. Một dòng coalesced không phải "một
 // sự thật đã xảy ra" mà là "kết quả đếm của một ngày".
 //
 // Hệ quả: đếm lại cùng một ngày phải RA CÙNG MỘT DÒNG với số mới. Nếu nó
@@ -620,28 +620,28 @@ func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
 // và kế hoạch sản xuất đi theo con số đó.
 //
 // Đây cũng là lý do job không cần con trỏ: chạy lại luôn an toàn.
-func TestTinHieuGomChayLaiKhongDemHaiLan(t *testing.T) {
+func TestCoalescedSignalRerunDoesNotDoubleCount(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 
 	sp := ids.MustNew(ids.PrefixProduct).String()
-	ngay := "2026-09-16"
+	day := "2026-09-16"
 
-	gom := func(soPhien int) {
+	coalesced := func(soPhien int) {
 		t.Helper()
-		if err := m.GhiTinHieuGom(ctx, []supplychain.SignalRequest{{
+		if err := m.RecordCoalescedSignals(ctx, []supplychain.SignalRequest{{
 			Type:       supplychain.SignalView,
 			ProductID:  sp,
 			Quantity:   soPhien,
-			OccurredAt: ngay + "T00:00:00Z",
+			OccurredAt: day + "T00:00:00Z",
 			SourceType: "view_rollup",
-			SourceID:   ngay,
+			SourceID:   day,
 		}}); err != nil {
-			t.Fatalf("ghi tín hiệu gom: %v", err)
+			t.Fatalf("ghi tín hiệu coalesced: %v", err)
 		}
 	}
 
-	dem := func() (soDong, soLuong int) {
+	count := func() (soDong, soLuong int) {
 		t.Helper()
 		if err := pool.QueryRow(ctx, `
 			SELECT count(*), coalesce(max(quantity), 0) FROM demand_signal
@@ -652,25 +652,25 @@ func TestTinHieuGomChayLaiKhongDemHaiLan(t *testing.T) {
 		return
 	}
 
-	gom(12)
-	if d, q := dem(); d != 1 || q != 12 {
-		t.Fatalf("lần gom đầu: %d dòng, số lượng %d — cần 1 dòng, 12", d, q)
+	coalesced(12)
+	if d, q := count(); d != 1 || q != 12 {
+		t.Fatalf("lần coalesced đầu: %d dòng, số lượng %d — cần 1 dòng, 12", d, q)
 	}
 
 	// Job chạy lại giữa ngày: số phiên đã tăng.
-	gom(20)
-	d, q := dem()
+	coalesced(20)
+	d, q := count()
 	if d != 1 {
-		t.Errorf("gom lại cùng ngày tạo %d dòng, cần vẫn 1 — job chạy mỗi "+
+		t.Errorf("coalesced lại cùng ngày tạo %d dòng, cần vẫn 1 — job chạy mỗi "+
 			"30 phút sẽ nhân nhu cầu của một ngày lên 48 lần", d)
 	}
 	if q != 20 {
-		t.Errorf("số lượng = %d, cần 20 — dòng gom phải mang con số MỚI "+
+		t.Errorf("số lượng = %d, cần 20 — dòng coalesced phải mang con số MỚI "+
 			"NHẤT, không phải con số đầu tiên hay tổng cộng dồn", q)
 	}
 
 	// Ngày KHÁC là dòng khác: khóa chống trùng không được gộp hai ngày.
-	if err := m.GhiTinHieuGom(ctx, []supplychain.SignalRequest{{
+	if err := m.RecordCoalescedSignals(ctx, []supplychain.SignalRequest{{
 		Type:       supplychain.SignalView,
 		ProductID:  sp,
 		Quantity:   7,
@@ -680,7 +680,7 @@ func TestTinHieuGomChayLaiKhongDemHaiLan(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("ghi ngày thứ hai: %v", err)
 	}
-	if d, _ := dem(); d != 2 {
+	if d, _ := count(); d != 2 {
 		t.Errorf("hai ngày cho %d dòng, cần 2 — khóa chống trùng đang gộp "+
 			"nhầm các ngày lại với nhau", d)
 	}
@@ -693,7 +693,7 @@ func TestTinHieuGomChayLaiKhongDemHaiLan(t *testing.T) {
 			ProductID:  sp,
 			SKUID:      ids.MustNew(ids.PrefixSKU).String(),
 			Quantity:   1,
-			OccurredAt: ngay + "T10:00:00Z",
+			OccurredAt: day + "T10:00:00Z",
 			SourceType: "cart",
 			SourceID:   ids.MustNew(ids.PrefixCart).String(),
 		}); err != nil {

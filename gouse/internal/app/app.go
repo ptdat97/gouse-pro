@@ -1378,10 +1378,15 @@ func goiYSizeTu(m *recommendation.Module) producthttp.GoiYSizePort {
 
 type goiYSizeAdapter struct{ m *recommendation.Module }
 
+// GoiYSize cài cổng `producthttp.GoiYSizePort`.
+//
+// Tên method GIỮ tiếng Việt vì nó thuộc hợp đồng của module `product`, module
+// chưa được đổi tên. Đổi ở đây mà không đổi bên khai cổng sẽ làm adapter
+// không còn cài interface — xem docs/03-architecture/quy-uoc-dat-ten.md.
 func (a goiYSizeAdapter) GoiYSize(
 	ctx context.Context, customerID, brandID string, cacSize []string,
 ) (string, string, error) {
-	v, err := a.m.GoiYSize(ctx, recommendation.GoiYSizeRequest{
+	v, err := a.m.RecommendSize(ctx, recommendation.RecommendSizeRequest{
 		CustomerID: customerID, BrandID: brandID, CacSize: cacSize,
 	})
 	if err != nil || v == nil {

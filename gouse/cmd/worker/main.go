@@ -556,7 +556,7 @@ func run() error {
 	//
 	// Nó tra SKU về thương hiệu và size lúc XỬ LÝ EVENT, nên trang chi
 	// tiết sản phẩm chỉ đọc read model và không bao giờ chờ module khác.
-	bus.Subscribe(recommendation.NewQuanSatSizeHandler(recommendationModule, log))
+	bus.Subscribe(recommendation.NewSizeObservationHandler(recommendationModule, log))
 
 	bus.Subscribe(promotion.NewGhiLuotDungHandler(promotionModule, log))
 	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(promotionModule, log))
@@ -1315,7 +1315,7 @@ func (g *giaHangVanChuyen) GiaMotKien(phuongThuc string) int64 {
 // bảng tín hiệu phình theo lưu lượng ĐỌC chứ không theo nhu cầu, và mọi
 // phép tổng hợp về sau vẫn phải gom lại.
 //
-// Gom theo NGÀY × SẢN PHẨM, và `GhiTinHieuGom` CẬP NHẬT dòng của cùng ngày
+// Gom theo NGÀY × SẢN PHẨM, và `RecordCoalescedSignals` CẬP NHẬT dòng của cùng ngày
 // thay vì thêm mới — nên chạy lại giữa ngày là an toàn và cho con số ĐÚNG,
 // không phải con số cộng dồn. Đó là lý do job này không cần con trỏ.
 func gomLuotXem(
@@ -1359,7 +1359,7 @@ func gomLuotXem(
 				})
 			}
 
-			if err := sc.GhiTinHieuGom(ctx, reqs); err != nil {
+			if err := sc.RecordCoalescedSignals(ctx, reqs); err != nil {
 				return fmt.Errorf("ghi tín hiệu lượt xem ngày %s: %w",
 					dau.Format("2006-01-02"), err)
 			}

@@ -85,7 +85,7 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 
 	// Lượt dùng mã giảm giá: ghi khi phiên hoàn tất, trả lại khi đơn hủy.
 	// Read model gợi ý size — dựng từ mua hàng và trả hàng.
-	bus.Subscribe(recommendation.NewQuanSatSizeHandler(a.mods.recommendation, log))
+	bus.Subscribe(recommendation.NewSizeObservationHandler(a.mods.recommendation, log))
 	bus.Subscribe(promotion.NewGhiLuotDungHandler(a.mods.promotion, log))
 	bus.Subscribe(promotion.NewGiaiPhongLuotHandler(a.mods.promotion, log))
 

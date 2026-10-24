@@ -53,7 +53,7 @@ const insertSignal = `
 		quantity, occurred_at, source_type, source_id, metadata
 	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
 
-// GhiGom ghi một tín hiệu GOM — CẬP NHẬT nếu đã có của cùng kỳ.
+// SaveCoalesced ghi một tín hiệu GOM — CẬP NHẬT nếu đã có của cùng kỳ.
 //
 // # Vì sao khác `Append`
 //
@@ -67,7 +67,7 @@ const insertSignal = `
 // Đó cũng là lý do job này không cần con trỏ: chạy lại luôn an toàn, và
 // chạy giữa ngày rồi chạy lại cuối ngày cho ra con số ĐÚNG chứ không phải
 // con số cộng dồn.
-func (s *SignalStore) GhiGom(ctx context.Context, sig *domain.Signal) error {
+func (s *SignalStore) SaveCoalesced(ctx context.Context, sig *domain.Signal) error {
 	meta, err := marshalMetadata(sig.Metadata())
 	if err != nil {
 		return err
@@ -83,7 +83,7 @@ func (s *SignalStore) GhiGom(ctx context.Context, sig *domain.Signal) error {
 		sig.Quantity(), sig.OccurredAt(), sig.SourceType(),
 		sig.SourceID().String(), meta)
 	if err != nil {
-		return fmt.Errorf("supplychain: ghi tín hiệu gom: %w", err)
+		return fmt.Errorf("supplychain: ghi tín hiệu coalesced: %w", err)
 	}
 	return nil
 }

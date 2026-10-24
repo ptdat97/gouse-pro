@@ -48,9 +48,9 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 		}
 	}
 
-	goiY := func() *recommendation.GoiYSizeView {
+	goiY := func() *recommendation.RecommendSizeView {
 		t.Helper()
-		v, err := a.mods.recommendation.GoiYSize(ctx, recommendation.GoiYSizeRequest{
+		v, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
 			CustomerID: maKhach, BrandID: maTH,
 			CacSize: []string{"S", "M", "L", "XL"},
 		})
@@ -85,7 +85,7 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 
 	// Thương hiệu KHÁC không được ăn theo: size M của hai thương hiệu
 	// không bằng nhau.
-	khac, err := a.mods.recommendation.GoiYSize(ctx, recommendation.GoiYSizeRequest{
+	khac, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
 		CustomerID: maKhach, BrandID: "brd_01J9XKHACKHACKHACKHACKHAC",
 		CacSize: []string{"S", "M", "L"},
 	})

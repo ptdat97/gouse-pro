@@ -88,7 +88,7 @@ const (
 // IsUnmetDemand cho biết tín hiệu này có đo NHU CẦU CHƯA ĐÁP ỨNG không.
 //
 // Ba loại này là lý do module tồn tại từ MVP. Chúng không xuất hiện trong
-// dữ liệu bán hàng, nên nếu không ghi lại ngay thì mất vĩnh viễn.
+// dữ liệu bán hàng, nên nếu không ghi lại day thì mất vĩnh viễn.
 func (t SignalType) IsUnmetDemand() bool {
 	return t == SignalSearchNoResult || t == SignalStockout || t == SignalNotifyRequest
 }

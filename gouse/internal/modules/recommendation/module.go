@@ -54,41 +54,40 @@ func New(cfg Config) (*Module, error) {
 	return &Module{store: recpg.NewStore(cfg.DB.Pool()), product: cfg.Product}, nil
 }
 
-// GoiYSize gợi ý size, hoặc nil khi không đủ căn cứ.
+// RecommendSize gợi ý size, hoặc nil khi không đủ căn cứ.
 //
 // KHÔNG trả lỗi khi thiếu dữ liệu: gợi ý là tính năng TĂNG CƯỜNG, và hỏng
 // gợi ý không được làm hỏng trang sản phẩm (đặc tả mục 5). Chỉ lỗi hạ tầng
 // thật mới trả lỗi, và bên gọi cũng nên bỏ qua nó.
-func (m *Module) GoiYSize(
-	ctx context.Context, req GoiYSizeRequest,
-) (*GoiYSizeView, error) {
+func (m *Module) RecommendSize(
+	ctx context.Context, req RecommendSizeRequest) (*RecommendSizeView, error) {
 	if strings.TrimSpace(req.CustomerID) == "" ||
 		strings.TrimSpace(req.BrandID) == "" || len(req.CacSize) == 0 {
 		return nil, nil
 	}
 
-	quanSat, err := m.store.TheoKhachVaThuongHieu(ctx, req.CustomerID, req.BrandID)
+	observation, err := m.store.ByCustomerAndBrand(ctx, req.CustomerID, req.BrandID)
 	if err != nil {
 		return nil, err
 	}
 
-	goiY, ok := domain.SuyLuanSize(quanSat, req.CacSize)
+	goiY, ok := domain.SuyLuanSize(observation, req.CacSize)
 	if !ok {
 		return nil, nil
 	}
-	return &GoiYSizeView{
+	return &RecommendSizeView{
 		SuggestedSize: goiY.Size,
 		Reason:        string(goiY.LyDo),
 	}, nil
 }
 
-// ghiQuanSat dựng một quan sát từ SKU và ghi xuống.
+// recordObservation dựng một quan sát từ SKU và ghi xuống.
 //
 // Bỏ qua im lặng khi không tra được thương hiệu hoặc size: sản phẩm không
 // có thuộc tính size (phụ kiện, nước hoa) là chuyện bình thường, và báo lỗi
 // sẽ làm event kẹt trong hàng đợi mãi.
-func (m *Module) ghiQuanSat(
-	ctx context.Context, q domain.QuanSatMoi, skuID string,
+func (m *Module) recordObservation(
+	ctx context.Context, q domain.NewObservation, skuID string,
 ) error {
 	brandID, size, err := m.product.ThuongHieuVaSize(ctx, skuID)
 	if err != nil {
@@ -99,5 +98,5 @@ func (m *Module) ghiQuanSat(
 	}
 	q.BrandID = ids.ID(brandID)
 	q.Size = size
-	return m.store.Ghi(ctx, q)
+	return m.store.Record(ctx, q)
 }

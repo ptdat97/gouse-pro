@@ -25,24 +25,24 @@ import "context"
 
 // API là hợp đồng công khai của module.
 type API interface {
-	// GoiYSize gợi ý size cho khách đang xem một sản phẩm.
+	// RecommendSize gợi ý size cho khách đang xem một sản phẩm.
 	//
 	// Trả nil khi không đủ căn cứ — KHÔNG đoán. Một gợi ý sai làm khách
 	// chọn nhầm rồi đổ lỗi cho nền tảng, tức là làm TĂNG đúng tỷ lệ hoàn
 	// hàng mà nó sinh ra để giảm.
-	GoiYSize(ctx context.Context, req GoiYSizeRequest) (*GoiYSizeView, error)
+	RecommendSize(ctx context.Context, req RecommendSizeRequest) (*RecommendSizeView, error)
 }
 
-// GoiYSizeRequest là dữ kiện bên gọi đã biết.
+// RecommendSizeRequest là dữ kiện bên gọi đã biết.
 //
 // # Vì sao bên gọi truyền `CacSize` vào
 //
-// "Lên một size" chỉ có nghĩa khi biết thang size của sản phẩm đang xem, và
-// thang ấy khác nhau theo loại hàng: S/M/L, 38/39/40, hay Free.
+// "Lên một size" chỉ có nghĩa khi biết scale size của sản phẩm đang xem, và
+// scale ấy khác nhau theo loại hàng: S/M/L, 38/39/40, hay Free.
 //
-// Module `product` là nơi biết thang đó. Truyền vào thay vì để module này
+// Module `product` là nơi biết scale đó. Truyền vào thay vì để module này
 // hỏi ngược cũng chính là thứ cắt được phụ thuộc vòng — xem ADR-0019.
-type GoiYSizeRequest struct {
+type RecommendSizeRequest struct {
 	CustomerID string
 	BrandID    string
 
@@ -53,8 +53,8 @@ type GoiYSizeRequest struct {
 	CacSize []string
 }
 
-// GoiYSizeView khớp đúng lược đồ `size_recommendation` của đặc tả API.
-type GoiYSizeView struct {
+// RecommendSizeView khớp đúng lược đồ `size_recommendation` của đặc tả API.
+type RecommendSizeView struct {
 	SuggestedSize string
 
 	// Reason: PREVIOUS_PURCHASE hoặc RETURN_HISTORY.

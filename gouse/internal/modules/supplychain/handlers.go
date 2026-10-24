@@ -49,7 +49,7 @@ func (h *RecordSignalsFromEvents) Name() string {
 }
 
 // MaxEventVersion khai bên nhận này THEO KỊP phiên bản mới nhất của
-// `checkout.completed` — con số nằm ngay dưới, không nhắc lại ở đây.
+// `checkout.completed` — con số nằm day dưới, không nhắc lại ở đây.
 //
 // Bên nhận này không đọc trường nào mà các phiên bản sau thêm vào. Nó vẫn
 // phải khai vì ADR-0016 bắt MỌI bên nhận của một event nói rõ mình hiểu
@@ -129,9 +129,9 @@ func (h *RecordSignalsFromEvents) Handle(ctx context.Context, e eventbus.Event) 
 	case eventbus.TypeSearchPerformed:
 		return h.handleSearchPerformed(ctx, e)
 	case eventbus.TypeInventoryDepleted:
-		return h.handleHetHang(ctx, e)
+		return h.handleStockout(ctx, e)
 	case eventbus.TypeReturnRequested:
-		return h.handleTraHang(ctx, e)
+		return h.handleReturn(ctx, e)
 	case eventbus.TypeWishlistItemAdded:
 		return h.handleYeuThich(ctx, e)
 	}
@@ -153,7 +153,7 @@ type searchNoResultPayload struct {
 // hàng chỉ nói được về những gì đã bày bán.
 //
 // Từ khóa lưu ở `SearchTerm` — trường được thiết kế sẵn cho việc này — để
-// Phase 3 gom nhóm và xếp hạng nhu cầu chưa đáp ứng. "Áo khoác dạ oversize"
+// Phase 3 coalesced nhóm và xếp hạng nhu cầu chưa đáp ứng. "Áo khoác dạ oversize"
 // xuất hiện 240 lần trong 30 ngày là một đề xuất sản phẩm, không phải một
 // dòng log.
 func (h *RecordSignalsFromEvents) handleSearchNoResult(
@@ -176,8 +176,8 @@ func (h *RecordSignalsFromEvents) handleSearchNoResult(
 
 // searchPerformedPayload là dữ liệu từ event tìm kiếm có kết quả.
 type searchPerformedPayload struct {
-	Query    string `json:"query"`
-	SoKetQua int    `json:"so_ket_qua"`
+	Query       string `json:"query"`
+	ResultCount int    `json:"so_ket_qua"`
 }
 
 // handleSearchPerformed ghi tín hiệu SEARCH.
@@ -292,14 +292,14 @@ func (h *RecordSignalsFromEvents) handleOrderPlaced(
 	return h.module.RecordSignals(ctx, reqs)
 }
 
-// hetHangPayload là dữ liệu từ event SKU hết sạch hàng.
-type hetHangPayload struct {
+// stockoutPayload là dữ liệu từ event SKU hết sạch hàng.
+type stockoutPayload struct {
 	SKUID      string `json:"sku_id"`
 	LocationID string `json:"stock_location_id"`
 	OwnerID    string `json:"inventory_owner_id"`
 }
 
-// handleHetHang ghi tín hiệu STOCKOUT.
+// handleStockout ghi tín hiệu STOCKOUT.
 //
 // # Vì sao tín hiệu này quý
 //
@@ -318,10 +318,10 @@ type hetHangPayload struct {
 // Hết hàng không đo được BAO NHIÊU người muốn mua tiếp — nó chỉ đánh dấu
 // THỜI ĐIỂM nguồn cung dừng. Điền một con số đoán vào đây sẽ làm mọi phép
 // tổng hợp sau này cộng phải số bịa.
-func (h *RecordSignalsFromEvents) handleHetHang(
+func (h *RecordSignalsFromEvents) handleStockout(
 	ctx context.Context, e eventbus.Event,
 ) error {
-	var p hetHangPayload
+	var p stockoutPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event hết hàng: %w", err)
 	}
@@ -340,8 +340,8 @@ func (h *RecordSignalsFromEvents) handleHetHang(
 	})
 }
 
-// traHangPayload là dữ liệu từ event khách xin trả hàng.
-type traHangPayload struct {
+// returnPayload là dữ liệu từ event khách xin trả hàng.
+type returnPayload struct {
 	Lines []struct {
 		SKUID    string `json:"sku_id"`
 		Quantity int    `json:"quantity"`
@@ -349,7 +349,7 @@ type traHangPayload struct {
 	} `json:"lines"`
 }
 
-// handleTraHang ghi tín hiệu RETURN cho từng dòng hàng bị trả.
+// handleReturn ghi tín hiệu RETURN cho từng dòng hàng bị trả.
 //
 // # Vì sao trả hàng là tín hiệu NHU CẦU
 //
@@ -360,7 +360,7 @@ type traHangPayload struct {
 //	"khác mô tả" lặp lại             → ảnh hoặc mô tả đang nói quá
 //
 // Sửa bảng size rẻ hơn nhiều so với chịu tỷ lệ hoàn cao mãi. Và con số ấy
-// chỉ gom được khi lý do được CHUẨN HÓA — "áo bé quá" viết tự do thì không
+// chỉ coalesced được khi lý do được CHUẨN HÓA — "áo bé quá" viết tự do thì không
 // cộng được với "chật".
 //
 // # Một tín hiệu MỖI DÒNG, không phải mỗi yêu cầu
@@ -368,10 +368,10 @@ type traHangPayload struct {
 // Một yêu cầu có thể trả ba món với ba lý do khác nhau. Ghi một tín hiệu
 // cho cả yêu cầu sẽ buộc phải chọn một lý do đại diện, và hai lý do kia
 // mất — chính là phần dữ liệu đáng giữ nhất.
-func (h *RecordSignalsFromEvents) handleTraHang(
+func (h *RecordSignalsFromEvents) handleReturn(
 	ctx context.Context, e eventbus.Event,
 ) error {
-	var p traHangPayload
+	var p returnPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event trả hàng: %w", err)
 	}
@@ -399,10 +399,10 @@ func (h *RecordSignalsFromEvents) handleTraHang(
 
 // yeuThichPayload là dữ liệu từ event thêm món vào yêu thích.
 type yeuThichPayload struct {
-	CustomerID       string `json:"customer_id"`
-	ProductID        string `json:"product_id"`
-	VariantID        string `json:"variant_id"`
-	MuonBaoKhiCoHang bool   `json:"notify_when_available"`
+	CustomerID         string `json:"customer_id"`
+	ProductID          string `json:"product_id"`
+	VariantID          string `json:"variant_id"`
+	WantsRestockNotice bool   `json:"notify_when_available"`
 }
 
 // handleYeuThich ghi tín hiệu WISHLIST, và NOTIFY_REQUEST nếu khách xin báo.
@@ -445,10 +445,10 @@ func (h *RecordSignalsFromEvents) handleYeuThich(
 	yeuThich.Type = SignalWishlist
 	reqs = append(reqs, yeuThich)
 
-	if p.MuonBaoKhiCoHang {
-		xinBao := chung
-		xinBao.Type = SignalNotifyRequest
-		reqs = append(reqs, xinBao)
+	if p.WantsRestockNotice {
+		notifyRequest := chung
+		notifyRequest.Type = SignalNotifyRequest
+		reqs = append(reqs, notifyRequest)
 	}
 
 	return h.module.RecordSignals(ctx, reqs)
