@@ -21,7 +21,7 @@ func newService(t *testing.T) *application.Service {
 	return application.NewInMemoryService(application.FixedClock{T: testNow})
 }
 
-func TestDatGiaVaTraGia(t *testing.T) {
+func TestSetAndGetPrice(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -56,7 +56,7 @@ func TestDatGiaVaTraGia(t *testing.T) {
 //
 // Trả giá 0 sẽ hiển thị "miễn phí" trên trang và khách đặt được hàng
 // không mất tiền.
-func TestChuaCoGiaTraLoiChuKhongTraKhong(t *testing.T) {
+func TestNoPriceReturnsErrorNotZero(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 
@@ -70,7 +70,7 @@ func TestChuaCoGiaTraLoiChuKhongTraKhong(t *testing.T) {
 }
 
 // Mọi giá đã hết hạn cũng phải trả ErrNoPrice — không được rơi về giá cũ.
-func TestGiaHetHanHetThiTraLoi(t *testing.T) {
+func TestAllPricesExpiredReturnsError(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -94,7 +94,7 @@ func TestGiaHetHanHetThiTraLoi(t *testing.T) {
 
 // Quy tắc 3: MỌI thay đổi giá ghi vào lịch sử. Ghi lịch sử phải nằm trong
 // use case, không phải việc bên gọi phải nhớ làm.
-func TestMoiThayDoiGiaDeuGhiLichSu(t *testing.T) {
+func TestEveryPriceChangeWritesHistory(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -127,7 +127,7 @@ func TestMoiThayDoiGiaDeuGhiLichSu(t *testing.T) {
 
 // Giá bị từ chối thì KHÔNG được để lại vết trong lịch sử — lịch sử phải
 // phản ánh giá đã thực sự áp dụng.
-func TestGiaKhongHopLeKhongGhiLichSu(t *testing.T) {
+func TestInvalidPriceWritesNoHistory(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -149,7 +149,7 @@ func TestGiaKhongHopLeKhongGhiLichSu(t *testing.T) {
 
 // "Giá thấp nhất 30 ngày qua" — con số bắt buộc công bố ở một số thị
 // trường khi quảng cáo giảm giá.
-func TestGiaThapNhat30Ngay(t *testing.T) {
+func TestLowestPriceLast30Days(t *testing.T) {
 	ctx := context.Background()
 	skuID := ids.MustNew(ids.PrefixSKU)
 
@@ -203,7 +203,7 @@ func (c *movingClock) Now() time.Time { return c.t }
 //
 // Test này từng thất bại chập chờn: nó chỉ lộ ra khi đồng hồ trả về đúng
 // cùng một thời điểm cho cả lúc ghi lẫn lúc đọc.
-func TestDoiGiaRoiHoiNgayVanRaKetQua(t *testing.T) {
+func TestPriceChangeIsVisibleImmediately(t *testing.T) {
 	ctx := context.Background()
 	skuID := ids.MustNew(ids.PrefixSKU)
 
@@ -230,13 +230,13 @@ func TestDoiGiaRoiHoiNgayVanRaKetQua(t *testing.T) {
 }
 
 // Tra giá theo LÔ: hiển thị 50 sản phẩm là 1 lời gọi, không phải 50.
-func TestTraGiaTheoLo(t *testing.T) {
+func TestServePricesInBatch(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 
 	sku1 := ids.MustNew(ids.PrefixSKU)
 	sku2 := ids.MustNew(ids.PrefixSKU)
-	khongCoGia := ids.MustNew(ids.PrefixSKU)
+	skuWithoutPrice := ids.MustNew(ids.PrefixSKU)
 
 	for _, tc := range []struct {
 		skuID  ids.ID
@@ -250,7 +250,7 @@ func TestTraGiaTheoLo(t *testing.T) {
 	}
 
 	got, err := svc.GetPrices(ctx, []application.PriceQuery{
-		{SKUID: sku1}, {SKUID: sku2}, {SKUID: khongCoGia},
+		{SKUID: sku1}, {SKUID: sku2}, {SKUID: skuWithoutPrice},
 	})
 	if err != nil {
 		t.Fatalf("GetPrices: %v", err)
@@ -262,14 +262,14 @@ func TestTraGiaTheoLo(t *testing.T) {
 	if got[sku1].Amount.Amount() != 100000 {
 		t.Errorf("giá sku1 = %v, mong 100000", got[sku1].Amount)
 	}
-	if _, có := got[khongCoGia]; có {
+	if _, found := got[skuWithoutPrice]; found {
 		t.Error("SKU không có giá không được xuất hiện trong kết quả")
 	}
 }
 
 // Tra giá theo lô phải cho CÙNG kết quả với tra từng cái — nếu lệch, trang
 // danh sách và trang chi tiết sẽ hiển thị giá khác nhau.
-func TestTraGiaTheoLoKhopVoiTraTungCai(t *testing.T) {
+func TestBatchServeMatchesOneByOne(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -316,7 +316,7 @@ func TestTraGiaTheoLoKhopVoiTraTungCai(t *testing.T) {
 }
 
 // Quy tắc 4: giá seller phải trong khung ràng buộc.
-func TestKiemTraGiaSeller(t *testing.T) {
+func TestValidateSellerPrice(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -355,7 +355,7 @@ func TestKiemTraGiaSeller(t *testing.T) {
 //
 // Chặn hết khi chưa cấu hình sẽ khiến không seller nào đăng bán được cho
 // tới khi nền tảng cấu hình xong từng SKU — không khả thi.
-func TestChuaCoKhungGiaThiChapNhanGiaDuong(t *testing.T) {
+func TestWithoutFrameAnyPositivePriceIsAccepted(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -383,7 +383,7 @@ func TestChuaCoKhungGiaThiChapNhanGiaDuong(t *testing.T) {
 	}
 }
 
-func TestNgungApDungGia(t *testing.T) {
+func TestDeactivatePrice(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
 	skuID := ids.MustNew(ids.PrefixSKU)

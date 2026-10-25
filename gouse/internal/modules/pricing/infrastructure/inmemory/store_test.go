@@ -31,7 +31,7 @@ func newPrice(t *testing.T, skuID ids.ID, amount int64, pt domain.PriceType) *do
 	return got
 }
 
-func TestLuuVaDocLaiGia(t *testing.T) {
+func TestSaveAndReadBackPrice(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewPriceStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -54,7 +54,7 @@ func TestLuuVaDocLaiGia(t *testing.T) {
 	}
 }
 
-func TestKhongTimThayTraErrNotFound(t *testing.T) {
+func TestNotFoundReturnsErrNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := inmemory.NewPriceStore().FindByID(ctx, ids.MustNew(ids.PrefixPrice)); !errors.Is(err, domain.ErrNotFound) {
@@ -67,7 +67,7 @@ func TestKhongTimThayTraErrNotFound(t *testing.T) {
 
 // Kho phải hành xử GIỐNG database: sửa aggregate sau khi Save không được
 // làm đổi dữ liệu đã lưu.
-func TestSuaSauKhiLuuKhongAnhHuongKho(t *testing.T) {
+func TestMutatingAfterSaveDoesNotAffectStore(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewPriceStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -89,7 +89,7 @@ func TestSuaSauKhiLuuKhongAnhHuongKho(t *testing.T) {
 
 // Kho trả MỌI mức giá, kể cả đã ngừng — việc chọn mức nào là quyết định
 // nghiệp vụ của domain.SelectBest, không phải của kho.
-func TestKhoTraCaGiaDaNgungApDung(t *testing.T) {
+func TestStoreAlsoReturnsDeactivatedPrices(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewPriceStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -120,7 +120,7 @@ func TestKhoTraCaGiaDaNgungApDung(t *testing.T) {
 }
 
 // Lưu lại cùng một mức giá không được nhân đôi bản ghi.
-func TestLuuLaiKhongNhanDoi(t *testing.T) {
+func TestResaveDoesNotDuplicate(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewPriceStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -142,13 +142,13 @@ func TestLuuLaiKhongNhanDoi(t *testing.T) {
 }
 
 // Lấy giá theo lô: hiển thị 50 sản phẩm phải là 1 truy vấn, không phải 50.
-func TestLayGiaTheoLo(t *testing.T) {
+func TestGetPricesInBatch(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewPriceStore()
 
 	sku1 := ids.MustNew(ids.PrefixSKU)
 	sku2 := ids.MustNew(ids.PrefixSKU)
-	khongCo := ids.MustNew(ids.PrefixSKU)
+	missingID := ids.MustNew(ids.PrefixSKU)
 
 	if err := s.Save(ctx, newPrice(t, sku1, 100000, domain.PriceTypeBase)); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -157,7 +157,7 @@ func TestLayGiaTheoLo(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	got, err := s.FindBySKUs(ctx, []ids.ID{sku1, sku2, khongCo})
+	got, err := s.FindBySKUs(ctx, []ids.ID{sku1, sku2, missingID})
 	if err != nil {
 		t.Fatalf("FindBySKUs: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestLayGiaTheoLo(t *testing.T) {
 	}
 }
 
-func TestThuTuGiaOnDinh(t *testing.T) {
+func TestPriceOrderIsStable(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewPriceStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -201,7 +201,7 @@ func TestThuTuGiaOnDinh(t *testing.T) {
 // Bỏ sót ngưỡng cảnh báo khi lưu thì khi đọc lên nó thành 0, và việc phát
 // hiện giá bất thường im lặng ngừng hoạt động — loại lỗi không có thông
 // báo nào cả.
-func TestKhungGiaGiuNguongCanhBaoQuaVongLuuDoc(t *testing.T) {
+func TestFrameKeepsWarningThresholdAcrossSaveLoad(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewConstraintStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -235,7 +235,7 @@ func TestKhungGiaGiuNguongCanhBaoQuaVongLuuDoc(t *testing.T) {
 	}
 }
 
-func TestMoiSKUChiMotKhungGia(t *testing.T) {
+func TestOnePriceFramePerSKU(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewConstraintStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -263,7 +263,7 @@ func TestMoiSKUChiMotKhungGia(t *testing.T) {
 }
 
 // Lịch sử CHỈ GHI THÊM — không có phương thức sửa hay xóa.
-func TestLichSuChiGhiThem(t *testing.T) {
+func TestHistoryIsAppendOnly(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewHistoryStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -331,7 +331,7 @@ func TestLichSuLocTheoKhoangThoiGian(t *testing.T) {
 	}
 }
 
-func TestLichSuSKUKhacKhongLanNhau(t *testing.T) {
+func TestHistoryOfDifferentSKUsDoesNotMix(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewHistoryStore()
 	sku1 := ids.MustNew(ids.PrefixSKU)

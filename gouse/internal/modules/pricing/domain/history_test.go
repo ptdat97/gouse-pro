@@ -23,7 +23,7 @@ func newPoint(t *testing.T, skuID ids.ID, amount int64, at time.Time) *domain.Pr
 	return p
 }
 
-func TestGhiDiemLichSuGia(t *testing.T) {
+func TestWritePriceHistoryPoint(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	p := newPoint(t, skuID, 490000, testNow)
 
@@ -39,7 +39,7 @@ func TestGhiDiemLichSuGia(t *testing.T) {
 	}
 }
 
-func TestDiemLichSuTuChoiDuLieuSai(t *testing.T) {
+func TestHistoryPointRejectsBadData(t *testing.T) {
 	if _, err := domain.NewPricePoint(domain.NewPricePointParams{
 		Amount: vnd(1000), Now: testNow,
 	}); !errors.Is(err, domain.ErrMissingSKU) {
@@ -55,7 +55,7 @@ func TestDiemLichSuTuChoiDuLieuSai(t *testing.T) {
 
 // Lý do mặc định là MANUAL, không được để rỗng — điểm lịch sử không có lý
 // do thì vô dụng cho việc rà soát.
-func TestLyDoMacDinh(t *testing.T) {
+func TestDefaultReason(t *testing.T) {
 	p, err := domain.NewPricePoint(domain.NewPricePointParams{
 		SKUID: ids.MustNew(ids.PrefixSKU), Amount: vnd(1000), Now: testNow,
 	})
@@ -70,7 +70,7 @@ func TestLyDoMacDinh(t *testing.T) {
 // "Giá thấp nhất 30 ngày qua" là con số một số thị trường BẮT BUỘC công bố
 // khi quảng cáo giảm giá. Không có lịch sử thì không trả lời được, và dữ
 // liệu này KHÔNG tạo ngược được.
-func TestTimGiaThapNhatTrongKhoang(t *testing.T) {
+func TestFindLowestPriceInRange(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 
 	points := []*domain.PricePoint{
@@ -92,11 +92,11 @@ func TestTimGiaThapNhatTrongKhoang(t *testing.T) {
 	}
 
 	// Khoảng không có điểm nào.
-	trong := domain.DateRange{
+	inRange := domain.DateRange{
 		From: testNow.AddDate(0, 0, -100),
 		To:   testNow.AddDate(0, 0, -90),
 	}
-	if _, ok := domain.LowestIn(points, trong); ok {
+	if _, ok := domain.LowestIn(points, inRange); ok {
 		t.Error("khoảng rỗng phải trả false")
 	}
 
@@ -111,7 +111,7 @@ func TestTimGiaThapNhatTrongKhoang(t *testing.T) {
 
 // Kịch bản thao túng giá: tăng giá rồi giảm ngay trước khuyến mãi để
 // quảng cáo "giảm 50%". Lịch sử phải làm lộ ra hành vi này.
-func TestLichSuPhatHienThaoTungGia(t *testing.T) {
+func TestHistoryDetectsPriceManipulation(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 
 	points := []*domain.PricePoint{
@@ -139,16 +139,16 @@ func TestLichSuPhatHienThaoTungGia(t *testing.T) {
 
 // Duyệt map và sắp xếp không ổn định làm lịch sử hiển thị khác nhau mỗi
 // lần tải trang.
-func TestSapXepLichSuOnDinh(t *testing.T) {
+func TestHistorySortIsStable(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 
 	// Cố ý đưa vào theo thứ tự lộn xộn, có hai điểm CÙNG thời điểm.
-	cungLuc := testNow.AddDate(0, 0, -5)
+	sameMoment := testNow.AddDate(0, 0, -5)
 	points := []*domain.PricePoint{
 		newPoint(t, skuID, 300000, testNow.AddDate(0, 0, -1)),
 		newPoint(t, skuID, 500000, testNow.AddDate(0, 0, -10)),
-		newPoint(t, skuID, 400000, cungLuc),
-		newPoint(t, skuID, 450000, cungLuc),
+		newPoint(t, skuID, 400000, sameMoment),
+		newPoint(t, skuID, 450000, sameMoment),
 	}
 
 	first := domain.SortByTime(points)
@@ -175,7 +175,7 @@ func TestSapXepLichSuOnDinh(t *testing.T) {
 	}
 }
 
-func TestBienKhoangTruyVanLichSu(t *testing.T) {
+func TestHistoryQueryBoundaries(t *testing.T) {
 	r := domain.DateRange{From: testNow, To: testNow.Add(2 * time.Hour)}
 
 	cases := []struct {

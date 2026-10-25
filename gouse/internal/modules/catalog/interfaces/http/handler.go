@@ -51,7 +51,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 // chung một mux nghĩa là route nhà bán chạy KHÔNG có AuthContext — và khi
 // ấy nó trả 401 cho cả token hợp lệ, vì không ai đặt context vào.
 func (h *Handler) RegisterSellerRoutes(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/seller/brands", http.HandlerFunc(h.thuongHieuChoBan))
+	mux.Handle("GET /api/v1/seller/brands", http.HandlerFunc(h.sellableBrands))
 }
 
 // getBrand phục vụ GET /api/v1/brands/{brand_id} (operationId: getBrand).
@@ -203,8 +203,8 @@ func translate(err error, notFoundMsg string) error {
 
 // ------------------------------------------------ Thương hiệu của nhà bán
 
-// thuongHieuChoBanJSON là một thương hiệu gian hàng ĐƯỢC PHÉP đăng bán.
-type thuongHieuChoBanJSON struct {
+// sellableBrandJSON là một thương hiệu gian hàng ĐƯỢC PHÉP đăng bán.
+type sellableBrandJSON struct {
 	ID              string `json:"id"`
 	Name            string `json:"name"`
 	Slug            string `json:"slug,omitempty"`
@@ -212,7 +212,7 @@ type thuongHieuChoBanJSON struct {
 	ProtectionLevel string `json:"protection_level"`
 }
 
-// thuongHieuChoBan phục vụ GET /api/v1/seller/brands
+// sellableBrands phục vụ GET /api/v1/seller/brands
 // (operationId: listBrandsIMaySell).
 //
 // # Vì sao endpoint này phải tồn tại
@@ -233,7 +233,7 @@ type thuongHieuChoBanJSON struct {
 // — thay vì viết lại điều kiện. Viết lại nghĩa là hai bản sao của một quy
 // tắc chống hàng giả, và chúng sẽ lệch: biểu mẫu mời chọn một thương hiệu
 // rồi đường ghi từ chối nó.
-func (h *Handler) thuongHieuChoBan(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) sellableBrands(w http.ResponseWriter, r *http.Request) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
@@ -249,7 +249,7 @@ func (h *Handler) thuongHieuChoBan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := make([]thuongHieuChoBanJSON, 0, len(bs))
+	out := make([]sellableBrandJSON, 0, len(bs))
 	for _, b := range bs {
 		kq, err := h.svc.CanSellerSellBrand(r.Context(), b.ID(), sellerID)
 		if err != nil {
@@ -259,7 +259,7 @@ func (h *Handler) thuongHieuChoBan(w http.ResponseWriter, r *http.Request) {
 		if !kq.Allowed {
 			continue
 		}
-		out = append(out, thuongHieuChoBanJSON{
+		out = append(out, sellableBrandJSON{
 			ID:              b.ID().String(),
 			Name:            b.Name(),
 			Slug:            b.Slug(),

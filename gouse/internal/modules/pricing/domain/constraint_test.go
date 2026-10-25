@@ -27,7 +27,7 @@ func newConstraint(t *testing.T, min, max int64) *domain.PriceConstraint {
 
 // Khung giá không có giới hạn nào tạo cảm giác an toàn giả rằng giá đang
 // được kiểm soát.
-func TestKhungGiaPhaiCoItNhatMotGioiHan(t *testing.T) {
+func TestPriceFrameNeedsAtLeastOneBound(t *testing.T) {
 	_, err := domain.NewPriceConstraint(domain.NewConstraintParams{
 		SKUID: ids.MustNew(ids.PrefixSKU), Now: testNow,
 	})
@@ -38,7 +38,7 @@ func TestKhungGiaPhaiCoItNhatMotGioiHan(t *testing.T) {
 
 // Min > Max thì KHÔNG giá nào hợp lệ — seller không đăng bán được và sẽ
 // không hiểu vì sao.
-func TestMinKhongDuocCaoHonMax(t *testing.T) {
+func TestMinMustNotExceedMax(t *testing.T) {
 	_, err := domain.NewPriceConstraint(domain.NewConstraintParams{
 		SKUID:    ids.MustNew(ids.PrefixSKU),
 		MinPrice: vnd(500000),
@@ -50,7 +50,7 @@ func TestMinKhongDuocCaoHonMax(t *testing.T) {
 	}
 }
 
-func TestKhungGiaKhacDonViTienTe(t *testing.T) {
+func TestFrameWithDifferentCurrency(t *testing.T) {
 	_, err := domain.NewPriceConstraint(domain.NewConstraintParams{
 		SKUID:    ids.MustNew(ids.PrefixSKU),
 		MinPrice: vnd(100000),
@@ -66,7 +66,7 @@ func TestKhungGiaKhacDonViTienTe(t *testing.T) {
 //
 // Giá tối thiểu chống CẢ bán phá giá LẪN lỗi nhập liệu — seller gõ thiếu
 // một số 0 sẽ bán 10.000đ thay vì 100.000đ.
-func TestKiemTraGiaSellerTheoKhung(t *testing.T) {
+func TestValidateSellerPriceAgainstFrame(t *testing.T) {
 	c := newConstraint(t, 100000, 500000)
 
 	cases := []struct {
@@ -105,7 +105,7 @@ func TestKiemTraGiaSellerTheoKhung(t *testing.T) {
 	}
 }
 
-func TestKiemTraGiaKhacDonViTienTe(t *testing.T) {
+func TestValidatePriceWithDifferentCurrency(t *testing.T) {
 	c := newConstraint(t, 100000, 500000)
 
 	got := c.Check(money.MustNew(30000, money.USD))
@@ -118,7 +118,7 @@ func TestKiemTraGiaKhacDonViTienTe(t *testing.T) {
 }
 
 // Chỉ có một phía giới hạn thì phía kia không chặn.
-func TestKhungGiaMotPhia(t *testing.T) {
+func TestOneSidedPriceFrame(t *testing.T) {
 	chiMin := newConstraint(t, 100000, 0)
 	if got := chiMin.Check(vnd(99999999)); !got.Allowed {
 		t.Errorf("chỉ có min: giá cao bị chặn (%s)", got.Message)
@@ -138,7 +138,7 @@ func TestKhungGiaMotPhia(t *testing.T) {
 
 // Giá lệch xa thị trường là CẢNH BÁO, không phải từ chối — chặn thẳng sẽ
 // cản trở hàng thanh lý thật.
-func TestGiaBatThuongDuocChapNhanNhungDanhDau(t *testing.T) {
+func TestUnusualPriceIsAcceptedButFlagged(t *testing.T) {
 	c, err := domain.NewPriceConstraint(domain.NewConstraintParams{
 		SKUID:          ids.MustNew(ids.PrefixSKU),
 		MinPrice:       vnd(10000),
@@ -174,14 +174,14 @@ func TestGiaBatThuongDuocChapNhanNhungDanhDau(t *testing.T) {
 	}
 }
 
-func TestKhongCoGiaThamChieuThiKhongCanhBao(t *testing.T) {
+func TestNoReferencePriceMeansNoWarning(t *testing.T) {
 	c := newConstraint(t, 1000, 1000000)
 	if got := c.Check(vnd(2000)); got.NeedsReview {
 		t.Error("không có giá tham chiếu thì không được cảnh báo")
 	}
 }
 
-func TestCapNhatKhungGia(t *testing.T) {
+func TestUpdatePriceFrame(t *testing.T) {
 	c := newConstraint(t, 100000, 500000)
 
 	if err := c.Update(vnd(200000), vnd(600000), testNow); err != nil {
@@ -204,7 +204,7 @@ func TestCapNhatKhungGia(t *testing.T) {
 	}
 }
 
-func TestKhungGiaCoTienToDung(t *testing.T) {
+func TestPriceFrameHasRightIDPrefix(t *testing.T) {
 	c := newConstraint(t, 100000, 500000)
 	if c.ID().Prefix() != ids.PrefixPriceConstraint {
 		t.Errorf("tiền tố = %q, mong %q", c.ID().Prefix(), ids.PrefixPriceConstraint)

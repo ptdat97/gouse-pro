@@ -137,11 +137,11 @@ func TestGetBrand(t *testing.T) {
 	}
 }
 
-// TestGetBrandKhongLoBoSuuTapChuaRaMat là test QUAN TRỌNG NHẤT của file này.
+// TestGetBrandHidesUnlaunchedCollections là test QUAN TRỌNG NHẤT của file này.
 //
 // Lịch ra mắt bộ sưu tập là thông tin kinh doanh nhạy cảm. Rò rỉ qua endpoint
 // công khai cho đối thủ biết trước chúng ta sắp bán gì.
-func TestGetBrandKhongLoBoSuuTapChuaRaMat(t *testing.T) {
+func TestGetBrandHidesUnlaunchedCollections(t *testing.T) {
 	f := newFixture(t)
 
 	rec := get(t, f.h, "/api/v1/brands/"+f.brandID.String())
@@ -155,7 +155,7 @@ func TestGetBrandKhongLoBoSuuTapChuaRaMat(t *testing.T) {
 	}
 }
 
-func TestGetBrandKhongTonTaiTra404(t *testing.T) {
+func TestGetBrandUnknownIDReturns404(t *testing.T) {
 	f := newFixture(t)
 
 	// ID đúng định dạng nhưng không tồn tại.
@@ -168,7 +168,7 @@ func TestGetBrandKhongTonTaiTra404(t *testing.T) {
 	}
 }
 
-func TestGetBrandIDSaiDinhDangTra400(t *testing.T) {
+func TestGetBrandMalformedIDReturns400(t *testing.T) {
 	f := newFixture(t)
 
 	for _, bad := range []string{
@@ -213,12 +213,12 @@ func TestGetCollectionDaRaMat(t *testing.T) {
 	}
 }
 
-// TestGetCollectionChuaRaMatTra404 kiểm tra rằng bộ sưu tập chưa ra mắt trả
+// TestGetUnlaunchedCollectionReturns404 kiểm tra rằng bộ sưu tập chưa ra mắt trả
 // 404 chứ không phải 403.
 //
 // 403 XÁC NHẬN tài nguyên tồn tại — đủ để đối thủ dò ID và biết chúng ta
 // đang chuẩn bị bộ sưu tập.
-func TestGetCollectionChuaRaMatTra404(t *testing.T) {
+func TestGetUnlaunchedCollectionReturns404(t *testing.T) {
 	f := newFixture(t)
 
 	rec := get(t, f.h, "/api/v1/collections/"+f.unlaunchedID.String())
@@ -264,9 +264,9 @@ func TestGetCategoryTree(t *testing.T) {
 	}
 }
 
-// TestLoiTheoDinhDangDacTa kiểm tra response lỗi khớp
+// TestErrorsFollowSpecShape kiểm tra response lỗi khớp
 // api/components/common.yaml#/schemas/Error.
-func TestLoiTheoDinhDangDacTa(t *testing.T) {
+func TestErrorsFollowSpecShape(t *testing.T) {
 	f := newFixture(t)
 
 	rec := get(t, f.h, "/api/v1/brands/khong-phai-id")

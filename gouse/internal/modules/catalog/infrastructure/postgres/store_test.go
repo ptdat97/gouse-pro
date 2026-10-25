@@ -64,7 +64,7 @@ func newBrand(t *testing.T, slug string, mutate func(*domain.NewBrandParams)) *d
 	return b
 }
 
-func TestLuuVaDocLaiThuongHieu(t *testing.T) {
+func TestSaveAndReadBackBrand(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -114,7 +114,7 @@ func TestSlugTrungBiChanBoiDatabase(t *testing.T) {
 	}
 }
 
-func TestKhongTimThayTraErrNotFound(t *testing.T) {
+func TestNotFoundReturnsErrNotFound(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -129,7 +129,7 @@ func TestKhongTimThayTraErrNotFound(t *testing.T) {
 }
 
 // Save phải là UPSERT: lưu lại cùng id thì cập nhật, không tạo bản ghi mới.
-func TestLuuLaiLaCapNhatKhongPhaiThemMoi(t *testing.T) {
+func TestResaveUpdatesInsteadOfInserting(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -159,7 +159,7 @@ func TestLuuLaiLaCapNhatKhongPhaiThemMoi(t *testing.T) {
 	}
 }
 
-func TestLayTheoLoMotTruyVan(t *testing.T) {
+func TestBatchFetchUsesOneQuery(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -173,8 +173,8 @@ func TestLayTheoLoMotTruyVan(t *testing.T) {
 		}
 	}
 
-	khongCo := ids.MustNew(ids.PrefixBrand)
-	got, err := s.FindByIDs(ctx, []ids.ID{b1.ID(), b2.ID(), khongCo})
+	missingID := ids.MustNew(ids.PrefixBrand)
+	got, err := s.FindByIDs(ctx, []ids.ID{b1.ID(), b2.ID(), missingID})
 	if err != nil {
 		t.Fatalf("FindByIDs: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestLocThuongHieu(t *testing.T) {
 // nhưng nhiều bản ghi ở trạng thái khác thì được.
 //
 // Đây là loại ràng buộc kho in-memory rất khó mô phỏng đúng.
-func TestChiMotUyQuyenDangHieuLuc(t *testing.T) {
+func TestOnlyOneAuthorizationIsActive(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -311,7 +311,7 @@ func TestChiMotUyQuyenDangHieuLuc(t *testing.T) {
 }
 
 // Bảng size và các dòng của nó là MỘT aggregate — lưu trong một giao dịch.
-func TestLuuBangSizeCungCacDong(t *testing.T) {
+func TestSaveSizeChartWithItsRows(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -382,7 +382,7 @@ func TestLuuBangSizeCungCacDong(t *testing.T) {
 }
 
 // Một thương hiệu chỉ có MỘT bảng size cho mỗi loại sản phẩm.
-func TestKhongTrungBangSizeChoCungLoai(t *testing.T) {
+func TestNoDuplicateSizeChartPerCategory(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -417,7 +417,7 @@ func TestKhongTrungBangSizeChoCungLoai(t *testing.T) {
 	}
 }
 
-func TestCayDanhMuc(t *testing.T) {
+func TestCategoryTreeFromStore(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()
@@ -471,7 +471,7 @@ func TestCayDanhMuc(t *testing.T) {
 	}
 }
 
-func TestBoSuuTapTheoTrangThai(t *testing.T) {
+func TestCollectionsByStatus(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()

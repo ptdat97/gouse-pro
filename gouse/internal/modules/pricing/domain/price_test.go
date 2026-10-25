@@ -34,7 +34,7 @@ func newPrice(t *testing.T, mutate func(*domain.NewPriceParams)) *domain.Price {
 
 // Quy tắc 1: giá > 0. Giá 0 gần như luôn là lỗi nhập liệu hoặc lỗi chuyển
 // đổi đơn vị tiền tệ, không phải "miễn phí".
-func TestGiaPhaiLonHonKhong(t *testing.T) {
+func TestPriceMustBePositive(t *testing.T) {
 	for _, amount := range []int64{0, -1, -490000} {
 		_, err := domain.NewPrice(domain.NewPriceParams{
 			SKUID:  ids.MustNew(ids.PrefixSKU),
@@ -47,7 +47,7 @@ func TestGiaPhaiLonHonKhong(t *testing.T) {
 	}
 }
 
-func TestThieuSKUBiTuChoi(t *testing.T) {
+func TestMissingSKUIsRejected(t *testing.T) {
 	_, err := domain.NewPrice(domain.NewPriceParams{Amount: vnd(1000), Now: testNow})
 	if !errors.Is(err, domain.ErrMissingSKU) {
 		t.Errorf("lỗi = %v, mong ErrMissingSKU", err)
@@ -55,7 +55,7 @@ func TestThieuSKUBiTuChoi(t *testing.T) {
 }
 
 // Giá gạch ngang thấp hơn giá bán sẽ hiển thị "giảm -20%" trên trang.
-func TestGiaGachNgangPhaiCaoHonGiaBan(t *testing.T) {
+func TestCompareAtMustExceedSellingPrice(t *testing.T) {
 	cases := []struct {
 		ten       string
 		amount    int64
@@ -90,7 +90,7 @@ func TestGiaGachNgangPhaiCaoHonGiaBan(t *testing.T) {
 
 // Quy tắc 5: giá luôn kèm đơn vị tiền tệ. So sánh khác đơn vị cho kết quả
 // sai một cách âm thầm.
-func TestKhacDonViTienTeBiTuChoi(t *testing.T) {
+func TestMixedCurrencyIsRejected(t *testing.T) {
 	_, err := domain.NewPrice(domain.NewPriceParams{
 		SKUID:     ids.MustNew(ids.PrefixSKU),
 		Amount:    vnd(490000),
@@ -104,7 +104,7 @@ func TestKhacDonViTienTeBiTuChoi(t *testing.T) {
 
 // Giá flash quên tắt sẽ bán lỗ vô hạn — loại lỗi không ai phát hiện cho
 // tới khi đối soát cuối tháng.
-func TestGiaFlashVaChienDichPhaiCoThoiHan(t *testing.T) {
+func TestFlashAndCampaignPricesNeedAPeriod(t *testing.T) {
 	for _, pt := range []domain.PriceType{domain.PriceTypeFlash, domain.PriceTypeCampaign} {
 		t.Run(string(pt), func(t *testing.T) {
 			if !pt.RequiresPeriod() {
@@ -138,7 +138,7 @@ func TestGiaFlashVaChienDichPhaiCoThoiHan(t *testing.T) {
 	}
 }
 
-func TestKhoangThoiGianKhongHopLe(t *testing.T) {
+func TestInvalidDateRange(t *testing.T) {
 	_, err := domain.NewPrice(domain.NewPriceParams{
 		SKUID:  ids.MustNew(ids.PrefixSKU),
 		Amount: vnd(490000),
@@ -181,10 +181,10 @@ func TestBienKhoangThoiGian(t *testing.T) {
 
 // Quy tắc 2: CHỈ MỘT giá được áp dụng. Thứ tự Flash > Campaign > Clearance
 // > Member > Base.
-func TestThuTuUuTienGia(t *testing.T) {
+func TestPricePriorityOrder(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	campaignID := ids.MustNew(ids.PrefixCampaign)
-	kỳ := domain.Period{From: testNow.Add(-time.Hour), To: testNow.Add(time.Hour)}
+	period := domain.Period{From: testNow.Add(-time.Hour), To: testNow.Add(time.Hour)}
 
 	base := newPrice(t, func(p *domain.NewPriceParams) {
 		p.SKUID, p.PriceType, p.Amount = skuID, domain.PriceTypeBase, vnd(490000)
@@ -198,11 +198,11 @@ func TestThuTuUuTienGia(t *testing.T) {
 	})
 	campaign := newPrice(t, func(p *domain.NewPriceParams) {
 		p.SKUID, p.PriceType, p.Amount = skuID, domain.PriceTypeCampaign, vnd(390000)
-		p.Period, p.CampaignID = kỳ, campaignID
+		p.Period, p.CampaignID = period, campaignID
 	})
 	flash := newPrice(t, func(p *domain.NewPriceParams) {
 		p.SKUID, p.PriceType, p.Amount = skuID, domain.PriceTypeFlash, vnd(420000)
-		p.Period, p.CampaignID = kỳ, campaignID
+		p.Period, p.CampaignID = period, campaignID
 	})
 
 	// Flash thắng dù giá CAO HƠN clearance — ưu tiên loại, không phải giá.
@@ -242,7 +242,7 @@ func TestThuTuUuTienGia(t *testing.T) {
 
 // Không kiểm tra hạng thành viên thì mọi khách đều nhận giá thành viên và
 // chương trình thành viên mất hết ý nghĩa.
-func TestGiaThanhVienChiApChoDungHang(t *testing.T) {
+func TestMemberPriceAppliesToRightTierOnly(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	base := newPrice(t, func(p *domain.NewPriceParams) {
 		p.SKUID, p.Amount = skuID, vnd(490000)
@@ -268,16 +268,16 @@ func TestGiaThanhVienChiApChoDungHang(t *testing.T) {
 }
 
 // Giá chiến dịch chỉ áp khi khách đến TỪ chiến dịch đó.
-func TestGiaChienDichChiApDungChienDich(t *testing.T) {
+func TestCampaignPriceAppliesOnlyToCampaign(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	camA := ids.MustNew(ids.PrefixCampaign)
 	camB := ids.MustNew(ids.PrefixCampaign)
-	kỳ := domain.Period{From: testNow.Add(-time.Hour), To: testNow.Add(time.Hour)}
+	period := domain.Period{From: testNow.Add(-time.Hour), To: testNow.Add(time.Hour)}
 
 	base := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(490000) })
 	campaign := newPrice(t, func(p *domain.NewPriceParams) {
 		p.SKUID, p.PriceType, p.Amount = skuID, domain.PriceTypeCampaign, vnd(390000)
-		p.Period, p.CampaignID = kỳ, camA
+		p.Period, p.CampaignID = period, camA
 	})
 	all := []*domain.Price{base, campaign}
 
@@ -294,7 +294,7 @@ func TestGiaChienDichChiApDungChienDich(t *testing.T) {
 
 // Cùng loại giá thì chọn giá THẤP HƠN — nếu cấu hình trùng lặp do lỗi vận
 // hành, khách được lợi chứ không bị thiệt.
-func TestCungLoaiThiChonGiaThapHon(t *testing.T) {
+func TestSameTypePicksLowerPrice(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	cao := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(490000) })
 	thap := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(390000) })
@@ -308,21 +308,21 @@ func TestCungLoaiThiChonGiaThapHon(t *testing.T) {
 	}
 }
 
-func TestGiaHetHanKhongDuocApDung(t *testing.T) {
+func TestExpiredPriceIsNotApplied(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	base := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(490000) })
-	flashHetHan := newPrice(t, func(p *domain.NewPriceParams) {
+	expiredFlash := newPrice(t, func(p *domain.NewPriceParams) {
 		p.SKUID, p.PriceType, p.Amount = skuID, domain.PriceTypeFlash, vnd(290000)
 		p.Period = domain.Period{From: testNow.Add(-2 * time.Hour), To: testNow.Add(-time.Hour)}
 	})
 
-	got := domain.SelectBest([]*domain.Price{base, flashHetHan}, testNow, "", "")
+	got := domain.SelectBest([]*domain.Price{base, expiredFlash}, testNow, "", "")
 	if got == nil || got.Type() != domain.PriceTypeBase {
 		t.Errorf("chọn %v, mong BASE — giá flash đã hết hạn", typeOf(got))
 	}
 }
 
-func TestGiaNgungApDungKhongDuocChon(t *testing.T) {
+func TestDeactivatedPriceIsNotChosen(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	base := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(490000) })
 	clearance := newPrice(t, func(p *domain.NewPriceParams) {
@@ -340,7 +340,7 @@ func TestGiaNgungApDungKhongDuocChon(t *testing.T) {
 	}
 }
 
-func TestKhongCoGiaNaoApDungTraNil(t *testing.T) {
+func TestNoApplicablePriceReturnsNil(t *testing.T) {
 	if got := domain.SelectBest(nil, testNow, "", ""); got != nil {
 		t.Errorf("danh sách rỗng trả %v, mong nil", got)
 	}
@@ -352,7 +352,7 @@ func TestKhongCoGiaNaoApDungTraNil(t *testing.T) {
 
 // Dùng phần vạn thay vì phần trăm số thực: 1/3 không biểu diễn chính xác
 // bằng float và làm tròn khiến các trang hiển thị mức giảm khác nhau.
-func TestTinhMucGiamTheoPhanVan(t *testing.T) {
+func TestComputeDiscountInBasisPoints(t *testing.T) {
 	cases := []struct {
 		amount, compareAt int64
 		mongBP            int64

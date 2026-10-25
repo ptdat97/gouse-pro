@@ -21,7 +21,7 @@ func newModule(t *testing.T) *pricing.Module {
 	return m
 }
 
-func TestKhoLuuTruKhongHopLeBiTuChoi(t *testing.T) {
+func TestInvalidStorageIsRejected(t *testing.T) {
 	if _, err := pricing.New(pricing.Config{Storage: "khong-co-that"}); err == nil {
 		t.Error("mong lỗi với kho lưu trữ không hợp lệ")
 	}
@@ -32,7 +32,7 @@ func TestKhoLuuTruKhongHopLeBiTuChoi(t *testing.T) {
 }
 
 // Dữ liệu mẫu phải chạy được qua API CÔNG KHAI, không chỉ qua tầng nội bộ.
-func TestNapDuLieuMauVaTraGiaQuaAPICongKhai(t *testing.T) {
+func TestSeedsDemoDataAndServesPriceViaPublicAPI(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 
@@ -61,7 +61,7 @@ func TestNapDuLieuMauVaTraGiaQuaAPICongKhai(t *testing.T) {
 }
 
 // Quy tắc 2 qua API công khai: giá xả hàng thắng giá gốc.
-func TestGiaXaHangThangGiaGocQuaAPICongKhai(t *testing.T) {
+func TestClearancePriceBeatsBaseViaPublicAPI(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 
@@ -84,7 +84,7 @@ func TestGiaXaHangThangGiaGocQuaAPICongKhai(t *testing.T) {
 	}
 }
 
-func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
+func TestMalformedIDReturnsErrInvalidID(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 
@@ -98,7 +98,7 @@ func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
 	}
 }
 
-func TestSKUChuaCoGiaTraErrNoPrice(t *testing.T) {
+func TestSKUWithoutPriceReturnsErrNoPrice(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 
@@ -110,7 +110,7 @@ func TestSKUChuaCoGiaTraErrNoPrice(t *testing.T) {
 
 // Đơn vị tiền tệ không hợp lệ KHÔNG được coi là giá hợp lệ — nếu bỏ qua,
 // offer sẽ lưu với giá không kiểm chứng được.
-func TestDonViTienTeKhongHopLeBiChan(t *testing.T) {
+func TestInvalidCurrencyIsRejected(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 	skuID := ids.MustNew(ids.PrefixSKU).String()
@@ -128,7 +128,7 @@ func TestDonViTienTeKhongHopLeBiChan(t *testing.T) {
 }
 
 // Khung giá qua API công khai — hàng rào chống lỗi nhập liệu của seller.
-func TestKiemTraGiaSellerQuaAPICongKhai(t *testing.T) {
+func TestValidateSellerPriceViaPublicAPI(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 
@@ -166,7 +166,7 @@ func TestKiemTraGiaSellerQuaAPICongKhai(t *testing.T) {
 
 // Lịch sử phải đọc được qua API công khai, kèm lý do — thiếu lý do thì
 // không rà soát thao túng giá được.
-func TestLichSuGiaQuaAPICongKhai(t *testing.T) {
+func TestPriceHistoryViaPublicAPI(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 
@@ -196,7 +196,7 @@ func TestLichSuGiaQuaAPICongKhai(t *testing.T) {
 	}
 }
 
-func TestKhoangThoiGianSaiDinhDangBiTuChoi(t *testing.T) {
+func TestMalformedDateRangeIsRejected(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 	skuID := ids.MustNew(ids.PrefixSKU).String()
@@ -207,7 +207,7 @@ func TestKhoangThoiGianSaiDinhDangBiTuChoi(t *testing.T) {
 }
 
 // Tra giá theo lô: bỏ qua id sai định dạng thay vì làm hỏng cả lời gọi.
-func TestTraGiaTheoLoBoQuaIDSai(t *testing.T) {
+func TestBatchServeSkipsBadID(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 
@@ -234,7 +234,7 @@ func TestTraGiaTheoLoBoQuaIDSai(t *testing.T) {
 }
 
 // "Giá thấp nhất 30 ngày qua" qua API công khai.
-func TestGiaThapNhat30NgayQuaAPICongKhai(t *testing.T) {
+func TestLowestPriceLast30DaysViaPublicAPI(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 

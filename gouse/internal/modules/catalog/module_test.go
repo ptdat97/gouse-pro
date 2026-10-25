@@ -24,7 +24,7 @@ func newSeeded(t *testing.T) (*Module, SeedResult) {
 	return m, seeded
 }
 
-func TestNewKhoLuuTruKhongHopLe(t *testing.T) {
+func TestNewRejectsInvalidStorage(t *testing.T) {
 	if _, err := New(Config{Storage: "mysql"}); err == nil {
 		t.Fatal("kho lưu trữ không hợp lệ phải báo lỗi")
 	}
@@ -34,7 +34,7 @@ func TestNewKhoLuuTruKhongHopLe(t *testing.T) {
 	}
 }
 
-func TestGetBrandTraDTOKhongPhaiDomain(t *testing.T) {
+func TestGetBrandReturnsDTONotDomain(t *testing.T) {
 	m, seeded := newSeeded(t)
 
 	v, err := m.GetBrand(context.Background(), seeded.OwnBrandID)
@@ -52,7 +52,7 @@ func TestGetBrandTraDTOKhongPhaiDomain(t *testing.T) {
 	}
 }
 
-func TestGetBrandLoiDinhDangVaKhongTonTai(t *testing.T) {
+func TestGetBrandMalformedVersusUnknown(t *testing.T) {
 	m, _ := newSeeded(t)
 	ctx := context.Background()
 
@@ -65,11 +65,11 @@ func TestGetBrandLoiDinhDangVaKhongTonTai(t *testing.T) {
 	}
 }
 
-// TestGetBrandsByIDsBoQuaIDHong kiểm tra thiết kế theo lô: một id hỏng
+// TestGetBrandsByIDsSkipsBadID kiểm tra thiết kế theo lô: một id hỏng
 // KHÔNG được làm hỏng cả lời gọi.
 //
 // Hiển thị 49/50 sản phẩm tốt hơn là cả trang lỗi.
-func TestGetBrandsByIDsBoQuaIDHong(t *testing.T) {
+func TestGetBrandsByIDsSkipsBadID(t *testing.T) {
 	m, seeded := newSeeded(t)
 
 	got, err := m.GetBrandsByIDs(context.Background(), []string{
@@ -127,7 +127,7 @@ func TestCanSellerCreateOffer(t *testing.T) {
 	})
 }
 
-func TestGetCollectionKemSoTuanConLai(t *testing.T) {
+func TestGetCollectionIncludesWeeksRemaining(t *testing.T) {
 	m, seeded := newSeeded(t)
 
 	v, err := m.GetCollection(context.Background(), seeded.LaunchedColID)
@@ -154,7 +154,7 @@ func TestGetCollectionKemSoTuanConLai(t *testing.T) {
 	}
 }
 
-func TestGetCategoryTreeCoCapCon(t *testing.T) {
+func TestGetCategoryTreeHasChildLevels(t *testing.T) {
 	m, _ := newSeeded(t)
 
 	tree, err := m.GetCategoryTree(context.Background())
@@ -169,12 +169,12 @@ func TestGetCategoryTreeCoCapCon(t *testing.T) {
 	}
 }
 
-// TestGetSizeChartForCoSoDoThucTe kiểm tra bảng size trả về SỐ ĐO, không
+// TestGetSizeChartForHasRealMeasurements kiểm tra bảng size trả về SỐ ĐO, không
 // chỉ ký hiệu S/M/L.
 //
 // Sai size là nguyên nhân hoàn hàng số một trong thời trang; bảng chỉ có
 // S/M/L không giúp khách chọn đúng.
-func TestGetSizeChartForCoSoDoThucTe(t *testing.T) {
+func TestGetSizeChartForHasRealMeasurements(t *testing.T) {
 	m, seeded := newSeeded(t)
 
 	sc, err := m.GetSizeChartFor(context.Background(), seeded.OwnBrandID, "TOP")
@@ -194,7 +194,7 @@ func TestGetSizeChartForCoSoDoThucTe(t *testing.T) {
 	}
 }
 
-// TestDTOChiChuaKieuCoBan kiểm tra DTO công khai không mang theo hành vi
+// TestDTOHoldsOnlyPrimitiveTypes kiểm tra DTO công khai không mang theo hành vi
 // của domain.
 //
 // BrandView phải là dữ liệu THUẦN: nếu nó chứa domain object, module khác
@@ -202,7 +202,7 @@ func TestGetSizeChartForCoSoDoThucTe(t *testing.T) {
 // module sở hữu. Việc *kiểu* trả về là *BrandView đã được trình biên dịch
 // bảo đảm qua `var _ API = (*Module)(nil)` trong module.go; ở đây kiểm tra
 // nội dung DTO đúng như mong đợi.
-func TestDTOChiChuaKieuCoBan(t *testing.T) {
+func TestDTOHoldsOnlyPrimitiveTypes(t *testing.T) {
 	m, seeded := newSeeded(t)
 
 	v, err := m.GetBrand(context.Background(), seeded.OwnBrandID)

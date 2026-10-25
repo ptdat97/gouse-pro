@@ -9,9 +9,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/catalog/application"
 )
 
-// TestKhongPhuThuocNgayChay: bài kiểm chứng rằng phép tìm giấy sắp hết hạn
+// TestDoesNotDependOnRunDate: bài kiểm chứng rằng phép tìm giấy sắp hết hạn
 // cho CÙNG kết quả dù chạy vào ngày nào.
-func TestKhongPhuThuocNgayChay(t *testing.T) {
+func TestDoesNotDependOnRunDate(t *testing.T) {
 	for _, moc := range []time.Time{
 		time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),

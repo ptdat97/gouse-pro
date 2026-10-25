@@ -88,6 +88,27 @@ nơi khác. Cách đo: sao cây mã sang thư mục tạm, XÓA module đang đ�
 đổi tên của `payment`, `fulfillment`, `order` theo, và lại ra một enum nửa
 Anh nửa Việt như sự cố 24/10.
 
+### Định danh CÓ DẤU vẫn hợp lệ trong Go — và vẫn phải đổi
+
+`pricing` có hai biến cục bộ tên `kỳ` và `có`. Go cho phép, nên không có gì
+báo. Bộ lọc bắt được chúng bằng nhánh "có dấu tiếng Việt", không bằng từ
+điển âm tiết.
+
+### Từ tiếng Việt THƯỜNG GẶP: đổi định danh, ĐỪNG đổi trong chú thích
+
+`có`, `kỳ`, `trong`, `khongCo` là từ xuất hiện khắp văn xuôi. `gofmt -r` an
+toàn vì nó ở tầng AST, nhưng lượt sửa chú thích thì phải GIỚI HẠN theo độ
+dài tên — ở lượt này là ≥ 10 ký tự. Đổi `trong` trong chú thích sẽ phá câu.
+
+### Hai bài test CÙNG TÊN ở hai gói: hợp lệ mà khó đọc
+
+`TestCayDanhMuc → TestCategoryTree` tạo ra hai `TestCategoryTree`, một ở
+`application` một ở `infrastructure/postgres`. Go cho phép và `go test` chạy
+cả hai — nhưng một dòng `FAIL TestCategoryTree` không nói được cái nào.
+
+Phép so tập đích với tập tên sẵn có bắt được điều này TRƯỚC khi áp. Đặt tên
+phân biệt: `TestCategoryTreeFromStore`.
+
 ### Đừng để sót tên NGẮN
 
 Bản đồ đầu của `returns` bỏ qua 14 tên một âm (`don`, `dong`, `tien`, `han`,
@@ -231,10 +252,13 @@ XONG   modules/notification             37
 XONG   modules/promotion                30
 XONG   modules/returns                 121
 XONG   modules/analytics                61
-CÒN    2127 định danh Go ở 13 module
+XONG   modules/catalog                  26   (kernel, lá)
+XONG   modules/pricing                  72   (kernel, lá)
+CÒN    2036 định danh Go ở 11 module
 
-Sáu module EXTENSION đã xong hết. Phần còn lại là nhóm KERNEL cộng
-`internal/app`.
+Bảy module extension đã xong hết. Nhóm KERNEL đi từ LÁ lên GỐC — module
+không import module nghiệp vụ nào trước, `checkout` gần cuối, `internal/app`
+sau cùng vì nó gọi mọi module.
 ```
 
 Đo lại bất cứ lúc nào bằng cách liệt kê định danh KHAI BÁO qua `go/ast` rồi
