@@ -196,7 +196,7 @@ func (h *PublicHandler) apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thieu := map[string]string{
+	missing := map[string]string{
 		"seller_type":                 req.SellerType,
 		"business_name":               req.BusinessName,
 		"contact_email":               req.ContactEmail,
@@ -205,7 +205,7 @@ func (h *PublicHandler) apply(w http.ResponseWriter, r *http.Request) {
 		"bank_account.account_number": req.BankAccount.AccountNumber,
 		"bank_account.account_holder": req.BankAccount.AccountHolder,
 	}
-	for ten, gt := range thieu {
+	for ten, gt := range missing {
 		if strings.TrimSpace(gt) == "" {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 				ten+" là trường bắt buộc"))
@@ -222,18 +222,18 @@ func (h *PublicHandler) apply(w http.ResponseWriter, r *http.Request) {
 
 	sel, err := h.svc.Apply(r.Context(), application.ApplyInput{
 		Name:       strings.TrimSpace(req.BusinessName),
-		Slug:       taoSlug(req.BusinessName),
+		Slug:       makeSlug(req.BusinessName),
 		SellerType: domain.SellerType(strings.ToUpper(strings.TrimSpace(req.SellerType))),
 		LegalName:  strings.TrimSpace(req.BusinessName),
 		TaxCode:    strings.TrimSpace(req.TaxID),
 		Email:      strings.TrimSpace(req.ContactEmail),
 		Phone:      strings.TrimSpace(req.ContactPhone),
-		BankAccount: domain.TaiKhoanNganHang{
+		BankAccount: domain.BankAccount{
 			BankCode: strings.TrimSpace(req.BankAccount.BankCode),
 			Holder:   strings.TrimSpace(req.BankAccount.AccountHolder),
 			Last4:    privacy.BonSoCuoi(req.BankAccount.AccountNumber),
 		},
-		SoTaiKhoanDayDu: strings.TrimSpace(req.BankAccount.AccountNumber),
+		FullAccountNumber: strings.TrimSpace(req.BankAccount.AccountNumber),
 	})
 	if err != nil {
 		h.fail(w, r, translate(err))
@@ -260,18 +260,18 @@ func (h *PublicHandler) apply(w http.ResponseWriter, r *http.Request) {
 //
 // Đặc tả không nhận slug từ client: để client tự đặt là mở đường cho một
 // nhà bán chiếm slug trùng thương hiệu người khác.
-func taoSlug(ten string) string {
+func makeSlug(ten string) string {
 	var b strings.Builder
-	truocLaGach := true
+	prevWasDash := true
 	for _, r := range strings.ToLower(strings.TrimSpace(ten)) {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			b.WriteRune(r)
-			truocLaGach = false
+			prevWasDash = false
 		default:
-			if !truocLaGach {
+			if !prevWasDash {
 				b.WriteByte('-')
-				truocLaGach = true
+				prevWasDash = true
 			}
 		}
 	}

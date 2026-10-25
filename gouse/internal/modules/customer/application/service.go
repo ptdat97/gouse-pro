@@ -38,23 +38,23 @@ type Service struct {
 
 // EventPublisher là cổng ra của module tới hàng đợi event.
 type EventPublisher interface {
-	// PublishThemYeuThich phát tín hiệu khách thêm một món vào yêu thích.
-	PublishThemYeuThich(ctx context.Context, e ThemYeuThich) error
+	// PublishWishlistItemAdded phát tín hiệu khách thêm một món vào yêu thích.
+	PublishWishlistItemAdded(ctx context.Context, e WishlistItemAdded) error
 }
 
-// ThemYeuThich là sự thật "khách thêm món này vào danh sách yêu thích".
+// WishlistItemAdded là sự thật "khách thêm món này vào danh sách yêu thích".
 //
 // Ý ĐỊNH MUA RÕ RÀNG, chỉ chưa đúng thời điểm — mạnh hơn lượt xem rất
-// nhiều. Và `MuonBaoKhiCoHang` bật nghĩa là khách chủ động để lại lời hứa
+// nhiều. Và `WantsRestockNotice` bật nghĩa là khách chủ động để lại lời hứa
 // "có hàng là tôi mua", tín hiệu nhu cầu rõ ràng nhất có thể có.
-type ThemYeuThich struct {
+type WishlistItemAdded struct {
 	CustomerID ids.ID
 	ProductID  ids.ID
 	VariantID  ids.ID
 
-	MuonBaoKhiCoHang bool
+	WantsRestockNotice bool
 
-	ThemLuc time.Time
+	AddedAt time.Time
 }
 
 type Deps struct {
@@ -558,12 +558,12 @@ func (s *Service) AddToWishlist(
 	// không đổi gì sẽ thổi phồng nhu cầu theo số lần khách bấm lại.
 	return s.wishlists.AddItemKemEvent(ctx, w.ID(), item,
 		func(txCtx context.Context) error {
-			return s.events.PublishThemYeuThich(txCtx, ThemYeuThich{
-				CustomerID:       customerID,
-				ProductID:        productID,
-				VariantID:        variantID,
-				MuonBaoKhiCoHang: notifyWhenAvailable,
-				ThemLuc:          now,
+			return s.events.PublishWishlistItemAdded(txCtx, WishlistItemAdded{
+				CustomerID:         customerID,
+				ProductID:          productID,
+				VariantID:          variantID,
+				WantsRestockNotice: notifyWhenAvailable,
+				AddedAt:            now,
 			})
 		})
 }

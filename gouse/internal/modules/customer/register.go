@@ -39,12 +39,12 @@ type RegisterResult struct {
 	CustomerID string
 	UserID     string
 
-	// CanXacMinhEmail = true khi email này ĐÃ có hồ sơ vãng lai.
+	// NeedsEmailVerification = true khi email này ĐÃ có hồ sơ vãng lai.
 	//
 	// Tài khoản đã tạo nhưng hồ sơ CHƯA gắn vào: lịch sử mua hàng và địa
 	// chỉ nhà chỉ được gộp sau khi bấm liên kết xác minh trong hộp thư.
 	// Giao diện dùng cờ này để nói cho khách biết còn một bước nữa.
-	CanXacMinhEmail bool
+	NeedsEmailVerification bool
 }
 
 // RegisterShopper tạo TÀI KHOẢN ĐĂNG NHẬP và HỒ SƠ KHÁCH HÀNG.
@@ -126,10 +126,10 @@ func (m *Module) RegisterShopper(
 	// — đo trên database phát triển 07/09: 0 hồ sơ vãng lai nhưng 3150 đơn
 	// vãng lai. Kiểm bằng hồ sơ là kiểm một thứ gần như không bao giờ tồn
 	// tại, và khi đó cờ "cần xác minh" không bao giờ bật.
-	coDonVangLai := false
+	hasGuestOrders := false
 	if m.orders != nil {
-		if n, errDem := m.orders.DemDonVangLai(ctx, email); errDem == nil && n > 0 {
-			coDonVangLai = true
+		if n, countErr := m.orders.DemDonVangLai(ctx, email); countErr == nil && n > 0 {
+			hasGuestOrders = true
 		}
 	}
 
@@ -145,9 +145,9 @@ func (m *Module) RegisterShopper(
 	// điều đang chờ xác minh.
 	if !hoSoVangLai.IsZero() {
 		return RegisterResult{
-			CustomerID:      hoSoVangLai.String(),
-			UserID:          user.ID,
-			CanXacMinhEmail: true,
+			CustomerID:             hoSoVangLai.String(),
+			UserID:                 user.ID,
+			NeedsEmailVerification: true,
 		}, nil
 	}
 
@@ -178,6 +178,6 @@ func (m *Module) RegisterShopper(
 		UserID:     user.ID,
 		// Hồ sơ MỚI nhưng email đã có đơn vãng lai: lịch sử đó chỉ về với
 		// họ sau khi xác minh.
-		CanXacMinhEmail: coDonVangLai,
+		NeedsEmailVerification: hasGuestOrders,
 	}, nil
 }

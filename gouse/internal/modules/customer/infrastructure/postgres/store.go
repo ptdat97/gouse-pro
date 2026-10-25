@@ -107,7 +107,7 @@ func (s *CustomerStore) FindByID(ctx context.Context, id ids.ID) (*domain.Custom
 // Giữ lại vì nó chặn một lớp sai sót khác: nếu có đường nào ẩn danh hồ sơ
 // mà QUÊN thay email, dòng này là thứ ngăn khách quay lại bị gắn vào chính
 // hồ sơ họ vừa yêu cầu xóa — cùng toàn bộ lịch sử mua hàng đáng lẽ đã
-// khuất khỏi tầm mắt họ. Xem TestHoSoAnDanhKhongHienKhiTraEmail.
+// khuất khỏi tầm mắt họ. Xem TestAnonymizedProfileIsHiddenFromEmailLookup.
 func (s *CustomerStore) FindByEmail(ctx context.Context, email string) (*domain.Customer, error) {
 	return s.findOne(ctx, `WHERE email = $1 AND status <> 'ANONYMIZED'`, email)
 }
@@ -651,8 +651,8 @@ func (s *WishlistStore) AddItemKemEvent(
 		return false, fmt.Errorf("customer: thêm món yêu thích: %w", err)
 	}
 
-	them := tag.RowsAffected() > 0
-	if them && fn != nil {
+	added := tag.RowsAffected() > 0
+	if added && fn != nil {
 		if err := fn(eventbus.WithTx(ctx, tx)); err != nil {
 			return false, err
 		}
@@ -661,7 +661,7 @@ func (s *WishlistStore) AddItemKemEvent(
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("customer: xác nhận giao dịch: %w", err)
 	}
-	return them, nil
+	return added, nil
 }
 
 func (s *WishlistStore) RemoveItem(

@@ -109,7 +109,7 @@ func TestSoTaiKhoanKhongNamDangRoTrongDatabase(t *testing.T) {
 
 	// Và bản mã phải đọc lại được — mã hóa mà không giải mã được thì
 	// không trả tiền cho nhà bán được, tức là còn tệ hơn.
-	lai, err := a.mods.seller.LaySoTaiKhoan(ctx, maNB)
+	lai, err := a.mods.seller.GetBankAccount(ctx, maNB)
 	if err != nil {
 		t.Fatalf("đọc lại số tài khoản: %v", err)
 	}

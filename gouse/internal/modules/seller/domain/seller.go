@@ -140,7 +140,7 @@ type Seller struct {
 	//
 	// Không có tài khoản đã xác minh thì không chi trả được, và seller sẽ
 	// bán hàng rồi không nhận được tiền — tranh chấp không đáng có.
-	bankAccount         TaiKhoanNganHang
+	bankAccount         BankAccount
 	bankAccountVerified bool
 
 	// suspensionReason lưu lý do đình chỉ để trả lời seller khi họ hỏi.
@@ -153,7 +153,7 @@ type Seller struct {
 	updatedAt time.Time
 }
 
-// TaiKhoanNganHang là tài khoản nhận tiền của nhà bán, ở dạng ENTITY THẤY
+// BankAccount là tài khoản nhận tiền của nhà bán, ở dạng ENTITY THẤY
 // ĐƯỢC.
 //
 // # Vì sao KHÔNG có số tài khoản đầy đủ ở đây
@@ -166,8 +166,8 @@ type Seller struct {
 // nguyên vẹn. Cắt nó ra khỏi đây là cắt luôn các đường ấy: muốn số đầy đủ
 // thì phải gọi một hàm RIÊNG, và hàm đó đếm được.
 //
-// Bản mã nằm ở database; xem SellerStore.LaySoTaiKhoan.
-type TaiKhoanNganHang struct {
+// Bản mã nằm ở database; xem SellerStore.GetBankAccount.
+type BankAccount struct {
 	// BankCode là mã ngân hàng, ví dụ "VCB", "TCB".
 	BankCode string
 
@@ -179,8 +179,8 @@ type TaiKhoanNganHang struct {
 	Last4 string
 }
 
-// CoTaiKhoan cho biết nhà bán đã khai tài khoản chưa.
-func (t TaiKhoanNganHang) CoTaiKhoan() bool {
+// HasBankAccount cho biết nhà bán đã khai tài khoản chưa.
+func (t BankAccount) HasBankAccount() bool {
 	return strings.TrimSpace(t.BankCode) != "" && strings.TrimSpace(t.Holder) != ""
 }
 
@@ -196,7 +196,7 @@ type NewSellerParams struct {
 
 	// BankAccount rỗng được với nhà bán NỘI BỘ: hàng là của nền tảng và
 	// tiền không đi đâu cả.
-	BankAccount TaiKhoanNganHang
+	BankAccount BankAccount
 
 	Now time.Time
 }
@@ -247,7 +247,7 @@ func NewSeller(p NewSellerParams) (*Seller, error) {
 		email:          strings.TrimSpace(p.Email),
 		phone:          strings.TrimSpace(p.Phone),
 		commissionRate: rate,
-		bankAccount: TaiKhoanNganHang{
+		bankAccount: BankAccount{
 			BankCode: strings.TrimSpace(p.BankAccount.BankCode),
 			Holder:   strings.TrimSpace(p.BankAccount.Holder),
 			Last4:    strings.TrimSpace(p.BankAccount.Last4),
@@ -269,7 +269,7 @@ type RestoreSellerParams struct {
 	Email               string
 	Phone               string
 	CommissionRate      types.BasisPoints
-	BankAccount         TaiKhoanNganHang
+	BankAccount         BankAccount
 	BankAccountVerified bool
 	SuspensionReason    string
 	ApprovedBy          string
@@ -312,7 +312,7 @@ func (s *Seller) Email() string                     { return s.email }
 func (s *Seller) Phone() string                     { return s.phone }
 func (s *Seller) CommissionRate() types.BasisPoints { return s.commissionRate }
 func (s *Seller) BankAccountVerified() bool         { return s.bankAccountVerified }
-func (s *Seller) BankAccount() TaiKhoanNganHang     { return s.bankAccount }
+func (s *Seller) BankAccount() BankAccount          { return s.bankAccount }
 func (s *Seller) SuspensionReason() string          { return s.suspensionReason }
 func (s *Seller) ApprovedBy() string                { return s.approvedBy }
 func (s *Seller) ApprovedAt() time.Time             { return s.approvedAt }
@@ -447,9 +447,9 @@ func (s *Seller) Terminate(reason string, now time.Time) error {
 //
 // Nhà bán NỘI BỘ được miễn: tiền không đi đâu cả.
 //
-// Số tài khoản đầy đủ KHÔNG nằm trong entity — xem TaiKhoanNganHang.
+// Số tài khoản đầy đủ KHÔNG nằm trong entity — xem BankAccount.
 func (s *Seller) VerifyBankAccount(now time.Time) error {
-	if !s.IsInternal() && !s.bankAccount.CoTaiKhoan() {
+	if !s.IsInternal() && !s.bankAccount.HasBankAccount() {
 		return ErrNoBankAccount
 	}
 	s.bankAccountVerified = true

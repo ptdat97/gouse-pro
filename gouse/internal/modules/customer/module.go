@@ -32,12 +32,12 @@ type Module struct {
 	// orders chuyển chủ các ĐƠN vãng lai sau khi xác minh email (P3-15).
 	//
 	// nil thì xác minh vẫn chạy nhưng KHÔNG gộp được lịch sử — và
-	// `XacMinhEmailVaGop` nói ra điều đó qua `SoDonDaGop = 0`.
+	// `VerifyEmailAndMerge` nói ra điều đó qua `MergedOrderCount = 0`.
 	orders OrderPort
 
 	// notifier gửi thư xác minh email (P3-15).
 	//
-	// nil nghĩa là `GuiLienKetXacMinh` trả lỗi rõ. KHÔNG im lặng bỏ qua:
+	// nil nghĩa là `SendVerificationLink` trả lỗi rõ. KHÔNG im lặng bỏ qua:
 	// một luồng xác minh mà thư không bao giờ tới là ngõ cụt giống hệt thứ
 	// P3-15 sinh ra để xóa bỏ.
 	notifier NotifierPort
@@ -73,7 +73,7 @@ type Config struct {
 	Orders OrderPort
 
 	// Notifier gửi thư XÁC MINH EMAIL (P3-15). Bỏ trống thì
-	// `GuiLienKetXacMinh` trả lỗi rõ thay vì im lặng không gửi gì.
+	// `SendVerificationLink` trả lỗi rõ thay vì im lặng không gửi gì.
 	Notifier NotifierPort
 
 	// Bỏ trống thì mọi thứ khác vẫn chạy, chỉ RegisterShopper trả lỗi —
@@ -158,9 +158,9 @@ func (m *Module) RegisterPublicRoutes(mux *http.ServeMux, log *slog.Logger) {
 			DuplicateEmail:   identity.ErrDuplicateEmail,
 			EmailUsedByGuest: ErrEmailUsedByGuest,
 			WeakPassword:     identity.ErrWeakPassword,
-			TokenKhongHopLe:  identity.ErrTokenXacMinhKhongHopLe,
-			EmailDaDoi:       identity.ErrEmailDaDoiTuKhiGuiLienKet,
-			EmailDaXacMinh:   identity.ErrEmailDaXacMinhRoi,
+			InvalidToken:     identity.ErrInvalidVerificationToken,
+			EmailChanged:     identity.ErrEmailChangedSinceLinkSent,
+			EmailVerified:    identity.ErrEmailAlreadyVerified,
 		},
 	).Register(mux)
 }
@@ -186,25 +186,25 @@ func (a *registerAdapter) RegisterShopper(
 		return customerhttp.RegisterOutput{}, err
 	}
 	return customerhttp.RegisterOutput{
-		CustomerID:      res.CustomerID,
-		UserID:          res.UserID,
-		CanXacMinhEmail: res.CanXacMinhEmail,
+		CustomerID:             res.CustomerID,
+		UserID:                 res.UserID,
+		NeedsEmailVerification: res.NeedsEmailVerification,
 	}, nil
 }
 
-func (a *registerAdapter) GuiLienKetXacMinh(ctx context.Context, userID string) error {
-	return a.m.GuiLienKetXacMinh(ctx, userID)
+func (a *registerAdapter) SendVerificationLink(ctx context.Context, userID string) error {
+	return a.m.SendVerificationLink(ctx, userID)
 }
 
-func (a *registerAdapter) XacMinhEmailVaGop(
+func (a *registerAdapter) VerifyEmailAndMerge(
 	ctx context.Context, token string,
-) (customerhttp.XacMinhOutput, error) {
-	res, err := a.m.XacMinhEmailVaGop(ctx, token)
+) (customerhttp.VerifyOutput, error) {
+	res, err := a.m.VerifyEmailAndMerge(ctx, token)
 	if err != nil {
-		return customerhttp.XacMinhOutput{}, err
+		return customerhttp.VerifyOutput{}, err
 	}
-	return customerhttp.XacMinhOutput{
-		Email: res.Email, DaGopHoSo: res.DaGopHoSo, SoDonDaGop: res.SoDonDaGop,
+	return customerhttp.VerifyOutput{
+		Email: res.Email, ProfileMerged: res.ProfileMerged, MergedOrderCount: res.MergedOrderCount,
 	}, nil
 }
 

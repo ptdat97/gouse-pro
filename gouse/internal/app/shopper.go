@@ -274,11 +274,11 @@ type guiXacMinhEmail struct{ api notification.API }
 
 var _ customer.NotifierPort = (*guiXacMinhEmail)(nil)
 
-func (g *guiXacMinhEmail) GuiXacMinhEmail(
+func (g *guiXacMinhEmail) SendEmailVerification(
 	ctx context.Context, userID, email, token string,
 ) error {
 	if g.api == nil {
-		return customer.ErrChuaNoiThongBao
+		return customer.ErrNotificationNotWired
 	}
 
 	// TRANSACTIONAL, không phải MARKETING: khách KHÔNG tắt được thư này,

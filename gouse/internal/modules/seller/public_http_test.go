@@ -42,7 +42,7 @@ func getJSON(t *testing.T, mux *http.ServeMux, url string) (int, map[string]any)
 //
 // Điền hết các trường nội bộ là có chủ ý: test dưới đây kiểm tra chúng
 // KHÔNG lọt ra endpoint công khai, và trường rỗng thì không kiểm được gì.
-func taoNhaBan(t *testing.T, m *seller.Module, ten string) string {
+func newSeller(t *testing.T, m *seller.Module, ten string) string {
 	t.Helper()
 	v, err := m.ApplyAsSeller(context.Background(), seller.ApplicationRequest{
 		Name:             ten,
@@ -65,7 +65,7 @@ func taoNhaBan(t *testing.T, m *seller.Module, ten string) string {
 	return v.ID
 }
 
-// TestHoSoCongKhaiKhongLoDuLieuNoiBo là bài test QUAN TRỌNG NHẤT của
+// TestPublicProfileLeaksNoInternalData là bài test QUAN TRỌNG NHẤT của
 // endpoint này.
 //
 // Endpoint không có Auth: bất kỳ ai trên internet gọi được. Tên pháp lý,
@@ -76,9 +76,9 @@ func taoNhaBan(t *testing.T, m *seller.Module, ten string) string {
 // Tỷ lệ hoa hồng đặc biệt nhạy: nó là điều khoản thương mại riêng giữa nền
 // tảng và từng nhà bán. Lộ ra nghĩa là mọi nhà bán biết đối thủ đang trả
 // bao nhiêu.
-func TestHoSoCongKhaiKhongLoDuLieuNoiBo(t *testing.T) {
+func TestPublicProfileLeaksNoInternalData(t *testing.T) {
 	mux, m := publicMux(t)
-	id := taoNhaBan(t, m, "Nha Ban Thu")
+	id := newSeller(t, m, "Nha Ban Thu")
 
 	code, body := getJSON(t, mux, "/api/v1/sellers?ids="+id)
 	if code != http.StatusOK {
@@ -94,9 +94,9 @@ func TestHoSoCongKhaiKhongLoDuLieuNoiBo(t *testing.T) {
 	// Chỉ đúng ba trường, không hơn. Kiểm tra danh sách TRẮNG chứ không
 	// phải danh sách đen: thêm trường mới vào aggregate mà quên cập nhật
 	// danh sách đen thì test vẫn xanh, và dữ liệu vẫn lọt.
-	choPhep := map[string]bool{"id": true, "name": true, "is_official": true}
+	allowed := map[string]bool{"id": true, "name": true, "is_official": true}
 	for k := range row {
-		if !choPhep[k] {
+		if !allowed[k] {
 			t.Errorf("trường %q lọt ra endpoint công khai", k)
 		}
 	}
@@ -114,18 +114,18 @@ func TestHoSoCongKhaiKhongLoDuLieuNoiBo(t *testing.T) {
 	}
 }
 
-// TestGiuDungThuTuMaDuocHoi: bên gọi ghép kết quả vào một danh sách đã sắp
+// TestKeepsTheRequestedIDOrder: bên gọi ghép kết quả vào một danh sách đã sắp
 // xếp sẵn, nên thứ tự phải theo thứ tự HỎI, không theo thứ tự map.
 //
 // Sáu nhà bán chứ không phải hai: thứ tự duyệt map trong Go là ngẫu nhiên,
 // nên với hai phần tử một cài đặt sai vẫn đúng 50% số lần chạy. Với sáu là
 // 1/720.
-func TestGiuDungThuTuMaDuocHoi(t *testing.T) {
+func TestKeepsTheRequestedIDOrder(t *testing.T) {
 	mux, m := publicMux(t)
 
 	var ids []string
 	for _, ten := range []string{"Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"} {
-		ids = append(ids, taoNhaBan(t, m, ten))
+		ids = append(ids, newSeller(t, m, ten))
 	}
 
 	_, body := getJSON(t, mux, "/api/v1/sellers?ids="+strings.Join(ids, ","))
@@ -141,15 +141,15 @@ func TestGiuDungThuTuMaDuocHoi(t *testing.T) {
 	}
 }
 
-// TestMaHongKhongLamHongCaLoiGoi: trang đang hiển thị một danh sách, và
+// TestOneBadIDDoesNotFailTheCall: trang đang hiển thị một danh sách, và
 // một mã hỏng không đáng để cả danh sách trống.
-func TestMaHongKhongLamHongCaLoiGoi(t *testing.T) {
+func TestOneBadIDDoesNotFailTheCall(t *testing.T) {
 	mux, m := publicMux(t)
-	that := taoNhaBan(t, m, "Co That")
-	khongTonTai := ids.MustNew(ids.PrefixSeller).String()
+	that := newSeller(t, m, "Co That")
+	nonexistentID := ids.MustNew(ids.PrefixSeller).String()
 
 	code, body := getJSON(t, mux,
-		"/api/v1/sellers?ids=khong-phai-ma,"+khongTonTai+","+that)
+		"/api/v1/sellers?ids=khong-phai-ma,"+nonexistentID+","+that)
 	if code != http.StatusOK {
 		t.Fatalf("mã HTTP = %d, cần 200", code)
 	}
@@ -164,9 +164,9 @@ func TestMaHongKhongLamHongCaLoiGoi(t *testing.T) {
 	}
 }
 
-// TestChanLoiGoiKeoCaBang: endpoint công khai không giới hạn là công cụ
+// TestBadCallDoesNotDragTheWholeTable: endpoint công khai không giới hạn là công cụ
 // trích xuất dữ liệu miễn phí.
-func TestChanLoiGoiKeoCaBang(t *testing.T) {
+func TestBadCallDoesNotDragTheWholeTable(t *testing.T) {
 	mux, _ := publicMux(t)
 
 	var many []string
@@ -180,9 +180,9 @@ func TestChanLoiGoiKeoCaBang(t *testing.T) {
 	}
 }
 
-// TestThieuThamSoIdsBiChan: thiếu `ids` mà trả cả bảng là hỏng theo kiểu
+// TestMissingIDsParamIsRejected: thiếu `ids` mà trả cả bảng là hỏng theo kiểu
 // nguy hiểm nhất — im lặng và tiện lợi.
-func TestThieuThamSoIdsBiChan(t *testing.T) {
+func TestMissingIDsParamIsRejected(t *testing.T) {
 	mux, _ := publicMux(t)
 	code, _ := getJSON(t, mux, "/api/v1/sellers")
 	if code != http.StatusBadRequest {

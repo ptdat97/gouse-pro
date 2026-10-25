@@ -21,10 +21,9 @@ func NewEventPublisher(outbox *eventbus.Outbox) application.EventPublisher {
 	return &eventPublisher{outbox: outbox}
 }
 
-// PublishThemYeuThich ghi event vào outbox BẰNG giao dịch của kho lưu trữ.
-func (p *eventPublisher) PublishThemYeuThich(
-	ctx context.Context, in application.ThemYeuThich,
-) error {
+// PublishWishlistItemAdded ghi event vào outbox BẰNG giao dịch của kho lưu trữ.
+func (p *eventPublisher) PublishWishlistItemAdded(
+	ctx context.Context, in application.WishlistItemAdded) error {
 	tx, err := eventbus.MustTxFrom(ctx)
 	if err != nil {
 		return errors.New(
@@ -43,20 +42,20 @@ func (p *eventPublisher) PublishThemYeuThich(
 			// riêng một size. Bên nhận phải chịu được cả hai.
 			VariantID string `json:"variant_id"`
 
-			// MuonBaoKhiCoHang là lời hứa "có hàng là tôi mua".
+			// WantsRestockNotice là lời hứa "có hàng là tôi mua".
 			//
 			// Trường quý nhất của payload: nó biến một lượt quan tâm thành
 			// một cam kết, và đó là tín hiệu nhu cầu rõ ràng nhất khách
 			// chủ động để lại.
-			MuonBaoKhiCoHang bool `json:"notify_when_available"`
+			WantsRestockNotice bool `json:"notify_when_available"`
 
-			ThemLuc string `json:"added_at"`
+			AddedAt string `json:"added_at"`
 		}{
-			CustomerID:       in.CustomerID.String(),
-			ProductID:        in.ProductID.String(),
-			VariantID:        in.VariantID.String(),
-			MuonBaoKhiCoHang: in.MuonBaoKhiCoHang,
-			ThemLuc:          in.ThemLuc.UTC().Format(time.RFC3339),
+			CustomerID:         in.CustomerID.String(),
+			ProductID:          in.ProductID.String(),
+			VariantID:          in.VariantID.String(),
+			WantsRestockNotice: in.WantsRestockNotice,
+			AddedAt:            in.AddedAt.UTC().Format(time.RFC3339),
 		})
 	if err != nil {
 		return err

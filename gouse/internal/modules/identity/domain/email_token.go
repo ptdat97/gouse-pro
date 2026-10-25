@@ -9,25 +9,25 @@ import (
 )
 
 var (
-	// ErrTokenKhongHopLe: token không tồn tại, đã dùng, hoặc đã hết hạn.
+	// ErrInvalidToken: token không tồn tại, đã dùng, hoặc đã hết hạn.
 	//
 	// MỘT lỗi cho cả ba, có chủ ý: phân biệt "không tồn tại" với "đã hết
 	// hạn" cho kẻ dò biết token nào TỪNG có thật, và từ đó biết email nào
 	// đang chờ xác minh.
-	ErrTokenKhongHopLe = errors.New("identity: token xác minh không hợp lệ hoặc đã hết hạn")
+	ErrInvalidToken = errors.New("identity: token xác minh không hợp lệ hoặc đã hết hạn")
 
-	// ErrEmailDaDoi: email của tài khoản đã đổi kể từ khi phát token.
-	ErrEmailDaDoi = errors.New("identity: email đã thay đổi kể từ khi gửi liên kết xác minh")
+	// ErrEmailChanged: email của tài khoản đã đổi kể từ khi phát token.
+	ErrEmailChanged = errors.New("identity: email đã thay đổi kể từ khi gửi liên kết xác minh")
 )
 
-// HanTokenXacMinh là thời gian sống của một token xác minh email.
+// VerificationTokenTTL là thời gian sống của một token xác minh email.
 //
 // 24 giờ: đủ rộng cho người nhận thư ở múi giờ khác hoặc mở hộp thư hôm
 // sau, đủ hẹp để một hộp thư bị chiếm sau đó không xác minh được bằng thư
 // cũ. Ngắn hơn (như token đặt lại mật khẩu) là phiền mà không an toàn hơn
 // đáng kể — token này không cấp quyền đăng nhập, nó chỉ chứng minh quyền
 // sở hữu hộp thư.
-const HanTokenXacMinh = 24 * time.Hour
+const VerificationTokenTTL = 24 * time.Hour
 
 // EmailToken là một lần phát liên kết xác minh email.
 //
@@ -78,7 +78,7 @@ func NewEmailToken(p NewEmailTokenParams) (*EmailToken, error) {
 		userID:    p.UserID,
 		hash:      p.Hash,
 		email:     NormalizeEmail(p.Email),
-		expiresAt: p.Now.Add(HanTokenXacMinh),
+		expiresAt: p.Now.Add(VerificationTokenTTL),
 		createdAt: p.Now,
 	}, nil
 }
@@ -91,15 +91,15 @@ func NewEmailToken(p NewEmailTokenParams) (*EmailToken, error) {
 // ba đều phải chặn ở DOMAIN chứ không ở truy vấn SQL. Một câu `WHERE
 // used_at IS NULL AND expires_at > now()` trông đủ, nhưng nó đặt quy tắc
 // vào chỗ mà lần viết truy vấn tiếp theo không nhìn thấy.
-func (t *EmailToken) Dung(emailHienTai string, now time.Time) error {
+func (t *EmailToken) Dung(currentEmail string, now time.Time) error {
 	if !t.usedAt.IsZero() {
-		return ErrTokenKhongHopLe
+		return ErrInvalidToken
 	}
 	if !now.Before(t.expiresAt) {
-		return ErrTokenKhongHopLe
+		return ErrInvalidToken
 	}
-	if NormalizeEmail(emailHienTai) != t.email {
-		return ErrEmailDaDoi
+	if NormalizeEmail(currentEmail) != t.email {
+		return ErrEmailChanged
 	}
 	t.usedAt = now
 	return nil

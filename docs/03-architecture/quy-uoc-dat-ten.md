@@ -125,6 +125,26 @@ tính giả (`Module`, `module`, `newModule`, `day`).
 bằng regex `\{[^}]*?` KHÔNG chạy: literal chứa `func(){…}` nên dấu `}` đầu
 tiên kết thúc sớm. Khớp theo DÒNG kèm thụt lề chính xác thay vì theo khối.
 
+### Method của interface do PLATFORM sở hữu thì GIỮ tên cũ
+
+`privacy.BoMaHoa` có method `MaHoa`. Bản đồ của `seller` đổi `MaHoa →
+Encrypted` cho một TRƯỜNG của nó, và `gofmt -r` đổi luôn lời gọi
+`s.maHoa.MaHoa(...)` thành `s.encrypted.Encrypted(...)` — method của
+`platform/privacy`, module không nằm trong lượt.
+
+Trường thì đổi được (`maHoa → encrypted`); method của bên khác thì không.
+Phân biệt hai thứ trùng tên khác chữ đầu là chỗ `gofmt -r` không giúp được.
+
+### Cổng do module NÀY khai mà module KHÁC cài: cũng phải hoãn
+
+Ngược với trường hợp dưới. `customer.OrderPort` do `customer` khai nhưng
+`order.Module` cài. Interface của Go là CẤU TRÚC, nên đổi tên method ở cổng mà
+không đổi bên cài làm `order.Module` không còn thỏa — và lỗi hiện ở chỗ GÁN
+trong `internal/app`, không ở chỗ sửa.
+
+Hai method ấy giữ tên tiếng Việt kèm chú thích nói vì sao, đổi cùng lúc với
+`order`.
+
 ### Method cài interface của module KHÁC thì GIỮ tên cũ
 
 Một adapter ở `internal/app` cài cổng do module khác khai. Đổi tên method ở
@@ -254,7 +274,13 @@ XONG   modules/returns                 121
 XONG   modules/analytics                61
 XONG   modules/catalog                  26   (kernel, lá)
 XONG   modules/pricing                  72   (kernel, lá)
-CÒN    2036 định danh Go ở 11 module
+XONG   modules/identity                 36   (kernel, lá)
+XONG   modules/customer                 82   (kernel, lá)
+XONG   modules/seller                   43   (kernel, lá)
+CÒN    1888 định danh Go ở 8 module
+
+HOÃN   customer.OrderPort — hai method còn tiếng Việt vì `order.Module` CÀI
+       chúng và `order` chưa đổi. Đổi cùng lúc với `order`.
 
 Bảy module extension đã xong hết. Nhóm KERNEL đi từ LÁ lên GỐC — module
 không import module nghiệp vụ nào trước, `checkout` gần cuối, `internal/app`

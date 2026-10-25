@@ -250,7 +250,7 @@ func Build(
 			Storage:   "postgres",
 			DB:        db,
 			Audit:     auditRecorder,
-			MaHoa:     boMaHoa,
+			Encrypted: boMaHoa,
 			OpsConfig: opsConfigStore,
 		})
 		if err != nil {

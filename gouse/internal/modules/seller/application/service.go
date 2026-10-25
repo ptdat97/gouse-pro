@@ -107,12 +107,12 @@ func NewService(d Deps) *Service {
 		chinhSach: d.ChinhSach}
 }
 
-// ErrDuoiSanHoaHong: tỷ lệ hoa hồng thấp hơn sàn chính sách.
+// ErrCommissionBelowFloor: tỷ lệ hoa hồng thấp hơn sàn chính sách.
 //
 // Lỗi RIÊNG chứ không gộp vào ErrInvalidCommissionRate: "150% là vô nghĩa"
 // và "3% là dưới sàn công ty đặt" là hai chuyện khác nhau, và người duyệt
 // cần biết mình đang gặp cái nào.
-var ErrDuoiSanHoaHong = errors.New("seller: hoa hồng dưới sàn chính sách")
+var ErrCommissionBelowFloor = errors.New("seller: hoa hồng dưới sàn chính sách")
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
 
@@ -130,12 +130,12 @@ type ApplyInput struct {
 	CommissionRate types.BasisPoints
 
 	// BankAccount là phần HIỂN THỊ ĐƯỢC của tài khoản nhận tiền.
-	BankAccount domain.TaiKhoanNganHang
+	BankAccount domain.BankAccount
 
-	// SoTaiKhoanDayDu chỉ đi xuống kho lưu trữ để mã hóa, không vào entity.
+	// FullAccountNumber chỉ đi xuống kho lưu trữ để mã hóa, không vào entity.
 	//
 	// Rỗng được với nhà bán NỘI BỘ: tiền không đi đâu cả.
-	SoTaiKhoanDayDu string
+	FullAccountNumber string
 }
 
 // Apply nộp hồ sơ đăng ký làm nhà bán.
@@ -158,14 +158,14 @@ func (s *Service) Apply(ctx context.Context, in ApplyInput) (*domain.Seller, err
 
 	// Không có số tài khoản thì ghi như thường — đúng với nhà bán nội bộ,
 	// và với hồ sơ nộp thiếu thì ràng buộc ở bước xác minh sẽ chặn.
-	if strings.TrimSpace(in.SoTaiKhoanDayDu) == "" {
+	if strings.TrimSpace(in.FullAccountNumber) == "" {
 		if err := s.sellers.Save(ctx, sel); err != nil {
 			return nil, err
 		}
 		return sel, nil
 	}
 
-	if err := s.sellers.LuuKemTaiKhoan(ctx, sel, in.SoTaiKhoanDayDu); err != nil {
+	if err := s.sellers.SaveWithBankAccount(ctx, sel, in.FullAccountNumber); err != nil {
 		return nil, err
 	}
 	return sel, nil
@@ -271,9 +271,9 @@ func (s *Service) ApproveWithAudit(
 		// Sàn mặc định 0 = không chặn gì, đúng bằng hành vi trước khi có
 		// tham số này. Nhà bán OWN BRAND miễn sàn — nhánh này không chạy
 		// cho họ, và database còn một ràng buộc CHECK nữa.
-		if san := s.sanHoaHong(); in.CommissionRateBP.Value() < san {
+		if san := s.commissionFloor(); in.CommissionRateBP.Value() < san {
 			return nil, fmt.Errorf("%w: %d điểm cơ bản, sàn hiện tại là %d",
-				ErrDuoiSanHoaHong, in.CommissionRateBP.Value(), san)
+				ErrCommissionBelowFloor, in.CommissionRateBP.Value(), san)
 		}
 		if err := sel.SetCommissionRate(in.CommissionRateBP, now); err != nil {
 			return nil, err
@@ -404,11 +404,11 @@ func (s *Service) VerifyBankAccount(ctx context.Context, id ids.ID) (*domain.Sel
 	})
 }
 
-// LaySoTaiKhoan trả về số tài khoản ĐẦY ĐỦ, đã giải mã.
+// GetBankAccount trả về số tài khoản ĐẦY ĐỦ, đã giải mã.
 //
 // Đi thẳng xuống kho lưu trữ: entity cố ý không mang số đầy đủ.
-func (s *Service) LaySoTaiKhoan(ctx context.Context, id ids.ID) (string, error) {
-	return s.sellers.LaySoTaiKhoan(ctx, id)
+func (s *Service) GetBankAccount(ctx context.Context, id ids.ID) (string, error) {
+	return s.sellers.GetBankAccount(ctx, id)
 }
 
 // ---------------------------------------------------------------- Đọc
@@ -504,26 +504,26 @@ func (s *Service) change(
 // Tỷ lệ của TỪNG nhà bán là dữ liệu (khác nhau theo hợp đồng); hai con số
 // ở đây là chính sách quanh nó.
 type ChinhSachPort interface {
-	// SanHoaHong là mức tối thiểu, theo điểm cơ bản. 0 = không có sàn.
-	SanHoaHong() int32
+	// CommissionFloor là mức tối thiểu, theo điểm cơ bản. 0 = không có sàn.
+	CommissionFloor() int32
 
-	// HoaHongDeXuat là con số ĐIỀN SẴN trên màn hình duyệt. 0 = không đề
+	// SuggestedCommission là con số ĐIỀN SẴN trên màn hình duyệt. 0 = không đề
 	// xuất gì. Nó KHÔNG tự áp cho ai.
-	HoaHongDeXuat() int32
+	SuggestedCommission() int32
 }
 
-// sanHoaHong đọc sàn hoa hồng, MỖI LẦN duyệt.
-func (s *Service) sanHoaHong() int32 {
+// commissionFloor đọc sàn hoa hồng, MỖI LẦN duyệt.
+func (s *Service) commissionFloor() int32 {
 	if s.chinhSach == nil {
 		return 0
 	}
-	return s.chinhSach.SanHoaHong()
+	return s.chinhSach.CommissionFloor()
 }
 
-// HoaHongDeXuat trả mức đề xuất để giao diện điền sẵn.
-func (s *Service) HoaHongDeXuat() int32 {
+// SuggestedCommission trả mức đề xuất để giao diện điền sẵn.
+func (s *Service) SuggestedCommission() int32 {
 	if s.chinhSach == nil {
 		return 0
 	}
-	return s.chinhSach.HoaHongDeXuat()
+	return s.chinhSach.SuggestedCommission()
 }

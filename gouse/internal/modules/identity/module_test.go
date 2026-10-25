@@ -108,7 +108,7 @@ func login(t *testing.T, m *identity.Module, email, password string) (identity.A
 }
 
 // ĐĂNG KÝ RỒI ĐĂNG NHẬP: đường đi cơ bản nhất phải chạy được.
-func TestDangKyRoiDangNhap(t *testing.T) {
+func TestRegisterThenLogin(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	u := register(t, m, "khach@example.com")
@@ -135,7 +135,7 @@ func TestDangKyRoiDangNhap(t *testing.T) {
 //
 // Không chuẩn hóa thì khách tạo hai tài khoản rồi không hiểu vì sao mất
 // đơn hàng cũ.
-func TestEmailChuanHoa(t *testing.T) {
+func TestEmailIsNormalized(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	register(t, m, "Khach@Example.com")
@@ -157,7 +157,7 @@ func TestEmailChuanHoa(t *testing.T) {
 //
 // Đây là ràng buộc quan trọng nhất của bảng session. Test đọc thẳng cột
 // trong database chứ không qua API — vì API sẽ luôn "đúng" theo chính nó.
-func TestTokenLuuDangBam(t *testing.T) {
+func TestTokensAreStoredHashed(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -186,7 +186,7 @@ func TestTokenLuuDangBam(t *testing.T) {
 //
 // Email không tồn tại và sai mật khẩu phải trả CÙNG MỘT lỗi. Phân biệt
 // chúng cho phép kẻ tấn công thu hẹp danh sách trước khi dò mật khẩu.
-func TestKhongLoTaiKhoanCoThat(t *testing.T) {
+func TestDoesNotRevealExistingAccounts(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -250,7 +250,7 @@ func TestKhongLoTaiKhoanCoThat(t *testing.T) {
 // khoảng cách tuyệt đối nhỏ hơn môi trường thật rất nhiều. Test qua ở đây
 // nghĩa là "có gọi băm", không phải "an toàn tuyệt đối trước phân tích
 // thời gian".
-func TestThoiGianPhanHoiKhongLoTaiKhoan(t *testing.T) {
+func TestResponseTimeDoesNotRevealAccounts(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	register(t, m, "co-that@example.com")
@@ -285,7 +285,7 @@ func TestThoiGianPhanHoiKhongLoTaiKhoan(t *testing.T) {
 //
 // Chỉ ghi thất bại thì không phát hiện được "đăng nhập thành công từ một
 // quốc gia lạ lúc 3 giờ sáng" — loại bất thường nguy hiểm nhất.
-func TestGhiCaDangNhapThanhCong(t *testing.T) {
+func TestLogsSuccessfulLoginsToo(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -309,7 +309,7 @@ func TestGhiCaDangNhapThanhCong(t *testing.T) {
 //
 // IP là dữ liệu cá nhân. Băm vẫn cho phép phát hiện "nhiều lần thử từ cùng
 // một nguồn" mà không lưu chính địa chỉ đó.
-func TestKhongLuuIPNguyenVan(t *testing.T) {
+func TestDoesNotStoreRawIP(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -346,7 +346,7 @@ func TestKhongLuuIPNguyenVan(t *testing.T) {
 //
 // Khóa vĩnh viễn biến việc dò mật khẩu thành công cụ khóa tài khoản người
 // khác — kẻ tấn công chỉ cần gõ sai năm lần.
-func TestKhoaTaiKhoanRoiTuMo(t *testing.T) {
+func TestAccountLocksThenSelfUnlocks(t *testing.T) {
 	clock := newClock()
 	m, _ := newModule(t, clock)
 
@@ -374,7 +374,7 @@ func TestKhoaTaiKhoanRoiTuMo(t *testing.T) {
 //
 // Không xóa thì một người gõ nhầm bốn lần trong ba tháng sẽ bị khóa ở lần
 // nhầm thứ năm, dù đã đăng nhập thành công nhiều lần ở giữa.
-func TestThanhCongXoaSoLanSai(t *testing.T) {
+func TestSuccessClearsFailedAttempts(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -402,7 +402,7 @@ func TestThanhCongXoaSoLanSai(t *testing.T) {
 //
 // Nếu token cũ còn dùng được, kẻ đánh cắp nó vẫn vào được vô thời hạn và
 // không có dấu hiệu nào để phát hiện.
-func TestXoayTokenLamTokenCuVoHieu(t *testing.T) {
+func TestRotatingTokenInvalidatesTheOldOne(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -433,7 +433,7 @@ func TestXoayTokenLamTokenCuVoHieu(t *testing.T) {
 }
 
 // PHIÊN HẾT HẠN KHÔNG DÙNG ĐƯỢC, dù chưa bị thu hồi.
-func TestPhienHetHan(t *testing.T) {
+func TestSessionExpiry(t *testing.T) {
 	clock := newClock()
 	m, _ := newModule(t, clock)
 	ctx := context.Background()
@@ -456,7 +456,7 @@ func TestPhienHetHan(t *testing.T) {
 // Đây là lý do tồn tại của bảng session. Nếu tài khoản bị lộ, đổi mật khẩu
 // mà phiên cũ vẫn sống thì kẻ tấn công vẫn vào được — và người dùng tưởng
 // mình đã an toàn, nguy hiểm hơn là không đổi gì cả.
-func TestDoiMatKhauThuHoiMoiPhien(t *testing.T) {
+func TestPasswordChangeRevokesAllSessions(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -503,7 +503,7 @@ func TestDoiMatKhauThuHoiMoiPhien(t *testing.T) {
 //
 // Không kiểm tra thì ai chiếm được phiên đang mở sẽ đổi mật khẩu và đá chủ
 // tài khoản ra ngoài.
-func TestDoiMatKhauCanMatKhauCu(t *testing.T) {
+func TestPasswordChangeNeedsOldPassword(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -520,7 +520,7 @@ func TestDoiMatKhauCanMatKhauCu(t *testing.T) {
 }
 
 // TREO TÀI KHOẢN CÓ HIỆU LỰC NGAY, không chờ token hết hạn.
-func TestTreoTaiKhoanThuHoiPhien(t *testing.T) {
+func TestSuspendingAccountRevokesSessions(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -544,7 +544,7 @@ func TestTreoTaiKhoanThuHoiPhien(t *testing.T) {
 
 // LỚP THỨ HAI: trạng thái tài khoản được kiểm tra ở MỖI lần xác thực.
 //
-// Test trên (TestTreoTaiKhoanThuHoiPhien) đi qua hai lớp bảo vệ cùng lúc —
+// Test trên (TestSuspendingAccountRevokesSessions) đi qua hai lớp bảo vệ cùng lúc —
 // thu hồi phiên VÀ kiểm tra trạng thái — nên phá một lớp nó vẫn xanh. Đã
 // kiểm chứng ngược: chỉ khi phá CẢ HAI nó mới đỏ.
 //
@@ -552,7 +552,7 @@ func TestTreoTaiKhoanThuHoiPhien(t *testing.T) {
 // không qua module. Đó không phải tình huống bịa: quản trị viên chạy SQL
 // khi xử lý sự cố, và một lần Suspend thất bại giữa chừng cũng để lại đúng
 // trạng thái này — tài khoản SUSPENDED với phiên còn sống.
-func TestTrangThaiDuocKiemTraMoiLanXacThuc(t *testing.T) {
+func TestStatusIsCheckedOnEveryAuth(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -585,7 +585,7 @@ func TestTrangThaiDuocKiemTraMoiLanXacThuc(t *testing.T) {
 //
 // Gọi lại với token đã thu hồi phải THÀNH CÔNG: kết quả mong muốn (phiên
 // đó không dùng được) đã đạt. Trả lỗi sẽ khiến client thử lại vô ích.
-func TestDangXuatIdempotent(t *testing.T) {
+func TestLogoutIsIdempotent(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -679,7 +679,7 @@ func TestPhamViTheoVaiTro(t *testing.T) {
 }
 
 // CẤP VAI TRÒ LÀ IDEMPOTENT, THU HỒI CÓ HIỆU LỰC.
-func TestCapVaThuHoiVaiTro(t *testing.T) {
+func TestGrantAndRevokeRole(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -745,7 +745,7 @@ func TestVaiTroLaBiTuChoi(t *testing.T) {
 }
 
 // MẬT KHẨU YẾU VÀ EMAIL SAI ĐỊNH DẠNG BỊ TỪ CHỐI.
-func TestTuChoiDauVaoKhongHopLe(t *testing.T) {
+func TestRejectsInvalidInput(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -771,7 +771,7 @@ func TestTuChoiDauVaoKhongHopLe(t *testing.T) {
 // Tài khoản có mà không có mật khẩu là tài khoản không đăng nhập được, và
 // người dùng sẽ thử đăng ký lại rồi gặp "email đã tồn tại" — bế tắc chỉ
 // quản trị viên gỡ được. Test kiểm tra hai bảng luôn khớp nhau.
-func TestKhongLuuTaiKhoanNuaVoi(t *testing.T) {
+func TestNeverStoresHalfBuiltAccount(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -807,7 +807,7 @@ func TestKhongLuuTaiKhoanNuaVoi(t *testing.T) {
 // Kiểm tra "email đã tồn tại chưa" ở tầng ứng dụng KHÔNG cứu được trường
 // hợp này — hai request cùng đọc thấy trống rồi cùng ghi. Chỉ ràng buộc
 // UNIQUE ở database chặn được.
-func TestDangKyTrungSongSong(t *testing.T) {
+func TestConcurrentDuplicateRegistration(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 

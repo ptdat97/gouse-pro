@@ -55,7 +55,7 @@ func (s *EmailTokenStore) FindByHash(
 		if errors.Is(err, pgx.ErrNoRows) {
 			// CÙNG một lỗi với token hết hạn hay đã dùng: phân biệt chúng
 			// cho kẻ dò biết token nào TỪNG có thật.
-			return nil, domain.ErrTokenKhongHopLe
+			return nil, domain.ErrInvalidToken
 		}
 		return nil, fmt.Errorf("identity: đọc token xác minh: %w", err)
 	}
@@ -83,7 +83,7 @@ func (s *EmailTokenStore) MarkUsed(ctx context.Context, t *domain.EmailToken) er
 		return fmt.Errorf("identity: đánh dấu token đã dùng: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return domain.ErrTokenKhongHopLe
+		return domain.ErrInvalidToken
 	}
 	return nil
 }

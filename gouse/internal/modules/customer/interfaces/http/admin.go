@@ -101,7 +101,7 @@ func (h *AdminHandler) getCustomer(w http.ResponseWriter, r *http.Request) {
 		RequestID:  logger.RequestIDFromContext(r.Context()),
 	})
 	if err != nil {
-		h.fail(w, r, dichLoiXemKhach(err))
+		h.fail(w, r, translateViewCustomerErr(err))
 		return
 	}
 
@@ -118,7 +118,7 @@ func (h *AdminHandler) getCustomer(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func dichLoiXemKhach(err error) error {
+func translateViewCustomerErr(err error) error {
 	switch {
 	case errors.Is(err, audit.ErrReasonRequired):
 		// 400 chứ không phải 500: lý do quá ngắn hoặc là chuỗi rác là lỗi

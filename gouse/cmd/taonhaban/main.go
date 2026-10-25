@@ -95,7 +95,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	sel, err := seller.New(seller.Config{Storage: "postgres", DB: db, MaHoa: maHoa})
+	sel, err := seller.New(seller.Config{Storage: "postgres", DB: db, Encrypted: maHoa})
 	if err != nil {
 		panic(err)
 	}

@@ -38,11 +38,11 @@ import (
 // refreshCookieName là tên cookie chứa refresh token.
 const refreshCookieName = "refresh_token"
 
-// msgPhienKhongHopLe là câu trả lời cho MỌI lý do phiên không dùng được:
+// msgInvalidSession là câu trả lời cho MỌI lý do phiên không dùng được:
 // thiếu cookie, token đã xoay, đã thu hồi, hết hạn. Gộp làm một vì client
 // xử lý cả bốn giống nhau — đăng nhập lại — và vì tách ra chỉ giúp người
 // đang thử token không phải chủ.
-const msgPhienKhongHopLe = "Phiên đăng nhập không hợp lệ hoặc đã hết hạn"
+const msgInvalidSession = "Phiên đăng nhập không hợp lệ hoặc đã hết hạn"
 
 // Handler phục vụ các endpoint xác thực.
 type Handler struct {
@@ -135,7 +135,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(refreshCookieName)
 	if err != nil || cookie.Value == "" {
 		h.fail(w, r, apierror.New(apierror.CodeUnauthorized,
-			msgPhienKhongHopLe))
+			msgInvalidSession))
 		return
 	}
 
@@ -145,7 +145,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		// Xóa cookie hỏng để trình duyệt không gửi lại mãi. Không xóa thì
 		// client lặp vô hạn: gửi token chết → 401 → thử refresh → 401.
 		h.clearRefreshCookie(w)
-		h.fail(w, r, translatePhienErr(err))
+		h.fail(w, r, translateSessionErr(err))
 		return
 	}
 
@@ -198,7 +198,7 @@ func (h *Handler) adminMe(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.svc.GetUser(r.Context(), ids.ID(ac.UserID))
 	if err != nil {
-		h.fail(w, r, translatePhienErr(err))
+		h.fail(w, r, translateSessionErr(err))
 		return
 	}
 
@@ -347,7 +347,7 @@ func translateAuthErr(err error) error {
 	}
 }
 
-// translatePhienErr dịch lỗi cho các đường KHÔNG nhận mật khẩu: `refresh`
+// translateSessionErr dịch lỗi cho các đường KHÔNG nhận mật khẩu: `refresh`
 // và `/me`.
 //
 // # Vì sao không dùng chung translateAuthErr
@@ -363,7 +363,7 @@ func translateAuthErr(err error) error {
 //
 // Cụ thể: tái dùng refresh token đã xoay trả về 401 kèm câu "Email hoặc
 // mật khẩu không đúng" — thấy trên môi trường Docker thật ngày 16/09.
-func translatePhienErr(err error) error {
+func translateSessionErr(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrAccountLocked):
 		return apierror.New(apierror.CodeUnauthorized,
@@ -374,7 +374,7 @@ func translatePhienErr(err error) error {
 		errors.Is(err, domain.ErrNotFound),
 		errors.Is(err, domain.ErrInvalidLogin):
 		return apierror.New(apierror.CodeUnauthorized,
-			msgPhienKhongHopLe)
+			msgInvalidSession)
 
 	default:
 		return apierror.From(err)

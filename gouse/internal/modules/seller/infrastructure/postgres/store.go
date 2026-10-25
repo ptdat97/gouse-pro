@@ -26,17 +26,17 @@ type Store struct {
 	// maHoa mã hóa số tài khoản ngân hàng. Có thể nil: khi đó nhà bán vẫn
 	// lưu được nhưng KHÔNG khai được tài khoản — thà từ chối còn hơn ghi
 	// số tài khoản ở dạng rõ.
-	maHoa *privacy.BoMaHoa
+	encrypted *privacy.BoMaHoa
 }
 
-func NewStore(pool *pgxpool.Pool, maHoa *privacy.BoMaHoa) *Store {
-	return &Store{pool: pool, maHoa: maHoa}
+func NewStore(pool *pgxpool.Pool, encrypted *privacy.BoMaHoa) *Store {
+	return &Store{pool: pool, encrypted: encrypted}
 }
 
 // cols CỐ Ý không có `bank_account_number_enc`.
 //
 // Đường đọc thường không cần số tài khoản đầy đủ, và thứ không được đọc
-// thì không lộ được. Muốn số đầy đủ thì gọi LaySoTaiKhoan — một hàm
+// thì không lộ được. Muốn số đầy đủ thì gọi GetBankAccount — một hàm
 // riêng, đếm được, và là chỗ duy nhất giải mã.
 const cols = `
 	id, name, slug, seller_type, status, legal_name, tax_code, email, phone,
@@ -175,7 +175,7 @@ func save(ctx context.Context, ex execer, sel *domain.Seller) error {
 			bank_account_holder   = EXCLUDED.bank_account_holder`
 	// KHÔNG đụng tới bank_account_number_enc: entity không mang số đầy đủ,
 	// nên ghi nó từ đây chỉ có thể ghi chuỗi rỗng đè lên bản mã đang có.
-	// Số tài khoản chỉ được ghi qua LuuKemTaiKhoan.
+	// Số tài khoản chỉ được ghi qua SaveWithBankAccount.
 
 	var approvedAt *time.Time
 	if t := sel.ApprovedAt(); !t.IsZero() {
@@ -281,28 +281,28 @@ func (s *Store) List(ctx context.Context, f domain.Filter) ([]*domain.Seller, er
 
 // ---------------------------------------------------- Tài khoản ngân hàng
 
-// LuuKemTaiKhoan ghi nhà bán VÀ số tài khoản đã mã hóa, trong MỘT giao dịch.
+// SaveWithBankAccount ghi nhà bán VÀ số tài khoản đã mã hóa, trong MỘT giao dịch.
 //
 // Số đầy đủ đi thẳng từ tham số vào bản mã, không đi qua entity — xem
-// domain.TaiKhoanNganHang để biết vì sao.
+// domain.BankAccount để biết vì sao.
 //
 // Hai lượt ghi rời sẽ để lại nhà bán không có tài khoản khi lượt sau hỏng,
 // và ràng buộc `seller_verified_needs_account` sẽ chặn mọi lần xác minh
 // sau đó mà không ai hiểu vì sao.
-func (s *Store) LuuKemTaiKhoan(
-	ctx context.Context, sel *domain.Seller, soDayDu string,
+func (s *Store) SaveWithBankAccount(
+	ctx context.Context, sel *domain.Seller, fullNumber string,
 ) error {
-	if strings.TrimSpace(soDayDu) == "" {
+	if strings.TrimSpace(fullNumber) == "" {
 		return domain.ErrNoBankAccount
 	}
-	if s.maHoa == nil {
+	if s.encrypted == nil {
 		// Thà từ chối còn hơn ghi số tài khoản ở dạng rõ.
 		return errors.New(
 			"seller: chưa cấu hình khóa mã hóa (ENCRYPTION_KEY), " +
 				"không nhận được tài khoản ngân hàng")
 	}
 
-	kin, err := s.maHoa.MaHoa(strings.TrimSpace(soDayDu))
+	kin, err := s.encrypted.MaHoa(strings.TrimSpace(fullNumber))
 	if err != nil {
 		return fmt.Errorf("seller: mã hóa số tài khoản: %w", err)
 	}
@@ -328,7 +328,7 @@ func (s *Store) LuuKemTaiKhoan(
 	return nil
 }
 
-// LaySoTaiKhoan giải mã và trả về số tài khoản ĐẦY ĐỦ.
+// GetBankAccount giải mã và trả về số tài khoản ĐẦY ĐỦ.
 //
 // # Đây là chỗ DUY NHẤT giải mã
 //
@@ -337,8 +337,8 @@ func (s *Store) LuuKemTaiKhoan(
 //
 // Bên gọi có trách nhiệm ghi audit: đọc số tài khoản của một nhà bán là
 // truy cập dữ liệu nhạy cảm, và nó phải đếm được ai đọc, lúc nào, vì sao.
-func (s *Store) LaySoTaiKhoan(ctx context.Context, id ids.ID) (string, error) {
-	if s.maHoa == nil {
+func (s *Store) GetBankAccount(ctx context.Context, id ids.ID) (string, error) {
+	if s.encrypted == nil {
 		return "", errors.New("seller: chưa cấu hình khóa mã hóa (ENCRYPTION_KEY)")
 	}
 
@@ -355,5 +355,5 @@ func (s *Store) LaySoTaiKhoan(ctx context.Context, id ids.ID) (string, error) {
 	if kin == "" {
 		return "", domain.ErrNoBankAccount
 	}
-	return s.maHoa.GiaiMa(kin)
+	return s.encrypted.GiaiMa(kin)
 }

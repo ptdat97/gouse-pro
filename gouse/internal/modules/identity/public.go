@@ -45,17 +45,17 @@ type API interface {
 	// danh sách email.
 	Register(ctx context.Context, req RegisterRequest) (UserView, error)
 
-	// PhatTokenXacMinh phát liên kết xác minh email.
+	// IssueVerificationToken phát liên kết xác minh email.
 	//
 	// Trả bản NGUYÊN VĂN của token — bên gọi đưa vào thư và KHÔNG ghi vào
 	// log; database chỉ giữ bản băm.
-	PhatTokenXacMinh(ctx context.Context, userID string) (token, email string, err error)
+	IssueVerificationToken(ctx context.Context, userID string) (token, email string, err error)
 
-	// XacMinhEmail đổi token nguyên văn lấy việc đánh dấu email đã xác minh.
+	// VerifyEmail đổi token nguyên văn lấy việc đánh dấu email đã xác minh.
 	//
 	// KHÔNG gộp hồ sơ khách hàng: module này không biết `customer` tồn
 	// tại. Việc ghép hai bước nằm ở `customer.XacMinhEmailVaGop`.
-	XacMinhEmail(ctx context.Context, token string) (*XacMinhResult, error)
+	VerifyEmail(ctx context.Context, token string) (*VerificationResult, error)
 
 	// Login xác thực và mở phiên.
 	//
@@ -339,18 +339,18 @@ const (
 // ---------------------------------------------------- Xác minh email
 
 var (
-	// ErrTokenXacMinhKhongHopLe: token không tồn tại, đã dùng, hoặc hết hạn.
+	// ErrInvalidVerificationToken: token không tồn tại, đã dùng, hoặc hết hạn.
 	//
 	// MỘT lỗi cho cả ba: phân biệt chúng cho kẻ dò biết token nào TỪNG có
 	// thật, và từ đó biết email nào đang chờ xác minh.
-	ErrTokenXacMinhKhongHopLe = domain.ErrTokenKhongHopLe
+	ErrInvalidVerificationToken = domain.ErrInvalidToken
 
-	// ErrEmailDaDoiTuKhiGuiLienKet: tài khoản đã đổi email sau khi phát token.
-	ErrEmailDaDoiTuKhiGuiLienKet = domain.ErrEmailDaDoi
+	// ErrEmailChangedSinceLinkSent: tài khoản đã đổi email sau khi phát token.
+	ErrEmailChangedSinceLinkSent = domain.ErrEmailChanged
 )
 
-// XacMinhResult là kết quả xác minh email thành công.
-type XacMinhResult struct {
+// VerificationResult là kết quả xác minh email thành công.
+type VerificationResult struct {
 	UserID string
 	Email  string
 }

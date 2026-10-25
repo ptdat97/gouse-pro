@@ -396,11 +396,11 @@ const (
 // `notification.API` buộc mọi bản giả trong test cài thêm những hàm nó
 // không dùng.
 type NotifierPort interface {
-	// GuiXacMinhEmail gửi thư chứa liên kết xác minh (P3-15).
+	// SendEmailVerification gửi thư chứa liên kết xác minh (P3-15).
 	//
 	// `token` là bản NGUYÊN VĂN — bên cài đặt đưa vào thân thư và KHÔNG
 	// ghi vào log.
-	GuiXacMinhEmail(ctx context.Context, userID, email, token string) error
+	SendEmailVerification(ctx context.Context, userID, email, token string) error
 }
 
 // OrderPort là những gì customer CẦN từ order.
@@ -411,6 +411,15 @@ type OrderPort interface {
 	// GanDonVangLaiChoKhach gắn đơn vãng lai của một email vào hồ sơ khách.
 	//
 	// Trả SỐ ĐƠN đã gắn.
+	//
+	// # Vì sao hai method này còn tên tiếng Việt
+	//
+	// Cổng do module NÀY khai, nhưng bên CÀI là `order.Module` — và `order`
+	// chưa được đổi tên. Interface của Go là cấu trúc, nên đổi tên ở đây mà
+	// không đổi bên cài làm `order.Module` không còn thỏa cổng, và lỗi hiện
+	// ở chỗ GÁN trong `internal/app` chứ không ở đây.
+	//
+	// Đổi cùng lúc với `order`. Xem docs/03-architecture/quy-uoc-dat-ten.md.
 	GanDonVangLaiChoKhach(ctx context.Context, guestEmail, customerID string) (int, error)
 
 	// DemDonVangLai đếm đơn VÃNG LAI của một email.

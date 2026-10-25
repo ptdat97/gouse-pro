@@ -95,7 +95,7 @@ func addrReq(customerID, line1 string) customer.AddressRequest {
 }
 
 // TẠO HỒ SƠ: khách vãng lai và khách đã đăng ký khác nhau ở user_id.
-func TestTaoHoSo(t *testing.T) {
+func TestCreateProfile(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -124,7 +124,7 @@ func TestTaoHoSo(t *testing.T) {
 //
 // Hai module lưu email khác định dạng thì không bao giờ gộp được danh tính
 // khách vãng lai với tài khoản đăng ký sau đó.
-func TestEmailChuanHoa(t *testing.T) {
+func TestEmailIsNormalized(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -149,7 +149,7 @@ func TestEmailChuanHoa(t *testing.T) {
 //
 // Tạo hồ sơ thứ hai nghĩa là lịch sử mua hàng bị chia ra, và không bao giờ
 // gộp lại được vì hai hồ sơ trông như hai người khác nhau.
-func TestKhachVangLaiQuayLai(t *testing.T) {
+func TestReturningGuest(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -174,7 +174,7 @@ func TestKhachVangLaiQuayLai(t *testing.T) {
 // Kiểm tra "email đã tồn tại chưa" ở tầng ứng dụng KHÔNG cứu được — mười
 // request cùng đọc thấy trống rồi cùng ghi. Chỉ ràng buộc UNIQUE chặn
 // được, và EnsureByEmail phải đọc lại thay vì báo lỗi ra ngoài.
-func TestDuaNhauTaoHoSo(t *testing.T) {
+func TestConcurrentProfileCreation(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -224,7 +224,7 @@ func TestDuaNhauTaoHoSo(t *testing.T) {
 //
 // Đây là lý do khách vãng lai cũng có hồ sơ: khi họ đăng ký, toàn bộ đơn
 // hàng cũ tự thuộc về tài khoản mới mà không phải chuyển gì.
-func TestGanTaiKhoanGiuNguyenID(t *testing.T) {
+func TestAttachingAccountKeepsProfileID(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -251,7 +251,7 @@ func TestGanTaiKhoanGiuNguyenID(t *testing.T) {
 //
 // Không có mặc định thì trang thanh toán không biết điền gì, và khách phải
 // chọn lại địa chỉ ở mỗi đơn.
-func TestDiaChiDauTienLaMacDinh(t *testing.T) {
+func TestFirstAddressBecomesDefault(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -279,7 +279,7 @@ func TestDiaChiDauTienLaMacDinh(t *testing.T) {
 // Đây là ràng buộc quan trọng nhất của sổ địa chỉ: hai mặc định nghĩa là
 // đơn hàng lấy địa chỉ nào do thứ tự sắp xếp quyết định, và hàng có thể đi
 // tới địa chỉ khách đã chuyển đi từ lâu.
-func TestDungMotDiaChiMacDinh(t *testing.T) {
+func TestExactlyOneDefaultAddress(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -325,7 +325,7 @@ func TestDungMotDiaChiMacDinh(t *testing.T) {
 // Năm tab cùng bấm "đặt làm mặc định" cho năm địa chỉ khác nhau. Nếu việc
 // gỡ cờ cũ và đặt cờ mới không nằm trong một giao dịch, kết quả có thể là
 // không có mặc định nào — hoặc lỗi chỉ mục.
-func TestDoiMacDinhSongSong(t *testing.T) {
+func TestConcurrentDefaultAddressChange(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -366,7 +366,7 @@ func TestDoiMacDinhSongSong(t *testing.T) {
 //
 // Địa chỉ chứa tên, số điện thoại và địa chỉ nhà — rò rỉ nó nguy hiểm hơn
 // rò rỉ lịch sử mua hàng.
-func TestCachLyDiaChiGiuaCacKhach(t *testing.T) {
+func TestAddressesAreIsolatedBetweenCustomers(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -458,7 +458,7 @@ func TestXoaDiaChiLaXoaMem(t *testing.T) {
 //
 // Thiếu tên người nhận hay số điện thoại thì đơn vị vận chuyển không giao
 // được — và lỗi đó chỉ lộ ra khi hàng đã đóng gói xong.
-func TestDiaChiThieuTruongBatBuoc(t *testing.T) {
+func TestAddressMissingRequiredField(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -481,7 +481,7 @@ func TestDiaChiThieuTruongBatBuoc(t *testing.T) {
 //
 // Nghĩa vụ pháp lý là chứng minh được khách đã đồng ý VÀO LÚC NÀO và Ở
 // ĐÂU. Sửa bản ghi cũ là hủy chính bằng chứng đó.
-func TestDongYLaNhatKyChiGhiThem(t *testing.T) {
+func TestConsentIsAnAppendOnlyLog(t *testing.T) {
 	clock := newClock()
 	m, pool := newModule(t, clock)
 	ctx := context.Background()
@@ -555,7 +555,7 @@ func TestDongYLaNhatKyChiGhiThem(t *testing.T) {
 //
 // Suy diễn ngược lại là gửi thư quảng cáo cho người chưa bao giờ bấm đồng
 // ý — vi phạm pháp luật ở nhiều thị trường.
-func TestVangMatNghiaLaChuaDongY(t *testing.T) {
+func TestAbsenceMeansNoConsent(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -580,7 +580,7 @@ func TestVangMatNghiaLaChuaDongY(t *testing.T) {
 //
 // "Khách đã đồng ý" mà không nói được ở đâu thì không dùng được làm bằng
 // chứng.
-func TestDongYPhaiCoNguon(t *testing.T) {
+func TestConsentNeedsASource(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -608,7 +608,7 @@ func TestDongYPhaiCoNguon(t *testing.T) {
 }
 
 // KHÔNG LƯU IP NGUYÊN VĂN trong nhật ký đồng ý.
-func TestKhongLuuIPNguyenVan(t *testing.T) {
+func TestDoesNotStoreRawIP(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -641,7 +641,7 @@ func TestKhongLuuIPNguyenVan(t *testing.T) {
 //
 // Khách bấm tim hai lần là chuyện thường. Hiện hai lần trong danh sách là
 // lỗi, và báo lỗi đỏ cho một thao tác vô hại cũng vậy.
-func TestThemYeuThichIdempotent(t *testing.T) {
+func TestAddToWishlistIsIdempotent(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -681,7 +681,7 @@ func TestThemYeuThichIdempotent(t *testing.T) {
 //
 // Kiểm tra "đã có chưa" ở tầng ứng dụng KHÔNG cứu được — mười request cùng
 // đọc thấy chưa có. Khóa chính (wishlist, product, variant) là thứ chặn.
-func TestDuaNhauThemYeuThich(t *testing.T) {
+func TestConcurrentWishlistAdds(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -738,7 +738,7 @@ func TestDuaNhauThemYeuThich(t *testing.T) {
 }
 
 // BỎ MÓN YÊU THÍCH LÀ IDEMPOTENT.
-func TestBoYeuThichIdempotent(t *testing.T) {
+func TestRemoveFromWishlistIsIdempotent(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -784,7 +784,7 @@ func TestBoYeuThichIdempotent(t *testing.T) {
 // Một khách thích cả size M lẫn size L là HAI dòng nhưng MỘT người quan
 // tâm. Đếm nhầm sẽ thổi phồng tín hiệu nhu cầu của sản phẩm nhiều biến thể
 // — và kế hoạch sản xuất dựa vào con số đó.
-func TestDemYeuThichTheoNguoi(t *testing.T) {
+func TestWishlistCountPerCustomer(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -825,7 +825,7 @@ func TestDemYeuThichTheoNguoi(t *testing.T) {
 }
 
 // WISHLIST CỦA KHÁCH CHƯA THÍCH GÌ LÀ DANH SÁCH RỖNG, KHÔNG PHẢI LỖI.
-func TestWishlistRongKhongPhaiLoi(t *testing.T) {
+func TestEmptyWishlistIsNotAnError(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -844,7 +844,7 @@ func TestWishlistRongKhongPhaiLoi(t *testing.T) {
 //
 // Không xác minh thì bất kỳ ai đăng ký bằng email người khác đều đọc được
 // toàn bộ lịch sử mua hàng của họ — kể cả địa chỉ nhà.
-func TestGopDanhTinhBatBuocXacMinh(t *testing.T) {
+func TestIdentityMergeRequiresVerification(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -881,7 +881,7 @@ func TestGopDanhTinhBatBuocXacMinh(t *testing.T) {
 }
 
 // GỘP ĐÃ XÁC MINH: ghi nhật ký và ẩn danh hồ sơ nguồn.
-func TestGopDanhTinhDaXacMinh(t *testing.T) {
+func TestIdentityMergeWhenVerified(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -930,7 +930,7 @@ func TestGopDanhTinhDaXacMinh(t *testing.T) {
 // Đơn hàng đã dùng để tính hoa hồng trả cho seller. Xóa nó đi thì đối soát
 // tài chính không còn khớp, và nghĩa vụ lưu trữ chứng từ kế toán bị vi
 // phạm.
-func TestAnDanhGiuDuLieuGiaoDich(t *testing.T) {
+func TestAnonymizeKeepsTransactionData(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -989,7 +989,7 @@ func TestAnDanhGiuDuLieuGiaoDich(t *testing.T) {
 //
 // Nếu email giả giống nhau, người thứ hai sẽ đụng ràng buộc UNIQUE và
 // KHÔNG ẩn danh được — tức là yêu cầu xóa dữ liệu của họ thất bại.
-func TestHaiKhachCungAnDanh(t *testing.T) {
+func TestTwoCustomersAnonymizedTogether(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1008,7 +1008,7 @@ func TestHaiKhachCungAnDanh(t *testing.T) {
 //
 // Khách xóa tài khoản rồi đăng ký lại bằng chính email đó là chuyện bình
 // thường. Chặn họ nghĩa là email đó mất vĩnh viễn.
-func TestEmailSauKhiAnDanhDungLaiDuoc(t *testing.T) {
+func TestEmailIsReusableAfterAnonymizing(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1052,7 +1052,7 @@ func TestEmailSauKhiAnDanhDungLaiDuoc(t *testing.T) {
 
 // LỚP THỨ HAI: hồ sơ ẩn danh KHÔNG hiện ra khi tra theo email.
 //
-// Test trên (TestEmailSauKhiAnDanhDungLaiDuoc) đi qua hai lớp cùng lúc:
+// Test trên (TestEmailIsReusableAfterAnonymizing) đi qua hai lớp cùng lúc:
 // Anonymize thay email bằng chuỗi giả, VÀ truy vấn loại status
 // ANONYMIZED. Đã kiểm chứng ngược — bỏ lớp thứ hai, test đó vẫn xanh, vì
 // lớp thứ nhất đã đủ.
@@ -1061,7 +1061,7 @@ func TestEmailSauKhiAnDanhDungLaiDuoc(t *testing.T) {
 // email, đúng như một đường ẩn danh viết thiếu sẽ để lại. Nếu truy vấn
 // không loại hồ sơ đó, khách quay lại sẽ được gắn vào chính hồ sơ họ vừa
 // yêu cầu xóa — cùng toàn bộ lịch sử mua hàng.
-func TestHoSoAnDanhKhongHienKhiTraEmail(t *testing.T) {
+func TestAnonymizedProfileIsHiddenFromEmailLookup(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1090,7 +1090,7 @@ func TestHoSoAnDanhKhongHienKhiTraEmail(t *testing.T) {
 //
 // Id không tồn tại phải VẮNG MẶT trong map, không phải giá trị rỗng — bên
 // gọi cần phân biệt "khách này đã bị xóa" với "khách này tên rỗng".
-func TestDocNhieuHoSo(t *testing.T) {
+func TestReadManyProfiles(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1127,7 +1127,7 @@ func TestDocNhieuHoSo(t *testing.T) {
 //
 // Hai request cùng đọc phiên bản 1 rồi cùng ghi: request thứ hai phải bị
 // từ chối, không được âm thầm ghi đè thay đổi của request đầu.
-func TestKhoaLacQuanChanMatCapNhat(t *testing.T) {
+func TestOptimisticLockPreventsLostUpdate(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1186,7 +1186,7 @@ func TestKhoaLacQuanChanMatCapNhat(t *testing.T) {
 //
 // Test TRUY VẤN THẲNG bảng: đọc qua module thì không phân biệt được "đã ghi
 // xuống" với "còn trong bộ nhớ từ lúc thêm".
-func TestCoBaoKhiCoHangLuuXuongDatabase(t *testing.T) {
+func TestRestockNoticeFlagIsPersisted(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1220,12 +1220,12 @@ func TestCoBaoKhiCoHangLuuXuongDatabase(t *testing.T) {
 // module phối hợp đúng — tài khoản và hồ sơ cùng tồn tại, hoặc không cái
 // nào. Bản giả sẽ luôn "tạo tài khoản thành công" và test không chứng minh
 // được gì về sự phối hợp đó.
-// moduleIdentity là module identity của lần dựng harness gần nhất.
+// identityModule là module identity của lần dựng harness gần nhất.
 //
 // Bài xác minh email cần phát token, và việc đó là của identity. Giữ tham
 // chiếu ở đây thay vì đổi chữ ký `newModuleWithIdentity` — hàm đó có hàng
 // chục bên gọi, và đổi chữ ký chỉ để một bài dùng thêm là lan rộng vô ích.
-var moduleIdentity *identity.Module
+var identityModule *identity.Module
 
 func newModuleWithIdentity(t *testing.T) (*customer.Module, *pgxpool.Pool) {
 	t.Helper()
@@ -1269,7 +1269,7 @@ func newModuleWithIdentity(t *testing.T) (*customer.Module, *pgxpool.Pool) {
 	if err != nil {
 		t.Fatalf("customer.New: %v", err)
 	}
-	moduleIdentity = idm
+	identityModule = idm
 	return m, db.Pool()
 }
 
@@ -1277,7 +1277,7 @@ func newModuleWithIdentity(t *testing.T) (*customer.Module, *pgxpool.Pool) {
 //
 // Thiếu một trong hai là trạng thái nửa vời tệ nhất: có tài khoản mà không
 // mua được gì, hoặc có hồ sơ mà không đăng nhập được.
-func TestDangKyTaoCaTaiKhoanVaHoSo(t *testing.T) {
+func TestRegistrationCreatesAccountAndProfile(t *testing.T) {
 	m, pool := newModuleWithIdentity(t)
 	ctx := context.Background()
 
@@ -1330,7 +1330,7 @@ func TestDangKyTaoCaTaiKhoanVaHoSo(t *testing.T) {
 //
 // P3-15 mở ngõ đó bằng cách TÁCH hai việc: tạo tài khoản làm ngay, gộp hồ
 // sơ chờ tới khi bấm liên kết trong hộp thư.
-func TestKhongDangKyDuocBangEmailDaDatHang(t *testing.T) {
+func TestCannotRegisterWithEmailUsedForGuestOrder(t *testing.T) {
 	m, pool := newModuleWithIdentity(t)
 	ctx := context.Background()
 
@@ -1350,8 +1350,8 @@ func TestKhongDangKyDuocBangEmailDaDatHang(t *testing.T) {
 		t.Fatalf("RegisterShopper: %v — từ 07/09 (P3-15) đăng ký bằng email "+
 			"đã đặt hàng vãng lai được PHÉP; thứ bị hoãn là việc GỘP hồ sơ", err)
 	}
-	if !res.CanXacMinhEmail {
-		t.Error("CanXacMinhEmail = false — giao diện không biết còn một " +
+	if !res.NeedsEmailVerification {
+		t.Error("NeedsEmailVerification = false — giao diện không biết còn một " +
 			"bước xác minh, và khách sẽ tưởng đã mất lịch sử mua hàng")
 	}
 
@@ -1386,7 +1386,7 @@ func TestKhongDangKyDuocBangEmailDaDatHang(t *testing.T) {
 }
 
 // ĐĂNG KÝ HAI LẦN cùng email thì lần hai bị từ chối.
-func TestDangKyHaiLanBiTuChoi(t *testing.T) {
+func TestSecondRegistrationIsRejected(t *testing.T) {
 	m, _ := newModuleWithIdentity(t)
 	ctx := context.Background()
 
@@ -1409,7 +1409,7 @@ func TestDangKyHaiLanBiTuChoi(t *testing.T) {
 // RegisterRequest của module này KHÔNG có trường Roles, nên không có đường
 // nào để client tự chọn. Test khẳng định điều đó ở mức dữ liệu: tài khoản
 // mới chỉ được vai trò mặc định, tuyệt đối không có ADMIN.
-func TestDangKyKhongTuCapVaiTroQuanTri(t *testing.T) {
+func TestRegistrationCannotSelfGrantAdminRole(t *testing.T) {
 	m, pool := newModuleWithIdentity(t)
 	ctx := context.Background()
 
@@ -1449,7 +1449,7 @@ func TestDangKyKhongTuCapVaiTroQuanTri(t *testing.T) {
 //
 // Trả chung một lỗi đẩy nhóm thứ hai vào đường cụt: họ bấm "quên mật khẩu"
 // cho một tài khoản không tồn tại và không bao giờ nhận được thư.
-func TestPhanBietDaCoTaiKhoanVoiDaDatHangVangLai(t *testing.T) {
+func TestDistinguishesExistingAccountFromGuestOrder(t *testing.T) {
 	m, _ := newModuleWithIdentity(t)
 	ctx := context.Background()
 
@@ -1484,14 +1484,14 @@ func TestPhanBietDaCoTaiKhoanVoiDaDatHangVangLai(t *testing.T) {
 	if err != nil {
 		t.Fatalf("email vãng lai: %v — nay được phép đăng ký", err)
 	}
-	if !res.CanXacMinhEmail {
-		t.Error("email vãng lai: CanXacMinhEmail = false, mong true — " +
+	if !res.NeedsEmailVerification {
+		t.Error("email vãng lai: NeedsEmailVerification = false, mong true — " +
 			"không phân biệt được với đăng ký thường thì khách không biết " +
 			"lịch sử cũ đang chờ ở đâu")
 	}
 }
 
-// TestXacMinhEmailMoiGopDuocHoSoVangLai khóa RANH GIỚI BẢO MẬT của P3-15.
+// TestOnlyVerifiedEmailCanMergeGuestProfile khóa RANH GIỚI BẢO MẬT của P3-15.
 //
 // # Điều đang được bảo vệ
 //
@@ -1501,9 +1501,9 @@ func TestPhanBietDaCoTaiKhoanVoiDaDatHangVangLai(t *testing.T) {
 //
 // Bấm được liên kết trong hộp thư là bằng chứng đọc được hộp thư — điều
 // kiện tối thiểu, và là điều kiện chưa từng có trước P3-15.
-func TestXacMinhEmailMoiGopDuocHoSoVangLai(t *testing.T) {
+func TestOnlyVerifiedEmailCanMergeGuestProfile(t *testing.T) {
 	m, pool := newModuleWithIdentity(t)
-	idm := moduleIdentity
+	idm := identityModule
 	ctx := context.Background()
 
 	const email = "vanglai-gop@example.com"
@@ -1536,7 +1536,7 @@ func TestXacMinhEmailMoiGopDuocHoSoVangLai(t *testing.T) {
 	}
 
 	// Token SAI không gộp được — đây là chỗ tấn công thật sự.
-	if _, err := m.XacMinhEmailVaGop(ctx, "token-bia-dat"); err == nil {
+	if _, err := m.VerifyEmailAndMerge(ctx, "token-bia-dat"); err == nil {
 		t.Fatal("token bịa đặt vẫn xác minh được")
 	}
 	if u := gan(t); u != "" {
@@ -1544,15 +1544,15 @@ func TestXacMinhEmailMoiGopDuocHoSoVangLai(t *testing.T) {
 	}
 
 	// Token ĐÚNG: xác minh và gộp.
-	tok, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	tok, _, err := idm.IssueVerificationToken(ctx, res.UserID)
 	if err != nil {
-		t.Fatalf("PhatTokenXacMinh: %v", err)
+		t.Fatalf("IssueVerificationToken: %v", err)
 	}
-	out, err := m.XacMinhEmailVaGop(ctx, tok)
+	out, err := m.VerifyEmailAndMerge(ctx, tok)
 	if err != nil {
-		t.Fatalf("XacMinhEmailVaGop: %v", err)
+		t.Fatalf("VerifyEmailAndMerge: %v", err)
 	}
-	if !out.DaGopHoSo {
+	if !out.ProfileMerged {
 		t.Error("DaGopHoSo = false, mong true")
 	}
 	if u := gan(t); u != res.UserID {
@@ -1571,15 +1571,15 @@ func TestXacMinhEmailMoiGopDuocHoSoVangLai(t *testing.T) {
 	// Bỏ RIÊNG lớp nào thì bài test VẪN XANH — lớp kia bắt được. Phải bỏ
 	// CẢ HAI mới thấy đỏ. Lớp thứ hai không thừa: lớp một đọc rồi lớp hai
 	// ghi là hai bước, và hai request tới cùng lúc đều qua được lớp một.
-	if _, err := m.XacMinhEmailVaGop(ctx, tok); err == nil {
+	if _, err := m.VerifyEmailAndMerge(ctx, tok); err == nil {
 		t.Error("token dùng được LẦN HAI — liên kết trong hộp thư còn sống mãi")
 	}
 }
 
-// TestTokenHetHanThiKhongXacMinhDuoc — liên kết cũ trong hộp thư phải chết.
-func TestTokenHetHanThiKhongXacMinhDuoc(t *testing.T) {
+// TestExpiredTokenCannotVerify — liên kết cũ trong hộp thư phải chết.
+func TestExpiredTokenCannotVerify(t *testing.T) {
 	m, pool := newModuleWithIdentity(t)
-	idm := moduleIdentity
+	idm := identityModule
 	ctx := context.Background()
 
 	const email = "hethan@example.com"
@@ -1592,9 +1592,9 @@ func TestTokenHetHanThiKhongXacMinhDuoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterShopper: %v", err)
 	}
-	tok, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	tok, _, err := idm.IssueVerificationToken(ctx, res.UserID)
 	if err != nil {
-		t.Fatalf("PhatTokenXacMinh: %v", err)
+		t.Fatalf("IssueVerificationToken: %v", err)
 	}
 
 	// Đẩy hạn về QUÁ KHỨ, mô phỏng liên kết để quên 25 giờ.
@@ -1604,7 +1604,7 @@ func TestTokenHetHanThiKhongXacMinhDuoc(t *testing.T) {
 		t.Fatalf("đẩy hạn: %v", err)
 	}
 
-	if _, err := m.XacMinhEmailVaGop(ctx, tok); err == nil {
+	if _, err := m.VerifyEmailAndMerge(ctx, tok); err == nil {
 		t.Fatal("token HẾT HẠN vẫn xác minh được")
 	}
 }
@@ -1613,9 +1613,9 @@ func TestTokenHetHanThiKhongXacMinhDuoc(t *testing.T) {
 //
 // Người ta bấm "gửi lại" chính vì nghi ngờ thư cũ. Để hai liên kết cùng
 // sống là làm ngược lại điều họ vừa yêu cầu.
-func TestPhatTokenMoiGietTokenCu(t *testing.T) {
+func TestIssuingNewTokenKillsTheOld(t *testing.T) {
 	m, _ := newModuleWithIdentity(t)
-	idm := moduleIdentity
+	idm := identityModule
 	ctx := context.Background()
 
 	const email = "guilai@example.com"
@@ -1629,19 +1629,19 @@ func TestPhatTokenMoiGietTokenCu(t *testing.T) {
 		t.Fatalf("RegisterShopper: %v", err)
 	}
 
-	cu, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	cu, _, err := idm.IssueVerificationToken(ctx, res.UserID)
 	if err != nil {
 		t.Fatalf("phát token lần 1: %v", err)
 	}
-	moi, _, err := idm.PhatTokenXacMinh(ctx, res.UserID)
+	moi, _, err := idm.IssueVerificationToken(ctx, res.UserID)
 	if err != nil {
 		t.Fatalf("phát token lần 2: %v", err)
 	}
 
-	if _, err := m.XacMinhEmailVaGop(ctx, cu); err == nil {
+	if _, err := m.VerifyEmailAndMerge(ctx, cu); err == nil {
 		t.Error("token CŨ vẫn dùng được sau khi đã gửi lại")
 	}
-	if _, err := m.XacMinhEmailVaGop(ctx, moi); err != nil {
+	if _, err := m.VerifyEmailAndMerge(ctx, moi); err != nil {
 		t.Errorf("token MỚI không dùng được: %v", err)
 	}
 }

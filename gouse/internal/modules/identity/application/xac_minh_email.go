@@ -9,10 +9,10 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/identity/domain"
 )
 
-// ErrChuaNoiXacMinhEmail: bản dựng này chưa nối kho token xác minh.
-var ErrChuaNoiXacMinhEmail = errors.New("identity: chưa nối kho token xác minh email")
+// ErrEmailVerificationNotWired: bản dựng này chưa nối kho token xác minh.
+var ErrEmailVerificationNotWired = errors.New("identity: chưa nối kho token xác minh email")
 
-// PhatTokenXacMinh phát một liên kết xác minh email cho tài khoản.
+// IssueVerificationToken phát một liên kết xác minh email cho tài khoản.
 //
 // Trả về bản NGUYÊN VĂN của token — bên gọi đưa nó vào thư và KHÔNG ghi
 // vào log. Database chỉ giữ bản băm.
@@ -22,11 +22,11 @@ var ErrChuaNoiXacMinhEmail = errors.New("identity: chưa nối kho token xác mi
 // Hai liên kết còn sống cùng lúc nghĩa là liên kết cũ trong hộp thư vẫn
 // dùng được sau khi người dùng đã bấm "gửi lại" — và người ta bấm "gửi
 // lại" chính vì nghi ngờ thư cũ.
-func (s *Service) PhatTokenXacMinh(
+func (s *Service) IssueVerificationToken(
 	ctx context.Context, userID ids.ID,
-) (nguyenVan string, email string, err error) {
+) (raw string, email string, err error) {
 	if s.emailTok == nil {
-		return "", "", ErrChuaNoiXacMinhEmail
+		return "", "", ErrEmailVerificationNotWired
 	}
 
 	u, err := s.users.FindByID(ctx, userID)
@@ -34,7 +34,7 @@ func (s *Service) PhatTokenXacMinh(
 		return "", "", err
 	}
 	if !u.EmailVerifiedAt().IsZero() {
-		return "", "", ErrEmailDaXacMinh
+		return "", "", ErrEmailAlreadyVerified
 	}
 
 	now := s.clock.Now()
@@ -59,16 +59,16 @@ func (s *Service) PhatTokenXacMinh(
 	return plain, u.Email(), nil
 }
 
-// ErrEmailDaXacMinh: email của tài khoản này đã được xác minh rồi.
-var ErrEmailDaXacMinh = errors.New("identity: email đã được xác minh")
+// ErrEmailAlreadyVerified: email của tài khoản này đã được xác minh rồi.
+var ErrEmailAlreadyVerified = errors.New("identity: email đã được xác minh")
 
-// KetQuaXacMinh là kết quả xác minh email.
-type KetQuaXacMinh struct {
+// VerificationResult là kết quả xác minh email.
+type VerificationResult struct {
 	UserID ids.ID
 	Email  string
 }
 
-// XacMinhEmail đổi một token nguyên văn lấy việc đánh dấu email đã xác minh.
+// VerifyEmail đổi một token nguyên văn lấy việc đánh dấu email đã xác minh.
 //
 // # Ba lớp kiểm, và vì sao lớp cuối nằm ở SQL
 //
@@ -79,14 +79,14 @@ type KetQuaXacMinh struct {
 // Lớp ba không thừa: lớp hai đọc rồi lớp ba ghi là HAI bước, và hai
 // request tới cùng lúc đều qua được lớp hai. Ràng buộc ở lệnh ghi là thứ
 // duy nhất chặn việc dùng một token hai lần.
-func (s *Service) XacMinhEmail(
-	ctx context.Context, nguyenVan string,
-) (*KetQuaXacMinh, error) {
+func (s *Service) VerifyEmail(
+	ctx context.Context, raw string,
+) (*VerificationResult, error) {
 	if s.emailTok == nil {
-		return nil, ErrChuaNoiXacMinhEmail
+		return nil, ErrEmailVerificationNotWired
 	}
 
-	t, err := s.emailTok.FindByHash(ctx, s.tokens.HashToken(nguyenVan))
+	t, err := s.emailTok.FindByHash(ctx, s.tokens.HashToken(raw))
 	if err != nil {
 		return nil, err
 	}
@@ -109,5 +109,5 @@ func (s *Service) XacMinhEmail(
 		return nil, err
 	}
 
-	return &KetQuaXacMinh{UserID: u.ID(), Email: u.Email()}, nil
+	return &VerificationResult{UserID: u.ID(), Email: u.Email()}, nil
 }

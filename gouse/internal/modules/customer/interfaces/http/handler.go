@@ -118,22 +118,22 @@ func (h *Handler) getProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := toProfile(v)
-	dongY, err := h.dongYMarketing(r, id)
+	consent, err := h.marketingConsent(r, id)
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
 	}
-	out.MarketingConsent = dongY
+	out.MarketingConsent = consent
 
 	h.ok(w, r, http.StatusOK, profileResponse{Customer: out})
 }
 
-// dongYMarketing đọc hai cờ đồng ý hiện tại của khách.
+// marketingConsent đọc hai cờ đồng ý hiện tại của khách.
 //
 // Lỗi thì TRẢ LỖI, không trả false: false nghĩa là "khách đã từ chối", và
 // nói vậy khi thật ra không đọc được sẽ khiến khách thấy ô đã tắt rồi bật
 // lại — ghi đè một lần từ chối có thật bằng một lần đọc hỏng.
-func (h *Handler) dongYMarketing(
+func (h *Handler) marketingConsent(
 	r *http.Request, id ids.ID,
 ) (marketingConsentJSON, error) {
 	email, err := h.svc.HasConsent(r.Context(), id, domain.ConsentMarketingEmail)
@@ -189,18 +189,18 @@ func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.ghiDongY(r, id, req.MarketingConsent); err != nil {
+	if err := h.recordConsent(r, id, req.MarketingConsent); err != nil {
 		h.fail(w, r, translate(err))
 		return
 	}
 
 	out := toProfile(v)
-	dongY, err := h.dongYMarketing(r, id)
+	consent, err := h.marketingConsent(r, id)
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
 	}
-	out.MarketingConsent = dongY
+	out.MarketingConsent = consent
 
 	h.ok(w, r, http.StatusOK, profileResponse{Customer: out})
 }
@@ -216,7 +216,7 @@ func (h *Handler) updateProfile(w http.ResponseWriter, r *http.Request) {
 //
 // `source` là "settings": nơi khách bấm. Một lần đồng ý không nói được
 // bấm ở đâu thì không dùng làm bằng chứng được.
-func (h *Handler) ghiDongY(
+func (h *Handler) recordConsent(
 	r *http.Request, id ids.ID, p *marketingConsentPatch,
 ) error {
 	if p == nil {

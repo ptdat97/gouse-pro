@@ -417,7 +417,7 @@ func translate(err error) error {
 	// Dưới SÀN hoa hồng là thao tác sai của người dùng, không phải lỗi hệ
 	// thống — và thông báo phải nói rõ sàn đang là bao nhiêu, nếu không
 	// người duyệt chỉ biết mình bị từ chối mà không biết phải điền gì.
-	case errors.Is(err, application.ErrDuoiSanHoaHong):
+	case errors.Is(err, application.ErrCommissionBelowFloor):
 		return apierror.New(apierror.CodeValidationFailed, err.Error())
 
 	default:

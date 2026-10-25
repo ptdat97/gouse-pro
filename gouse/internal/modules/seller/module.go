@@ -46,7 +46,7 @@ type Config struct {
 	//
 	// Nil thì module vẫn khởi tạo được, nhưng nhà bán KHÔNG khai được tài
 	// khoản — thà từ chối còn hơn ghi số tài khoản ở dạng rõ.
-	MaHoa *privacy.BoMaHoa
+	Encrypted *privacy.BoMaHoa
 
 	// Audit là nơi ghi nhật ký thao tác nhạy cảm.
 	//
@@ -65,7 +65,7 @@ func New(cfg Config) (*Module, error) {
 	}
 
 	deps := application.Deps{
-		Sellers: sellerpg.NewStore(cfg.DB.Pool(), cfg.MaHoa),
+		Sellers: sellerpg.NewStore(cfg.DB.Pool(), cfg.Encrypted),
 		Clock:   cfg.Clock,
 	}
 	if cfg.Audit != nil {
@@ -146,12 +146,12 @@ func (m *Module) ApplyAsSeller(ctx context.Context, req ApplicationRequest) (*Se
 		Email:          req.Email,
 		Phone:          req.Phone,
 		CommissionRate: rate,
-		BankAccount: domain.TaiKhoanNganHang{
+		BankAccount: domain.BankAccount{
 			BankCode: strings.TrimSpace(req.BankAccount.BankCode),
 			Holder:   strings.TrimSpace(req.BankAccount.AccountHolder),
 			Last4:    privacy.BonSoCuoi(req.BankAccount.AccountNumber),
 		},
-		SoTaiKhoanDayDu: strings.TrimSpace(req.BankAccount.AccountNumber),
+		FullAccountNumber: strings.TrimSpace(req.BankAccount.AccountNumber),
 	})
 	if err != nil {
 		return nil, translateErr(err)
@@ -213,7 +213,7 @@ func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 //
 // Bên gọi PHẢI bọc Auth và RequireIdempotencyKey. KHÔNG bọc RequireRole:
 // người nộp hồ sơ chưa phải nhà bán.
-// LaySoTaiKhoan trả về số tài khoản ĐẦY ĐỦ của một nhà bán.
+// GetBankAccount trả về số tài khoản ĐẦY ĐỦ của một nhà bán.
 //
 // # Chỉ đường chi trả được gọi
 //
@@ -222,12 +222,12 @@ func (m *Module) RegisterAdminRoutes(mux *http.ServeMux, log *slog.Logger) {
 //
 // Bên gọi có trách nhiệm ghi audit — đọc số tài khoản là truy cập dữ liệu
 // nhạy cảm, và phải đếm được ai đọc, lúc nào, vì sao.
-func (m *Module) LaySoTaiKhoan(ctx context.Context, sellerID string) (string, error) {
+func (m *Module) GetBankAccount(ctx context.Context, sellerID string) (string, error) {
 	id, err := ids.Parse(sellerID, ids.PrefixSeller)
 	if err != nil {
 		return "", ErrInvalidID
 	}
-	return m.svc.LaySoTaiKhoan(ctx, id)
+	return m.svc.GetBankAccount(ctx, id)
 }
 
 func (m *Module) RegisterApplyRoute(mux *http.ServeMux, log *slog.Logger) {
@@ -310,8 +310,8 @@ func translateErr(err error) error {
 	case errors.Is(err, domain.ErrInvalidStatus),
 		errors.Is(err, domain.ErrNoBankAccount):
 		return ErrNotAllowed
-	case errors.Is(err, application.ErrDuoiSanHoaHong):
-		return ErrDuoiSanHoaHong
+	case errors.Is(err, application.ErrCommissionBelowFloor):
+		return ErrCommissionBelowFloor
 	}
 	return err
 }
@@ -324,18 +324,18 @@ type chinhSachAdapter struct{ cfg *opsconfig.Store }
 
 var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
 
-func (a *chinhSachAdapter) SanHoaHong() int32 {
+func (a *chinhSachAdapter) CommissionFloor() int32 {
 	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongSan))
 }
 
-func (a *chinhSachAdapter) HoaHongDeXuat() int32 {
+func (a *chinhSachAdapter) SuggestedCommission() int32 {
 	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongDeXuat))
 }
 
-// HoaHongDeXuat trả mức hoa hồng ĐIỀN SẴN cho màn hình duyệt nhà bán.
+// SuggestedCommission trả mức hoa hồng ĐIỀN SẴN cho màn hình duyệt nhà bán.
 //
 // Nó KHÔNG tự áp cho ai — giao diện điền sẵn, người duyệt vẫn phải xác
 // nhận. Nhưng phần lớn người duyệt giữ nguyên giá trị điền sẵn, nên trên
 // thực tế nó là tỷ lệ của đa số nhà bán mới. Đó là lý do nó được ghi vết
 // như mọi tham số khác.
-func (m *Module) HoaHongDeXuat() int32 { return m.svc.HoaHongDeXuat() }
+func (m *Module) SuggestedCommission() int32 { return m.svc.SuggestedCommission() }

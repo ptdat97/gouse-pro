@@ -145,11 +145,11 @@ func (f *fakeWishlists) AddItemKemEvent(
 	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
 	fn domain.TxFunc,
 ) (bool, error) {
-	them, err := f.AddItem(ctx, wishlistID, item)
-	if err != nil || !them || fn == nil {
-		return them, err
+	added, err := f.AddItem(ctx, wishlistID, item)
+	if err != nil || !added || fn == nil {
+		return added, err
 	}
-	return them, fn(ctx)
+	return added, fn(ctx)
 }
 
 func (f *fakeWishlists) AddItem(
@@ -273,12 +273,12 @@ func jsonReq(method, path string, body any) *http.Request {
 
 // ---------------------------------------------------------------- Test
 
-// TestKhachVangLaiKhongVaoDuocTaiKhoan là test quan trọng nhất của tệp này.
+// TestGuestCannotAccessAccount là test quan trọng nhất của tệp này.
 //
 // Khác cart và checkout — vốn PHẢI chạy cho khách vãng lai — mọi endpoint ở
 // đây đọc hoặc ghi dữ liệu cá nhân. Cho khách chưa đăng nhập đi qua nghĩa là
 // mọi request ẩn danh cùng trỏ vào một hồ sơ "định danh rỗng".
-func TestKhachVangLaiKhongVaoDuocTaiKhoan(t *testing.T) {
+func TestGuestCannotAccessAccount(t *testing.T) {
 	h, _ := newHandler(t)
 
 	cases := []struct {
@@ -299,11 +299,11 @@ func TestKhachVangLaiKhongVaoDuocTaiKhoan(t *testing.T) {
 	}
 }
 
-// TestChiThayHoSoCuaChinhMinh kiểm chứng phạm vi dữ liệu.
+// TestSeesOnlyOwnProfile kiểm chứng phạm vi dữ liệu.
 //
 // Hai khách khác nhau phải nhận hai hồ sơ khác nhau, kể cả khi gọi cùng một
 // đường dẫn — vì đường dẫn KHÔNG mang định danh nào cả.
-func TestChiThayHoSoCuaChinhMinh(t *testing.T) {
+func TestSeesOnlyOwnProfile(t *testing.T) {
 	h, svc := newHandler(t)
 
 	a := newCustomer(t, svc, "a@example.com")
@@ -322,7 +322,7 @@ func TestChiThayHoSoCuaChinhMinh(t *testing.T) {
 	}
 }
 
-// TestKhongDoiDuocEmailQuaHoSo kiểm chứng email KHÔNG sửa được ở đây.
+// TestEmailCannotBeChangedViaProfile kiểm chứng email KHÔNG sửa được ở đây.
 //
 // Đổi email là đổi DANH TÍNH, không phải sửa hồ sơ: nó cần xác minh quyền
 // sở hữu địa chỉ mới. Cho đi qua nghĩa là đổi email tài khoản người khác
@@ -330,7 +330,7 @@ func TestChiThayHoSoCuaChinhMinh(t *testing.T) {
 //
 // DisallowUnknownFields biến việc này thành lỗi 400 thay vì bỏ qua im lặng
 // — im lặng thì client tưởng đã đổi được.
-func TestKhongDoiDuocEmailQuaHoSo(t *testing.T) {
+func TestEmailCannotBeChangedViaProfile(t *testing.T) {
 	h, svc := newHandler(t)
 	id := newCustomer(t, svc, "a@example.com")
 
@@ -351,8 +351,8 @@ func TestKhongDoiDuocEmailQuaHoSo(t *testing.T) {
 	}
 }
 
-// TestSuaHoSoLuuXuongDatabase kiểm chứng vòng ghi–đọc.
-func TestSuaHoSoLuuXuongDatabase(t *testing.T) {
+// TestProfileEditIsPersisted kiểm chứng vòng ghi–đọc.
+func TestProfileEditIsPersisted(t *testing.T) {
 	h, svc := newHandler(t)
 	id := newCustomer(t, svc, "a@example.com")
 
@@ -373,10 +373,10 @@ func TestSuaHoSoLuuXuongDatabase(t *testing.T) {
 	}
 }
 
-// TestSoDiaChiRiengTungKhach kiểm chứng địa chỉ không rò sang khách khác.
+// TestAddressCountIsPerCustomer kiểm chứng địa chỉ không rò sang khách khác.
 //
 // Sổ địa chỉ chứa nơi ở thật của khách. Rò rỉ nó không phải lỗi hiển thị.
-func TestSoDiaChiRiengTungKhach(t *testing.T) {
+func TestAddressCountIsPerCustomer(t *testing.T) {
 	h, svc := newHandler(t)
 	a := newCustomer(t, svc, "a@example.com")
 	b := newCustomer(t, svc, "b@example.com")
@@ -415,12 +415,12 @@ func TestSoDiaChiRiengTungKhach(t *testing.T) {
 	}
 }
 
-// TestYeuThichTraDungHinhDangJSON kiểm chứng handler ĐỌC được cờ notify từ
+// TestWishlistReturnsCorrectJSONShape kiểm chứng handler ĐỌC được cờ notify từ
 // thân request và TRẢ nó ra đúng tên trường của đặc tả.
 //
 // Việc cờ đó có ghi xuống database hay không được kiểm ở module_test.go với
 // PostgreSQL thật — bản giả ở đây sẽ luôn nhớ đúng thứ nó vừa nhận.
-func TestYeuThichTraDungHinhDangJSON(t *testing.T) {
+func TestWishlistReturnsCorrectJSONShape(t *testing.T) {
 	h, svc := newHandler(t)
 	id := newCustomer(t, svc, "a@example.com")
 	productID := ids.MustNew(ids.PrefixProduct)
@@ -453,8 +453,8 @@ func TestYeuThichTraDungHinhDangJSON(t *testing.T) {
 	}
 }
 
-// TestThieuProductIDBiTuChoi kiểm chứng trường bắt buộc của đặc tả.
-func TestThieuProductIDBiTuChoi(t *testing.T) {
+// TestMissingProductIDIsRejected kiểm chứng trường bắt buộc của đặc tả.
+func TestMissingProductIDIsRejected(t *testing.T) {
 	h, svc := newHandler(t)
 	id := newCustomer(t, svc, "a@example.com")
 

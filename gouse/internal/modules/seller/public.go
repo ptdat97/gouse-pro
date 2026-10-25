@@ -197,17 +197,17 @@ var (
 	// ErrInvalidCommissionRate khi tỷ lệ hoa hồng ngoài khoảng [0, 10000].
 	ErrInvalidCommissionRate = errInvalidCommissionRate{}
 
-	// ErrDuoiSanHoaHong khi tỷ lệ thấp hơn SÀN chính sách của nền tảng.
+	// ErrCommissionBelowFloor khi tỷ lệ thấp hơn SÀN chính sách của nền tảng.
 	//
 	// Khác ErrInvalidCommissionRate: "150% là vô nghĩa" và "3% là dưới sàn
 	// công ty đặt" là hai chuyện khác nhau, và người duyệt cần biết mình
 	// gặp cái nào — một cái là gõ nhầm, một cái là cần người có quyền hơn.
-	ErrDuoiSanHoaHong = errDuoiSanHoaHong{}
+	ErrCommissionBelowFloor = errCommissionBelowFloor{}
 )
 
-type errDuoiSanHoaHong struct{}
+type errCommissionBelowFloor struct{}
 
-func (errDuoiSanHoaHong) Error() string {
+func (errCommissionBelowFloor) Error() string {
 	return "seller: tỷ lệ hoa hồng thấp hơn sàn chính sách"
 }
 

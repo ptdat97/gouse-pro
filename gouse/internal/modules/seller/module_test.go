@@ -30,10 +30,10 @@ func newModule(t *testing.T) (*seller.Module, *database.DB) {
 	}
 
 	m, err := seller.New(seller.Config{
-		Storage: "postgres",
-		DB:      db,
-		Audit:   audit.NewRecorder(db.Pool()),
-		MaHoa:   maHoaThu(),
+		Storage:   "postgres",
+		DB:        db,
+		Audit:     audit.NewRecorder(db.Pool()),
+		Encrypted: encryptedForTest(),
 	})
 	if err != nil {
 		t.Fatalf("seller.New: %v", err)
@@ -80,7 +80,7 @@ func apply(t *testing.T, m *seller.Module, slug string) *seller.SellerView {
 	return v
 }
 
-func TestNopHoSoBatDauOTrangThaiApplied(t *testing.T) {
+func TestApplicationStartsInAppliedStatus(t *testing.T) {
 	m, _ := newModule(t)
 	v := apply(t, m, "cua-hang-a")
 
@@ -99,7 +99,7 @@ func TestNopHoSoBatDauOTrangThaiApplied(t *testing.T) {
 //
 // Không có thì seller bán được hàng nhưng không nhận được tiền — tranh chấp
 // không đáng có, và nền tảng giữ tiền hộ mà không biết trả về đâu.
-func TestKhongKichHoatDuocKhiChuaCoTaiKhoanNganHang(t *testing.T) {
+func TestCannotActivateWithoutBankAccount(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 	v := apply(t, m, "chua-co-bank")
@@ -134,7 +134,7 @@ func TestKhongKichHoatDuocKhiChuaCoTaiKhoanNganHang(t *testing.T) {
 // Own brand là seller INTERNAL, KHÔNG phải đường đi riêng (mục 3).
 //
 // Nhờ vậy đơn hàng lẫn own brand và hàng seller đi CHUNG một luồng.
-func TestOwnBrandLaSellerNoiBo(t *testing.T) {
+func TestOwnBrandIsAnInternalSeller(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -167,7 +167,7 @@ func TestOwnBrandLaSellerNoiBo(t *testing.T) {
 }
 
 // Own brand không được đặt hoa hồng: nền tảng không thu của chính mình.
-func TestOwnBrandKhongChiuHoaHong(t *testing.T) {
+func TestOwnBrandPaysNoCommission(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -192,7 +192,7 @@ func TestOwnBrandKhongChiuHoaHong(t *testing.T) {
 // Đình chỉ làm ẩn offer nhưng KHÔNG hủy đơn (mục 5).
 //
 // Điểm dễ sai: đình chỉ seller không được hủy đơn hàng khách đã trả tiền.
-func TestDinhChiLamAnOfferVaPhaiCoLyDo(t *testing.T) {
+func TestSuspendHidesOffersAndNeedsAReason(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 	v := activeSeller(t, m, "bi-dinh-chi")
@@ -246,7 +246,7 @@ func TestDinhChiLamAnOfferVaPhaiCoLyDo(t *testing.T) {
 // Điểm dễ hiểu sai nhất: duyệt KHÔNG kích hoạt seller. Người duyệt tưởng
 // xong việc rồi không hiểu vì sao gian hàng vẫn im lìm — nên response phải
 // nói thẳng ra.
-func TestDuyetHoSoDatHoaHongVaGhiVet(t *testing.T) {
+func TestApprovalSetsCommissionAndWritesAudit(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	v := apply(t, m, "cho-duyet")
@@ -310,7 +310,7 @@ func TestDuyetHoSoDatHoaHongVaGhiVet(t *testing.T) {
 //
 // Hoa hồng 150% lọt vào là mọi đơn của seller đó tính sai cho tới khi có
 // người để ý — thường là lúc đối soát, đã qua vài kỳ.
-func TestHoaHongNgoaiKhoangBiChan(t *testing.T) {
+func TestCommissionOutOfRangeIsBlocked(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 	v := apply(t, m, "hoa-hong-sai")
@@ -332,7 +332,7 @@ func TestHoaHongNgoaiKhoangBiChan(t *testing.T) {
 //
 // Cùng bất biến với đình chỉ, nhưng đường khác: ở đây máy trạng thái từ
 // chối (hồ sơ chưa nộp duyệt) chứ không phải việc ghi vết.
-func TestDuyetHoSoSaiTrangThaiBiChan(t *testing.T) {
+func TestApprovalFromWrongStatusIsBlocked(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -374,7 +374,7 @@ func TestDuyetHoSoSaiTrangThaiBiChan(t *testing.T) {
 //
 // Vết thiếu người thực hiện là vết vô dụng: khi seller khiếu nại, câu hỏi
 // đầu tiên luôn là "ai quyết định việc này".
-func TestDinhChiGhiVetKiemToan(t *testing.T) {
+func TestSuspendWritesAuditTrail(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	v := activeSeller(t, m, "co-vet-kiem-toan")
@@ -413,14 +413,14 @@ func TestDinhChiGhiVetKiemToan(t *testing.T) {
 	}
 }
 
-// TestDinhChiThatBaiKhongDeLaiTrangThaiNuaVoi là bất biến của P0-6.
+// TestFailedSuspendLeavesNoHalfState là bất biến của P0-6.
 //
 // Khi việc ghi vết kiểm toán thất bại (ở đây: lý do rác bị từ chối), việc
 // đổi trạng thái seller PHẢI bị hủy theo. Hai kết cục nửa vời đều nguy hiểm:
 //
 //	Seller bị đình chỉ mà không có vết  → không ai chịu trách nhiệm
 //	Có vết mà seller vẫn hoạt động      → bằng chứng cho việc chưa xảy ra
-func TestDinhChiThatBaiKhongDeLaiTrangThaiNuaVoi(t *testing.T) {
+func TestFailedSuspendLeavesNoHalfState(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	v := activeSeller(t, m, "khong-nua-voi")
@@ -463,7 +463,7 @@ func TestDinhChiThatBaiKhongDeLaiTrangThaiNuaVoi(t *testing.T) {
 //
 // Thà từ chối còn hơn đình chỉ thành công mà im lặng bỏ qua việc ghi vết —
 // lỗi nối dây kiểu đó không ai phát hiện cho tới khi cần tra cứu.
-func TestThieuAuditThiTuChoiDinhChi(t *testing.T) {
+func TestSuspendIsRejectedWithoutAudit(t *testing.T) {
 	db := testdb.Open(t)
 
 	// KHÔNG truyền Audit.
@@ -486,7 +486,7 @@ func TestThieuAuditThiTuChoiDinhChi(t *testing.T) {
 // cung cấp giao dịch), nhưng nó chặn kiểu lỗi dễ mắc nhất về sau: gọi bộ
 // ghi vết từ một use case mới mà quên mở giao dịch. Khi đó vết và thay đổi
 // nghiệp vụ tách rời nhau, và nhật ký mất giá trị mà không ai nhận ra.
-func TestGhiVetNgoaiGiaoDichBiTuChoi(t *testing.T) {
+func TestAuditOutsideTransactionIsRejected(t *testing.T) {
 	db := testdb.Open(t)
 
 	rec := seller.NewAuditRecorder(audit.NewRecorder(db.Pool()))
@@ -506,7 +506,7 @@ func TestGhiVetNgoaiGiaoDichBiTuChoi(t *testing.T) {
 // Chấm dứt là trạng thái CUỐI — không có đường quay lại.
 //
 // Đã đối soát lần cuối và chi trả số dư; mở lại sẽ làm hỏng sổ sách.
-func TestChamDutLaTrangThaiCuoi(t *testing.T) {
+func TestTerminatedIsAFinalStatus(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 	v := activeSeller(t, m, "cham-dut")
@@ -528,14 +528,14 @@ func TestChamDutLaTrangThaiCuoi(t *testing.T) {
 }
 
 // Marketplace gọi IsSellerActive TRƯỚC khi hiển thị offer.
-func TestKiemTraSellerDangHoatDong(t *testing.T) {
+func TestChecksSellerIsActive(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
-	hoatDong := activeSeller(t, m, "dang-hoat-dong")
-	chuaDuyet := apply(t, m, "chua-duyet")
+	activeOne := activeSeller(t, m, "dang-hoat-dong")
+	notApproved := apply(t, m, "chua-duyet")
 
-	active, err := m.IsSellerActive(ctx, hoatDong.ID)
+	active, err := m.IsSellerActive(ctx, activeOne.ID)
 	if err != nil {
 		t.Fatalf("IsSellerActive: %v", err)
 	}
@@ -543,7 +543,7 @@ func TestKiemTraSellerDangHoatDong(t *testing.T) {
 		t.Error("seller đã kích hoạt phải trả true")
 	}
 
-	active, err = m.IsSellerActive(ctx, chuaDuyet.ID)
+	active, err = m.IsSellerActive(ctx, notApproved.ID)
 	if err != nil {
 		t.Fatalf("IsSellerActive: %v", err)
 	}
@@ -558,9 +558,9 @@ func TestLaySellerTheoLo(t *testing.T) {
 
 	a := apply(t, m, "lo-a")
 	b := apply(t, m, "lo-b")
-	khongCo := ids.MustNew(ids.PrefixSeller).String()
+	missingID := ids.MustNew(ids.PrefixSeller).String()
 
-	got, err := m.GetSellersByIDs(ctx, []string{a.ID, b.ID, khongCo, "id-sai-dinh-dang"})
+	got, err := m.GetSellersByIDs(ctx, []string{a.ID, b.ID, missingID, "id-sai-dinh-dang"})
 	if err != nil {
 		t.Fatalf("GetSellersByIDs: %v", err)
 	}
@@ -588,7 +588,7 @@ func TestSlugTrungBiChan(t *testing.T) {
 	}
 }
 
-func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
+func TestMalformedIDReturnsErrInvalidID(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -641,7 +641,7 @@ func activeSeller(t *testing.T, m *seller.Module, slug string) *seller.SellerVie
 //
 // Sinh ngẫu nhiên mỗi lần chạy sẽ khiến dữ liệu mã hóa từ lượt trước không
 // đọc lại được, và lỗi ấy trông y hệt lỗi mã hóa thật.
-func maHoaThu() *privacy.BoMaHoa {
+func encryptedForTest() *privacy.BoMaHoa {
 	bm, err := privacy.NewBoMaHoa("dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=")
 	if err != nil {
 		panic(err)

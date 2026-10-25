@@ -19,18 +19,18 @@ import (
 type RegisterPort interface {
 	RegisterShopper(ctx context.Context, req RegisterInput) (RegisterOutput, error)
 
-	// XacMinhEmailVaGop xác minh email rồi gộp hồ sơ vãng lai (P3-15).
-	XacMinhEmailVaGop(ctx context.Context, token string) (XacMinhOutput, error)
+	// VerifyEmailAndMerge xác minh email rồi gộp hồ sơ vãng lai (P3-15).
+	VerifyEmailAndMerge(ctx context.Context, token string) (VerifyOutput, error)
 
-	// GuiLienKetXacMinh phát token mới và gửi thư chứa liên kết.
-	GuiLienKetXacMinh(ctx context.Context, userID string) error
+	// SendVerificationLink phát token mới và gửi thư chứa liên kết.
+	SendVerificationLink(ctx context.Context, userID string) error
 }
 
-// XacMinhOutput là kết quả xác minh email.
-type XacMinhOutput struct {
-	Email      string
-	DaGopHoSo  bool
-	SoDonDaGop int
+// VerifyOutput là kết quả xác minh email.
+type VerifyOutput struct {
+	Email            string
+	ProfileMerged    bool
+	MergedOrderCount int
 }
 
 // RegisterInput là dữ liệu đăng ký.
@@ -46,9 +46,9 @@ type RegisterOutput struct {
 	CustomerID string
 	UserID     string
 
-	// CanXacMinhEmail = true khi email đã có hồ sơ vãng lai; lịch sử mua
+	// NeedsEmailVerification = true khi email đã có hồ sơ vãng lai; lịch sử mua
 	// hàng chỉ được gộp sau khi xác minh.
-	CanXacMinhEmail bool
+	NeedsEmailVerification bool
 }
 
 // RegisterHandler phục vụ đường ĐĂNG KÝ.
@@ -66,11 +66,11 @@ type RegisterHandler struct {
 	emailUsedByGuest error
 	weakPassword     error
 
-	// tokenKhongHopLe, emailDaDoi và emailDaXacMinh là lỗi của luồng
+	// invalidToken, emailChanged và emailVerified là lỗi của luồng
 	// XÁC MINH email.
-	tokenKhongHopLe error
-	emailDaDoi      error
-	emailDaXacMinh  error
+	invalidToken  error
+	emailChanged  error
+	emailVerified error
 }
 
 // RegisterHandlerErrors gom các lỗi mà gói cha định nghĩa.
@@ -83,9 +83,9 @@ type RegisterHandlerErrors struct {
 	DuplicateEmail   error
 	EmailUsedByGuest error
 	WeakPassword     error
-	TokenKhongHopLe  error
-	EmailDaDoi       error
-	EmailDaXacMinh   error
+	InvalidToken     error
+	EmailChanged     error
+	EmailVerified    error
 }
 
 func NewRegisterHandler(
@@ -96,9 +96,9 @@ func NewRegisterHandler(
 		duplicateEmail:   errs.DuplicateEmail,
 		emailUsedByGuest: errs.EmailUsedByGuest,
 		weakPassword:     errs.WeakPassword,
-		tokenKhongHopLe:  errs.TokenKhongHopLe,
-		emailDaDoi:       errs.EmailDaDoi,
-		emailDaXacMinh:   errs.EmailDaXacMinh,
+		invalidToken:     errs.InvalidToken,
+		emailChanged:     errs.EmailChanged,
+		emailVerified:    errs.EmailVerified,
 	}
 }
 
@@ -112,16 +112,16 @@ func (h *RegisterHandler) Register(mux *http.ServeMux) {
 
 	// Xác minh email cũng CẦN giới hạn tần suất: nó nhận token từ bên
 	// ngoài, và không giới hạn thì nó là chỗ để dò token bằng vét cạn.
-	mux.Handle("POST /api/v1/auth/verify-email", http.HandlerFunc(h.xacMinh))
+	mux.Handle("POST /api/v1/auth/verify-email", http.HandlerFunc(h.verify))
 
 	// GỬI LẠI liên kết — mux truyền vào PHẢI đã bọc Auth.
 	//
 	// Xem `guiLai` cho lý do đường này cần đăng nhập còn `verify-email`
 	// thì không.
-	mux.Handle("POST /api/v1/auth/verify-email/resend", http.HandlerFunc(h.guiLai))
+	mux.Handle("POST /api/v1/auth/verify-email/resend", http.HandlerFunc(h.resend))
 }
 
-type guiLaiResponse struct {
+type resendResponse struct {
 	// Sent luôn là true khi trả 200. Có trường này để phản hồi không rỗng
 	// và để client phân biệt được với 204.
 	Sent bool `json:"sent"`
@@ -144,7 +144,7 @@ type guiLaiResponse struct {
 //
 // Và nó KHÔNG chặn ai: tài khoản dùng được ngay từ lúc đăng ký, kể cả khi
 // email chưa xác minh. Thứ chưa có là lịch sử đơn cũ.
-func (h *RegisterHandler) guiLai(w http.ResponseWriter, r *http.Request) {
+func (h *RegisterHandler) resend(w http.ResponseWriter, r *http.Request) {
 	ac, ok := httpserver.AuthContextFrom(r.Context())
 	if !ok || ac.UserID == "" {
 		h.fail(w, r, apierror.New(apierror.CodeUnauthorized,
@@ -152,16 +152,16 @@ func (h *RegisterHandler) guiLai(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.port.GuiLienKetXacMinh(r.Context(), ac.UserID); err != nil {
-		h.fail(w, r, h.translateGuiLai(err))
+	if err := h.port.SendVerificationLink(r.Context(), ac.UserID); err != nil {
+		h.fail(w, r, h.translateResend(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, guiLaiResponse{Sent: true})
+	h.ok(w, r, http.StatusOK, resendResponse{Sent: true})
 }
 
-// translateGuiLai dịch lỗi gửi lại thành thông báo hữu ích.
-func (h *RegisterHandler) translateGuiLai(err error) error {
-	if h.emailDaXacMinh != nil && errors.Is(err, h.emailDaXacMinh) {
+// translateResend dịch lỗi gửi lại thành thông báo hữu ích.
+func (h *RegisterHandler) translateResend(err error) error {
+	if h.emailVerified != nil && errors.Is(err, h.emailVerified) {
 		// 409 chứ không 400: yêu cầu hợp lệ, chỉ là đã xong rồi. Và nói
 		// thẳng ra — người gọi đã đăng nhập nên đây là email của chính họ,
 		// không lộ gì cho ai.
@@ -171,11 +171,11 @@ func (h *RegisterHandler) translateGuiLai(err error) error {
 	return apierror.From(err)
 }
 
-type xacMinhRequest struct {
+type verifyRequest struct {
 	Token string `json:"token"`
 }
 
-type xacMinhResponse struct {
+type verifyResponse struct {
 	Email string `json:"email"`
 
 	// ProfileMerged cho giao diện biết hồ sơ vãng lai vừa được gắn vào
@@ -199,8 +199,8 @@ type xacMinhResponse struct {
 //
 // Token đã là bằng chứng: nó ngẫu nhiên đủ mạnh, dùng MỘT lần, và hết hạn
 // sau 24 giờ.
-func (h *RegisterHandler) xacMinh(w http.ResponseWriter, r *http.Request) {
-	var req xacMinhRequest
+func (h *RegisterHandler) verify(w http.ResponseWriter, r *http.Request) {
+	var req verifyRequest
 	if err := decodeJSON(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -211,16 +211,16 @@ func (h *RegisterHandler) xacMinh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := h.port.XacMinhEmailVaGop(r.Context(), strings.TrimSpace(req.Token))
+	out, err := h.port.VerifyEmailAndMerge(r.Context(), strings.TrimSpace(req.Token))
 	if err != nil {
-		h.fail(w, r, h.translateXacMinh(err))
+		h.fail(w, r, h.translateVerify(err))
 		return
 	}
 
-	h.ok(w, r, http.StatusOK, xacMinhResponse{
+	h.ok(w, r, http.StatusOK, verifyResponse{
 		Email:         out.Email,
-		ProfileMerged: out.DaGopHoSo,
-		OrdersMerged:  out.SoDonDaGop,
+		ProfileMerged: out.ProfileMerged,
+		OrdersMerged:  out.MergedOrderCount,
 	})
 }
 
@@ -280,8 +280,8 @@ func (h *RegisterHandler) register(w http.ResponseWriter, r *http.Request) {
 	//
 	// Nhưng cũng KHÔNG nuốt im lặng: ghi ERROR để người vận hành thấy khi
 	// đường gửi thư hỏng hàng loạt.
-	if out.CanXacMinhEmail {
-		if err := h.port.GuiLienKetXacMinh(r.Context(), out.UserID); err != nil {
+	if out.NeedsEmailVerification {
+		if err := h.port.SendVerificationLink(r.Context(), out.UserID); err != nil {
 			h.log.ErrorContext(r.Context(),
 				"đăng ký xong nhưng KHÔNG gửi được thư xác minh",
 				"error", err, "user_id", out.UserID,
@@ -292,7 +292,7 @@ func (h *RegisterHandler) register(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, http.StatusCreated, registerResponse{
 		CustomerID:                out.CustomerID,
 		UserID:                    out.UserID,
-		EmailVerificationRequired: out.CanXacMinhEmail,
+		EmailVerificationRequired: out.NeedsEmailVerification,
 	})
 }
 
@@ -325,7 +325,7 @@ func (h *RegisterHandler) translateRegister(err error) error {
 	}
 }
 
-// translateXacMinh dịch lỗi xác minh email thành thông báo hữu ích.
+// translateVerify dịch lỗi xác minh email thành thông báo hữu ích.
 //
 // Token hỏng vì BA lý do khác nhau — không tồn tại, đã dùng, đã hết hạn —
 // và cả ba trả CÙNG một thông báo, có chủ ý: phân biệt chúng cho kẻ dò
@@ -333,10 +333,10 @@ func (h *RegisterHandler) translateRegister(err error) error {
 //
 // Thông báo vẫn nêu HÀNH ĐỘNG cần làm ("yêu cầu gửi lại"), vì người dùng
 // thật gặp lỗi này chủ yếu do liên kết cũ quá 24 giờ.
-func (h *RegisterHandler) translateXacMinh(err error) error {
+func (h *RegisterHandler) translateVerify(err error) error {
 	switch {
-	case h.tokenKhongHopLe != nil && errors.Is(err, h.tokenKhongHopLe),
-		h.emailDaDoi != nil && errors.Is(err, h.emailDaDoi):
+	case h.invalidToken != nil && errors.Is(err, h.invalidToken),
+		h.emailChanged != nil && errors.Is(err, h.emailChanged):
 		return apierror.New(apierror.CodeValidationFailed,
 			"Liên kết xác minh không còn hiệu lực. Hãy yêu cầu gửi lại.")
 	default:
