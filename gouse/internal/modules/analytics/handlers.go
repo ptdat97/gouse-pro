@@ -153,9 +153,9 @@ func (h *RecordEventsFromBus) Handle(ctx context.Context, e eventbus.Event) erro
 	case eventbus.TypeFulfillmentProgress:
 		return h.handleFulfillmentProgress(ctx, e)
 	case eventbus.TypeCheckoutStarted:
-		return h.handlePhien(ctx, e, EventCheckoutStart)
+		return h.handleSession(ctx, e, EventCheckoutStart)
 	case eventbus.TypeCheckoutExpired:
-		return h.handlePhien(ctx, e, EventCheckoutExpired)
+		return h.handleSession(ctx, e, EventCheckoutExpired)
 	}
 	// Loại event không quan tâm: không phải lỗi.
 	return nil
@@ -293,17 +293,17 @@ func (h *RecordEventsFromBus) handleCartItemAdded(
 	})
 }
 
-// phienPayload là dữ liệu của `checkout.started` và `checkout.expired`.
-type phienPayload struct {
+// sessionPayload là dữ liệu của `checkout.started` và `checkout.expired`.
+type sessionPayload struct {
 	CheckoutID string `json:"checkout_id"`
 	CartID     string `json:"cart_id"`
 	CustomerID string `json:"customer_id"`
-	SoDong     int    `json:"line_count"`
+	RowCount   int    `json:"line_count"`
 	Subtotal   int64  `json:"subtotal"`
 	Currency   string `json:"currency"`
 }
 
-// handlePhien ghi một bước của phiên thanh toán vào phễu.
+// handleSession ghi một bước của phiên thanh toán vào phễu.
 //
 // # Vì sao MỘT hàm cho cả hai event
 //
@@ -316,10 +316,10 @@ type phienPayload struct {
 // Để nối được với `add_to_cart`: một giỏ là MỘT lượt mua sắm, và tỷ lệ
 // chuyển đổi đếm theo đơn vị đó. Dùng id phiên thì bước thêm-giỏ và bước
 // thanh toán nằm ở hai session khác nhau và phễu đứt làm đôi.
-func (h *RecordEventsFromBus) handlePhien(
+func (h *RecordEventsFromBus) handleSession(
 	ctx context.Context, e eventbus.Event, ten string,
 ) error {
-	var p phienPayload
+	var p sessionPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event phiên thanh toán: %w", err)
 	}
@@ -346,7 +346,7 @@ func (h *RecordEventsFromBus) handlePhien(
 		Currency: p.Currency,
 
 		Properties: map[string]any{
-			"line_count": p.SoDong,
+			"line_count": p.RowCount,
 		},
 
 		OccurredAt: e.OccurredAt,

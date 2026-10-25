@@ -223,7 +223,7 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 	// nhà bán. Cộng tiền theo dòng là đúng (các phần cộng lại thành tổng
 	// đơn), nhưng đếm dòng thì một đơn trộn hàng ba nhà bán thành ba đơn
 	// — và `aov` chia cho con số ấy nên sai theo.
-	gmv, donCoTien, err := s.events.SumAmount(
+	gmv, orderWithMoney, err := s.events.SumAmount(
 		ctx, domain.EventOrderPlaced, r, in.SellerID)
 	if err != nil {
 		return err
@@ -258,8 +258,8 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 	// kéo xuống.
 	aovMetric := base
 	aovMetric.Name = domain.MetricAOV
-	aovMetric.Value = domain.ComputeAOV(gmv, donCoTien)
-	aovMetric.SampleSize = donCoTien
+	aovMetric.Value = domain.ComputeAOV(gmv, orderWithMoney)
+	aovMetric.SampleSize = orderWithMoney
 	if err := s.metrics.Upsert(ctx, aovMetric); err != nil {
 		return err
 	}
@@ -322,15 +322,15 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 //
 // Trả về giá trị 0 nếu chưa tính — dashboard mở vào một ngày chưa có
 // worker chạy là chuyện bình thường.
-// GomLuotXem trả số PHIÊN đã xem từng sản phẩm trong một khoảng.
+// RollUpViews trả số PHIÊN đã xem từng sản phẩm trong một khoảng.
 //
 // Đường ĐỌC của dữ liệu hành vi, phục vụ việc dựng tín hiệu nhu cầu. Module
 // này KHÔNG tự ghi tín hiệu — nó không biết supply-chain tồn tại; tầng
 // composition nối hai đầu lại.
-func (s *Service) GomLuotXem(
-	ctx context.Context, tu, den time.Time,
+func (s *Service) RollUpViews(
+	ctx context.Context, tu, to time.Time,
 ) (map[string]int, error) {
-	return s.events.GomLuotXemTheoSanPham(ctx, domain.TimeRange{From: tu, To: den})
+	return s.events.RollUpViewsByProduct(ctx, domain.TimeRange{From: tu, To: to})
 }
 
 func (s *Service) GetMetric(

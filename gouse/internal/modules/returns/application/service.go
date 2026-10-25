@@ -22,8 +22,8 @@ func (systemClock) Now() time.Time { return types.BayGio() }
 // SystemClock là đồng hồ thật.
 var SystemClock Clock = systemClock{}
 
-// DongDonHang là một dòng hàng trong đơn, dưới góc nhìn của việc trả hàng.
-type DongDonHang struct {
+// OrderLine là một dòng hàng trong đơn, dưới góc nhìn của việc trả hàng.
+type OrderLine struct {
 	ID       ids.ID
 	SKUID    ids.ID
 	SellerID ids.ID
@@ -36,34 +36,34 @@ type DongDonHang struct {
 	// Âm với khoản giảm giá.
 	TongDieuChinh money.Money
 
-	// HoaHong là hoa hồng nền tảng của dòng, ĐÃ ĐÓNG BĂNG lúc đặt hàng.
+	// Commission là hoa hồng nền tảng của dòng, ĐÃ ĐÓNG BĂNG lúc đặt hàng.
 	//
 	// Cần để ĐẢO NGƯỢC đúng phần: hoàn tiền cho khách mà không đảo hoa
 	// hồng nghĩa là nền tảng giữ lại hoa hồng của một đơn không thành.
-	HoaHong money.Money
+	Commission money.Money
 }
 
-// DonHang là dữ liệu đơn hàng mà việc trả hàng cần.
-type DonHang struct {
+// Order là dữ liệu đơn hàng mà việc trả hàng cần.
+type Order struct {
 	ID ids.ID
 
-	// DaGiao: chỉ đơn ĐÃ GIAO mới trả được.
-	DaGiao bool
+	// Delivered: chỉ đơn ĐÃ GIAO mới trả được.
+	Delivered bool
 
-	// GiaoLuc là mốc bắt đầu đếm HẠN ĐỔI TRẢ.
+	// DeliveredAt là mốc bắt đầu đếm HẠN ĐỔI TRẢ.
 	//
 	// Rỗng với đơn cũ chưa có mốc này. Khi đó hạn KHÔNG được cưỡng chế —
 	// phía an toàn, vì chặn một yêu cầu hợp lệ chỉ vì thiếu dữ liệu lịch
 	// sử là từ chối quyền của khách do lỗi của hệ thống.
-	GiaoLuc time.Time
+	DeliveredAt time.Time
 
-	// GiamGiaCapDon là số tiền giảm ghi ở CẤP ĐƠN.
+	// OrderDiscount là số tiền giảm ghi ở CẤP ĐƠN.
 	//
 	// Nếu nó khác 0 mà không dòng nào mang khoản điều chỉnh tương ứng thì
-	// phần giảm chưa được phân bổ — xem hàng rào ở TinhTienHoan.
-	GiamGiaCapDon money.Money
+	// phần giảm chưa được phân bổ — xem hàng rào ở ComputeRefund.
+	OrderDiscount money.Money
 
-	Dong []DongDonHang
+	Lines []OrderLine
 }
 
 // OrderPort là cổng đọc đơn hàng.
@@ -71,78 +71,78 @@ type DonHang struct {
 // PORT do returns định nghĩa: nó hỏi đúng thứ mình cần, không phải toàn bộ
 // góc nhìn đơn hàng của module order.
 type OrderPort interface {
-	LayDonDeTraHang(ctx context.Context, orderID ids.ID) (DonHang, error)
+	GetOrderForReturn(ctx context.Context, orderID ids.ID) (Order, error)
 }
 
-// HanDoiTraPort cho biết khách được trả hàng trong bao lâu.
+// ReturnWindowPort cho biết khách được trả hàng trong bao lâu.
 //
 // Là CỔNG chứ không hằng số trong module này, vì cùng con số ấy quyết định
 // khi nào `fulfillment` chuyển tiền cho nhà bán. Hai hằng số riêng nghĩa
 // là sớm muộn chúng lệch nhau — và lệch ở đây là hoàn tiền cho khách sau
 // khi nhà bán đã rút tiền.
-type HanDoiTraPort interface {
-	HanDoiTra() time.Duration
+type ReturnWindowPort interface {
+	ReturnWindow() time.Duration
 }
 
 // InventoryPort nhận hàng hoàn về kho.
 type InventoryPort interface {
-	// NhanHangHoan đưa hàng vào trạng thái Returned — KHÔNG phải Available.
+	// ReceiveReturnedGoods đưa hàng vào trạng thái Returned — KHÔNG phải Available.
 	//
 	// Bên cài đặt tự tra bản ghi tồn kho từ (SKU, nhà bán): việc trả hàng
 	// không cần biết kho nào giữ món đó.
-	NhanHangHoan(ctx context.Context, skuID, sellerID ids.ID, qty int, returnID ids.ID) error
+	ReceiveReturnedGoods(ctx context.Context, skuID, sellerID ids.ID, qty int, returnID ids.ID) error
 
-	// GhiKetQuaKiemDinh chuyển hàng từ Returned sang Available (đạt) hoặc
+	// RecordInspection chuyển hàng từ Returned sang Available (đạt) hoặc
 	// Damaged (loại).
 	//
 	// Đây là bước DUY NHẤT đưa hàng hoàn trở lại bán được. Không có nó,
 	// hàng nằm chết ở Returned vĩnh viễn.
-	GhiKetQuaKiemDinh(
+	RecordInspection(
 		ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, lyDo string,
 	) error
 }
 
 // PaymentPort ghi bút toán hoàn tiền.
 type PaymentPort interface {
-	// GhiHoanTien đảo ngược phần tiền của một lần trả hàng.
+	// RecordRefund đảo ngược phần tiền của một lần trả hàng.
 	//
 	// Ba con số, không phải một: tổng hoàn cho khách, phần thu lại từ nhà
 	// bán, và phần thu lại từ doanh thu nền tảng. Chỉ ghi tổng thì sổ vẫn
 	// cân nhưng số dư nhà bán sai — và số dư ấy là thứ đem đi chi trả.
-	GhiHoanTien(ctx context.Context, in HoanTienInput) error
+	RecordRefund(ctx context.Context, in RefundInput) error
 }
 
-// HoanTienInput là dữ liệu đảo ngược tài chính của một lần trả hàng.
-type HoanTienInput struct {
+// RefundInput là dữ liệu đảo ngược tài chính của một lần trả hàng.
+type RefundInput struct {
 	OrderID  ids.ID
 	ReturnID ids.ID
 	SellerID ids.ID
 
-	// TongHoan là số tiền trả lại khách, theo GIÁ THỰC TRẢ.
-	TongHoan money.Money
+	// TotalRefund là số tiền trả lại khách, theo GIÁ THỰC TRẢ.
+	TotalRefund money.Money
 
-	// DaoHoaHong là phần thu lại từ doanh thu nền tảng.
-	DaoHoaHong money.Money
+	// ReverseCommission là phần thu lại từ doanh thu nền tảng.
+	ReverseCommission money.Money
 
-	// DaoNhaBan là phần thu lại từ số dư nhà bán = TongHoan − DaoHoaHong.
-	DaoNhaBan money.Money
+	// ReverseSellerPayable là phần thu lại từ số dư nhà bán = TotalRefund − ReverseCommission.
+	ReverseSellerPayable money.Money
 }
 
 // Repository là PORT cho kho lưu trữ.
 type Repository interface {
-	Luu(ctx context.Context, y *domain.YeuCauTraHang) error
+	Save(ctx context.Context, y *domain.ReturnRequest) error
 
-	// LuuKemEvent ghi yêu cầu VÀ chạy fn trong CÙNG giao dịch.
-	LuuKemEvent(ctx context.Context, y *domain.YeuCauTraHang, fn domain.TxFunc) error
-	TimTheoID(ctx context.Context, id ids.ID) (*domain.YeuCauTraHang, error)
-	TimTheoDon(ctx context.Context, orderID ids.ID) ([]*domain.YeuCauTraHang, error)
-	TimTheoNhaBan(ctx context.Context, sellerID ids.ID, status string, limit int) ([]*domain.YeuCauTraHang, error)
+	// SaveWithEvent ghi yêu cầu VÀ chạy fn trong CÙNG giao dịch.
+	SaveWithEvent(ctx context.Context, y *domain.ReturnRequest, fn domain.TxFunc) error
+	TimTheoID(ctx context.Context, id ids.ID) (*domain.ReturnRequest, error)
+	FindByOrder(ctx context.Context, orderID ids.ID) ([]*domain.ReturnRequest, error)
+	FindBySeller(ctx context.Context, sellerID ids.ID, status string, limit int) ([]*domain.ReturnRequest, error)
 
-	// DongDaXinTra trả các order_line_id đã có yêu cầu trả CÒN HIỆU LỰC.
+	// AlreadyRequestedLines trả các order_line_id đã có yêu cầu trả CÒN HIỆU LỰC.
 	//
 	// Không có bước này, khách gửi hai yêu cầu cho cùng một món và được
 	// hoàn tiền hai lần cho một lần mua.
-	DongDaXinTra(ctx context.Context, orderID ids.ID) (map[ids.ID]int, error)
+	AlreadyRequestedLines(ctx context.Context, orderID ids.ID) (map[ids.ID]int, error)
 }
 
 // Service là tầng application của module returns.
@@ -151,47 +151,47 @@ type Service struct {
 	orders    OrderPort
 	inventory InventoryPort
 	payment   PaymentPort
-	han       HanDoiTraPort
+	window    ReturnWindowPort
 	clock     Clock
 	events    EventPublisher
 }
 
 // EventPublisher là cổng ra của module tới hàng đợi event.
 type EventPublisher interface {
-	// PublishTraHangDuocXin phát tín hiệu khách XIN TRẢ hàng, kèm lý do.
-	PublishTraHangDuocXin(ctx context.Context, e TraHangDuocXin) error
+	// PublishReturnRequested phát tín hiệu khách XIN TRẢ hàng, kèm lý do.
+	PublishReturnRequested(ctx context.Context, e ReturnRequested) error
 }
 
-// TraHangDuocXin là sự thật "khách xin trả hàng", kèm LÝ DO từng dòng.
+// ReturnRequested là sự thật "khách xin trả hàng", kèm LÝ DO từng dòng.
 //
 // Lý do là phần quý nhất của payload. Với thời trang, "size nhỏ" lặp lại
 // trên một mã hàng nghĩa là bảng size sai — dữ liệu chất lượng, không chỉ
 // là chi phí.
-type TraHangDuocXin struct {
-	ReturnID   ids.ID
-	OrderID    ids.ID
-	CustomerID ids.ID
-	Dong       []DongTinHieu
-	XinLuc     time.Time
+type ReturnRequested struct {
+	ReturnID    ids.ID
+	OrderID     ids.ID
+	CustomerID  ids.ID
+	Lines       []SignalLine
+	RequestedAt time.Time
 }
 
-// DongTinHieu là một dòng hàng bị trả, kèm lý do chuẩn hóa.
-type DongTinHieu struct {
+// SignalLine là một dòng hàng bị trả, kèm lý do chuẩn hóa.
+type SignalLine struct {
 	SKUID    ids.ID
 	Quantity int
 	LyDo     string
 }
 
-// dongTinHieu rút phần supply-chain cần từ yêu cầu trả hàng.
+// signalLines rút phần supply-chain cần từ yêu cầu trả hàng.
 //
 // Chỉ SKU, số lượng và lý do — KHÔNG mang tiền hoàn hay ghi chú của khách.
 // Payload event nên chứa đủ thứ bên nhận cần và không hơn: dữ liệu thừa
 // tạo cảm giác bên nhận phụ thuộc vào nhiều hơn thực tế, và khi bên phát
 // bỏ một trường thì không rõ có phá gì không.
-func dongTinHieu(y *domain.YeuCauTraHang) []DongTinHieu {
-	out := make([]DongTinHieu, 0, len(y.Dong()))
-	for _, d := range y.Dong() {
-		out = append(out, DongTinHieu{
+func signalLines(y *domain.ReturnRequest) []SignalLine {
+	out := make([]SignalLine, 0, len(y.Lines()))
+	for _, d := range y.Lines() {
+		out = append(out, SignalLine{
 			SKUID:    d.SKUID,
 			Quantity: d.Quantity,
 			LyDo:     string(d.LyDo),
@@ -212,11 +212,11 @@ type Deps struct {
 	Payment   PaymentPort
 	Clock     Clock
 
-	// Han có thể nil ở test không quan tâm tới hạn đổi trả. Ở production
+	// Window có thể nil ở test không quan tâm tới hạn đổi trả. Ở production
 	// thì KHÔNG được nil: thiếu nó nghĩa là hạn không được cưỡng chế, và
 	// khách trả hàng sau bao lâu cũng được — kể cả sau khi nhà bán đã rút
 	// tiền.
-	Han HanDoiTraPort
+	Window ReturnWindowPort
 }
 
 func NewService(d Deps) *Service {
@@ -225,15 +225,15 @@ func NewService(d Deps) *Service {
 		c = SystemClock
 	}
 	return &Service{repo: d.Repo, orders: d.Orders,
-		inventory: d.Inventory, payment: d.Payment, han: d.Han, clock: c,
+		inventory: d.Inventory, payment: d.Payment, window: d.Window, clock: c,
 		events: d.Events}
 }
 
-// HetHanTra cho biết đơn đã quá hạn đổi trả chưa.
+// ReturnWindowClosed cho biết đơn đã quá hạn đổi trả chưa.
 //
 // # Vì sao thiếu dữ liệu thì KHÔNG chặn
 //
-// `GiaoLuc` rỗng với đơn tạo trước migration 000049, và cổng `han` rỗng ở
+// `DeliveredAt` rỗng với đơn tạo trước migration 000049, và cổng `window` rỗng ở
 // những bản dựng chưa nối cấu hình. Cả hai trường hợp đều trả false —
 // phía an toàn: chặn một yêu cầu hợp lệ vì thiếu dữ liệu lịch sử là từ
 // chối quyền của khách do lỗi của hệ thống.
@@ -241,18 +241,18 @@ func NewService(d Deps) *Service {
 // Ngược lại thì sao? Cho qua một yêu cầu quá hạn làm nền tảng hoàn tiền
 // sau khi nhà bán đã rút. Đó là mất tiền, nhưng nó CHỈ xảy ra với dữ liệu
 // cũ và mất một lần; còn chặn oan thì xảy ra với mọi khách có đơn cũ.
-func (s *Service) HetHanTra(don DonHang, now time.Time) bool {
-	if s.han == nil || don.GiaoLuc.IsZero() {
+func (s *Service) ReturnWindowClosed(ord Order, now time.Time) bool {
+	if s.window == nil || ord.DeliveredAt.IsZero() {
 		return false
 	}
-	han := s.han.HanDoiTra()
-	if han <= 0 {
+	window := s.window.ReturnWindow()
+	if window <= 0 {
 		return false
 	}
-	return now.After(don.GiaoLuc.Add(han))
+	return now.After(ord.DeliveredAt.Add(window))
 }
 
-// TinhTienHoan tính số tiền hoàn cho một dòng, theo GIÁ THỰC TRẢ.
+// ComputeRefund tính số tiền hoàn cho một dòng, theo GIÁ THỰC TRẢ.
 //
 // # Hàng rào chống hoàn thừa
 //
@@ -269,41 +269,41 @@ func (s *Service) HetHanTra(don DonHang, now time.Time) bool {
 // dòng không mang khoản điều chỉnh nào.
 //
 // Từ chối và bắt xử lý tay còn hơn âm thầm trả ra số tiền sai.
-func TinhTienHoan(don DonHang, dong DongDonHang, soLuongTra int) (money.Money, error) {
-	if soLuongTra <= 0 || soLuongTra > dong.Quantity {
+func ComputeRefund(ord Order, lines OrderLine, returnQuantity int) (money.Money, error) {
+	if returnQuantity <= 0 || returnQuantity > lines.Quantity {
 		return money.Money{}, domain.ErrQuantityExceeded
 	}
 
-	if don.GiamGiaCapDon.IsPositive() && !coDieuChinh(don) {
-		return money.Money{}, domain.ErrGiamGiaChuaPhanBo
+	if ord.OrderDiscount.IsPositive() && !coDieuChinh(ord) {
+		return money.Money{}, domain.ErrDiscountNotAllocated
 	}
 
 	// Giá thực trả của cả dòng = niêm yết + điều chỉnh (điều chỉnh âm khi
 	// là khoản giảm).
-	thucTra, err := dong.LineTotal.Add(dong.TongDieuChinh)
+	actuallyPaid, err := lines.LineTotal.Add(lines.TongDieuChinh)
 	if err != nil {
 		return money.Money{}, err
 	}
-	if thucTra.Amount() < 0 {
+	if actuallyPaid.Amount() < 0 {
 		return money.Money{}, fmt.Errorf(
-			"returns: giá thực trả của dòng %s là số âm", dong.ID)
+			"returns: giá thực trả của dòng %s là số âm", lines.ID)
 	}
 
-	if soLuongTra == dong.Quantity {
-		return thucTra, nil
+	if returnQuantity == lines.Quantity {
+		return actuallyPaid, nil
 	}
 
 	// Trả một phần: chia theo tỷ lệ, LÀM TRÒN XUỐNG.
 	//
 	// Làm tròn xuống là chủ ý — làm tròn lên nghĩa là trả nhiều hơn đã
 	// thu, và phần chênh nhân với số lần trả hàng của cả nền tảng.
-	moiCai := thucTra.Amount() / int64(dong.Quantity)
-	return money.New(moiCai*int64(soLuongTra), thucTra.Currency())
+	moiCai := actuallyPaid.Amount() / int64(lines.Quantity)
+	return money.New(moiCai*int64(returnQuantity), actuallyPaid.Currency())
 }
 
 // coDieuChinh cho biết CÓ ÍT NHẤT một dòng mang khoản điều chỉnh.
-func coDieuChinh(don DonHang) bool {
-	for _, d := range don.Dong {
+func coDieuChinh(ord Order) bool {
+	for _, d := range ord.Lines {
 		if !d.TongDieuChinh.IsZero() {
 			return true
 		}
@@ -311,62 +311,62 @@ func coDieuChinh(don DonHang) bool {
 	return false
 }
 
-// XinTraInput là yêu cầu trả hàng của khách.
-type XinTraInput struct {
+// RequestInput là yêu cầu trả hàng của khách.
+type RequestInput struct {
 	OrderID    ids.ID
 	CustomerID ids.ID
-	GhiChu     string
+	Note       string
 
-	Dong []DongXinTra
+	Lines []RequestedLine
 }
 
-// DongXinTra là một dòng khách xin trả, KÈM lý do của riêng nó.
-type DongXinTra struct {
+// RequestedLine là một dòng khách xin trả, KÈM lý do của riêng nó.
+type RequestedLine struct {
 	OrderLineID ids.ID
 	Quantity    int
 	LyDo        domain.LyDo
 	ChiTiet     string
 }
 
-// XinTra tạo một yêu cầu trả hàng.
-func (s *Service) XinTra(
-	ctx context.Context, in XinTraInput,
-) (*domain.YeuCauTraHang, error) {
-	if len(in.Dong) == 0 {
+// Request tạo một yêu cầu trả hàng.
+func (s *Service) Request(
+	ctx context.Context, in RequestInput,
+) (*domain.ReturnRequest, error) {
+	if len(in.Lines) == 0 {
 		return nil, domain.ErrNoLines
 	}
 
-	don, err := s.orders.LayDonDeTraHang(ctx, in.OrderID)
+	ord, err := s.orders.GetOrderForReturn(ctx, in.OrderID)
 	if err != nil {
 		return nil, err
 	}
-	if !don.DaGiao {
+	if !ord.Delivered {
 		return nil, fmt.Errorf("%w: đơn chưa giao xong", domain.ErrInvalidStatus)
 	}
 
 	// HẠN ĐỔI TRẢ — trước hôm nay KHÔNG có kiểm tra nào ở đây.
 	//
-	// `DaGiao` là true cho cả đơn COMPLETED, tức là đơn đã hết hạn đổi trả
+	// `Delivered` là true cho cả đơn COMPLETED, tức là đơn đã hết hạn đổi trả
 	// và số dư nhà bán đã chuyển sang KHẢ DỤNG. Cho trả sau mốc đó nghĩa
 	// là nền tảng hoàn tiền cho khách trong khi nhà bán đã rút được —
 	// đúng thứ mà chú thích của `Order.Complete` gọi là "rất khó thu hồi".
-	if s.HetHanTra(don, s.clock.Now()) {
-		return nil, domain.ErrHetHanTra
+	if s.ReturnWindowClosed(ord, s.clock.Now()) {
+		return nil, domain.ErrReturnWindowClosed
 	}
 
-	daXin, err := s.repo.DongDaXinTra(ctx, in.OrderID)
+	daXin, err := s.repo.AlreadyRequestedLines(ctx, in.OrderID)
 	if err != nil {
 		return nil, err
 	}
 
-	theoID := map[ids.ID]DongDonHang{}
-	for _, d := range don.Dong {
+	theoID := map[ids.ID]OrderLine{}
+	for _, d := range ord.Lines {
 		theoID[d.ID] = d
 	}
 
-	var dongTra []domain.Dong
+	var returnLines []domain.Lines
 	var sellerID ids.ID
-	for _, xin := range in.Dong {
+	for _, xin := range in.Lines {
 		lineID, qty := xin.OrderLineID, xin.Quantity
 		d, co := theoID[lineID]
 		if !co {
@@ -377,7 +377,7 @@ func (s *Service) XinTra(
 			return nil, domain.ErrDuplicateLine
 		}
 
-		tien, err := TinhTienHoan(don, d, qty)
+		amount, err := ComputeRefund(ord, d, qty)
 		if err != nil {
 			return nil, err
 		}
@@ -391,20 +391,20 @@ func (s *Service) XinTra(
 				"returns: một yêu cầu chỉ được chứa hàng của MỘT nhà bán")
 		}
 
-		dongTra = append(dongTra, domain.Dong{
-			ID:          ids.MustNew(ids.PrefixReturnLine),
-			OrderLineID: lineID,
-			SKUID:       d.SKUID,
-			Quantity:    qty,
-			TienHoan:    tien,
-			LyDo:        xin.LyDo,
-			ChiTiet:     xin.ChiTiet,
+		returnLines = append(returnLines, domain.Lines{
+			ID:           ids.MustNew(ids.PrefixReturnLine),
+			OrderLineID:  lineID,
+			SKUID:        d.SKUID,
+			Quantity:     qty,
+			RefundAmount: amount,
+			LyDo:         xin.LyDo,
+			ChiTiet:      xin.ChiTiet,
 		})
 	}
 
-	y, err := domain.Tao(domain.TaoParams{
+	y, err := domain.New(domain.NewParams{
 		OrderID: in.OrderID, SellerID: sellerID, CustomerID: in.CustomerID,
-		GhiChu: in.GhiChu, Dong: dongTra, Now: s.clock.Now(),
+		Note: in.Note, Lines: returnLines, Now: s.clock.Now(),
 	})
 	if err != nil {
 		return nil, err
@@ -416,26 +416,26 @@ func (s *Service) XinTra(
 	// chịu tỷ lệ hoàn cao mãi. Ghi rời nghĩa là có yêu cầu trả hàng mà lý
 	// do không vào được dữ liệu ấy — và nó không tạo ngược được.
 	if s.events != nil {
-		if err := s.repo.LuuKemEvent(ctx, y, func(txCtx context.Context) error {
-			return s.events.PublishTraHangDuocXin(txCtx, TraHangDuocXin{
-				ReturnID:   y.ID(),
-				OrderID:    y.OrderID(),
-				CustomerID: y.CustomerID(),
-				Dong:       dongTinHieu(y),
-				XinLuc:     y.RequestedAt(),
+		if err := s.repo.SaveWithEvent(ctx, y, func(txCtx context.Context) error {
+			return s.events.PublishReturnRequested(txCtx, ReturnRequested{
+				ReturnID:    y.ID(),
+				OrderID:     y.OrderID(),
+				CustomerID:  y.CustomerID(),
+				Lines:       signalLines(y),
+				RequestedAt: y.RequestedAt(),
 			})
 		}); err != nil {
 			return nil, err
 		}
-	} else if err := s.repo.Luu(ctx, y); err != nil {
+	} else if err := s.repo.Save(ctx, y); err != nil {
 		return nil, err
 	}
 	return y, nil
 }
 
 // Duyet nhà bán chấp nhận yêu cầu.
-func (s *Service) Duyet(ctx context.Context, id, sellerID ids.ID) (*domain.YeuCauTraHang, error) {
-	return s.doi(ctx, id, sellerID, func(y *domain.YeuCauTraHang, now time.Time) error {
+func (s *Service) Duyet(ctx context.Context, id, sellerID ids.ID) (*domain.ReturnRequest, error) {
+	return s.transition(ctx, id, sellerID, func(y *domain.ReturnRequest, now time.Time) error {
 		return y.Duyet(now)
 	})
 }
@@ -443,13 +443,13 @@ func (s *Service) Duyet(ctx context.Context, id, sellerID ids.ID) (*domain.YeuCa
 // TuChoi nhà bán từ chối yêu cầu, kèm lý do.
 func (s *Service) TuChoi(
 	ctx context.Context, id, sellerID ids.ID, lyDo string,
-) (*domain.YeuCauTraHang, error) {
-	return s.doi(ctx, id, sellerID, func(y *domain.YeuCauTraHang, now time.Time) error {
+) (*domain.ReturnRequest, error) {
+	return s.transition(ctx, id, sellerID, func(y *domain.ReturnRequest, now time.Time) error {
 		return y.TuChoi(lyDo, now)
 	})
 }
 
-// NhanHangVaHoanTien ghi nhận hàng về kho rồi hoàn tiền.
+// ReceiveAndRefund ghi nhận hàng về kho rồi hoàn tiền.
 //
 // # Thứ tự quan trọng
 //
@@ -459,41 +459,41 @@ func (s *Service) TuChoi(
 // Hàng vào trạng thái Returned, KHÔNG phải Available. Quy tắc bắt buộc của
 // docs/07-workflows/return.md mục 4: hàng hoàn tự động thành Available
 // nghĩa là bán lại hàng hỏng cho khách khác.
-func (s *Service) NhanHangVaHoanTien(
+func (s *Service) ReceiveAndRefund(
 	ctx context.Context, id, sellerID ids.ID,
-) (*domain.YeuCauTraHang, error) {
-	y, err := s.doi(ctx, id, sellerID, func(y *domain.YeuCauTraHang, now time.Time) error {
-		return y.DaNhanHang(now)
+) (*domain.ReturnRequest, error) {
+	y, err := s.transition(ctx, id, sellerID, func(y *domain.ReturnRequest, now time.Time) error {
+		return y.GoodsReceived(now)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	for _, d := range y.Dong() {
-		if err := s.inventory.NhanHangHoan(ctx, d.SKUID, y.SellerID(), d.Quantity, y.ID()); err != nil {
+	for _, d := range y.Lines() {
+		if err := s.inventory.ReceiveReturnedGoods(ctx, d.SKUID, y.SellerID(), d.Quantity, y.ID()); err != nil {
 			return nil, fmt.Errorf("returns: nhập hàng hoàn về kho: %w", err)
 		}
 	}
 
-	daoHoaHong, err := s.tinhDaoHoaHong(ctx, y)
+	reverseCommission, err := s.computeCommissionReversal(ctx, y)
 	if err != nil {
 		return nil, err
 	}
-	daoNhaBan, err := y.TienHoan().Sub(daoHoaHong)
+	reverseSellerPayable, err := y.RefundAmount().Sub(reverseCommission)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.payment.GhiHoanTien(ctx, HoanTienInput{
+	if err := s.payment.RecordRefund(ctx, RefundInput{
 		OrderID: y.OrderID(), ReturnID: y.ID(), SellerID: y.SellerID(),
-		TongHoan: y.TienHoan(), DaoHoaHong: daoHoaHong, DaoNhaBan: daoNhaBan,
+		TotalRefund: y.RefundAmount(), ReverseCommission: reverseCommission, ReverseSellerPayable: reverseSellerPayable,
 	}); err != nil {
 		return nil, fmt.Errorf("returns: ghi sổ hoàn tiền: %w", err)
 	}
 
 	// ĐỌC LẠI trước lượt ghi cuối.
 	//
-	// `doi` ở trên đã ghi một lần, nên phiên bản dưới database đã tăng còn
+	// `transition` ở trên đã ghi một lần, nên phiên bản dưới database đã tăng còn
 	// bản trong bộ nhớ thì chưa. Ghi tiếp bằng bản cũ sẽ xung đột phiên
 	// bản với chính mình.
 	//
@@ -503,41 +503,41 @@ func (s *Service) NhanHangVaHoanTien(
 	if err != nil {
 		return nil, err
 	}
-	if err := moi.DaHoanTien(s.clock.Now()); err != nil {
+	if err := moi.Refunded(s.clock.Now()); err != nil {
 		return nil, err
 	}
-	if err := s.repo.Luu(ctx, moi); err != nil {
+	if err := s.repo.Save(ctx, moi); err != nil {
 		return nil, err
 	}
 	return moi, nil
 }
 
-// tinhDaoHoaHong tính phần hoa hồng phải thu lại.
+// computeCommissionReversal tính phần hoa hồng phải thu lại.
 //
 // Theo TỶ LỆ phần đã hoàn trên tổng dòng: trả một nửa số lượng thì đảo một
 // nửa hoa hồng. Làm tròn XUỐNG, cùng lý do với tiền hoàn — làm tròn lên ở
 // đây nghĩa là thu lại của nhà bán nhiều hơn phần họ thực sự mất.
-func (s *Service) tinhDaoHoaHong(
-	ctx context.Context, y *domain.YeuCauTraHang,
+func (s *Service) computeCommissionReversal(
+	ctx context.Context, y *domain.ReturnRequest,
 ) (money.Money, error) {
-	don, err := s.orders.LayDonDeTraHang(ctx, y.OrderID())
+	ord, err := s.orders.GetOrderForReturn(ctx, y.OrderID())
 	if err != nil {
 		return money.Money{}, err
 	}
 
-	theoID := map[ids.ID]DongDonHang{}
-	for _, d := range don.Dong {
+	theoID := map[ids.ID]OrderLine{}
+	for _, d := range ord.Lines {
 		theoID[d.ID] = d
 	}
 
 	tong := money.Money{}
-	for _, d := range y.Dong() {
+	for _, d := range y.Lines() {
 		goc, co := theoID[d.OrderLineID]
-		if !co || goc.Quantity == 0 || goc.HoaHong.IsZero() {
+		if !co || goc.Quantity == 0 || goc.Commission.IsZero() {
 			continue
 		}
-		phan := goc.HoaHong.Amount() * int64(d.Quantity) / int64(goc.Quantity)
-		m, err := money.New(phan, goc.HoaHong.Currency())
+		share := goc.Commission.Amount() * int64(d.Quantity) / int64(goc.Quantity)
+		m, err := money.New(share, goc.Commission.Currency())
 		if err != nil {
 			return money.Money{}, err
 		}
@@ -550,16 +550,16 @@ func (s *Service) tinhDaoHoaHong(
 		}
 	}
 	if tong.IsZero() {
-		return money.New(0, y.TienHoan().Currency())
+		return money.New(0, y.RefundAmount().Currency())
 	}
 	return tong, nil
 }
 
-// doi đọc–sửa–ghi một yêu cầu, kèm kiểm CHỦ SỞ HỮU.
-func (s *Service) doi(
+// transition đọc–sửa–ghi một yêu cầu, kèm kiểm CHỦ SỞ HỮU.
+func (s *Service) transition(
 	ctx context.Context, id, sellerID ids.ID,
-	buoc func(*domain.YeuCauTraHang, time.Time) error,
-) (*domain.YeuCauTraHang, error) {
+	step func(*domain.ReturnRequest, time.Time) error,
+) (*domain.ReturnRequest, error) {
 	y, err := s.repo.TimTheoID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -569,38 +569,38 @@ func (s *Service) doi(
 	if !sellerID.IsZero() && y.SellerID() != sellerID {
 		return nil, domain.ErrNotFound
 	}
-	if err := buoc(y, s.clock.Now()); err != nil {
+	if err := step(y, s.clock.Now()); err != nil {
 		return nil, err
 	}
-	if err := s.repo.Luu(ctx, y); err != nil {
+	if err := s.repo.Save(ctx, y); err != nil {
 		return nil, err
 	}
 	return y, nil
 }
 
-// DanhSachTheoDon trả các yêu cầu trả hàng của một đơn.
-func (s *Service) DanhSachTheoDon(ctx context.Context, orderID ids.ID) ([]*domain.YeuCauTraHang, error) {
-	return s.repo.TimTheoDon(ctx, orderID)
+// ListByOrder trả các yêu cầu trả hàng của một đơn.
+func (s *Service) ListByOrder(ctx context.Context, orderID ids.ID) ([]*domain.ReturnRequest, error) {
+	return s.repo.FindByOrder(ctx, orderID)
 }
 
-// DanhSachTheoNhaBan trả các yêu cầu của một gian hàng.
-func (s *Service) DanhSachTheoNhaBan(
+// ListBySeller trả các yêu cầu của một gian hàng.
+func (s *Service) ListBySeller(
 	ctx context.Context, sellerID ids.ID, status string, limit int,
-) ([]*domain.YeuCauTraHang, error) {
+) ([]*domain.ReturnRequest, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	return s.repo.TimTheoNhaBan(ctx, sellerID, status, limit)
+	return s.repo.FindBySeller(ctx, sellerID, status, limit)
 }
 
-// KetQuaKiemDinhDong là kết quả kiểm định một dòng hàng hoàn.
-type KetQuaKiemDinhDong struct {
+// LineInspectionOutcome là kết quả kiểm định một dòng hàng hoàn.
+type LineInspectionOutcome struct {
 	OrderLineID ids.ID
 	Dat         bool
-	GhiChu      string
+	Note        string
 }
 
-// KiemDinh ghi kết quả kiểm định và đưa hàng ra khỏi trạng thái Returned.
+// Inspection ghi kết quả kiểm định và đưa hàng ra khỏi trạng thái Returned.
 //
 // # Thứ tự: LƯU TRẠNG THÁI TRƯỚC, ghi tồn kho SAU
 //
@@ -621,10 +621,9 @@ type KetQuaKiemDinhDong struct {
 //
 // Rủi ro còn lại: dòng "đã kiểm" mà hàng chưa chuyển thì KHÔNG có gì tự
 // phát hiện. Cần một truy vấn đối chiếu định kỳ — chưa có, ghi ở backlog.
-func (s *Service) KiemDinh(
-	ctx context.Context, id, sellerID ids.ID, ketQua []KetQuaKiemDinhDong,
-) (*domain.YeuCauTraHang, error) {
-	if len(ketQua) == 0 {
+func (s *Service) Inspection(
+	ctx context.Context, id, sellerID ids.ID, outcome []LineInspectionOutcome) (*domain.ReturnRequest, error) {
+	if len(outcome) == 0 {
 		return nil, domain.ErrNoLines
 	}
 
@@ -636,33 +635,33 @@ func (s *Service) KiemDinh(
 		return nil, domain.ErrNotFound
 	}
 
-	theoDong := map[ids.ID]domain.Dong{}
-	for _, d := range y.Dong() {
-		theoDong[d.OrderLineID] = d
+	byLine := map[ids.ID]domain.Lines{}
+	for _, d := range y.Lines() {
+		byLine[d.OrderLineID] = d
 	}
 
 	now := s.clock.Now()
-	for _, kq := range ketQua {
-		if _, co := theoDong[kq.OrderLineID]; !co {
+	for _, kq := range outcome {
+		if _, co := byLine[kq.OrderLineID]; !co {
 			return nil, domain.ErrNotFound
 		}
 
 		// Hàng rào chống kiểm hai lần nằm ở đây, TRƯỚC mọi lượt ghi.
-		if err := y.GhiKetQuaKiemDinh(kq.OrderLineID, kq.Dat, kq.GhiChu, now); err != nil {
+		if err := y.RecordInspection(kq.OrderLineID, kq.Dat, kq.Note, now); err != nil {
 			return nil, err
 		}
 
 	}
 
 	// LƯU TRƯỚC: nếu bước này hỏng thì chưa có gì chuyển trong kho.
-	if err := s.repo.Luu(ctx, y); err != nil {
+	if err := s.repo.Save(ctx, y); err != nil {
 		return nil, err
 	}
 
-	for _, kq := range ketQua {
-		dong := theoDong[kq.OrderLineID]
-		if err := s.inventory.GhiKetQuaKiemDinh(ctx, dong.SKUID, y.SellerID(),
-			dong.Quantity, kq.Dat, kq.GhiChu); err != nil {
+	for _, kq := range outcome {
+		lines := byLine[kq.OrderLineID]
+		if err := s.inventory.RecordInspection(ctx, lines.SKUID, y.SellerID(),
+			lines.Quantity, kq.Dat, kq.Note); err != nil {
 			return nil, fmt.Errorf("returns: ghi kết quả kiểm định vào tồn kho: %w", err)
 		}
 	}

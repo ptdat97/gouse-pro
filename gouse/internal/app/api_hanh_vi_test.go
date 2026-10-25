@@ -238,7 +238,7 @@ func TestBamTimLanHaiKhongPhatTinHieuMoi(t *testing.T) {
 	}
 }
 
-// TestGomLuotXemDemTheoPHIENKhongTheoLuot.
+// TestRollUpViewsDemTheoPHIENKhongTheoLuot.
 //
 // # Vì sao đếm PHIÊN
 //
@@ -249,7 +249,7 @@ func TestBamTimLanHaiKhongPhatTinHieuMoi(t *testing.T) {
 //
 // Bài này gửi 5 lượt xem từ 2 phiên cho cùng một sản phẩm và khẳng định
 // phép gom trả về 2.
-func TestGomLuotXemDemTheoPHIENKhongTheoLuot(t *testing.T) {
+func TestRollUpViewsDemTheoPHIENKhongTheoLuot(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -283,7 +283,7 @@ func TestGomLuotXemDemTheoPHIENKhongTheoLuot(t *testing.T) {
 
 	now := types.BayGio()
 	dau := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	theoSP, err := a.mods.analytics.GomLuotXem(ctx, dau, dau.AddDate(0, 0, 1))
+	theoSP, err := a.mods.analytics.RollUpViews(ctx, dau, dau.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("gom lượt xem: %v", err)
 	}

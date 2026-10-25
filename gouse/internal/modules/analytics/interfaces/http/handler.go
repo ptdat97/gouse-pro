@@ -29,7 +29,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
-// tenChoPhep là danh sách ĐÓNG các sự kiện client được ghi.
+// allowedNames là danh sách ĐÓNG các sự kiện client được ghi.
 //
 // # Vì sao đóng
 //
@@ -41,38 +41,38 @@ import (
 // Sự kiện NGHIỆP VỤ (đặt hàng, giao hàng) KHÔNG nằm ở đây: chúng đến từ
 // domain event, nơi server tự biết sự thật. Client chỉ được kể về những
 // việc chỉ client mới thấy.
-var tenChoPhep = map[string]bool{
+var allowedNames = map[string]bool{
 	analytics.EventPageView:    true,
 	analytics.EventProductView: true,
 	analytics.EventSearch:      true,
 }
 
-// tranMotLo là số sự kiện tối đa trong MỘT lời gọi.
+// batchCap là số sự kiện tối đa trong MỘT lời gọi.
 //
 // Gom lô là cách giảm số lượt ghi: client giữ sự kiện trong bộ nhớ rồi gửi
 // một lần. Trần này chặn lô khổng lồ làm nghẽn một giao dịch database.
-const tranMotLo = 50
+const batchCap = 50
 
-// GioiHanPort quyết định một phiên còn được ghi tiếp hay không.
+// LimitPort quyết định một phiên còn được ghi tiếp hay không.
 //
 // Cổng do tầng này khai, nên nó không biết tới `opsconfig`.
-type GioiHanPort interface {
-	// ChoPhep trả về false khi phiên đã vượt ngưỡng trong cửa sổ hiện tại.
-	ChoPhep(sessionID string, soSuKien int) bool
+type LimitPort interface {
+	// Allowed trả về false khi phiên đã vượt ngưỡng trong cửa sổ hiện tại.
+	Allowed(sessionID string, eventCount int) bool
 }
 
 type Handler struct {
-	module  *analytics.Module
-	gioiHan GioiHanPort
-	log     *slog.Logger
+	module *analytics.Module
+	limit  LimitPort
+	log    *slog.Logger
 }
 
-func NewHandler(m *analytics.Module, gioiHan GioiHanPort, log *slog.Logger) *Handler {
-	return &Handler{module: m, gioiHan: gioiHan, log: log}
+func NewHandler(m *analytics.Module, limit LimitPort, log *slog.Logger) *Handler {
+	return &Handler{module: m, limit: limit, log: log}
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("POST /api/v1/events", http.HandlerFunc(h.ghiLo))
+	mux.Handle("POST /api/v1/events", http.HandlerFunc(h.writeBatch))
 }
 
 type suKienJSON struct {
@@ -92,13 +92,13 @@ type loJSON struct {
 	Events    []suKienJSON `json:"events"`
 }
 
-// ghiLo phục vụ POST /api/v1/events (operationId: trackBehaviorEvents).
+// writeBatch phục vụ POST /api/v1/events (operationId: trackBehaviorEvents).
 //
 // KHÔNG thu địa chỉ IP và user-agent. Phễu nhu cầu chỉ cần biết MÓN NÀO
 // được xem bao nhiêu lần trong bao nhiêu phiên — không cần biết AI. Thu
 // thêm dữ liệu không dùng tới là tự tạo nghĩa vụ bảo vệ mà không đổi lại
 // được gì.
-func (h *Handler) ghiLo(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) writeBatch(w http.ResponseWriter, r *http.Request) {
 	var req loJSON
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).
 		Decode(&req); err != nil {
@@ -118,13 +118,13 @@ func (h *Handler) ghiLo(w http.ResponseWriter, r *http.Request) {
 			"lô không có sự kiện nào"))
 		return
 	}
-	if len(req.Events) > tranMotLo {
+	if len(req.Events) > batchCap {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"một lô tối đa 50 sự kiện"))
 		return
 	}
 
-	if h.gioiHan != nil && !h.gioiHan.ChoPhep(req.SessionID, len(req.Events)) {
+	if h.limit != nil && !h.limit.Allowed(req.SessionID, len(req.Events)) {
 		// 429 chứ không 400: client KHÔNG sai, nó chỉ gửi quá nhanh. Phân
 		// biệt này quan trọng vì client nên thử lại sau, không nên bỏ lô.
 		h.fail(w, r, apierror.New(apierror.CodeRateLimitExceeded,
@@ -139,15 +139,15 @@ func (h *Handler) ghiLo(w http.ResponseWriter, r *http.Request) {
 	// trễ vài giây — sai số nhỏ hơn nhiều so với tin vào đồng hồ lạ.
 	now := time.Now().UTC()
 
-	vao := make([]analytics.EventInput, 0, len(req.Events))
+	inputs := make([]analytics.EventInput, 0, len(req.Events))
 	for _, e := range req.Events {
 		ten := strings.TrimSpace(e.Name)
-		if !tenChoPhep[ten] {
+		if !allowedNames[ten] {
 			// BỎ QUA sự kiện lạ thay vì từ chối cả lô: client cũ gửi một
 			// tên đã gỡ bỏ không nên làm mất những sự kiện hợp lệ đi cùng.
 			continue
 		}
-		vao = append(vao, analytics.EventInput{
+		inputs = append(inputs, analytics.EventInput{
 			Name:        ten,
 			Category:    analytics.CategoryBehavior,
 			SessionID:   req.SessionID,
@@ -158,7 +158,7 @@ func (h *Handler) ghiLo(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if len(vao) == 0 {
+	if len(inputs) == 0 {
 		// Không sự kiện nào hợp lệ. Trả 200 với số 0 chứ không báo lỗi:
 		// đây là đường ĐO, và làm client thấy lỗi vì một tên sai sẽ khiến
 		// họ tắt hẳn việc gửi.
@@ -169,14 +169,14 @@ func (h *Handler) ghiLo(w http.ResponseWriter, r *http.Request) {
 	// TrackBatch trả SỐ ĐÃ GHI kèm lỗi: một sự kiện hỏng không làm mất
 	// cả lô. Ghi được phần nào thì báo phần đó, và chỉ thất bại hẳn khi
 	// không ghi được gì.
-	n, err := h.module.TrackBatch(r.Context(), vao)
+	n, err := h.module.TrackBatch(r.Context(), inputs)
 	if err != nil && n == 0 {
 		h.fail(w, r, apierror.From(err))
 		return
 	}
 	if err != nil {
 		h.log.WarnContext(r.Context(), "một phần lô sự kiện không ghi được",
-			"error", err, "đã_ghi", n, "gửi", len(vao))
+			"error", err, "đã_ghi", n, "gửi", len(inputs))
 	}
 
 	h.ok(w, r, map[string]int{"accepted": n})

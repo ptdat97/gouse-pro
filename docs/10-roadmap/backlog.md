@@ -273,7 +273,7 @@ tảng hoàn nhiều hơn đã thu."* Nên một đơn có mã giảm giá sẽ 
 `discount_amount > 0` mà mọi dòng đều không mang khoản điều chỉnh — hoàn
 theo giá dòng là hoàn thừa đúng bằng phần giảm.
 
-`TinhTienHoan` vì thế TỪ CHỐI khi thấy giảm giá cấp đơn chưa phân bổ, và
+`ComputeRefund` vì thế TỪ CHỐI khi thấy giảm giá cấp đơn chưa phân bổ, và
 trả 409 kèm thông điệp nói thẳng để người vận hành xử lý tay.
 
 **Việc còn lại của luồng trả hàng:**
@@ -287,7 +287,7 @@ trả 409 kèm thông điệp nói thẳng để người vận hành xử lý t
 | Giải phóng lượt dùng mã giảm giá | `promotion.ReleaseUsage` đã có, chưa nối |
 | Thu hồi điểm thưởng | Chưa có module loyalty |
 | Đảo hoa hồng creator | Chưa có module creator |
-| Phí vận chuyển chiều về | `LyDo.LoiCuaNguoiBan()` đã phân loại được ai chịu; chưa dùng |
+| Phí vận chuyển chiều về | `LyDo.IsSellerFault()` đã phân loại được ai chịu; chưa dùng |
 
 ---
 
@@ -1353,7 +1353,7 @@ test hiển nhiên nhất cho phép chia tiền — "tổng các phần bằng t
 **Hậu quả thật:** `promotion.AllocateToLines` chia giảm giá xuống từng dòng
 hàng, và con số đó là căn cứ hoàn tiền khi khách trả MỘT món. Chia sai
 nghĩa là hoàn sai — đúng mối nguy mà module returns đã dựng hàng rào
-`ErrGiamGiaChuaPhanBo` để tránh, nhưng hàng rào đó chỉ chặn trường hợp
+`ErrDiscountNotAllocated` để tránh, nhưng hàng rào đó chỉ chặn trường hợp
 KHÔNG phân bổ, không chặn phân bổ SAI.
 
 **Ở tỷ lệ khác thì tệ hơn:** tràn làm `share` ÂM, `allocated` âm khổng lồ,
@@ -7001,7 +7001,7 @@ trước khi đỏ, nhân với hai mươi ba gói.
 `testdb.Open` **165 lần**, mỗi lần một pool mới.
 
 Nhưng có test CỐ Ý đóng pool để giả lập "database sập"
-(`analytics.TestGhiNhanKhongChanLuongChinh`). Một pool dùng chung bị đóng
+(`analytics.TestRecordingDoesNotBlockMainFlow`). Một pool dùng chung bị đóng
 giữa chừng sẽ làm mọi test sau trong gói đỏ theo — đỏ vì hạ tầng test,
 không vì mã. Đúng dạng lỗi đang sửa, chỉ tệ hơn.
 

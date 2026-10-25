@@ -204,7 +204,7 @@ func (s *EventStore) CountDistinctSessions(
 	return n, nil
 }
 
-// GomLuotXemTheoSanPham đếm số PHIÊN khác nhau đã xem từng sản phẩm.
+// RollUpViewsByProduct đếm số PHIÊN khác nhau đã xem từng sản phẩm.
 //
 // # Vì sao đếm PHIÊN chứ không đếm lượt
 //
@@ -215,7 +215,7 @@ func (s *EventStore) CountDistinctSessions(
 //
 // Cùng cách đếm mà tỷ lệ chuyển đổi đang dùng, nên hai chỉ số nói cùng một
 // ngôn ngữ.
-func (s *EventStore) GomLuotXemTheoSanPham(
+func (s *EventStore) RollUpViewsByProduct(
 	ctx context.Context, r domain.TimeRange,
 ) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `

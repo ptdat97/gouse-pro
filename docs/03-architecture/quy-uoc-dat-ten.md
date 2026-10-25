@@ -77,6 +77,27 @@ lỗi im lặng, nhưng mất một lượt sửa.
 Trùng tên ở hai GÓI khác nhau thì không sao: `skipReason` là trường ở
 `domain` và biến cục bộ ở gói test — hai phạm vi, một tên, hợp lệ.
 
+### Loại trước những tên CÒN khai ở module khác
+
+Lượt sửa chú thích/văn bản ngoài phạm vi module phải bỏ mọi tên còn tồn tại ở
+nơi khác. Cách đo: sao cây mã sang thư mục tạm, XÓA module đang đổi, liệt kê
+định danh còn lại, rồi lấy phần giao với bản đồ.
+
+Ở lượt `returns` + `analytics`, phép này loại 21 tên — gồm `HanDoiTra`,
+`TimTheoNhaBan`, `hoaHong`, `dem`, `doc`, `loai`. Không loại thì lượt sửa sẽ
+đổi tên của `payment`, `fulfillment`, `order` theo, và lại ra một enum nửa
+Anh nửa Việt như sự cố 24/10.
+
+### Đừng để sót tên NGẮN
+
+Bản đồ đầu của `returns` bỏ qua 14 tên một âm (`don`, `dong`, `tien`, `han`,
+`cong`, `doi`, `giam`, `phan`, …) vì chúng khó đặt tên. Kết quả là một module
+có mặt công khai tiếng Anh và thân hàm tiếng Việt — đúng cái bất nhất cần
+tránh. Làm nốt trong cùng lượt.
+
+Đo lại sau mỗi lượt bằng chính bộ lọc: module coi là XONG khi chỉ còn dương
+tính giả (`Module`, `module`, `newModule`, `day`).
+
 ### Trường của struct literal lồng nhau: regex không khớp được
 
 Đổi tên trường `DongY:` → `Consent:` trong `notification.CustomerPortFunc{…}`
@@ -208,7 +229,12 @@ XONG   modules/recommendation           42
 XONG   modules/supplychain              27
 XONG   modules/notification             37
 XONG   modules/promotion                30
-CÒN    2273 định danh Go ở 15 module
+XONG   modules/returns                 121
+XONG   modules/analytics                61
+CÒN    2127 định danh Go ở 13 module
+
+Sáu module EXTENSION đã xong hết. Phần còn lại là nhóm KERNEL cộng
+`internal/app`.
 ```
 
 Đo lại bất cứ lúc nào bằng cách liệt kê định danh KHAI BÁO qua `go/ast` rồi

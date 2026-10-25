@@ -108,7 +108,7 @@ const (
 	MetricCartConversionRate = "cart_conversion_rate"
 )
 
-// ChuaDoDuoc liệt kê chỉ số CHƯA đo được, kèm lý do đọc lên hiểu ngay.
+// NotYetMeasurable liệt kê chỉ số CHƯA đo được, kèm lý do đọc lên hiểu ngay.
 //
 // # Vì sao không ghi 0
 //
@@ -121,7 +121,7 @@ const (
 //
 // Xóa một dòng ở đây là việc CUỐI CÙNG của phần nối dây tương ứng, không
 // phải việc đầu tiên.
-var ChuaDoDuoc = map[string]string{}
+var NotYetMeasurable = map[string]string{}
 
 // Metric là một chỉ số đã tính.
 type Metric struct {

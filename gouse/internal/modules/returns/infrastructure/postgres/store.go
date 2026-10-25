@@ -25,25 +25,25 @@ const cols = `
 	requested_at, decided_at, received_at, refunded_at,
 	version, created_at, updated_at`
 
-// Luu ghi yêu cầu VÀ các dòng của nó trong MỘT giao dịch.
+// Save ghi yêu cầu VÀ các dòng của nó trong MỘT giao dịch.
 //
 // Yêu cầu có dòng mà dòng không ghi được là một yêu cầu hoàn 0 đồng — vừa
 // vô nghĩa vừa làm khách tưởng đã gửi thành công.
 //
 // Khóa lạc quan theo `version`: nhà bán duyệt trong lúc khách hủy là ca có
 // thật, và ai ghi sau sẽ xóa quyết định của người kia nếu không có ràng buộc.
-func (s *Store) Luu(ctx context.Context, y *domain.YeuCauTraHang) error {
-	return s.LuuKemEvent(ctx, y, nil)
+func (s *Store) Save(ctx context.Context, y *domain.ReturnRequest) error {
+	return s.SaveWithEvent(ctx, y, nil)
 }
 
-// LuuKemEvent ghi yêu cầu VÀ chạy fn trong CÙNG một giao dịch.
+// SaveWithEvent ghi yêu cầu VÀ chạy fn trong CÙNG một giao dịch.
 //
 // Cần cho Transactional Outbox: yêu cầu trả hàng và tín hiệu nhu cầu sinh
 // ra từ nó phải cùng thành công hoặc cùng thất bại. Ghi rời nghĩa là có
 // yêu cầu trả hàng mà lý do hoàn không vào được dữ liệu chất lượng — và
 // dữ liệu ấy không tạo ngược được.
-func (s *Store) LuuKemEvent(
-	ctx context.Context, y *domain.YeuCauTraHang, fn domain.TxFunc,
+func (s *Store) SaveWithEvent(
+	ctx context.Context, y *domain.ReturnRequest, fn domain.TxFunc,
 ) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -65,8 +65,8 @@ func (s *Store) LuuKemEvent(
 		WHERE return_request.version = $15`,
 		y.ID().String(), y.OrderID().String(), y.SellerID().String(),
 		y.CustomerID().String(), string(y.Status()), string(y.LyDo()),
-		y.GhiChu(), y.LyDoTuChoi(),
-		y.TienHoan().Amount(), string(y.TienHoan().Currency()),
+		y.Note(), y.LyDoTuChoi(),
+		y.RefundAmount().Amount(), string(y.RefundAmount().Currency()),
 		y.RequestedAt(), nullTime(y.DecidedAt()), nullTime(y.ReceivedAt()),
 		nullTime(y.RefundedAt()),
 		y.Version(), y.CreatedAt(), y.UpdatedAt())
@@ -78,7 +78,7 @@ func (s *Store) LuuKemEvent(
 	}
 
 	// Dòng hàng chỉ ghi một lần, lúc tạo: chúng KHÔNG đổi sau đó.
-	for _, d := range y.Dong() {
+	for _, d := range y.Lines() {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO return_line (
 				id, return_request_id, order_line_id, sku_id,
@@ -92,9 +92,9 @@ func (s *Store) LuuKemEvent(
 				inspected_at    = EXCLUDED.inspected_at`,
 			d.ID.String(), y.ID().String(), d.OrderLineID.String(),
 			d.SKUID.String(), d.Quantity,
-			d.TienHoan.Amount(), string(d.TienHoan.Currency()),
+			d.RefundAmount.Amount(), string(d.RefundAmount.Currency()),
 			string(d.LyDo), d.ChiTiet,
-			kiemDinhHoacMacDinh(d.KiemDinh), d.GhiChuKiemDinh,
+			inspectionOrDefault(d.Inspection), d.InspectionNote,
 			nullTime(d.InspectedAt)); err != nil {
 			return fmt.Errorf("returns: ghi dòng trả hàng: %w", err)
 		}
@@ -112,8 +112,8 @@ func (s *Store) LuuKemEvent(
 	return nil
 }
 
-func (s *Store) TimTheoID(ctx context.Context, id ids.ID) (*domain.YeuCauTraHang, error) {
-	y, err := s.doc(ctx, `WHERE id = $1`, id.String())
+func (s *Store) TimTheoID(ctx context.Context, id ids.ID) (*domain.ReturnRequest, error) {
+	y, err := s.read(ctx, `WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -123,28 +123,28 @@ func (s *Store) TimTheoID(ctx context.Context, id ids.ID) (*domain.YeuCauTraHang
 	return y[0], nil
 }
 
-func (s *Store) TimTheoDon(ctx context.Context, orderID ids.ID) ([]*domain.YeuCauTraHang, error) {
-	return s.doc(ctx, `WHERE order_id = $1 ORDER BY requested_at DESC`, orderID.String())
+func (s *Store) FindByOrder(ctx context.Context, orderID ids.ID) ([]*domain.ReturnRequest, error) {
+	return s.read(ctx, `WHERE order_id = $1 ORDER BY requested_at DESC`, orderID.String())
 }
 
-func (s *Store) TimTheoNhaBan(
+func (s *Store) FindBySeller(
 	ctx context.Context, sellerID ids.ID, status string, limit int,
-) ([]*domain.YeuCauTraHang, error) {
+) ([]*domain.ReturnRequest, error) {
 	if status == "" {
-		return s.doc(ctx,
+		return s.read(ctx,
 			`WHERE seller_id = $1 ORDER BY requested_at DESC LIMIT $2`,
 			sellerID.String(), limit)
 	}
-	return s.doc(ctx,
+	return s.read(ctx,
 		`WHERE seller_id = $1 AND status = $2 ORDER BY requested_at DESC LIMIT $3`,
 		sellerID.String(), status, limit)
 }
 
-// DongDaXinTra đếm số lượng đã xin trả theo từng dòng hàng của đơn.
+// AlreadyRequestedLines đếm số lượng đã xin trả theo từng dòng hàng của đơn.
 //
 // CHỈ tính các yêu cầu còn hiệu lực: bị từ chối hoặc đã hủy thì không giữ
 // chỗ nữa, và khách phải xin lại được.
-func (s *Store) DongDaXinTra(ctx context.Context, orderID ids.ID) (map[ids.ID]int, error) {
+func (s *Store) AlreadyRequestedLines(ctx context.Context, orderID ids.ID) (map[ids.ID]int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT l.order_line_id, sum(l.quantity)
 		  FROM return_line l
@@ -169,16 +169,16 @@ func (s *Store) DongDaXinTra(ctx context.Context, orderID ids.ID) (map[ids.ID]in
 	return out, rows.Err()
 }
 
-func (s *Store) doc(
+func (s *Store) read(
 	ctx context.Context, where string, args ...any,
-) ([]*domain.YeuCauTraHang, error) {
+) ([]*domain.ReturnRequest, error) {
 	rows, err := s.pool.Query(ctx, `SELECT`+cols+` FROM return_request `+where, args...)
 	if err != nil {
 		return nil, fmt.Errorf("returns: đọc yêu cầu: %w", err)
 	}
 	defer rows.Close()
 
-	var out []*domain.YeuCauTraHang
+	var out []*domain.ReturnRequest
 	var ma []string
 	theoID := map[ids.ID]*domain.KhoiPhucParams{}
 
@@ -189,13 +189,13 @@ func (s *Store) doc(
 		var decided, received, refunded *time.Time
 
 		if err := rows.Scan(&id, &orderID, &sellerID, &customerID, &status,
-			&lyDo, &p.GhiChu, &p.LyDoTuChoi, &soTien, &tienTe,
+			&lyDo, &p.Note, &p.LyDoTuChoi, &soTien, &tienTe,
 			&p.RequestedAt, &decided, &received, &refunded,
 			&p.Version, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 
-		tien, err := money.New(soTien, money.Currency(tienTe))
+		amount, err := money.New(soTien, money.Currency(tienTe))
 		if err != nil {
 			return nil, fmt.Errorf("returns: số tiền hỏng ở bản ghi %s: %w", id, err)
 		}
@@ -206,7 +206,7 @@ func (s *Store) doc(
 		p.CustomerID = ids.ID(customerID)
 		p.Status = domain.TrangThai(status)
 		p.LyDo = domain.LyDo(lyDo)
-		p.TienHoan = tien
+		p.RefundAmount = amount
 		p.DecidedAt = deref(decided)
 		p.ReceivedAt = deref(received)
 		p.RefundedAt = deref(refunded)
@@ -236,25 +236,25 @@ func (s *Store) doc(
 
 	for lrows.Next() {
 		var reqID, id, lineID, skuID, tienTe, lyDo, chiTiet string
-		var kiemDinh, ghiChuKD string
+		var inspection, ghiChuKD string
 		var kiemLuc *time.Time
 		var qty int
 		var soTien int64
 		if err := lrows.Scan(&reqID, &id, &lineID, &skuID, &qty, &soTien,
-			&tienTe, &lyDo, &chiTiet, &kiemDinh, &ghiChuKD, &kiemLuc); err != nil {
+			&tienTe, &lyDo, &chiTiet, &inspection, &ghiChuKD, &kiemLuc); err != nil {
 			return nil, err
 		}
-		tien, err := money.New(soTien, money.Currency(tienTe))
+		amount, err := money.New(soTien, money.Currency(tienTe))
 		if err != nil {
 			return nil, err
 		}
 		if p := theoID[ids.ID(reqID)]; p != nil {
-			p.Dong = append(p.Dong, domain.Dong{
+			p.Lines = append(p.Lines, domain.Lines{
 				ID: ids.ID(id), OrderLineID: ids.ID(lineID),
-				SKUID: ids.ID(skuID), Quantity: qty, TienHoan: tien,
+				SKUID: ids.ID(skuID), Quantity: qty, RefundAmount: amount,
 				LyDo: domain.LyDo(lyDo), ChiTiet: chiTiet,
-				KiemDinh:       domain.KetQuaKiemDinh(kiemDinh),
-				GhiChuKiemDinh: ghiChuKD,
+				Inspection:     domain.InspectionOutcome(inspection),
+				InspectionNote: ghiChuKD,
 				InspectedAt:    deref(kiemLuc),
 			})
 		}
@@ -283,13 +283,13 @@ func deref(t *time.Time) time.Time {
 	return *t
 }
 
-// kiemDinhHoacMacDinh đảm bảo không ghi chuỗi rỗng vào cột có ràng buộc.
+// inspectionOrDefault đảm bảo không ghi chuỗi rỗng vào cột có ràng buộc.
 //
 // Dòng vừa tạo chưa có kết quả kiểm định, và giá trị zero của kiểu là
 // chuỗi rỗng — thứ mà CHECK ở database từ chối.
-func kiemDinhHoacMacDinh(k domain.KetQuaKiemDinh) string {
+func inspectionOrDefault(k domain.InspectionOutcome) string {
 	if k == "" {
-		return string(domain.KiemDinhChoXuLy)
+		return string(domain.InspectionPending)
 	}
 	return string(k)
 }

@@ -81,13 +81,13 @@ func (m *Module) TrackBatch(ctx context.Context, events []EventInput) (int, erro
 	return n, nil
 }
 
-// ChuaDoDuoc trả sổ chỉ số CHƯA đo được, kèm lý do.
+// NotYetMeasurable trả sổ chỉ số CHƯA đo được, kèm lý do.
 //
 // Phơi ra để bài test kiểm được CƠ CHẾ mà không phải biết nội dung sổ:
 // sổ rỗng hôm nay không có nghĩa là dạng nợ ấy biến mất.
-func ChuaDoDuoc() map[string]string {
-	out := make(map[string]string, len(domain.ChuaDoDuoc))
-	for k, v := range domain.ChuaDoDuoc {
+func NotYetMeasurable() map[string]string {
+	out := make(map[string]string, len(domain.NotYetMeasurable))
+	for k, v := range domain.NotYetMeasurable {
 		out[k] = v
 	}
 	return out
@@ -98,13 +98,13 @@ func (m *Module) GetMetric(ctx context.Context, req MetricRequest) (MetricView, 
 	//
 	// Đọc kho ra bản ghi rỗng rồi trả `Value: 0` là đúng thứ ADR-0020
 	// điều 4 cấm — và nó im lặng, nên người đọc không có cách nào biết.
-	if ly := domain.ChuaDoDuoc[req.Name]; ly != "" {
+	if ly := domain.NotYetMeasurable[req.Name]; ly != "" {
 		return MetricView{
-			Name:        req.Name,
-			PeriodStart: req.PeriodStart,
-			Granularity: req.Granularity,
-			SellerID:    req.SellerID,
-			KhongDoDuoc: ly,
+			Name:          req.Name,
+			PeriodStart:   req.PeriodStart,
+			Granularity:   req.Granularity,
+			SellerID:      req.SellerID,
+			NotMeasurable: ly,
 		}, nil
 	}
 
@@ -142,15 +142,15 @@ func (m *Module) ComputeMetrics(ctx context.Context, req ComputeRequest) error {
 	}))
 }
 
-// GomLuotXem trả số PHIÊN đã xem từng sản phẩm trong một khoảng.
+// RollUpViews trả số PHIÊN đã xem từng sản phẩm trong một khoảng.
 //
 // Khóa của map là mã sản phẩm. Đếm PHIÊN chứ không đếm lượt: một người mở
 // đi mở lại một trang mười lần là MỘT người muốn món đó, và đếm lượt sẽ
 // làm nhu cầu của những trang khách hay quay lại cao giả tạo.
-func (m *Module) GomLuotXem(
-	ctx context.Context, tu, den time.Time,
+func (m *Module) RollUpViews(
+	ctx context.Context, tu, to time.Time,
 ) (map[string]int, error) {
-	return m.svc.GomLuotXem(ctx, tu, den)
+	return m.svc.RollUpViews(ctx, tu, to)
 }
 
 func (m *Module) CountEvents(ctx context.Context, req CountRequest) (int64, error) {

@@ -60,15 +60,15 @@ type Config struct {
 	Events *eventbus.Outbox
 }
 
-// hanDoiTraAdapter đọc hạn đổi trả từ cấu hình vận hành.
+// returnWindowAdapter đọc hạn đổi trả từ cấu hình vận hành.
 //
 // Đọc MỖI lần chứ không chụp lúc khởi động: đổi tham số phải có tác dụng ở
 // yêu cầu kế tiếp, không phải sau lần khởi động lại kế tiếp.
-type hanDoiTraAdapter struct{ cfg *opsconfig.Store }
+type returnWindowAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.HanDoiTraPort = (*hanDoiTraAdapter)(nil)
+var _ application.ReturnWindowPort = (*returnWindowAdapter)(nil)
 
-func (a *hanDoiTraAdapter) HanDoiTra() time.Duration {
+func (a *returnWindowAdapter) ReturnWindow() time.Duration {
 	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
 }
 
@@ -93,7 +93,7 @@ func New(cfg Config) (*Module, error) {
 		Clock:     cfg.Clock,
 	}
 	if cfg.OpsConfig != nil {
-		deps.Han = &hanDoiTraAdapter{cfg: cfg.OpsConfig}
+		deps.Window = &returnWindowAdapter{cfg: cfg.OpsConfig}
 	}
 	if cfg.Events != nil {
 		deps.Events = NewEventPublisher(cfg.Events)
@@ -135,20 +135,20 @@ func (m *Module) Duyet(ctx context.Context, returnID, sellerID string) error {
 		return ErrInvalidID
 	}
 	_, err = m.svc.Duyet(ctx, id, ids.ID(sellerID))
-	return dichLoi(err)
+	return translateErr(err)
 }
 
-// NhanHangVaHoanTien là lối vào cho test tích hợp và công cụ vận hành.
-func (m *Module) NhanHangVaHoanTien(ctx context.Context, returnID, sellerID string) error {
+// ReceiveAndRefund là lối vào cho test tích hợp và công cụ vận hành.
+func (m *Module) ReceiveAndRefund(ctx context.Context, returnID, sellerID string) error {
 	id, err := ids.Parse(returnID, ids.PrefixReturnRequest)
 	if err != nil {
 		return ErrInvalidID
 	}
-	_, err = m.svc.NhanHangVaHoanTien(ctx, id, ids.ID(sellerID))
-	return dichLoi(err)
+	_, err = m.svc.ReceiveAndRefund(ctx, id, ids.ID(sellerID))
+	return translateErr(err)
 }
 
-func dichLoi(err error) error {
+func translateErr(err error) error {
 	switch {
 	case err == nil:
 		return nil

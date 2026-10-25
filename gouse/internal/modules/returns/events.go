@@ -26,14 +26,14 @@ func NewEventPublisher(outbox *eventbus.Outbox) application.EventPublisher {
 	return &eventPublisher{outbox: outbox}
 }
 
-// PublishTraHangDuocXin ghi event vào outbox BẰNG giao dịch của kho lưu trữ.
+// PublishReturnRequested ghi event vào outbox BẰNG giao dịch của kho lưu trữ.
 //
-// Ngữ cảnh phải mang giao dịch mà `LuuKemEvent` đã mở. Thiếu nó thì trả lỗi
+// Ngữ cảnh phải mang giao dịch mà `SaveWithEvent` đã mở. Thiếu nó thì trả lỗi
 // chứ KHÔNG âm thầm mở giao dịch riêng: ghi rời nghĩa là có thể có tín hiệu
 // cho một yêu cầu đã bị cuộn ngược, hoặc có yêu cầu mà lý do hoàn không
 // vào được dữ liệu chất lượng.
-func (p *eventPublisher) PublishTraHangDuocXin(
-	ctx context.Context, in application.TraHangDuocXin,
+func (p *eventPublisher) PublishReturnRequested(
+	ctx context.Context, in application.ReturnRequested,
 ) error {
 	tx, err := eventbus.MustTxFrom(ctx)
 	if err != nil {
@@ -41,7 +41,7 @@ func (p *eventPublisher) PublishTraHangDuocXin(
 			"returns: phát event trả hàng ngoài giao dịch của kho lưu trữ")
 	}
 
-	type dongPayload struct {
+	type linePayload struct {
 		SKUID    string `json:"sku_id"`
 		Quantity int    `json:"quantity"`
 
@@ -53,9 +53,9 @@ func (p *eventPublisher) PublishTraHangDuocXin(
 		LyDo string `json:"reason_code"`
 	}
 
-	dong := make([]dongPayload, 0, len(in.Dong))
-	for _, d := range in.Dong {
-		dong = append(dong, dongPayload{
+	lines := make([]linePayload, 0, len(in.Lines))
+	for _, d := range in.Lines {
+		lines = append(lines, linePayload{
 			SKUID:    d.SKUID.String(),
 			Quantity: d.Quantity,
 			LyDo:     d.LyDo,
@@ -67,17 +67,17 @@ func (p *eventPublisher) PublishTraHangDuocXin(
 		eventbus.AggregateReturn,
 		in.ReturnID,
 		struct {
-			ReturnID   string        `json:"return_id"`
-			OrderID    string        `json:"order_id"`
-			CustomerID string        `json:"customer_id"`
-			Lines      []dongPayload `json:"lines"`
-			XinLuc     string        `json:"requested_at"`
+			ReturnID    string        `json:"return_id"`
+			OrderID     string        `json:"order_id"`
+			CustomerID  string        `json:"customer_id"`
+			Lines       []linePayload `json:"lines"`
+			RequestedAt string        `json:"requested_at"`
 		}{
-			ReturnID:   in.ReturnID.String(),
-			OrderID:    in.OrderID.String(),
-			CustomerID: in.CustomerID.String(),
-			Lines:      dong,
-			XinLuc:     in.XinLuc.UTC().Format(time.RFC3339),
+			ReturnID:    in.ReturnID.String(),
+			OrderID:     in.OrderID.String(),
+			CustomerID:  in.CustomerID.String(),
+			Lines:       lines,
+			RequestedAt: in.RequestedAt.UTC().Format(time.RFC3339),
 		})
 	if err != nil {
 		return err

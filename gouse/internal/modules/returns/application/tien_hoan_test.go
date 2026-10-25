@@ -15,8 +15,8 @@ import (
 
 func vnd(n int64) money.Money { return money.MustNew(n, money.VND) }
 
-func dong(niemYet, dieuChinh int64, sl int) application.DongDonHang {
-	return application.DongDonHang{
+func lines(niemYet, dieuChinh int64, sl int) application.OrderLine {
+	return application.OrderLine{
 		ID: ids.MustNew(ids.PrefixOrderLine), SKUID: ids.MustNew(ids.PrefixSKU),
 		SellerID: ids.MustNew(ids.PrefixSeller), Quantity: sl,
 		LineTotal: vnd(niemYet), TongDieuChinh: vnd(dieuChinh),
@@ -30,18 +30,18 @@ func dong(niemYet, dieuChinh int64, sl int) application.DongDonHang {
 //
 // Hoàn 200.000đ là mất 20.000đ MỖI LẦN, nhân với tỷ lệ hoàn hàng của
 // ngành thời trang.
-func TestHoanTheoGiaThucTra(t *testing.T) {
-	monA := dong(200_000, -20_000, 1)
-	don := application.DonHang{
-		DaGiao: true, GiamGiaCapDon: vnd(50_000),
-		Dong: []application.DongDonHang{
+func TestRefundUsesAmountActuallyPaid(t *testing.T) {
+	monA := lines(200_000, -20_000, 1)
+	ord := application.Order{
+		Delivered: true, OrderDiscount: vnd(50_000),
+		Lines: []application.OrderLine{
 			monA,
-			dong(200_000, -20_000, 1),
-			dong(100_000, -10_000, 1),
+			lines(200_000, -20_000, 1),
+			lines(100_000, -10_000, 1),
 		},
 	}
 
-	got, err := application.TinhTienHoan(don, monA, 1)
+	got, err := application.ComputeRefund(ord, monA, 1)
 	if err != nil {
 		t.Fatalf("tính tiền hoàn: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestHoanTheoGiaThucTra(t *testing.T) {
 	}
 }
 
-// TestGiamGiaChuaPhanBoThiTuChoiHoan — HÀNG RÀO.
+// TestRefundRejectedWhenDiscountNotAllocated — HÀNG RÀO.
 //
 // # Vì sao hàng rào này cần thiết NGAY BÂY GIỜ
 //
@@ -65,31 +65,31 @@ func TestHoanTheoGiaThucTra(t *testing.T) {
 // đúng bằng phần giảm.
 //
 // Thà TỪ CHỐI và bắt xử lý tay còn hơn âm thầm trả ra số tiền sai.
-func TestGiamGiaChuaPhanBoThiTuChoiHoan(t *testing.T) {
-	monA := dong(200_000, 0, 1) // KHÔNG có khoản điều chỉnh
-	don := application.DonHang{
-		DaGiao: true,
+func TestRefundRejectedWhenDiscountNotAllocated(t *testing.T) {
+	monA := lines(200_000, 0, 1) // KHÔNG có khoản điều chỉnh
+	ord := application.Order{
+		Delivered: true,
 		// Đơn CÓ giảm giá…
-		GiamGiaCapDon: vnd(50_000),
-		Dong:          []application.DongDonHang{monA, dong(300_000, 0, 1)},
+		OrderDiscount: vnd(50_000),
+		Lines:         []application.OrderLine{monA, lines(300_000, 0, 1)},
 	}
 
-	_, err := application.TinhTienHoan(don, monA, 1)
-	if !errors.Is(err, domain.ErrGiamGiaChuaPhanBo) {
+	_, err := application.ComputeRefund(ord, monA, 1)
+	if !errors.Is(err, domain.ErrDiscountNotAllocated) {
 		t.Errorf("tính được tiền hoàn cho đơn có giảm giá CHƯA phân bổ "+
 			"(lỗi: %v) — sẽ hoàn thừa đúng bằng phần giảm", err)
 	}
 }
 
-// TestKhongGiamGiaThiHoanTronVen — ca thường, không được vướng hàng rào.
-func TestKhongGiamGiaThiHoanTronVen(t *testing.T) {
-	monA := dong(199_000, 0, 1)
-	don := application.DonHang{
-		DaGiao: true, GiamGiaCapDon: vnd(0),
-		Dong: []application.DongDonHang{monA},
+// TestFullRefundWithoutDiscount — ca thường, không được vướng hàng rào.
+func TestFullRefundWithoutDiscount(t *testing.T) {
+	monA := lines(199_000, 0, 1)
+	ord := application.Order{
+		Delivered: true, OrderDiscount: vnd(0),
+		Lines: []application.OrderLine{monA},
 	}
 
-	got, err := application.TinhTienHoan(don, monA, 1)
+	got, err := application.ComputeRefund(ord, monA, 1)
 	if err != nil {
 		t.Fatalf("đơn không giảm giá vẫn bị chặn: %v", err)
 	}
@@ -102,12 +102,12 @@ func TestKhongGiamGiaThiHoanTronVen(t *testing.T) {
 //
 // Làm tròn LÊN nghĩa là trả nhiều hơn đã thu, và phần chênh nhân với số
 // lần trả hàng của cả nền tảng.
-func TestTraMotPhanLamTronXuong(t *testing.T) {
+func TestPartialReturnRoundsDown(t *testing.T) {
 	// 3 món, thực trả 100.000đ → 33.333,33đ mỗi món.
-	monA := dong(100_000, 0, 3)
-	don := application.DonHang{DaGiao: true, Dong: []application.DongDonHang{monA}}
+	monA := lines(100_000, 0, 3)
+	ord := application.Order{Delivered: true, Lines: []application.OrderLine{monA}}
 
-	got, err := application.TinhTienHoan(don, monA, 1)
+	got, err := application.ComputeRefund(ord, monA, 1)
 	if err != nil {
 		t.Fatalf("tính tiền hoàn: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestTraMotPhanLamTronXuong(t *testing.T) {
 	}
 
 	// Trả TRỌN dòng thì lấy đủ, không mất phần dư.
-	tron, err := application.TinhTienHoan(don, monA, 3)
+	tron, err := application.ComputeRefund(ord, monA, 3)
 	if err != nil {
 		t.Fatalf("tính tiền hoàn trọn dòng: %v", err)
 	}
@@ -126,12 +126,12 @@ func TestTraMotPhanLamTronXuong(t *testing.T) {
 	}
 }
 
-func TestSoLuongVuotThiTuChoi(t *testing.T) {
-	monA := dong(100_000, 0, 2)
-	don := application.DonHang{DaGiao: true, Dong: []application.DongDonHang{monA}}
+func TestQuantityOverOrderedIsRejected(t *testing.T) {
+	monA := lines(100_000, 0, 2)
+	ord := application.Order{Delivered: true, Lines: []application.OrderLine{monA}}
 
 	for _, sl := range []int{0, -1, 3} {
-		if _, err := application.TinhTienHoan(don, monA, sl); !errors.Is(err, domain.ErrQuantityExceeded) {
+		if _, err := application.ComputeRefund(ord, monA, sl); !errors.Is(err, domain.ErrQuantityExceeded) {
 			t.Errorf("số lượng %d được chấp nhận", sl)
 		}
 	}

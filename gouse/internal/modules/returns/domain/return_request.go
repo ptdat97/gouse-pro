@@ -27,24 +27,24 @@ var (
 	ErrNotFound      = errors.New("returns: không tìm thấy yêu cầu trả hàng")
 	ErrInvalidStatus = errors.New("returns: chuyển trạng thái không hợp lệ")
 
-	// ErrHetHanTra khi yêu cầu đến sau hạn đổi trả.
+	// ErrReturnWindowClosed khi yêu cầu đến sau hạn đổi trả.
 	//
 	// Mốc tính từ lúc đơn GIAO XONG, độ dài lấy từ
 	// `returns.window_hours` — cùng con số mà `fulfillment` dùng để biết
 	// khi nào chuyển tiền cho nhà bán. Quá hạn mà vẫn cho trả nghĩa là
 	// nền tảng hoàn tiền sau khi nhà bán đã rút được.
-	ErrHetHanTra        = errors.New("returns: đã quá hạn đổi trả")
-	ErrNoLines          = errors.New("returns: yêu cầu trả hàng phải có ít nhất một dòng")
-	ErrInvalidReason    = errors.New("returns: lý do trả hàng không hợp lệ")
-	ErrMissingReason    = errors.New("returns: phải nêu lý do từ chối")
-	ErrVersionConflict  = errors.New("returns: yêu cầu vừa bị thay đổi, hãy đọc lại")
-	ErrDuplicateLine    = errors.New("returns: dòng hàng này đã có yêu cầu trả")
-	ErrQuantityExceeded = errors.New("returns: số lượng xin trả vượt số đã mua")
-	ErrChuaNhanHang     = errors.New("returns: chưa nhận được hàng, không kiểm định được")
-	ErrDaKiemDinh       = errors.New("returns: dòng hàng này đã kiểm định rồi")
-	ErrThieuLyDoLoai    = errors.New("returns: loại hàng phải nêu lý do")
+	ErrReturnWindowClosed = errors.New("returns: đã quá hạn đổi trả")
+	ErrNoLines            = errors.New("returns: yêu cầu trả hàng phải có ít nhất một dòng")
+	ErrInvalidReason      = errors.New("returns: lý do trả hàng không hợp lệ")
+	ErrMissingReason      = errors.New("returns: phải nêu lý do từ chối")
+	ErrVersionConflict    = errors.New("returns: yêu cầu vừa bị thay đổi, hãy đọc lại")
+	ErrDuplicateLine      = errors.New("returns: dòng hàng này đã có yêu cầu trả")
+	ErrQuantityExceeded   = errors.New("returns: số lượng xin trả vượt số đã mua")
+	ErrGoodsNotReceived   = errors.New("returns: chưa nhận được hàng, không kiểm định được")
+	ErrAlreadyInspected   = errors.New("returns: dòng hàng này đã kiểm định rồi")
+	ErrMissingFaultReason = errors.New("returns: loại hàng phải nêu lý do")
 
-	// ErrGiamGiaChuaPhanBo là HÀNG RÀO CHỐNG HOÀN THỪA.
+	// ErrDiscountNotAllocated là HÀNG RÀO CHỐNG HOÀN THỪA.
 	//
 	// Đơn có giảm giá ở CẤP ĐƠN mà không dòng nào mang khoản điều chỉnh
 	// tương ứng nghĩa là phần giảm chưa được phân bổ xuống dòng. Hoàn theo
@@ -53,7 +53,7 @@ var (
 	// Thà TỪ CHỐI và bắt người vận hành xử lý tay, còn hơn âm thầm trả ra
 	// số tiền sai. docs/07-workflows/return.md mục 5 gọi đây là điểm dễ
 	// sai nhất của cả luồng.
-	ErrGiamGiaChuaPhanBo = errors.New(
+	ErrDiscountNotAllocated = errors.New(
 		"returns: đơn có giảm giá chưa phân bổ xuống dòng hàng — " +
 			"không tính được số tiền thực trả, từ chối hoàn tự động")
 )
@@ -66,35 +66,35 @@ var (
 type LyDo string
 
 const (
-	LyDoSizeNho       LyDo = "SIZE_TOO_SMALL"
-	LyDoSizeLon       LyDo = "SIZE_TOO_LARGE"
-	LyDoKhacMoTa      LyDo = "NOT_AS_DESCRIBED"
-	LyDoKhacMau       LyDo = "COLOR_DIFFERENT"
-	LyDoChatLuong     LyDo = "QUALITY_ISSUE"
-	LyDoHangLoi       LyDo = "DEFECTIVE"
-	LyDoGiaoSaiHang   LyDo = "WRONG_ITEM_SENT"
-	LyDoHongVanChuyen LyDo = "DAMAGED_IN_TRANSIT"
-	LyDoDoiY          LyDo = "CHANGED_MIND"
-	LyDoGiaoTre       LyDo = "LATE_DELIVERY"
+	ReasonSizeTooSmall     LyDo = "SIZE_TOO_SMALL"
+	ReasonSizeTooLarge     LyDo = "SIZE_TOO_LARGE"
+	ReasonNotAsDescribed   LyDo = "NOT_AS_DESCRIBED"
+	ReasonColorMismatch    LyDo = "COLOR_DIFFERENT"
+	LyDoChatLuong          LyDo = "QUALITY_ISSUE"
+	ReasonDefective        LyDo = "DEFECTIVE"
+	ReasonWrongItem        LyDo = "WRONG_ITEM_SENT"
+	ReasonDamagedInTransit LyDo = "DAMAGED_IN_TRANSIT"
+	ReasonChangedMind      LyDo = "CHANGED_MIND"
+	ReasonLateDelivery     LyDo = "LATE_DELIVERY"
 )
 
 var lyDoHopLe = map[LyDo]bool{
-	LyDoSizeNho: true, LyDoSizeLon: true,
-	LyDoKhacMoTa: true, LyDoKhacMau: true,
-	LyDoChatLuong: true, LyDoHangLoi: true,
-	LyDoGiaoSaiHang: true, LyDoHongVanChuyen: true,
-	LyDoDoiY: true, LyDoGiaoTre: true,
+	ReasonSizeTooSmall: true, ReasonSizeTooLarge: true,
+	ReasonNotAsDescribed: true, ReasonColorMismatch: true,
+	LyDoChatLuong: true, ReasonDefective: true,
+	ReasonWrongItem: true, ReasonDamagedInTransit: true,
+	ReasonChangedMind: true, ReasonLateDelivery: true,
 }
 
 func (l LyDo) HopLe() bool { return lyDoHopLe[l] }
 
-// LoiCuaNguoiBan cho biết lý do này quy trách nhiệm cho bên bán.
+// IsSellerFault cho biết lý do này quy trách nhiệm cho bên bán.
 //
 // Dùng để quyết ai chịu phí vận chuyển chiều về. Khách đổi ý thì khách
 // chịu; hàng lỗi hay giao sai thì không.
-func (l LyDo) LoiCuaNguoiBan() bool {
+func (l LyDo) IsSellerFault() bool {
 	switch l {
-	case LyDoHangLoi, LyDoGiaoSaiHang, LyDoKhacMoTa, LyDoKhacMau, LyDoChatLuong:
+	case ReasonDefective, ReasonWrongItem, ReasonNotAsDescribed, ReasonColorMismatch, LyDoChatLuong:
 		return true
 	}
 	return false
@@ -104,31 +104,31 @@ func (l LyDo) LoiCuaNguoiBan() bool {
 type TrangThai string
 
 const (
-	TTYeuCau TrangThai = "REQUESTED"
-	TTDuyet  TrangThai = "APPROVED"
-	TTTuChoi TrangThai = "REJECTED"
-	TTDaNhan TrangThai = "RECEIVED"
-	TTDaHoan TrangThai = "REFUNDED"
-	TTDaHuy  TrangThai = "CANCELLED"
+	TTYeuCau        TrangThai = "REQUESTED"
+	TTDuyet         TrangThai = "APPROVED"
+	TTTuChoi        TrangThai = "REJECTED"
+	StatusReceived  TrangThai = "RECEIVED"
+	StatusRefunded  TrangThai = "REFUNDED"
+	StatusCancelled TrangThai = "CANCELLED"
 )
 
-// KetThuc cho biết trạng thái đã là cuối, không đổi được nữa.
-func (t TrangThai) KetThuc() bool {
-	return t == TTTuChoi || t == TTDaHoan || t == TTDaHuy
+// IsFinal cho biết trạng thái đã là cuối, không đổi được nữa.
+func (t TrangThai) IsFinal() bool {
+	return t == TTTuChoi || t == StatusRefunded || t == StatusCancelled
 }
 
-// Dong là một dòng hàng xin trả.
-type Dong struct {
+// Lines là một dòng hàng xin trả.
+type Lines struct {
 	ID          ids.ID
 	OrderLineID ids.ID
 	SKUID       ids.ID
 	Quantity    int
 
-	// TienHoan là phần tiền của dòng này, ĐÓNG BĂNG lúc tạo yêu cầu.
+	// RefundAmount là phần tiền của dòng này, ĐÓNG BĂNG lúc tạo yêu cầu.
 	//
 	// Đóng băng chứ không tính lại lúc hoàn: giữa lúc khách xin trả và lúc
 	// hàng về kho, giá có thể đã đổi và khuyến mãi có thể đã kết thúc.
-	TienHoan money.Money
+	RefundAmount money.Money
 
 	// LyDo là lý do trả CỦA DÒNG NÀY.
 	//
@@ -140,30 +140,30 @@ type Dong struct {
 	// ChiTiet là mô tả thêm của khách cho dòng này.
 	ChiTiet string
 
-	// KiemDinh là kết quả kiểm định hàng hoàn: PENDING, PASSED, FAILED.
+	// Inspection là kết quả kiểm định hàng hoàn: PENDING, PASSED, FAILED.
 	//
 	// Hàng hoàn về kho nằm ở Returned và KHÔNG BAO GIỜ tự động vào
 	// Available — bước này quyết định nó đi đâu.
-	KiemDinh KetQuaKiemDinh
+	Inspection InspectionOutcome
 
-	// GhiChuKiemDinh BẮT BUỘC khi loại hàng: lý do loại là đầu vào cho
+	// InspectionNote BẮT BUỘC khi loại hàng: lý do loại là đầu vào cho
 	// việc làm việc với nhà cung cấp và quyết ai chịu chi phí.
-	GhiChuKiemDinh string
+	InspectionNote string
 
 	InspectedAt time.Time
 }
 
-// KetQuaKiemDinh là kết quả kiểm định một dòng hàng hoàn.
-type KetQuaKiemDinh string
+// InspectionOutcome là kết quả kiểm định một dòng hàng hoàn.
+type InspectionOutcome string
 
 const (
-	KiemDinhChoXuLy KetQuaKiemDinh = "PENDING"
-	KiemDinhDat     KetQuaKiemDinh = "PASSED"
-	KiemDinhLoai    KetQuaKiemDinh = "FAILED"
+	InspectionPending InspectionOutcome = "PENDING"
+	InspectionPassed  InspectionOutcome = "PASSED"
+	InspectionFailed  InspectionOutcome = "FAILED"
 )
 
-// YeuCauTraHang là một yêu cầu trả hàng.
-type YeuCauTraHang struct {
+// ReturnRequest là một yêu cầu trả hàng.
+type ReturnRequest struct {
 	id         ids.ID
 	orderID    ids.ID
 	sellerID   ids.ID
@@ -171,11 +171,11 @@ type YeuCauTraHang struct {
 
 	status     TrangThai
 	lyDo       LyDo
-	ghiChu     string
+	note       string
 	lyDoTuChoi string
 
-	dong     []Dong
-	tienHoan money.Money
+	lines        []Lines
+	refundAmount money.Money
 
 	requestedAt time.Time
 	decidedAt   time.Time
@@ -187,22 +187,22 @@ type YeuCauTraHang struct {
 	updatedAt time.Time
 }
 
-// TaoParams là dữ liệu tạo một yêu cầu trả hàng.
-type TaoParams struct {
+// NewParams là dữ liệu tạo một yêu cầu trả hàng.
+type NewParams struct {
 	OrderID    ids.ID
 	SellerID   ids.ID
 	CustomerID ids.ID
-	GhiChu     string
-	Dong       []Dong
+	Note       string
+	Lines      []Lines
 	Now        time.Time
 }
 
-// Tao dựng một yêu cầu trả hàng mới ở trạng thái REQUESTED.
-func Tao(p TaoParams) (*YeuCauTraHang, error) {
-	if len(p.Dong) == 0 {
+// New dựng một yêu cầu trả hàng mới ở trạng thái REQUESTED.
+func New(p NewParams) (*ReturnRequest, error) {
+	if len(p.Lines) == 0 {
 		return nil, ErrNoLines
 	}
-	for _, d := range p.Dong {
+	for _, d := range p.Lines {
 		if !d.LyDo.HopLe() {
 			return nil, ErrInvalidReason
 		}
@@ -211,22 +211,22 @@ func Tao(p TaoParams) (*YeuCauTraHang, error) {
 	// Tổng tiền hoàn = tổng các dòng. Cộng ở đây, một chỗ duy nhất, thay
 	// vì để bên gọi truyền vào — hai nguồn cho cùng một con số tiền sớm
 	// muộn sẽ lệch nhau.
-	tong := p.Dong[0].TienHoan
-	daThay := map[ids.ID]bool{p.Dong[0].OrderLineID: true}
-	for _, d := range p.Dong[1:] {
+	tong := p.Lines[0].RefundAmount
+	daThay := map[ids.ID]bool{p.Lines[0].OrderLineID: true}
+	for _, d := range p.Lines[1:] {
 		if daThay[d.OrderLineID] {
 			return nil, ErrDuplicateLine
 		}
 		daThay[d.OrderLineID] = true
 
-		cong, err := tong.Add(d.TienHoan)
+		sum, err := tong.Add(d.RefundAmount)
 		if err != nil {
 			return nil, err
 		}
-		tong = cong
+		tong = sum
 	}
 
-	return &YeuCauTraHang{
+	return &ReturnRequest{
 		id:         ids.MustNew(ids.PrefixReturnRequest),
 		orderID:    p.OrderID,
 		sellerID:   p.SellerID,
@@ -234,18 +234,18 @@ func Tao(p TaoParams) (*YeuCauTraHang, error) {
 		status:     TTYeuCau,
 		// Lý do CHÍNH là lý do của dòng đầu — chỉ để lọc nhanh danh sách.
 		// Lý do đầy đủ nằm ở từng dòng.
-		lyDo:        p.Dong[0].LyDo,
-		ghiChu:      strings.TrimSpace(p.GhiChu),
-		dong:        p.Dong,
-		tienHoan:    tong,
-		requestedAt: p.Now,
-		createdAt:   p.Now,
-		updatedAt:   p.Now,
+		lyDo:         p.Lines[0].LyDo,
+		note:         strings.TrimSpace(p.Note),
+		lines:        p.Lines,
+		refundAmount: tong,
+		requestedAt:  p.Now,
+		createdAt:    p.Now,
+		updatedAt:    p.Now,
 	}, nil
 }
 
 // Duyet chấp nhận yêu cầu trả hàng.
-func (y *YeuCauTraHang) Duyet(now time.Time) error {
+func (y *ReturnRequest) Duyet(now time.Time) error {
 	if y.status != TTYeuCau {
 		return ErrInvalidStatus
 	}
@@ -259,7 +259,7 @@ func (y *YeuCauTraHang) Duyet(now time.Time) error {
 //
 // Khách cần biết vì sao để quyết định làm gì tiếp — khiếu nại, gửi thêm
 // ảnh, hay chấp nhận. Từ chối không lý do biến mọi trường hợp thành khiếu nại.
-func (y *YeuCauTraHang) TuChoi(lyDo string, now time.Time) error {
+func (y *ReturnRequest) TuChoi(lyDo string, now time.Time) error {
 	if y.status != TTYeuCau {
 		return ErrInvalidStatus
 	}
@@ -273,78 +273,78 @@ func (y *YeuCauTraHang) TuChoi(lyDo string, now time.Time) error {
 	return nil
 }
 
-// DaNhanHang ghi nhận hàng đã về kho.
+// GoodsReceived ghi nhận hàng đã về kho.
 //
 // KHÔNG cộng vào tồn khả dụng — đó là việc của bước kiểm định, và quy tắc
 // bắt buộc là hàng hoàn không bao giờ tự động thành Available. Vi phạm nó
 // nghĩa là bán lại hàng hỏng cho khách khác.
-func (y *YeuCauTraHang) DaNhanHang(now time.Time) error {
+func (y *ReturnRequest) GoodsReceived(now time.Time) error {
 	if y.status != TTDuyet {
 		return ErrInvalidStatus
 	}
-	y.status = TTDaNhan
+	y.status = StatusReceived
 	y.receivedAt = now
 	y.touch(now)
 	return nil
 }
 
-// DaHoanTien ghi nhận đã hoàn tiền.
-func (y *YeuCauTraHang) DaHoanTien(now time.Time) error {
-	if y.status != TTDaNhan {
+// Refunded ghi nhận đã hoàn tiền.
+func (y *ReturnRequest) Refunded(now time.Time) error {
+	if y.status != StatusReceived {
 		return ErrInvalidStatus
 	}
-	y.status = TTDaHoan
+	y.status = StatusRefunded
 	y.refundedAt = now
 	y.touch(now)
 	return nil
 }
 
-// Huy để khách rút yêu cầu khi chưa ai xử lý.
-func (y *YeuCauTraHang) Huy(now time.Time) error {
+// Cancel để khách rút yêu cầu khi chưa ai xử lý.
+func (y *ReturnRequest) Cancel(now time.Time) error {
 	if y.status != TTYeuCau {
 		return ErrInvalidStatus
 	}
-	y.status = TTDaHuy
+	y.status = StatusCancelled
 	y.touch(now)
 	return nil
 }
 
-func (y *YeuCauTraHang) touch(now time.Time) { y.updatedAt = now }
+func (y *ReturnRequest) touch(now time.Time) { y.updatedAt = now }
 
-func (y *YeuCauTraHang) ID() ids.ID             { return y.id }
-func (y *YeuCauTraHang) OrderID() ids.ID        { return y.orderID }
-func (y *YeuCauTraHang) SellerID() ids.ID       { return y.sellerID }
-func (y *YeuCauTraHang) CustomerID() ids.ID     { return y.customerID }
-func (y *YeuCauTraHang) Status() TrangThai      { return y.status }
-func (y *YeuCauTraHang) LyDo() LyDo             { return y.lyDo }
-func (y *YeuCauTraHang) GhiChu() string         { return y.ghiChu }
-func (y *YeuCauTraHang) LyDoTuChoi() string     { return y.lyDoTuChoi }
-func (y *YeuCauTraHang) TienHoan() money.Money  { return y.tienHoan }
-func (y *YeuCauTraHang) RequestedAt() time.Time { return y.requestedAt }
-func (y *YeuCauTraHang) DecidedAt() time.Time   { return y.decidedAt }
-func (y *YeuCauTraHang) ReceivedAt() time.Time  { return y.receivedAt }
-func (y *YeuCauTraHang) RefundedAt() time.Time  { return y.refundedAt }
-func (y *YeuCauTraHang) Version() int64         { return y.version }
-func (y *YeuCauTraHang) CreatedAt() time.Time   { return y.createdAt }
-func (y *YeuCauTraHang) UpdatedAt() time.Time   { return y.updatedAt }
+func (y *ReturnRequest) ID() ids.ID                { return y.id }
+func (y *ReturnRequest) OrderID() ids.ID           { return y.orderID }
+func (y *ReturnRequest) SellerID() ids.ID          { return y.sellerID }
+func (y *ReturnRequest) CustomerID() ids.ID        { return y.customerID }
+func (y *ReturnRequest) Status() TrangThai         { return y.status }
+func (y *ReturnRequest) LyDo() LyDo                { return y.lyDo }
+func (y *ReturnRequest) Note() string              { return y.note }
+func (y *ReturnRequest) LyDoTuChoi() string        { return y.lyDoTuChoi }
+func (y *ReturnRequest) RefundAmount() money.Money { return y.refundAmount }
+func (y *ReturnRequest) RequestedAt() time.Time    { return y.requestedAt }
+func (y *ReturnRequest) DecidedAt() time.Time      { return y.decidedAt }
+func (y *ReturnRequest) ReceivedAt() time.Time     { return y.receivedAt }
+func (y *ReturnRequest) RefundedAt() time.Time     { return y.refundedAt }
+func (y *ReturnRequest) Version() int64            { return y.version }
+func (y *ReturnRequest) CreatedAt() time.Time      { return y.createdAt }
+func (y *ReturnRequest) UpdatedAt() time.Time      { return y.updatedAt }
 
-// Dong trả bản sao danh sách dòng hàng.
-func (y *YeuCauTraHang) Dong() []Dong {
-	return append([]Dong(nil), y.dong...)
+// Lines trả bản sao danh sách dòng hàng.
+func (y *ReturnRequest) Lines() []Lines {
+	return append([]Lines(nil), y.lines...)
 }
 
 // KhoiPhucParams dựng lại từ kho lưu trữ.
 type KhoiPhucParams struct {
-	ID         ids.ID
-	OrderID    ids.ID
-	SellerID   ids.ID
-	CustomerID ids.ID
-	Status     TrangThai
-	LyDo       LyDo
-	GhiChu     string
-	LyDoTuChoi string
-	Dong       []Dong
-	TienHoan   money.Money
+	ID           ids.ID
+	OrderID      ids.ID
+	SellerID     ids.ID
+	CustomerID   ids.ID
+	Status       TrangThai
+	LyDo         LyDo
+	Note         string
+	LyDoTuChoi   string
+	Lines        []Lines
+	RefundAmount money.Money
 
 	RequestedAt time.Time
 	DecidedAt   time.Time
@@ -357,61 +357,61 @@ type KhoiPhucParams struct {
 }
 
 // KhoiPhuc dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
-func KhoiPhuc(p KhoiPhucParams) *YeuCauTraHang {
-	return &YeuCauTraHang{
+func KhoiPhuc(p KhoiPhucParams) *ReturnRequest {
+	return &ReturnRequest{
 		id: p.ID, orderID: p.OrderID, sellerID: p.SellerID,
 		customerID: p.CustomerID, status: p.Status, lyDo: p.LyDo,
-		ghiChu: p.GhiChu, lyDoTuChoi: p.LyDoTuChoi,
-		dong: p.Dong, tienHoan: p.TienHoan,
+		note: p.Note, lyDoTuChoi: p.LyDoTuChoi,
+		lines: p.Lines, refundAmount: p.RefundAmount,
 		requestedAt: p.RequestedAt, decidedAt: p.DecidedAt,
 		receivedAt: p.ReceivedAt, refundedAt: p.RefundedAt,
 		version: p.Version, createdAt: p.CreatedAt, updatedAt: p.UpdatedAt,
 	}
 }
 
-// GhiKetQuaKiemDinh ghi kết quả kiểm định cho một dòng hàng.
+// RecordInspection ghi kết quả kiểm định cho một dòng hàng.
 //
 // # Vì sao chỉ cho kiểm sau khi ĐÃ NHẬN hàng
 //
 // Kiểm định là nhìn vào món hàng thật. Ghi kết quả trước khi hàng về là
 // ghi một điều chưa ai biết — và nó sẽ đẩy hàng vào Available trong khi
 // kho chưa có gì.
-func (y *YeuCauTraHang) GhiKetQuaKiemDinh(
-	orderLineID ids.ID, dat bool, ghiChu string, now time.Time,
+func (y *ReturnRequest) RecordInspection(
+	orderLineID ids.ID, dat bool, note string, now time.Time,
 ) error {
-	if y.status != TTDaNhan && y.status != TTDaHoan {
-		return ErrChuaNhanHang
+	if y.status != StatusReceived && y.status != StatusRefunded {
+		return ErrGoodsNotReceived
 	}
-	if !dat && strings.TrimSpace(ghiChu) == "" {
-		return ErrThieuLyDoLoai
+	if !dat && strings.TrimSpace(note) == "" {
+		return ErrMissingFaultReason
 	}
 
-	for i := range y.dong {
-		if y.dong[i].OrderLineID != orderLineID {
+	for i := range y.lines {
+		if y.lines[i].OrderLineID != orderLineID {
 			continue
 		}
-		if y.dong[i].KiemDinh != KiemDinhChoXuLy && y.dong[i].KiemDinh != "" {
+		if y.lines[i].Inspection != InspectionPending && y.lines[i].Inspection != "" {
 			// Kiểm hai lần nghĩa là hàng vào Available hai lần — tồn kho
 			// tăng thêm số hàng không có thật.
-			return ErrDaKiemDinh
+			return ErrAlreadyInspected
 		}
 
-		y.dong[i].KiemDinh = KiemDinhLoai
+		y.lines[i].Inspection = InspectionFailed
 		if dat {
-			y.dong[i].KiemDinh = KiemDinhDat
+			y.lines[i].Inspection = InspectionPassed
 		}
-		y.dong[i].GhiChuKiemDinh = strings.TrimSpace(ghiChu)
-		y.dong[i].InspectedAt = now
+		y.lines[i].InspectionNote = strings.TrimSpace(note)
+		y.lines[i].InspectedAt = now
 		y.touch(now)
 		return nil
 	}
 	return ErrNotFound
 }
 
-// ConChoKiemDinh cho biết còn dòng nào chưa kiểm không.
-func (y *YeuCauTraHang) ConChoKiemDinh() bool {
-	for _, d := range y.dong {
-		if d.KiemDinh == KiemDinhChoXuLy || d.KiemDinh == "" {
+// AwaitingInspection cho biết còn dòng nào chưa kiểm không.
+func (y *ReturnRequest) AwaitingInspection() bool {
+	for _, d := range y.lines {
+		if d.Inspection == InspectionPending || d.Inspection == "" {
 			return true
 		}
 	}

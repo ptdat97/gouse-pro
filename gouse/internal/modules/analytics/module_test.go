@@ -70,16 +70,16 @@ func amount(v int64) *int64 { return &v }
 // dựng một hình dạng sự kiện KHÔNG BAO GIỜ xảy ra ở production, và phép
 // đếm số đơn khác nhau không có gì để đếm.
 func order(sessionID, sellerID string, value int64, at time.Time) analytics.EventInput {
-	return orderCuaDon(ids.MustNew(ids.PrefixOrder).String(),
+	return orderOf(ids.MustNew(ids.PrefixOrder).String(),
 		sessionID, sellerID, value, at)
 }
 
-// orderCuaDon tạo sự kiện đặt hàng cho MỘT đơn cụ thể.
+// orderOf tạo sự kiện đặt hàng cho MỘT đơn cụ thể.
 //
 // Cần khi bài test muốn dựng đơn TRỘN HÀNG: `order.placed` phát một sự
 // kiện cho mỗi nhà bán, nên nhiều sự kiện cùng một mã đơn là chuyện bình
 // thường — và là chuyện mà phép đếm phải xử lý đúng.
-func orderCuaDon(
+func orderOf(
 	orderID, sessionID, sellerID string, value int64, at time.Time,
 ) analytics.EventInput {
 	return analytics.EventInput{
@@ -106,7 +106,7 @@ func behavior(name, sessionID, sellerID string, at time.Time) analytics.EventInp
 }
 
 // GHI SỰ KIỆN CƠ BẢN.
-func TestGhiSuKien(t *testing.T) {
+func TestWriteEvent(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -133,7 +133,7 @@ func TestGhiSuKien(t *testing.T) {
 //
 // Test này dùng một module trỏ tới database ĐÃ ĐÓNG — mô phỏng sự cố hạ
 // tầng tệ nhất.
-func TestGhiNhanKhongChanLuongChinh(t *testing.T) {
+func TestRecordingDoesNotBlockMainFlow(t *testing.T) {
 	db := testdb.Open(t)
 
 	m, err := analytics.New(analytics.Config{
@@ -160,7 +160,7 @@ func TestGhiNhanKhongChanLuongChinh(t *testing.T) {
 //
 // Đây là lỗi của BÊN GỌI, sửa được. Im lặng nuốt nó sẽ khiến sự kiện biến
 // mất mà không ai biết vì sao — và người ta đi tìm lỗi ở database.
-func TestDuLieuKhongHopLeTraLoi(t *testing.T) {
+func TestInvalidDataIsRejected(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -176,7 +176,7 @@ func TestDuLieuKhongHopLeTraLoi(t *testing.T) {
 //
 // Handler xử lý lại cùng một event là chuyện bình thường (giao ít-nhất-
 // một-lần). Mỗi lần xử lý lại là một đơn hàng nữa cộng vào GMV.
-func TestSuKienNghiepVuChongGhiTrung(t *testing.T) {
+func TestBusinessEventsAreDeduplicated(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -201,7 +201,7 @@ func TestSuKienNghiepVuChongGhiTrung(t *testing.T) {
 
 // LỚP THỨ HAI: sự kiện trùng phải được NHẬN RA, không phải nuốt lặng.
 //
-// Test trên (TestSuKienNghiepVuChongGhiTrung) chỉ đếm số hàng, nên chỉ
+// Test trên (TestBusinessEventsAreDeduplicated) chỉ đếm số hàng, nên chỉ
 // mục UNIQUE một mình đã đủ làm nó xanh. Đã kiểm chứng ngược: bỏ việc
 // dịch lỗi thành ErrDuplicateEvent, test đó VẪN xanh — vì Track rơi vào
 // nhánh "sự cố hạ tầng" và cũng trả nil.
@@ -212,7 +212,7 @@ func TestSuKienNghiepVuChongGhiTrung(t *testing.T) {
 // chắn nhất để bỏ lỡ cảnh báo thật.
 //
 // Test này bắt đúng ranh giới đó: ghi trùng KHÔNG được sinh cảnh báo nào.
-func TestSuKienTrungKhongSinhCanhBao(t *testing.T) {
+func TestDuplicateEventRaisesNoWarning(t *testing.T) {
 	db := testdb.Open(t)
 
 	ctx := context.Background()
@@ -280,7 +280,7 @@ func (h *countingHandler) count() int {
 //
 // Hai lần xem sản phẩm THẬT SỰ là hai lần xem. Chống trùng ở đây sẽ làm
 // mất dữ liệu hành vi — thứ không tạo ngược được (quy tắc 6).
-func TestSuKienHanhViKhongChongTrung(t *testing.T) {
+func TestBehaviourEventsAreNotDeduplicated(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -307,7 +307,7 @@ func TestSuKienHanhViKhongChongTrung(t *testing.T) {
 //
 // Kiểm tra "đã ghi chưa" ở tầng ứng dụng KHÔNG cứu được — mười worker
 // cùng đọc thấy chưa có. Chỉ mục UNIQUE là thứ chặn.
-func TestDuaNhauGhiSuKienNghiepVu(t *testing.T) {
+func TestConcurrentBusinessEventWrites(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -340,7 +340,7 @@ func TestDuaNhauGhiSuKienNghiepVu(t *testing.T) {
 // Bên gọi chuyển tiếp dữ liệu do người dùng gửi lên. Một trường tên
 // "password" lọt vào properties sẽ nằm trong database phân tích — nơi
 // nhiều người đọc được và giữ rất lâu.
-func TestLocDuLieuNhayCam(t *testing.T) {
+func TestFiltersSensitiveData(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -388,7 +388,7 @@ func TestLocDuLieuNhayCam(t *testing.T) {
 }
 
 // KHÔNG LƯU IP NGUYÊN VĂN — yêu cầu quyền riêng tư, mục 8.
-func TestKhongLuuIPNguyenVan(t *testing.T) {
+func TestDoesNotStoreRawIP(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -412,7 +412,7 @@ func TestKhongLuuIPNguyenVan(t *testing.T) {
 }
 
 // GHI LÔ: một sự kiện sai KHÔNG làm mất cả lô.
-func TestGhiLoBoQuaSuKienSai(t *testing.T) {
+func TestBatchWriteSkipsBadEvent(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -492,7 +492,7 @@ func TestTinhGMVvaAOV(t *testing.T) {
 // `purchase` để làm tử số. Nó xanh suốt trong lúc chỉ số ấy bằng 0 trên
 // hệ thống thật — vì không dòng mã production nào ghi cái tên đó. Xem
 // ADR-0020.
-func TestSoLuotTruyCapDemTheoPhien(t *testing.T) {
+func TestVisitsAreCountedPerSession(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -537,7 +537,7 @@ func TestSoLuotTruyCapDemTheoPhien(t *testing.T) {
 //
 // Tỷ lệ 50% từ 2 mẫu không nói lên điều gì, còn từ 20.000 mẫu thì có.
 // Thiếu cỡ mẫu, người đọc không phân biệt được.
-func TestCoMauDiKemChiSo(t *testing.T) {
+func TestMetricCarriesSampleSize(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -570,7 +570,7 @@ func TestCoMauDiKemChiSo(t *testing.T) {
 	}
 }
 
-// TestChiSoChuaDoDuocPhaiNOIRAChuKhongTraVeKhong.
+// TestNotYetMeasurableMustSaySoNotReturnZero.
 //
 // # Vì sao bài này tồn tại
 //
@@ -583,17 +583,17 @@ func TestCoMauDiKemChiSo(t *testing.T) {
 //
 // # Vì sao bài này KHÔNG chết khi nợ được trả
 //
-// Sổ `ChuaDoDuoc` nay RỖNG: `conversion_rate` đã đo được từ khi bước 3
+// Sổ `NotYetMeasurable` nay RỖNG: `conversion_rate` đã đo được từ khi bước 3
 // của ADR-0020 xong. Nhưng cơ chế thì còn, và dạng nợ ấy sẽ còn xuất hiện
 // — nên bài này kiểm CƠ CHẾ, chạy trên chính nội dung của sổ:
 //
 //	sổ có dòng nào  →  dòng ấy phải trả lý do, và lý do phải trỏ tới ADR
 //	sổ rỗng         →  không chỉ số nào được báo chưa đo được
-func TestChiSoChuaDoDuocPhaiNOIRAChuKhongTraVeKhong(t *testing.T) {
+func TestNotYetMeasurableMustSaySoNotReturnZero(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
-	doc := func(ten string) analytics.MetricView {
+	read := func(ten string) analytics.MetricView {
 		t.Helper()
 		got, err := m.GetMetric(ctx, analytics.MetricRequest{
 			Name: ten, PeriodStart: day, Granularity: analytics.GranularityDay,
@@ -604,9 +604,9 @@ func TestChiSoChuaDoDuocPhaiNOIRAChuKhongTraVeKhong(t *testing.T) {
 		return got
 	}
 
-	for ten, ly := range analytics.ChuaDoDuoc() {
-		got := doc(ten)
-		if got.KhongDoDuoc == "" {
+	for ten, ly := range analytics.NotYetMeasurable() {
+		got := read(ten)
+		if got.NotMeasurable == "" {
 			t.Errorf("%s nằm trong sổ chưa-đo-được mà trả Value=%d không "+
 				"kèm lý do — người đọc tưởng đã đo được", ten, got.Value)
 		}
@@ -622,18 +622,18 @@ func TestChiSoChuaDoDuocPhaiNOIRAChuKhongTraVeKhong(t *testing.T) {
 		analytics.MetricConversionRate,
 		analytics.MetricCartConversionRate,
 	} {
-		if _, co := analytics.ChuaDoDuoc()[ten]; co {
+		if _, co := analytics.NotYetMeasurable()[ten]; co {
 			continue
 		}
-		if got := doc(ten); got.KhongDoDuoc != "" {
+		if got := read(ten); got.NotMeasurable != "" {
 			t.Errorf("%s đo được mà vẫn báo chưa đo được: %q",
-				ten, got.KhongDoDuoc)
+				ten, got.NotMeasurable)
 		}
 	}
 }
 
 // CHỈ SỐ CẮT LÁT THEO SELLER, và seller CHỈ thấy số của mình.
-func TestChiSoTheoSeller(t *testing.T) {
+func TestMetricsPerSeller(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -698,7 +698,7 @@ func TestChiSoTheoSeller(t *testing.T) {
 //
 // Hai giá trị GMV cho cùng một ngày là hai câu trả lời cho cùng một câu
 // hỏi, và không có cách nào biết cái nào đúng.
-func TestTinhLaiGhiDe(t *testing.T) {
+func TestRecomputeOverwrites(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -750,7 +750,7 @@ func TestTinhLaiGhiDe(t *testing.T) {
 //
 // Chỉ số của "ngày 15/3" phải luôn nằm ở cùng một hàng. Nếu chỗ ghi cắt
 // tròn khác chỗ đọc, dashboard sẽ hiện hai hàng cho cùng một ngày.
-func TestCatTronThoiGianNhatQuan(t *testing.T) {
+func TestTimeTruncationIsConsistent(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -794,7 +794,7 @@ func TestCatTronThoiGianNhatQuan(t *testing.T) {
 //
 // "Đơn hàng 0đ" và "sự kiện xem sản phẩm" là hai chuyện khác nhau. Cộng
 // nhầm loại thứ hai làm AOV thấp giả tạo.
-func TestSuKienKhongCoTienKhongVaoGMV(t *testing.T) {
+func TestEventWithoutMoneyStaysOutOfGMV(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -833,7 +833,7 @@ func TestSuKienKhongCoTienKhongVaoGMV(t *testing.T) {
 // CHỈ SỐ CHƯA TÍNH TRẢ VỀ 0, KHÔNG PHẢI LỖI.
 //
 // Dashboard mở vào một ngày chưa có worker chạy là chuyện bình thường.
-func TestChiSoChuaTinhTraVe0(t *testing.T) {
+func TestUncomputedMetricReturnsZero(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -853,7 +853,7 @@ func TestChiSoChuaTinhTraVe0(t *testing.T) {
 // CHIA CHO 0 KHÔNG LÀM SẬP.
 //
 // "Chưa có đơn nào" là trạng thái BÌNH THƯỜNG của một ngày mới bắt đầu.
-func TestChiaCho0KhongLamSap(t *testing.T) {
+func TestDivideByZeroDoesNotCrash(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -882,7 +882,7 @@ func TestChiaCho0KhongLamSap(t *testing.T) {
 }
 
 // CHUỖI THỜI GIAN theo ngày.
-func TestChuoiThoiGian(t *testing.T) {
+func TestTimeSeries(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -922,7 +922,7 @@ func TestChuoiThoiGian(t *testing.T) {
 //
 // Hai khoảng liền nhau không được đếm trùng mốc chung — nếu trùng, tổng
 // của các khoảng sẽ lớn hơn tổng thật.
-func TestKhoangThoiGianNuaMo(t *testing.T) {
+func TestHalfOpenInterval(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -977,7 +977,7 @@ func TestKhoangThoiGianNuaMo(t *testing.T) {
 //
 // Xóa hàng sẽ làm GMV của các tháng trước thay đổi — một chuyện không giải
 // thích được với ai.
-func TestAnDanhKhachGiuSoLieu(t *testing.T) {
+func TestAnonymizeKeepsAggregates(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1052,7 +1052,7 @@ func TestAnDanhKhachGiuSoLieu(t *testing.T) {
 //
 // Chuỗi rỗng khớp với MỌI sự kiện của khách chưa đăng nhập. Một lời gọi
 // sai tham số sẽ mất dữ liệu KHÔNG TẠO NGƯỢC ĐƯỢC.
-func TestAnDanhIDRongKhongXoaGi(t *testing.T) {
+func TestAnonymizeEmptyIDDeletesNothing(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1083,7 +1083,7 @@ func TestAnDanhIDRongKhongXoaGi(t *testing.T) {
 }
 
 // ĐỘ MỊN KHÔNG HỢP LỆ BỊ TỪ CHỐI.
-func TestDoMinKhongHopLe(t *testing.T) {
+func TestInvalidMeasureIsRejected(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1104,7 +1104,7 @@ func TestDoMinKhongHopLe(t *testing.T) {
 	}
 }
 
-// TestDonTronHangLaMOTDonKhongPhaiBA.
+// TestMixedOrderCountsAsOneNotThree.
 //
 // # Vì sao bài này tồn tại
 //
@@ -1118,14 +1118,14 @@ func TestDoMinKhongHopLe(t *testing.T) {
 //
 // Không bài test nào bắt được vì mọi bài đều dựng đơn một nhà bán — nơi
 // hai cách đếm cho cùng một kết quả.
-func TestDonTronHangLaMOTDonKhongPhaiBA(t *testing.T) {
+func TestMixedOrderCountsAsOneNotThree(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
 	// MỘT đơn, ba nhà bán, ba sự kiện — đúng như bên nhận thật ghi.
 	const maDon = "ord_01K0000000000000000TRON"
 	for i, v := range []int64{300_000, 200_000, 100_000} {
-		ev := orderCuaDon(maDon, "ses-1", "sel-"+string(rune('a'+i)), v, day)
+		ev := orderOf(maDon, "ses-1", "sel-"+string(rune('a'+i)), v, day)
 		if err := m.TrackEvent(ctx, ev); err != nil {
 			t.Fatalf("TrackEvent: %v", err)
 		}
@@ -1138,7 +1138,7 @@ func TestDonTronHangLaMOTDonKhongPhaiBA(t *testing.T) {
 		t.Fatalf("ComputeMetrics: %v", err)
 	}
 
-	doc := func(ten string) int64 {
+	read := func(ten string) int64 {
 		t.Helper()
 		got, err := m.GetMetric(ctx, analytics.MetricRequest{
 			Name: ten, PeriodStart: day, Granularity: analytics.GranularityDay,
@@ -1150,14 +1150,14 @@ func TestDonTronHangLaMOTDonKhongPhaiBA(t *testing.T) {
 	}
 
 	// GMV cộng theo DÒNG là đúng: ba phần cộng lại thành tổng đơn.
-	if got := doc(analytics.MetricGMV); got != 600_000 {
+	if got := read(analytics.MetricGMV); got != 600_000 {
 		t.Errorf("GMV = %d, mong 600.000đ", got)
 	}
-	if got := doc(analytics.MetricOrderCount); got != 1 {
+	if got := read(analytics.MetricOrderCount); got != 1 {
 		t.Errorf("số đơn = %d, mong 1 — một đơn trộn hàng ba nhà bán vẫn "+
 			"là MỘT đơn", got)
 	}
-	if got := doc(analytics.MetricAOV); got != 600_000 {
+	if got := read(analytics.MetricAOV); got != 600_000 {
 		t.Errorf("AOV = %d, mong 600.000đ — chia cho 3 sẽ ra 200.000đ, "+
 			"tức nền tảng tưởng khách tiêu ít hơn ba lần thực tế", got)
 	}

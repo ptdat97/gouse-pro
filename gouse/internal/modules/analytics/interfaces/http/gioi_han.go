@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// GioiHanPhien đếm sự kiện theo PHIÊN trong một cửa sổ trượt thô.
+// SessionLimit đếm sự kiện theo PHIÊN trong một cửa sổ trượt thô.
 //
 // # Vì sao giới hạn theo phiên chứ không theo IP
 //
@@ -25,35 +25,35 @@ import (
 // mục tiêu là chặn bậc độ lớn, không phải cưỡng chế chính xác con số — và
 // cửa sổ trượt thật cần giữ dấu thời gian từng sự kiện, tức là đổi một
 // lượng bộ nhớ lớn lấy độ chính xác không ai cần ở đây.
-type GioiHanPhien struct {
+type SessionLimit struct {
 	nguong func() int
-	cuaSo  time.Duration
+	window time.Duration
 	now    func() time.Time
 
-	mu     sync.Mutex
-	dem    map[string]int
-	batDau time.Time
+	mu    sync.Mutex
+	count map[string]int
+	start time.Time
 }
 
-// NewGioiHanPhien tạo bộ giới hạn với ngưỡng đọc LÚC CHẠY.
+// NewSessionLimit tạo bộ giới hạn với ngưỡng đọc LÚC CHẠY.
 //
 // `nguong` là hàm chứ không phải số: ngưỡng là tham số vận hành, và đổi nó
 // phải có tác dụng ở lô kế tiếp chứ không phải ở lần triển khai kế tiếp.
-func NewGioiHanPhien(nguong func() int, cuaSo time.Duration) *GioiHanPhien {
-	return &GioiHanPhien{
+func NewSessionLimit(nguong func() int, window time.Duration) *SessionLimit {
+	return &SessionLimit{
 		nguong: nguong,
-		cuaSo:  cuaSo,
+		window: window,
 		now:    func() time.Time { return time.Now() },
-		dem:    make(map[string]int),
+		count:  make(map[string]int),
 	}
 }
 
-var _ GioiHanPort = (*GioiHanPhien)(nil)
+var _ LimitPort = (*SessionLimit)(nil)
 
-// ChoPhep cộng `soSuKien` vào bộ đếm của phiên và cho biết còn trong ngưỡng.
+// Allowed cộng `eventCount` vào bộ đếm của phiên và cho biết còn trong ngưỡng.
 //
 // Ngưỡng <= 0 nghĩa là TẮT giới hạn — dùng khi chưa nối cấu hình.
-func (g *GioiHanPhien) ChoPhep(sessionID string, soSuKien int) bool {
+func (g *SessionLimit) Allowed(sessionID string, eventCount int) bool {
 	nguong := 0
 	if g.nguong != nil {
 		nguong = g.nguong()
@@ -66,19 +66,19 @@ func (g *GioiHanPhien) ChoPhep(sessionID string, soSuKien int) bool {
 	defer g.mu.Unlock()
 
 	now := g.now()
-	if now.Sub(g.batDau) >= g.cuaSo {
+	if now.Sub(g.start) >= g.window {
 		// Sang cửa sổ mới: dựng map MỚI thay vì xóa từng khóa.
 		//
 		// Đây cũng là cách bộ nhớ được thu hồi: không có bước này thì mỗi
 		// phiên từng gọi sẽ để lại một khóa vĩnh viễn, và với lưu lượng
 		// thật đó là một rò rỉ bộ nhớ chậm nhưng chắc chắn.
-		g.dem = make(map[string]int)
-		g.batDau = now
+		g.count = make(map[string]int)
+		g.start = now
 	}
 
-	if g.dem[sessionID]+soSuKien > nguong {
+	if g.count[sessionID]+eventCount > nguong {
 		return false
 	}
-	g.dem[sessionID] += soSuKien
+	g.count[sessionID] += eventCount
 	return true
 }

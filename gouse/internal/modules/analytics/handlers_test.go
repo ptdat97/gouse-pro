@@ -83,7 +83,7 @@ func dispatch(t *testing.T, bus *eventbus.Dispatcher) {
 //
 // Không có handler này, module analytics có đủ hàm tính chỉ số nhưng
 // không có dữ liệu nào để tính.
-func TestEventDatHangChayVaoGMV(t *testing.T) {
+func TestOrderPlacedFeedsGMV(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -120,7 +120,7 @@ func TestEventDatHangChayVaoGMV(t *testing.T) {
 // Một đơn từ hai gian hàng phải cộng vào GMV của ĐÚNG hai gian hàng đó.
 // Ghi một sự kiện mang tổng đơn thì dashboard của seller sẽ hiện cả doanh
 // số của đối thủ — và không có cách nào tách ra sau.
-func TestDonNhieuGianHangTachTheoSeller(t *testing.T) {
+func TestMultiSellerOrderSplitsPerSeller(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -172,7 +172,7 @@ func TestDonNhieuGianHangTachTheoSeller(t *testing.T) {
 //
 // Không gom thì số đơn bị thổi lên theo số dòng, và AOV — vốn là GMV chia
 // số đơn — thấp đi đúng theo tỷ lệ đó.
-func TestNhieuDongCungGianHangLaMotDon(t *testing.T) {
+func TestManyLinesOneSellerIsOneOrder(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -226,7 +226,7 @@ func TestNhieuDongCungGianHangLaMotDon(t *testing.T) {
 // Giao ít-nhất-một-lần nghĩa là event SẼ được phát lại. Mỗi lần phát lại
 // cộng thêm một đơn nữa vào GMV là số liệu phình lên không ai giải thích
 // được.
-func TestPhatLaiEventKhongCongThemGMV(t *testing.T) {
+func TestRedeliveryDoesNotAddToGMV(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -272,7 +272,7 @@ func TestPhatLaiEventKhongCongThemGMV(t *testing.T) {
 // Test này tách khỏi TestDonNhieuGianHang có chủ ý: test kia so số liệu
 // đã tính, còn test này đọc thẳng số hàng trong nhật ký, nên nó chỉ ra
 // đúng chỗ hỏng.
-func TestHaiGianHangCoEventIDKhacNhau(t *testing.T) {
+func TestTwoSellersGetDistinctEventIDs(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -311,7 +311,7 @@ func TestHaiGianHangCoEventIDKhacNhau(t *testing.T) {
 // Vòng đời giao hàng có chín trạng thái, phần lớn là bước nội bộ. Ghi hết
 // là nhồi nhật ký bằng dữ liệu không ai hỏi tới — và khối lượng đó phải
 // trả giá ở mọi truy vấn chỉ số sau này.
-func TestChiGhiMocDelivered(t *testing.T) {
+func TestOnlyRecordsDeliveredMilestone(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -372,10 +372,10 @@ func TestChiGhiMocDelivered(t *testing.T) {
 // KHÔNG lỗi — nó trả về chuỗi rỗng, và MỌI mốc giao hàng lặng lẽ bị bỏ
 // qua. Đây là loại lỗi không có gì báo.
 //
-// Test trên (TestChiGhiMocDelivered) không bắt được một mình: nếu đọc sai
+// Test trên (TestOnlyRecordsDeliveredMilestone) không bắt được một mình: nếu đọc sai
 // tên, cả sáu bước nội bộ VÀ mốc DELIVERED đều bị bỏ — phần đầu của test
 // đó vẫn xanh. Test này chốt phần còn lại.
-func TestDocDungTenTruongNewStatus(t *testing.T) {
+func TestReadsNewStatusFieldName(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -408,7 +408,7 @@ func TestDocDungTenTruongNewStatus(t *testing.T) {
 }
 
 // EVENT THÊM GIỎ CHẢY VÀO PHỄU CHUYỂN ĐỔI.
-func TestEventThemGioChayVaoPheu(t *testing.T) {
+func TestAddToCartFeedsFunnel(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -472,7 +472,7 @@ func TestEventThemGioChayVaoPheu(t *testing.T) {
 // Handler nhận cả loại event mình không đăng ký (dispatcher lọc theo
 // EventTypes, nhưng lớp phòng vệ này vẫn cần): trả nil chứ không lỗi, để
 // event không kẹt lại trong hàng đợi và chặn mọi event sau nó.
-func TestEventKhongQuanTamKhongLamHongGi(t *testing.T) {
+func TestIrrelevantEventBreaksNothing(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
@@ -503,14 +503,14 @@ func TestEventKhongQuanTamKhongLamHongGi(t *testing.T) {
 	}
 }
 
-// phatPhien phát một event của phiên thanh toán.
-func phatPhien(
-	t *testing.T, bus *eventbus.Dispatcher, loai, cartID string, subtotal int64,
+// publishSession phát một event của phiên thanh toán.
+func publishSession(
+	t *testing.T, bus *eventbus.Dispatcher, kind, cartID string, subtotal int64,
 ) string {
 	t.Helper()
 
 	checkoutID := ids.MustNew(ids.PrefixCheckout)
-	e, err := eventbus.NewEvent(loai, eventbus.AggregateCheckout, checkoutID,
+	e, err := eventbus.NewEvent(kind, eventbus.AggregateCheckout, checkoutID,
 		map[string]any{
 			"checkout_id": checkoutID.String(),
 			"cart_id":     cartID,
@@ -528,7 +528,7 @@ func phatPhien(
 	return checkoutID.String()
 }
 
-// TestPhienThanhToanChayVaoPheuChuyenDoi.
+// TestCheckoutFeedsConversionFunnel.
 //
 // # Vì sao bài này tồn tại
 //
@@ -543,14 +543,14 @@ func phatPhien(
 // Chú thích ngay trên hằng số đó tự nói: "đo tổng thể chỉ cho biết CÓ vấn
 // đề, đo từng bước cho biết vấn đề Ở ĐÂU". Bước giữa trống nghĩa là câu
 // thứ hai không trả lời được.
-func TestPhienThanhToanChayVaoPheuChuyenDoi(t *testing.T) {
+func TestCheckoutFeedsConversionFunnel(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	bus := newBus(t, m, pool)
 	ctx := context.Background()
 
 	cartID := ids.MustNew(ids.PrefixCart).String()
-	phatPhien(t, bus, eventbus.TypeCheckoutStarted, cartID, 500_000)
-	phatPhien(t, bus, eventbus.TypeCheckoutExpired, cartID, 500_000)
+	publishSession(t, bus, eventbus.TypeCheckoutStarted, cartID, 500_000)
+	publishSession(t, bus, eventbus.TypeCheckoutExpired, cartID, 500_000)
 	dispatch(t, bus)
 
 	for _, ten := range []string{analytics.EventCheckoutStart, analytics.EventCheckoutExpired} {

@@ -23,22 +23,22 @@ import (
 
 func vnd(n int64) money.Money { return money.MustNew(n, money.VND) }
 
-func dongTra(lineID ids.ID, tien int64) domain.Dong {
-	return domain.Dong{
-		OrderLineID: lineID,
-		SKUID:       ids.MustNew(ids.PrefixSKU),
-		Quantity:    1,
-		TienHoan:    vnd(tien),
-		LyDo:        domain.LyDoSizeNho,
+func returnLines(lineID ids.ID, amount int64) domain.Lines {
+	return domain.Lines{
+		OrderLineID:  lineID,
+		SKUID:        ids.MustNew(ids.PrefixSKU),
+		Quantity:     1,
+		RefundAmount: vnd(amount),
+		LyDo:         domain.ReasonSizeTooSmall,
 	}
 }
 
-func taoParams(dong ...domain.Dong) domain.TaoParams {
-	return domain.TaoParams{
+func newParams(lines ...domain.Lines) domain.NewParams {
+	return domain.NewParams{
 		OrderID:    ids.MustNew(ids.PrefixOrder),
 		SellerID:   ids.MustNew(ids.PrefixSeller),
 		CustomerID: ids.MustNew(ids.PrefixCustomer),
-		Dong:       dong,
+		Lines:      lines,
 		Now:        time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC),
 	}
 }
@@ -47,12 +47,12 @@ func taoParams(dong ...domain.Dong) domain.TaoParams {
 //
 // Trùng dòng nghĩa là tiền hoàn của nó được cộng hai lần vào tổng — khách
 // nhận gấp đôi cho một món gửi về một lần.
-func TestMotDongKhongXinTraHaiLan(t *testing.T) {
+func TestLineCannotBeRequestedTwice(t *testing.T) {
 	lineID := ids.MustNew(ids.PrefixOrderLine)
 
-	_, err := domain.Tao(taoParams(
-		dongTra(lineID, 200_000),
-		dongTra(lineID, 200_000),
+	_, err := domain.New(newParams(
+		returnLines(lineID, 200_000),
+		returnLines(lineID, 200_000),
 	))
 	if !errors.Is(err, domain.ErrDuplicateLine) {
 		t.Fatalf("mong ErrDuplicateLine, nhận %v — tiền hoàn của dòng ấy "+
@@ -64,11 +64,11 @@ func TestMotDongKhongXinTraHaiLan(t *testing.T) {
 //
 // Không có bài này thì bài trên vẫn xanh khi ai đó chặn nhầm mọi yêu cầu
 // nhiều dòng.
-func TestTongTienHoanBangTongCacDong(t *testing.T) {
-	y, err := domain.Tao(taoParams(
-		dongTra(ids.MustNew(ids.PrefixOrderLine), 200_000),
-		dongTra(ids.MustNew(ids.PrefixOrderLine), 150_000),
-		dongTra(ids.MustNew(ids.PrefixOrderLine), 99_000),
+func TestTotalRefundEqualsSumOfLines(t *testing.T) {
+	y, err := domain.New(newParams(
+		returnLines(ids.MustNew(ids.PrefixOrderLine), 200_000),
+		returnLines(ids.MustNew(ids.PrefixOrderLine), 150_000),
+		returnLines(ids.MustNew(ids.PrefixOrderLine), 99_000),
 	))
 	if err != nil {
 		t.Fatalf("ba dòng khác nhau phải hợp lệ: %v", err)
@@ -76,7 +76,7 @@ func TestTongTienHoanBangTongCacDong(t *testing.T) {
 
 	// Tổng cộng ở MỘT chỗ, trong miền — không nhận từ bên gọi. Hai nguồn
 	// cho cùng một con số tiền sớm muộn sẽ lệch nhau.
-	if got := y.TienHoan().Amount(); got != 449_000 {
+	if got := y.RefundAmount().Amount(); got != 449_000 {
 		t.Errorf("tổng tiền hoàn: mong 449.000, nhận %d", got)
 	}
 }
@@ -86,8 +86,8 @@ func TestTongTienHoanBangTongCacDong(t *testing.T) {
 // Một yêu cầu trả hàng rỗng là một khoản hoàn 0đ mang đầy đủ vết kiểm
 // toán của một khoản hoàn thật — rác trong sổ, và một trạng thái không ai
 // biết phải làm gì.
-func TestYeuCauRongBiTuChoi(t *testing.T) {
-	if _, err := domain.Tao(taoParams()); !errors.Is(err, domain.ErrNoLines) {
+func TestEmptyRequestIsRejected(t *testing.T) {
+	if _, err := domain.New(newParams()); !errors.Is(err, domain.ErrNoLines) {
 		t.Fatalf("mong ErrNoLines, nhận %v", err)
 	}
 }

@@ -53,16 +53,16 @@ func NewCustomerHandler(
 }
 
 func (h *CustomerHandler) Register(mux *http.ServeMux) {
-	mux.Handle("POST /api/v1/orders/{order_id}/returns", http.HandlerFunc(h.xinTra))
-	mux.Handle("GET /api/v1/orders/{order_id}/returns", http.HandlerFunc(h.danhSach))
+	mux.Handle("POST /api/v1/orders/{order_id}/returns", http.HandlerFunc(h.request))
+	mux.Handle("GET /api/v1/orders/{order_id}/returns", http.HandlerFunc(h.list))
 }
 
-// xinTraRequest khớp `requestReturn` trong đặc tả.
+// requestBody khớp `requestReturn` trong đặc tả.
 //
 // `reason_code` nằm ở TỪNG DÒNG, không phải cấp yêu cầu: khách trả hai món
 // vì hai lý do khác nhau là chuyện thường, và mỗi lý do dẫn tới một hành
 // động khắc phục khác nhau.
-type xinTraRequest struct {
+type requestBody struct {
 	Lines []struct {
 		OrderLineID  string `json:"order_line_id"`
 		Quantity     int    `json:"quantity"`
@@ -71,14 +71,14 @@ type xinTraRequest struct {
 	} `json:"lines"`
 }
 
-func (h *CustomerHandler) xinTra(w http.ResponseWriter, r *http.Request) {
-	orderID, err := h.kiemQuyen(r, r.PathValue("order_id"))
+func (h *CustomerHandler) request(w http.ResponseWriter, r *http.Request) {
+	orderID, err := h.checkAccess(r, r.PathValue("order_id"))
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	var req xinTraRequest
+	var req requestBody
 	if err := decodeJSON(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -89,14 +89,14 @@ func (h *CustomerHandler) xinTra(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dong := make([]application.DongXinTra, 0, len(req.Lines))
+	lines := make([]application.RequestedLine, 0, len(req.Lines))
 	for _, it := range req.Lines {
 		if it.Quantity <= 0 {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 				"quantity phải lớn hơn 0"))
 			return
 		}
-		dong = append(dong, application.DongXinTra{
+		lines = append(lines, application.RequestedLine{
 			OrderLineID: ids.ID(strings.TrimSpace(it.OrderLineID)),
 			Quantity:    it.Quantity,
 			LyDo:        domain.LyDo(strings.ToUpper(strings.TrimSpace(it.ReasonCode))),
@@ -105,10 +105,10 @@ func (h *CustomerHandler) xinTra(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shopper, _ := httpserver.ShopperFrom(r.Context())
-	y, err := h.svc.XinTra(r.Context(), application.XinTraInput{
+	y, err := h.svc.Request(r.Context(), application.RequestInput{
 		OrderID:    ids.ID(orderID),
 		CustomerID: ids.ID(shopper.CustomerID),
-		Dong:       dong,
+		Lines:      lines,
 	})
 	if err != nil {
 		h.fail(w, r, dich(err))
@@ -118,14 +118,14 @@ func (h *CustomerHandler) xinTra(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, http.StatusCreated, map[string]any{"return": toJSON(y)})
 }
 
-func (h *CustomerHandler) danhSach(w http.ResponseWriter, r *http.Request) {
-	orderID, err := h.kiemQuyen(r, r.PathValue("order_id"))
+func (h *CustomerHandler) list(w http.ResponseWriter, r *http.Request) {
+	orderID, err := h.checkAccess(r, r.PathValue("order_id"))
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	ds, err := h.svc.DanhSachTheoDon(r.Context(), ids.ID(orderID))
+	ds, err := h.svc.ListByOrder(r.Context(), ids.ID(orderID))
 	if err != nil {
 		h.fail(w, r, dich(err))
 		return
@@ -138,21 +138,21 @@ func (h *CustomerHandler) danhSach(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, http.StatusOK, map[string]any{"data": out})
 }
 
-// kiemQuyen chặn người này đọc hoặc trả hàng của đơn người khác.
+// checkAccess chặn người này đọc hoặc trả hàng của đơn người khác.
 //
 // Trả về mã đơn ĐÃ PHÂN GIẢI: khách vãng lai gửi mã hiển thị, không phải
 // mã nội bộ.
-func (h *CustomerHandler) kiemQuyen(r *http.Request, key string) (string, error) {
+func (h *CustomerHandler) checkAccess(r *http.Request, key string) (string, error) {
 	if h.access == nil {
 		return "", apierror.New(apierror.CodeForbidden, "Không kiểm tra được quyền")
 	}
 	shopper, _ := httpserver.ShopperFrom(r.Context())
-	orderID, duoc, err := h.access.ResolveViewableOrder(r.Context(), key,
+	orderID, allowed, err := h.access.ResolveViewableOrder(r.Context(), key,
 		shopper.CustomerID, r.Header.Get("X-Guest-Phone"))
 	if err != nil {
 		return "", err
 	}
-	if !duoc {
+	if !allowed {
 		// Chủ đơn vừa hết hạn token KHÔNG phải người lạ — xem
 		// `httpserver.LoiTokenHetHan`.
 		if err := httpserver.LoiTokenHetHan(r.Context()); err != nil {
@@ -178,20 +178,20 @@ func NewSellerHandler(svc *application.Service, log *slog.Logger) *SellerHandler
 }
 
 func (h *SellerHandler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/seller/returns", http.HandlerFunc(h.danhSach))
+	mux.Handle("GET /api/v1/seller/returns", http.HandlerFunc(h.list))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/approve", http.HandlerFunc(h.duyet))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/reject", http.HandlerFunc(h.tuChoi))
-	mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", http.HandlerFunc(h.nhanHang))
-	mux.Handle("POST /api/v1/seller/returns/{return_id}/inspect", http.HandlerFunc(h.kiemDinh))
+	mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", http.HandlerFunc(h.receiveGoods))
+	mux.Handle("POST /api/v1/seller/returns/{return_id}/inspect", http.HandlerFunc(h.inspection))
 }
 
-func (h *SellerHandler) danhSach(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	ds, err := h.svc.DanhSachTheoNhaBan(r.Context(), sellerID,
+	ds, err := h.svc.ListBySeller(r.Context(), sellerID,
 		strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("status"))), 50)
 	if err != nil {
 		h.fail(w, r, dich(err))
@@ -205,14 +205,14 @@ func (h *SellerHandler) danhSach(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SellerHandler) duyet(w http.ResponseWriter, r *http.Request) {
-	h.buoc(w, r, func(sellerID, id ids.ID) (*domain.YeuCauTraHang, error) {
+	h.step(w, r, func(sellerID, id ids.ID) (*domain.ReturnRequest, error) {
 		return h.svc.Duyet(r.Context(), id, sellerID)
 	})
 }
 
-func (h *SellerHandler) nhanHang(w http.ResponseWriter, r *http.Request) {
-	h.buoc(w, r, func(sellerID, id ids.ID) (*domain.YeuCauTraHang, error) {
-		return h.svc.NhanHangVaHoanTien(r.Context(), id, sellerID)
+func (h *SellerHandler) receiveGoods(w http.ResponseWriter, r *http.Request) {
+	h.step(w, r, func(sellerID, id ids.ID) (*domain.ReturnRequest, error) {
+		return h.svc.ReceiveAndRefund(r.Context(), id, sellerID)
 	})
 }
 
@@ -231,17 +231,17 @@ func (h *SellerHandler) tuChoi(w http.ResponseWriter, r *http.Request) {
 			"reason là trường bắt buộc khi từ chối"))
 		return
 	}
-	h.buoc(w, r, func(sellerID, id ids.ID) (*domain.YeuCauTraHang, error) {
+	h.step(w, r, func(sellerID, id ids.ID) (*domain.ReturnRequest, error) {
 		return h.svc.TuChoi(r.Context(), id, sellerID, req.Reason)
 	})
 }
 
-// kiemDinh ghi kết quả kiểm định hàng hoàn.
+// inspection ghi kết quả kiểm định hàng hoàn.
 //
 // Đây là bước DUY NHẤT đưa hàng hoàn ra khỏi trạng thái Returned. Không có
 // nó, mọi món hàng hoàn nằm chết vĩnh viễn: nhà bán mất cả hàng lẫn tiền,
 // và con số tồn kho ngày càng xa thực tế.
-func (h *SellerHandler) kiemDinh(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) inspection(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Lines []struct {
 			OrderLineID string `json:"order_line_id"`
@@ -259,23 +259,23 @@ func (h *SellerHandler) kiemDinh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kq := make([]application.KetQuaKiemDinhDong, 0, len(req.Lines))
+	kq := make([]application.LineInspectionOutcome, 0, len(req.Lines))
 	for _, l := range req.Lines {
-		kq = append(kq, application.KetQuaKiemDinhDong{
+		kq = append(kq, application.LineInspectionOutcome{
 			OrderLineID: ids.ID(strings.TrimSpace(l.OrderLineID)),
 			Dat:         l.Passed,
-			GhiChu:      l.Note,
+			Note:        l.Note,
 		})
 	}
 
-	h.buoc(w, r, func(sellerID, id ids.ID) (*domain.YeuCauTraHang, error) {
-		return h.svc.KiemDinh(r.Context(), id, sellerID, kq)
+	h.step(w, r, func(sellerID, id ids.ID) (*domain.ReturnRequest, error) {
+		return h.svc.Inspection(r.Context(), id, sellerID, kq)
 	})
 }
 
-func (h *SellerHandler) buoc(
+func (h *SellerHandler) step(
 	w http.ResponseWriter, r *http.Request,
-	lam func(sellerID, id ids.ID) (*domain.YeuCauTraHang, error),
+	lam func(sellerID, id ids.ID) (*domain.ReturnRequest, error),
 ) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
@@ -338,26 +338,26 @@ type returnJSON struct {
 	RequestedAt  string           `json:"requested_at"`
 }
 
-func toJSON(y *domain.YeuCauTraHang) returnJSON {
+func toJSON(y *domain.ReturnRequest) returnJSON {
 	out := returnJSON{
 		ID: y.ID().String(), OrderID: y.OrderID().String(),
 		Status: string(y.Status()), ReasonCode: string(y.LyDo()),
-		CustomerNote: y.GhiChu(), RejectReason: y.LyDoTuChoi(),
+		CustomerNote: y.Note(), RejectReason: y.LyDoTuChoi(),
 		RefundAmount: moneyJSON{
-			Amount:   y.TienHoan().Amount(),
-			Currency: string(y.TienHoan().Currency()),
+			Amount:   y.RefundAmount().Amount(),
+			Currency: string(y.RefundAmount().Currency()),
 		},
 		RequestedAt: y.RequestedAt().Format("2006-01-02T15:04:05Z07:00"),
 	}
-	for _, d := range y.Dong() {
+	for _, d := range y.Lines() {
 		out.Items = append(out.Items, returnLineJSON{
 			OrderLineID: d.OrderLineID.String(), SKUID: d.SKUID.String(),
 			Quantity:   d.Quantity,
 			ReasonCode: string(d.LyDo), ReasonDetail: d.ChiTiet,
-			Inspection: string(d.KiemDinh), InspectionNote: d.GhiChuKiemDinh,
+			Inspection: string(d.Inspection), InspectionNote: d.InspectionNote,
 			Refund: moneyJSON{
-				Amount:   d.TienHoan.Amount(),
-				Currency: string(d.TienHoan.Currency()),
+				Amount:   d.RefundAmount.Amount(),
+				Currency: string(d.RefundAmount.Currency()),
 			},
 		})
 	}
@@ -387,17 +387,17 @@ func dich(err error) error {
 		return apierror.New(apierror.CodeConflict,
 			"Yêu cầu vừa được cập nhật, vui lòng tải lại")
 
-	case errors.Is(err, domain.ErrChuaNhanHang):
+	case errors.Is(err, domain.ErrGoodsNotReceived):
 		return apierror.New(apierror.CodeConflict,
 			"Chưa nhận được hàng, không kiểm định được")
-	case errors.Is(err, domain.ErrDaKiemDinh):
+	case errors.Is(err, domain.ErrAlreadyInspected):
 		return apierror.New(apierror.CodeConflict,
 			"Món này đã kiểm định rồi")
-	case errors.Is(err, domain.ErrThieuLyDoLoai):
+	case errors.Is(err, domain.ErrMissingFaultReason):
 		return apierror.New(apierror.CodeValidationFailed,
 			"note là trường bắt buộc khi loại hàng")
 
-	case errors.Is(err, domain.ErrGiamGiaChuaPhanBo):
+	case errors.Is(err, domain.ErrDiscountNotAllocated):
 		// 409 kèm thông điệp nói THẲNG vấn đề: đây không phải lỗi của
 		// khách, và người vận hành cần biết để xử lý tay.
 		return apierror.New(apierror.CodeConflict,

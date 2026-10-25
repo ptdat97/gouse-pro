@@ -23,24 +23,24 @@ type orderAdapter struct{ api order.API }
 
 var _ application.OrderPort = (*orderAdapter)(nil)
 
-// LayDonDeTraHang đổi góc nhìn đơn hàng thành đúng thứ việc trả hàng cần.
+// GetOrderForReturn đổi góc nhìn đơn hàng thành đúng thứ việc trả hàng cần.
 //
 // Chỉ lấy trường dùng tới. Trả nguyên OrderView xuống tầng application sẽ
 // buộc nó biết mọi thứ về đơn hàng, và mỗi lần order thêm trường là một
 // lần returns phải đọc lại.
-func (a *orderAdapter) LayDonDeTraHang(
+func (a *orderAdapter) GetOrderForReturn(
 	ctx context.Context, orderID ids.ID,
-) (application.DonHang, error) {
+) (application.Order, error) {
 	v, err := a.api.GetOrder(ctx, orderID.String())
 	if err != nil {
-		return application.DonHang{}, err
+		return application.Order{}, err
 	}
 
-	don := application.DonHang{
+	ord := application.Order{
 		ID: ids.ID(v.ID),
 		// Trả hàng chỉ mở sau khi hàng ĐÃ tới tay khách. Cho phép sớm hơn
 		// nghĩa là hoàn tiền cho món vẫn đang trên đường.
-		DaGiao: v.Status == order.StatusDelivered || v.Status == order.StatusCompleted,
+		Delivered: v.Status == order.StatusDelivered || v.Status == order.StatusCompleted,
 	}
 
 	// MỐC GIAO — điểm bắt đầu đếm hạn đổi trả.
@@ -52,55 +52,55 @@ func (a *orderAdapter) LayDonDeTraHang(
 	if v.DeliveredAt != "" {
 		t, err := time.Parse(time.RFC3339, v.DeliveredAt)
 		if err != nil {
-			return application.DonHang{}, fmt.Errorf(
+			return application.Order{}, fmt.Errorf(
 				"returns: đọc mốc giao hàng của đơn %s: %w", v.ID, err)
 		}
-		don.GiaoLuc = t
+		ord.DeliveredAt = t
 	}
 
-	giam, err := toMoney(v.DiscountAmount)
+	discount, err := toMoney(v.DiscountAmount)
 	if err != nil {
-		return application.DonHang{}, err
+		return application.Order{}, err
 	}
-	don.GiamGiaCapDon = giam
+	ord.OrderDiscount = discount
 
 	for _, l := range v.Lines {
 		tong, err := toMoney(l.LineTotal)
 		if err != nil {
-			return application.DonHang{}, err
+			return application.Order{}, err
 		}
-		hoaHong, err := toMoney(l.CommissionAmount)
+		commission, err := toMoney(l.CommissionAmount)
 		if err != nil {
-			return application.DonHang{}, err
+			return application.Order{}, err
 		}
 
 		dieuChinh := money.Money{}
 		for _, adj := range l.Adjustments {
 			m, err := toMoney(adj.Amount)
 			if err != nil {
-				return application.DonHang{}, err
+				return application.Order{}, err
 			}
 			if dieuChinh.IsZero() {
 				dieuChinh = m
 				continue
 			}
 			if dieuChinh, err = dieuChinh.Add(m); err != nil {
-				return application.DonHang{}, err
+				return application.Order{}, err
 			}
 		}
 		if dieuChinh.IsZero() {
 			if dieuChinh, err = money.New(0, tong.Currency()); err != nil {
-				return application.DonHang{}, err
+				return application.Order{}, err
 			}
 		}
 
-		don.Dong = append(don.Dong, application.DongDonHang{
+		ord.Lines = append(ord.Lines, application.OrderLine{
 			ID: ids.ID(l.ID), SKUID: ids.ID(l.SKUID), SellerID: ids.ID(l.SellerID),
 			Quantity: l.Quantity, LineTotal: tong,
-			TongDieuChinh: dieuChinh, HoaHong: hoaHong,
+			TongDieuChinh: dieuChinh, Commission: commission,
 		})
 	}
-	return don, nil
+	return ord, nil
 }
 
 // ---------------------------------------------------------------- inventory
@@ -120,10 +120,10 @@ type OwnerResolver interface {
 	InventoryOwnerID(ctx context.Context, sellerID string) (string, error)
 }
 
-func (a *inventoryAdapter) NhanHangHoan(
+func (a *inventoryAdapter) ReceiveReturnedGoods(
 	ctx context.Context, skuID, sellerID ids.ID, qty int, returnID ids.ID,
 ) error {
-	item, err := a.timBanGhi(ctx, skuID, sellerID)
+	item, err := a.findRecord(ctx, skuID, sellerID)
 	if err != nil {
 		return err
 	}
@@ -134,20 +134,20 @@ func (a *inventoryAdapter) NhanHangHoan(
 	return a.api.ReceiveReturn(ctx, item.ID, qty, returnID.String())
 }
 
-// timBanGhi tra bản ghi tồn kho của một SKU thuộc một nhà bán.
+// findRecord tra bản ghi tồn kho của một SKU thuộc một nhà bán.
 //
 // Tách ra vì cả nhận hàng lẫn kiểm định đều cần: hai bản sao của phép tra
 // này là hai chỗ để quên lọc theo chủ sở hữu.
-func (a *inventoryAdapter) timBanGhi(
+func (a *inventoryAdapter) findRecord(
 	ctx context.Context, skuID, sellerID ids.ID,
 ) (*inventory.ItemView, error) {
-	chuSoHuu := sellerID.String()
+	owner := sellerID.String()
 	if a.owner != nil {
 		v, err := a.owner.InventoryOwnerID(ctx, sellerID.String())
 		if err != nil {
 			return nil, err
 		}
-		chuSoHuu = v
+		owner = v
 	}
 
 	// Tham số thứ ba là KHO, không phải chủ sở hữu — để rỗng rồi tự lọc.
@@ -160,20 +160,20 @@ func (a *inventoryAdapter) timBanGhi(
 	// đó là lý do cái chợ tồn tại. Ghi vào bản ghi của người khác nghĩa là
 	// cộng hàng cho nhà bán không liên quan.
 	for i := range found[skuID.String()] {
-		if found[skuID.String()][i].OwnerID == chuSoHuu {
+		if found[skuID.String()][i].OwnerID == owner {
 			return &found[skuID.String()][i], nil
 		}
 	}
 	return nil, fmt.Errorf(
 		"returns: không có bản ghi tồn kho cho SKU %s của chủ sở hữu %s",
-		skuID, chuSoHuu)
+		skuID, owner)
 }
 
-// GhiKetQuaKiemDinh chuyển hàng hoàn sang Available hoặc Damaged.
-func (a *inventoryAdapter) GhiKetQuaKiemDinh(
+// RecordInspection chuyển hàng hoàn sang Available hoặc Damaged.
+func (a *inventoryAdapter) RecordInspection(
 	ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, lyDo string,
 ) error {
-	item, err := a.timBanGhi(ctx, skuID, sellerID)
+	item, err := a.findRecord(ctx, skuID, sellerID)
 	if err != nil {
 		return err
 	}
@@ -189,20 +189,20 @@ type paymentAdapter struct{ api payment.API }
 
 var _ application.PaymentPort = (*paymentAdapter)(nil)
 
-func (a *paymentAdapter) GhiHoanTien(
-	ctx context.Context, in application.HoanTienInput,
+func (a *paymentAdapter) RecordRefund(
+	ctx context.Context, in application.RefundInput,
 ) error {
-	tien := func(m money.Money) payment.Amount {
+	amount := func(m money.Money) payment.Amount {
 		return payment.Amount{Value: m.Amount(), Currency: string(m.Currency())}
 	}
 	_, err := a.api.RecordRefund(ctx, payment.RefundRequest{
 		OrderID:  in.OrderID.String(),
 		RefundID: in.ReturnID.String(),
-		Amount:   tien(in.TongHoan),
+		Amount:   amount(in.TotalRefund),
 
 		SellerID:         in.SellerID.String(),
-		SellerClawback:   tien(in.DaoNhaBan),
-		PlatformClawback: tien(in.DaoHoaHong),
+		SellerClawback:   amount(in.ReverseSellerPayable),
+		PlatformClawback: amount(in.ReverseCommission),
 
 		CreatedBy: "returns",
 	})

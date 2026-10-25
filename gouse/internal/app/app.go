@@ -899,7 +899,7 @@ func RegisterRoutes(
 	// hình vận hành.
 	if m.analytics != nil {
 		analyticshttp.NewHandler(m.analytics,
-			analyticshttp.NewGioiHanPhien(func() int {
+			analyticshttp.NewSessionLimit(func() int {
 				if m.opsConfig == nil {
 					return 0
 				}

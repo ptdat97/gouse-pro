@@ -97,7 +97,7 @@ func TestKhachTraHangDiTronLuong(t *testing.T) {
 	truocKhaDung := a.tonKhoKhaDung(t, maDon)
 	truocButToan := a.demDong("ledger_entry", "reference_id = $1", maYC)
 
-	if err := a.mods.returns.NhanHangVaHoanTien(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("nhận hàng và hoàn tiền: %v", err)
 	}
 
@@ -192,7 +192,7 @@ func (a *apiTest) tonKhoKhaDung(t *testing.T, orderID string) int {
 //
 // # Chống kiểm hai lần có HAI lớp, bài này không phân biệt được
 //
-//	domain GhiKetQuaKiemDinh  → từ chối khi dòng đã kiểm
+//	domain RecordInspection  → từ chối khi dòng đã kiểm
 //	bất biến của tồn kho      → không còn hàng ở Returned để chuyển
 //
 // Đã kiểm bằng cách phá: bỏ lớp domain thì bài này VẪN XANH, vì tồn kho
@@ -219,7 +219,7 @@ func TestKiemDinhDuaHangHoanTroLaiBanDuoc(t *testing.T) {
 	if err := a.mods.returns.Duyet(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
-	if err := a.mods.returns.NhanHangVaHoanTien(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("nhận hàng: %v", err)
 	}
 
@@ -294,7 +294,7 @@ func TestLoaiHangPhaiNeuLyDo(t *testing.T) {
 	if err := a.mods.returns.Duyet(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
-	if err := a.mods.returns.NhanHangVaHoanTien(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("nhận hàng: %v", err)
 	}
 

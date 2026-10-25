@@ -1332,7 +1332,7 @@ func gomLuotXem(
 			dau := time.Date(ngay.Year(), ngay.Month(), ngay.Day(), 0, 0, 0, 0, time.UTC)
 			cuoi := dau.AddDate(0, 0, 1)
 
-			theoSP, err := a.GomLuotXem(ctx, dau, cuoi)
+			theoSP, err := a.RollUpViews(ctx, dau, cuoi)
 			if err != nil {
 				return fmt.Errorf("gom lượt xem ngày %s: %w",
 					dau.Format("2006-01-02"), err)
