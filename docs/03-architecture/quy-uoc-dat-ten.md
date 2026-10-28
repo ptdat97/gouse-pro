@@ -142,8 +142,18 @@ Ngược với trường hợp dưới. `customer.OrderPort` do `customer` khai 
 không đổi bên cài làm `order.Module` không còn thỏa — và lỗi hiện ở chỗ GÁN
 trong `internal/app`, không ở chỗ sửa.
 
-Hai method ấy giữ tên tiếng Việt kèm chú thích nói vì sao, đổi cùng lúc với
-`order`.
+Hai method ấy từng giữ tên tiếng Việt kèm chú thích nói vì sao. Lượt `order`
+đã đổi cả hai đầu cùng nhau và chú thích hoãn ĐOÁN ĐÚNG: lỗi hiện ra ở
+`internal/app/app.go` chứ không ở chỗ sửa —
+
+```text
+*order.Module does not implement customer.OrderPort
+    (missing method DemDonVangLai)
+```
+
+Quy tắc còn giá trị cho lượt sau: thấy cổng kiểu này thì đổi HAI ĐẦU trong
+cùng một lượt, đừng đổi một đầu rồi chạy `go build` ở module đó mà tưởng
+xong.
 
 ### Method cài interface của module KHÁC thì GIỮ tên cũ
 
@@ -408,11 +418,15 @@ XONG   modules/product                 237   (kernel) + 12 sót ở recommendati
 XONG   modules/marketplace              74   (kernel)
 XONG   lượt DỌN SÓT                     140   ở 13 module đã ghi XONG
        (29 lượt một + 44 lượt hai + 47 lượt ba, sau khi sửa CẢ HAI công cụ)
-CÒN    order 89 · payment 260 · fulfillment 228 · cart 46 · checkout 153
+XONG   modules/cart                     52   (kernel)
+XONG   modules/order                    91   (kernel) + 2 method của customer
+CÒN    payment 260 · fulfillment 228 · checkout 153
 
-ĐÃ GỠ customer.OrderPort vẫn HOÃN (chờ `order`), nhưng cổng gợi ý size thì
-       xong: `GoiYSizePort`/`GoiYSize` đổi CÙNG LÚC với adapter ở
-       `internal/app` nên không còn phải hoãn.
+ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
+       (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,
+       `DemDonVangLai` → `CountGuestOrders`), và cổng gợi ý size đổi cùng
+       lượt `product`. Không còn method nào giữ tên tiếng Việt vì lý do
+       "chờ module khác".
 
        Rồi `internal/platform`, `internal/app`, `cmd`.
 

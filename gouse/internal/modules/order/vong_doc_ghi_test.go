@@ -15,7 +15,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
-// TestDocLaiDonKhongMatTruongNao — chặn CẢ LỚP lỗi, không chỉ hai trường.
+// TestRereadingAnOrderLosesNoField — chặn CẢ LỚP lỗi, không chỉ hai trường.
 //
 // # Vì sao bài này tồn tại
 //
@@ -33,24 +33,24 @@ import (
 // Bài này so SÁNH TỪNG TRƯỜNG giữa bản vừa ghi và bản đọc lại, bằng phản
 // chiếu. Thêm trường mới vào Order mà quên `withLines` thì nó đỏ ngay,
 // không cần ai nhớ ra.
-func tien(n int64) money.Money { return money.MustNew(n, money.VND) }
+func amt(n int64) money.Money { return money.MustNew(n, money.VND) }
 
-func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
+func TestRereadingAnOrderLosesNoField(t *testing.T) {
 	db := testdb.Open(t)
 	ctx := context.Background()
-	kho := orderpg.NewOrderStore(db.Pool())
+	store := orderpg.NewOrderStore(db.Pool())
 
 	line, err := orderdom.NewLine(orderdom.NewLineParams{
 		OfferID: ids.MustNew(ids.PrefixOffer), SKUID: ids.MustNew(ids.PrefixSKU),
 		SellerID:    ids.MustNew(ids.PrefixSeller),
 		ProductName: "Áo thử vòng đọc ghi", VariantDescription: "Trắng / M",
-		UnitPrice: tien(199000), Quantity: 2, Now: types.BayGio(),
+		UnitPrice: amt(199000), Quantity: 2, Now: types.BayGio(),
 	})
 	if err != nil {
 		t.Fatalf("dựng dòng hàng: %v", err)
 	}
 
-	goc, err := orderdom.NewOrder(orderdom.NewOrderParams{
+	original, err := orderdom.NewOrder(orderdom.NewOrderParams{
 		OrderNumber: "FC-TEST-" + ids.MustNew(ids.PrefixRequest).String()[22:],
 		GuestEmail:  "vongdocghi@example.com",
 		GuestPhone:  "0900999888",
@@ -59,9 +59,9 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 			StreetAddress: "1 Đường Thử", Ward: "P1",
 			District: "Q1", Province: "TP.HCM", CountryCode: "VN",
 		},
-		ShippingFee:      tien(25000),
-		DiscountAmount:   tien(10000),
-		TaxAmount:        tien(0),
+		ShippingFee:      amt(25000),
+		DiscountAmount:   amt(10000),
+		TaxAmount:        amt(0),
 		Lines:            []*orderdom.Line{line},
 		IdempotencyKey:   "req_" + ids.MustNew(ids.PrefixRequest).String()[4:],
 		SourceCheckoutID: ids.MustNew(ids.PrefixCheckout),
@@ -71,11 +71,11 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 		t.Fatalf("dựng đơn: %v", err)
 	}
 
-	if err := kho.Save(ctx, goc); err != nil {
+	if err := store.Save(ctx, original); err != nil {
 		t.Fatalf("ghi đơn: %v", err)
 	}
 
-	doc, err := kho.FindByID(ctx, goc.ID())
+	readBack, err := store.FindByID(ctx, original.ID())
 	if err != nil {
 		t.Fatalf("đọc lại đơn: %v", err)
 	}
@@ -83,8 +83,8 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 	// So từng phương thức đọc KHÔNG THAM SỐ trả về giá trị so sánh được.
 	// Dùng phản chiếu để danh sách tự dài ra khi domain thêm trường —
 	// đó là toàn bộ điểm của bài test này.
-	tg := reflect.TypeOf(goc)
-	var daSo int
+	tg := reflect.TypeOf(original)
+	var compared int
 	for i := 0; i < tg.NumMethod(); i++ {
 		m := tg.Method(i)
 		if m.Type.NumIn() != 1 || m.Type.NumOut() != 1 {
@@ -97,34 +97,34 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 			continue
 		}
 
-		a := m.Func.Call([]reflect.Value{reflect.ValueOf(goc)})[0].Interface()
-		b := m.Func.Call([]reflect.Value{reflect.ValueOf(doc)})[0].Interface()
+		a := m.Func.Call([]reflect.Value{reflect.ValueOf(original)})[0].Interface()
+		b := m.Func.Call([]reflect.Value{reflect.ValueOf(readBack)})[0].Interface()
 
 		// Dấu thời gian đọc từ PostgreSQL mang múi giờ của phiên, cùng
 		// khoảnh khắc nhưng khác cách biểu diễn. So theo khoảnh khắc.
-		if ta, ok := a.(time.Time); ok {
-			tb := b.(time.Time)
-			daSo++
-			if !ta.Equal(tb) {
-				t.Errorf("%s(): ghi %v, đọc lại %v", ten, ta, tb)
+		if timeA, ok := a.(time.Time); ok {
+			timeB := b.(time.Time)
+			compared++
+			if !timeA.Equal(timeB) {
+				t.Errorf("%s(): ghi %v, đọc lại %v", ten, timeA, timeB)
 			}
 			continue
 		}
 
-		daSo++
+		compared++
 		if !reflect.DeepEqual(a, b) {
 			t.Errorf("%s(): ghi %v, đọc lại %v — trường này biến mất khi đọc",
 				ten, a, b)
 		}
 	}
-	if daSo < 15 {
+	if compared < 15 {
 		t.Errorf("chỉ so được %d trường — phản chiếu không tìm thấy getter, "+
-			"bài test mất tác dụng", daSo)
+			"bài test mất tác dụng", compared)
 	}
 
-	if len(doc.Lines()) != len(goc.Lines()) {
+	if len(readBack.Lines()) != len(original.Lines()) {
 		t.Fatalf("đọc lại có %d dòng hàng, ghi %d",
-			len(doc.Lines()), len(goc.Lines()))
+			len(readBack.Lines()), len(original.Lines()))
 	}
 
 	// ---------------------------------------------------------------
@@ -136,29 +136,29 @@ func TestDocLaiDonKhongMatTruongNao(t *testing.T) {
 	//
 	// Đó lại đúng là trường từng gây hỏng. Nên phải đẩy nó khác 0 rồi mới
 	// so, bằng chính đường mà production đi.
-	if err := doc.MarkPaid(types.BayGio()); err != nil {
+	if err := readBack.MarkPaid(types.BayGio()); err != nil {
 		t.Fatalf("đánh dấu đã thanh toán: %v", err)
 	}
-	if err := kho.Update(ctx, doc); err != nil {
+	if err := store.Update(ctx, readBack); err != nil {
 		t.Fatalf("cập nhật đơn: %v", err)
 	}
 
-	lai, err := kho.FindByID(ctx, goc.ID())
+	again, err := store.FindByID(ctx, original.ID())
 	if err != nil {
 		t.Fatalf("đọc lại lần hai: %v", err)
 	}
-	if lai.Version() != 1 {
+	if again.Version() != 1 {
 		t.Errorf("sau một lần cập nhật, Version() = %d, cần 1 — "+
 			"khóa lạc quan mất tác dụng và mọi lần chuyển trạng thái "+
-			"TIẾP THEO sẽ thất bại", lai.Version())
+			"TIẾP THEO sẽ thất bại", again.Version())
 	}
 
 	// Và lần cập nhật kế tiếp phải chạy được: đó chính là thứ hỏng lần
 	// trước — lần một thành công, mọi lần sau thất bại im lặng.
-	if err := lai.CancelWithReason("kiểm chuyển trạng thái lần hai", types.BayGio()); err != nil {
+	if err := again.CancelWithReason("kiểm chuyển trạng thái lần hai", types.BayGio()); err != nil {
 		t.Fatalf("hủy đơn: %v", err)
 	}
-	if err := kho.Update(ctx, lai); err != nil {
+	if err := store.Update(ctx, again); err != nil {
 		t.Errorf("lần chuyển trạng thái THỨ HAI thất bại: %v", err)
 	}
 }

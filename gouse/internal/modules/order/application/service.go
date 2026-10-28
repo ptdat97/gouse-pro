@@ -121,7 +121,7 @@ type OrderPaid struct {
 	PaidAt        time.Time
 }
 
-// HanDoiTraPort cấp thời hạn đổi trả từ cấu hình vận hành.
+// ReturnWindowPort cấp thời hạn đổi trả từ cấu hình vận hành.
 //
 // Module thứ BA đọc cùng tham số `returns.window_hours`: `fulfillment`
 // dùng nó để biết khi nào chuyển tiền cho nhà bán, `returns` để từ chối
@@ -129,29 +129,29 @@ type OrderPaid struct {
 //
 // Ba nơi, một nguồn. Mỗi nơi tự giữ một hằng số nghĩa là màn hình nói một
 // đằng và hệ thống xử một nẻo.
-type HanDoiTraPort interface {
-	HanDoiTra() time.Duration
+type ReturnWindowPort interface {
+	ReturnWindow() time.Duration
 }
 
 type Service struct {
-	orders  domain.Repository
-	numbers domain.NumberGenerator
-	audit   AuditRecorder
-	events  EventPublisher
-	han     HanDoiTraPort
-	clock   Clock
+	orders       domain.Repository
+	numbers      domain.NumberGenerator
+	audit        AuditRecorder
+	events       EventPublisher
+	returnWindow ReturnWindowPort
+	clock        Clock
 }
 
-// HanDoiTra trả hạn đang áp dụng; 0 khi chưa nối cấu hình.
+// ReturnWindow trả hạn đang áp dụng; 0 khi chưa nối cấu hình.
 //
 // Trả 0 chứ không đoán một con số: tầng trình bày dùng nó để quyết định
 // CÓ hiện hạn đổi trả hay không, và hiện một con số bịa còn tệ hơn không
 // hiện gì.
-func (s *Service) HanDoiTra() time.Duration {
-	if s.han == nil {
+func (s *Service) ReturnWindow() time.Duration {
+	if s.returnWindow == nil {
 		return 0
 	}
-	return s.han.HanDoiTra()
+	return s.returnWindow.ReturnWindow()
 }
 
 type Deps struct {
@@ -170,7 +170,7 @@ type Deps struct {
 
 	// Han cấp hạn đổi trả để hiển thị cho khách. Nil thì hai trường
 	// `can_return`/`return_deadline` vắng mặt.
-	Han HanDoiTraPort
+	ReturnWindow ReturnWindowPort
 }
 
 func NewService(d Deps) *Service {
@@ -179,12 +179,12 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{
-		orders:  d.Orders,
-		numbers: d.Numbers,
-		audit:   d.Audit,
-		events:  d.Events,
-		han:     d.Han,
-		clock:   clock,
+		orders:       d.Orders,
+		numbers:      d.Numbers,
+		audit:        d.Audit,
+		events:       d.Events,
+		returnWindow: d.ReturnWindow,
+		clock:        clock,
 	}
 }
 
@@ -407,20 +407,20 @@ func (s *Service) GetOrderByNumber(ctx context.Context, number string) (*domain.
 // `moc` nil nghĩa là đọc từ đầu; khác nil là đọc tiếp sau bản ghi đó.
 //
 // `status` rỗng nghĩa là mọi trạng thái. Chuỗi không hợp lệ trả
-// ErrTrangThaiKhongHopLe — KHÔNG lặng lẽ trả danh sách rỗng, vì rỗng trông
+// ErrInvalidStatusFilter — KHÔNG lặng lẽ trả danh sách rỗng, vì rỗng trông
 // giống "khách chưa có đơn nào" chứ không giống "bạn gõ sai".
 func (s *Service) ListCustomerOrders(
 	ctx context.Context, customerID ids.ID, status domain.Status,
-	limit int, moc *domain.MocPhanTrang,
+	limit int, cursor *domain.Cursor,
 ) ([]*domain.Order, error) {
 	if status != "" && !status.HopLe() {
-		return nil, fmt.Errorf("%w: %q", ErrTrangThaiKhongHopLe, status)
+		return nil, fmt.Errorf("%w: %q", ErrInvalidStatusFilter, status)
 	}
-	return s.orders.ListByCustomer(ctx, customerID, status, limit, moc)
+	return s.orders.ListByCustomer(ctx, customerID, status, limit, cursor)
 }
 
-// ErrTrangThaiKhongHopLe khi bộ lọc `status` nằm ngoài tập đã khai.
-var ErrTrangThaiKhongHopLe = errors.New("order: trạng thái lọc không hợp lệ")
+// ErrInvalidStatusFilter khi bộ lọc `status` nằm ngoài tập đã khai.
+var ErrInvalidStatusFilter = errors.New("order: trạng thái lọc không hợp lệ")
 
 // ---------------------------------------------------------------- Khách hàng
 
@@ -574,7 +574,7 @@ func (s *Service) CancelOrderAsAdmin(
 		}); err != nil {
 			return err
 		}
-		return s.phatHuyDon(txCtx, o, in.Reason)
+		return s.publishOrderCancelled(txCtx, o, in.Reason)
 	})
 	if err != nil {
 		return nil, err
@@ -623,19 +623,19 @@ func (s *Service) CancelOwnOrder(
 		return o, nil
 	}
 	if err := s.orders.UpdateWithAudit(ctx, o, func(txCtx context.Context) error {
-		return s.phatHuyDon(txCtx, o, reason)
+		return s.publishOrderCancelled(txCtx, o, reason)
 	}); err != nil {
 		return nil, err
 	}
 	return o, nil
 }
 
-// phatHuyDon phát `order.cancelled` bằng giao dịch của kho lưu trữ.
+// publishOrderCancelled phát `order.cancelled` bằng giao dịch của kho lưu trữ.
 //
 // Bên gọi PHẢI đang ở trong giao dịch đó. Không có bộ phát (test không
 // quan tâm tới event) thì bỏ qua — nhưng ở production thiếu nó nghĩa là
 // hàng không bao giờ được nhả.
-func (s *Service) phatHuyDon(
+func (s *Service) publishOrderCancelled(
 	ctx context.Context, o *domain.Order, reason string,
 ) error {
 	if s.events == nil {
@@ -663,7 +663,7 @@ func (s *Service) ApplyFulfillmentProgress(
 		return err
 	}
 	now := s.clock.Now()
-	doi := o.RecalculateStatus(progress, now)
+	changed := o.RecalculateStatus(progress, now)
 
 	// COD: TIỀN VỀ LÚC GIAO.
 	//
@@ -677,25 +677,25 @@ func (s *Service) ApplyFulfillmentProgress(
 	// Ghi Ở ĐÂY vì đây là chỗ DUY NHẤT biết đơn vừa giao xong: module này
 	// nghe `fulfillment.progress_changed` và tự tính trạng thái tổng hợp.
 	// Hỏi ngược fulfillment sẽ tạo phụ thuộc vòng (ADR-0007).
-	thuTien := false
-	if o.PaymentMethod().ThuTienKhiGiao() {
-		ok, err := o.GhiNhanTienCOD(now)
+	collected := false
+	if o.PaymentMethod().CollectOnDelivery() {
+		ok, err := o.RecordCODPayment(now)
 		switch {
-		case errors.Is(err, domain.ErrChuaGiaoXong):
+		case errors.Is(err, domain.ErrNotYetDelivered):
 			// Chưa giao trọn đơn — bình thường, không phải lỗi.
 		case err != nil:
 			return err
 		default:
-			thuTien = ok
+			collected = ok
 		}
 	}
 
-	if !doi && !thuTien {
+	if !changed && !collected {
 		return nil
 	}
 
 	// Không có gì để phát thì ghi thẳng.
-	if !thuTien || s.events == nil {
+	if !collected || s.events == nil {
 		return s.orders.Update(ctx, o)
 	}
 

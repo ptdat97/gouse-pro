@@ -65,7 +65,7 @@ func (s *CartStore) SaveWithEvents(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := s.ghi(ctx, tx, c); err != nil {
+	if err := s.write(ctx, tx, c); err != nil {
 		return err
 	}
 
@@ -85,7 +85,7 @@ func (s *CartStore) SaveWithEvents(
 //
 // KHÔNG tự mở giao dịch: bên gọi quyết định ranh giới giao dịch, vì chỉ
 // bên gọi biết còn thao tác nào phải cùng thành công hay không.
-func (s *CartStore) ghi(ctx context.Context, tx querier, c *domain.Cart) error {
+func (s *CartStore) write(ctx context.Context, tx querier, c *domain.Cart) error {
 	_, err := tx.Exec(ctx, `
 		INSERT INTO cart (
 			id, customer_id, session_id, currency, status,
@@ -185,9 +185,9 @@ func (s *CartStore) MutateWithEvents(
 
 	// Khóa TRƯỚC khi đọc. Đọc rồi mới khóa là để lại đúng cái cửa sổ
 	// đang muốn đóng.
-	var khoa string
+	var locked string
 	err = tx.QueryRow(ctx,
-		`SELECT id FROM cart WHERE id = $1 FOR UPDATE`, cartID.String()).Scan(&khoa)
+		`SELECT id FROM cart WHERE id = $1 FOR UPDATE`, cartID.String()).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -195,7 +195,7 @@ func (s *CartStore) MutateWithEvents(
 		return nil, fmt.Errorf("cart: khóa giỏ hàng: %w", err)
 	}
 
-	c, err := s.findOneVoi(ctx, tx, `WHERE id = $1`, cartID.String())
+	c, err := s.findOneWhere(ctx, tx, `WHERE id = $1`, cartID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +204,7 @@ func (s *CartStore) MutateWithEvents(
 		return nil, err
 	}
 
-	if err := s.ghi(ctx, tx, c); err != nil {
+	if err := s.write(ctx, tx, c); err != nil {
 		return nil, err
 	}
 
@@ -258,10 +258,10 @@ func (s *CartStore) FindActiveBySession(
 func (s *CartStore) findOne(
 	ctx context.Context, where string, args ...any,
 ) (*domain.Cart, error) {
-	return s.findOneVoi(ctx, s.pool, where, args...)
+	return s.findOneWhere(ctx, s.pool, where, args...)
 }
 
-func (s *CartStore) findOneVoi(
+func (s *CartStore) findOneWhere(
 	ctx context.Context, q querier, where string, args ...any,
 ) (*domain.Cart, error) {
 	row := q.QueryRow(ctx, `SELECT`+cartCols+` FROM cart `+where, args...)

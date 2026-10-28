@@ -229,7 +229,7 @@ func TestGuestGetsEmptyCart(t *testing.T) {
 	//
 	// Bịa một mã ra sẽ khiến giao diện tưởng nó gọi được các đường sửa
 	// giỏ bằng mã đó, và nhận 404 ở lần thử đầu tiên.
-	if id, co := cart["id"]; co && id != "" && id != nil {
+	if id, ok := cart["id"]; ok && id != "" && id != nil {
 		t.Errorf("giỏ chưa tồn tại mà có định danh %v", id)
 	}
 
@@ -487,16 +487,16 @@ func TestUpdateAndRemoveItem(t *testing.T) {
 	}
 }
 
-// TestRemoveItemTraGiaHienTai kiểm chứng response của DELETE cũng ĐÃ ĐỒNG BỘ.
+// TestRemoveItemReturnsTheLivePrice kiểm chứng response của DELETE cũng ĐÃ ĐỒNG BỘ.
 //
 // RemoveItem ở tầng application KHÔNG tự đồng bộ (khác AddItem và
 // UpdateQuantity), nên handler phải làm. Bỏ sót thì xóa một món xong, các
 // món còn lại hiện giá cũ — và khách chỉ phát hiện ở bước thanh toán.
-func TestRemoveItemTraGiaHienTai(t *testing.T) {
+func TestRemoveItemReturnsTheLivePrice(t *testing.T) {
 	h, lookup := newHandler(t)
 	seller := ids.MustNew(ids.PrefixSeller)
-	giu := lookup.offer(seller, "Cửa hàng ABC", 299_000)
-	bo := lookup.offer(seller, "Cửa hàng ABC", 150_000)
+	keptOffer := lookup.offer(seller, "Cửa hàng ABC", 299_000)
+	removedOffer := lookup.offer(seller, "Cửa hàng ABC", 150_000)
 
 	res, _ := call(t, h, "GET", "/api/v1/cart", "", nil)
 	cookie := session(t, res)
@@ -516,15 +516,15 @@ func TestRemoveItemTraGiaHienTai(t *testing.T) {
 		return ""
 	}
 
-	addOne(giu)
-	boID := addOne(bo)
+	addOne(keptOffer)
+	removedItemID := addOne(removedOffer)
 
 	// Seller giảm giá món ĐƯỢC GIỮ LẠI, ngay trước khi khách xóa món kia.
-	d := lookup.data[giu]
+	d := lookup.data[keptOffer]
 	d.UnitPrice = money.MustNew(199_000, money.VND)
-	lookup.data[giu] = d
+	lookup.data[keptOffer] = d
 
-	_, decoded := call(t, h, "DELETE", "/api/v1/cart/items/"+boID, "", cookie)
+	_, decoded := call(t, h, "DELETE", "/api/v1/cart/items/"+removedItemID, "", cookie)
 	subtotal := decoded["cart"].(map[string]any)["subtotal"].(map[string]any)
 	if got := subtotal["amount"].(float64); got != 199_000 {
 		t.Errorf("tổng tiền = %v, muốn 199000 — response của DELETE trả giá cũ", got)

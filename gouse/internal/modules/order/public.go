@@ -38,7 +38,7 @@ type API interface {
 	// trước khi gửi email xác nhận hay trừ tiền.
 	PlaceOrder(ctx context.Context, req PlaceOrderRequest) (*PlaceOrderResult, error)
 
-	// GanDonVangLaiChoKhach gắn mọi đơn VÃNG LAI của một email vào hồ sơ khách.
+	// AttachGuestOrdersToCustomer gắn mọi đơn VÃNG LAI của một email vào hồ sơ khách.
 	//
 	// # Vì sao đây mới là "gộp lịch sử", không phải việc gắn hồ sơ
 	//
@@ -54,7 +54,7 @@ type API interface {
 	//
 	// Trả về SỐ ĐƠN đã gắn — bên gọi dùng để nói với khách "đã tìm thấy N đơn
 	// cũ", và để ghi log khi con số bất thường.
-	GanDonVangLaiChoKhach(ctx context.Context, guestEmail, customerID string) (int, error)
+	AttachGuestOrdersToCustomer(ctx context.Context, guestEmail, customerID string) (int, error)
 
 	// ResolveViewableOrder phân giải mã đơn VÀ kiểm tra quyền xem.
 	//

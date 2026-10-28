@@ -22,13 +22,13 @@ import (
 //
 // Điều kiện `customer_id = ”` là thứ chặn việc đó, và nó là loại ràng
 // buộc dễ bị bỏ quên nhất: bỏ nó đi thì mọi bài test một-khách vẫn xanh.
-func TestGanDonVangLaiKhongCuopDonCuaNguoiKhac(t *testing.T) {
+func TestAttachingGuestOrdersNeverStealsAnothersOrder(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
 	const email = "chung-email@example.com"
-	nguoiKhac := ids.MustNew(ids.PrefixCustomer)
-	nguoiMoi := ids.MustNew(ids.PrefixCustomer)
+	otherCustomer := ids.MustNew(ids.PrefixCustomer)
+	newCustomer := ids.MustNew(ids.PrefixCustomer)
 
 	// Đơn A: VÃNG LAI — đây là đơn ĐƯỢC phép chuyển chủ.
 	if _, err := m.PlaceOrder(ctx, order.PlaceOrderRequest{
@@ -43,7 +43,7 @@ func TestGanDonVangLaiKhongCuopDonCuaNguoiKhac(t *testing.T) {
 
 	// Đơn B: ĐÃ THUỘC người khác, nhưng mang CÙNG email ở trường guest.
 	if _, err := m.PlaceOrder(ctx, order.PlaceOrderRequest{
-		CustomerID: nguoiKhac.String(),
+		CustomerID: otherCustomer.String(),
 		GuestEmail: email, GuestPhone: "0900000000", Currency: "VND",
 		Lines: []order.PlaceOrderLineInput{
 			line(ids.MustNew(ids.PrefixSeller).String(), 450000, 1, 1000, "Quần âu"),
@@ -53,31 +53,31 @@ func TestGanDonVangLaiKhongCuopDonCuaNguoiKhac(t *testing.T) {
 		t.Fatalf("đặt đơn của người khác: %v", err)
 	}
 
-	n, err := m.GanDonVangLaiChoKhach(ctx, email, nguoiMoi.String())
+	n, err := m.AttachGuestOrdersToCustomer(ctx, email, newCustomer.String())
 	if err != nil {
-		t.Fatalf("GanDonVangLaiChoKhach: %v", err)
+		t.Fatalf("AttachGuestOrdersToCustomer: %v", err)
 	}
 
 	// ĐÚNG MỘT đơn được chuyển: đơn vãng lai. Đơn của người khác KHÔNG.
 	if n != 1 {
 		t.Errorf("chuyển %d đơn, mong đúng 1 — con số 2 nghĩa là đã CƯỚP "+
-			"đơn của khách %s", n, nguoiKhac)
+			"đơn của khách %s", n, otherCustomer)
 	}
 
-	danhSach, err := m.ListCustomerOrders(ctx, nguoiKhac.String(), 10)
+	listed, err := m.ListCustomerOrders(ctx, otherCustomer.String(), 10)
 	if err != nil {
 		t.Fatalf("đọc đơn của người khác: %v", err)
 	}
-	if len(danhSach) != 1 {
+	if len(listed) != 1 {
 		t.Errorf("khách %s còn %d đơn, mong 1 — đơn của họ đã bị chuyển đi",
-			nguoiKhac, len(danhSach))
+			otherCustomer, len(listed))
 	}
 }
 
 // TestDemDonVangLaiChiDemDonVOCHU — con số này quyết định có gửi thư xác
 // minh hay không, nên đếm nhầm đơn của người khác là hứa với khách một
 // lịch sử không phải của họ.
-func TestDemDonVangLaiChiDemDonVoChu(t *testing.T) {
+func TestGuestOrderCountOnlyCountsOwnerlessOrders(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
@@ -103,9 +103,9 @@ func TestDemDonVangLaiChiDemDonVoChu(t *testing.T) {
 		t.Fatalf("đặt đơn có chủ: %v", err)
 	}
 
-	n, err := m.DemDonVangLai(ctx, email)
+	n, err := m.CountGuestOrders(ctx, email)
 	if err != nil {
-		t.Fatalf("DemDonVangLai: %v", err)
+		t.Fatalf("CountGuestOrders: %v", err)
 	}
 	if n != 1 {
 		t.Errorf("đếm được %d, mong 1 — chỉ đơn VÔ CHỦ mới được tính", n)

@@ -42,10 +42,10 @@ var (
 	// bản đơn đã cũ.
 	ErrVersionConflict = errors.New("order: đơn hàng vừa bị thay đổi, hãy đọc lại")
 
-	// ErrPaymentMethodKhongHopLe: phương thức thanh toán không thuộc tập ĐÓNG.
+	// ErrInvalidPaymentMethod: phương thức thanh toán không thuộc tập ĐÓNG.
 	//
 	// Rỗng KHÔNG rơi vào đây — xem PaymentMethod.HopLe.
-	ErrPaymentMethodKhongHopLe = errors.New("order: phương thức thanh toán không hợp lệ")
+	ErrInvalidPaymentMethod = errors.New("order: phương thức thanh toán không hợp lệ")
 )
 
 // Status là trạng thái tổng hợp của đơn hàng.
@@ -107,12 +107,12 @@ func (p PaymentMethod) HopLe() bool {
 	}
 }
 
-// ThuTienKhiGiao cho biết đơn này phải THU TIỀN lúc giao hàng.
+// CollectOnDelivery cho biết đơn này phải THU TIỀN lúc giao hàng.
 //
 // Đây là câu hỏi mà kho và đơn vị vận chuyển thực sự cần trả lời, và nó
 // KHÔNG suy được từ trạng thái đơn: đơn COD và đơn chờ chuyển khoản đều ở
 // `PENDING_PAYMENT`, nhưng chỉ một trong hai thu tiền ở cửa nhà khách.
-func (p PaymentMethod) ThuTienKhiGiao() bool { return p == PaymentMethodCOD }
+func (p PaymentMethod) CollectOnDelivery() bool { return p == PaymentMethodCOD }
 
 // HopLe cho biết chuỗi này có phải một trạng thái đơn hàng hay không.
 //
@@ -131,8 +131,8 @@ func (s Status) HopLe() bool {
 	}
 }
 
-// MoiTrangThai liệt kê mọi trạng thái, dùng cho thông báo lỗi và test.
-func MoiTrangThai() []Status {
+// AllStatuses liệt kê mọi trạng thái, dùng cho thông báo lỗi và test.
+func AllStatuses() []Status {
 	return []Status{
 		StatusPendingPayment, StatusPaid, StatusProcessing,
 		StatusPartiallyShipped, StatusShipped, StatusPartiallyDelivered,
@@ -308,7 +308,7 @@ func NewOrder(p NewOrderParams) (*Order, error) {
 	}
 
 	if !p.PaymentMethod.HopLe() {
-		return nil, fmt.Errorf("%w: %q", ErrPaymentMethodKhongHopLe, p.PaymentMethod)
+		return nil, fmt.Errorf("%w: %q", ErrInvalidPaymentMethod, p.PaymentMethod)
 	}
 
 	currency := p.Currency
@@ -488,11 +488,11 @@ func (o *Order) PlacedAt() time.Time    { return o.placedAt }
 func (o *Order) CompletedAt() time.Time { return o.completedAt }
 func (o *Order) PaidAt() time.Time      { return o.paidAt }
 
-// DaThuTien cho biết tiền của đơn đã về hay chưa.
+// IsPaid cho biết tiền của đơn đã về hay chưa.
 //
 // Đọc từ `paidAt` chứ KHÔNG từ `status`: đơn COD đã giao và đã thu tiền
 // mang status DELIVERED, không phải PAID.
-func (o *Order) DaThuTien() bool { return !o.paidAt.IsZero() }
+func (o *Order) IsPaid() bool { return !o.paidAt.IsZero() }
 
 // DeliveredAt là mốc tính hạn đổi trả. Rỗng khi đơn chưa giao xong.
 func (o *Order) DeliveredAt() time.Time { return o.deliveredAt }
@@ -585,7 +585,7 @@ func (o *Order) SellerIDs() []ids.ID {
 // MarkPaid chuyển sang PAID khi thanh toán thành công.
 //
 // Đường của đơn TRẢ TRƯỚC: tiền về TRƯỚC khi hàng đi, nên trạng thái và
-// mốc thu tiền cùng tiến một lúc. Đường COD dùng `GhiNhanTienCOD`.
+// mốc thu tiền cùng tiến một lúc. Đường COD dùng `RecordCODPayment`.
 func (o *Order) MarkPaid(now time.Time) error {
 	if o.status != StatusPendingPayment {
 		return ErrInvalidStatus
@@ -596,15 +596,15 @@ func (o *Order) MarkPaid(now time.Time) error {
 	return nil
 }
 
-// ErrChuaGiaoXong: chưa giao xong thì chưa thu được tiền COD.
-var ErrChuaGiaoXong = errors.New(
+// ErrNotYetDelivered: chưa giao xong thì chưa thu được tiền COD.
+var ErrNotYetDelivered = errors.New(
 	"order: đơn COD chưa giao xong nên chưa thu được tiền")
 
-// ErrKhongPhaiCOD: chỉ đơn COD mới thu tiền lúc giao.
-var ErrKhongPhaiCOD = errors.New(
+// ErrNotCOD: chỉ đơn COD mới thu tiền lúc giao.
+var ErrNotCOD = errors.New(
 	"order: chỉ đơn COD mới ghi nhận thu tiền lúc giao")
 
-// GhiNhanTienCOD ghi mốc thu tiền cho đơn COD, KHÔNG đổi trạng thái.
+// RecordCODPayment ghi mốc thu tiền cho đơn COD, KHÔNG đổi trạng thái.
 //
 // # Vì sao chỉ khi đã giao TRỌN đơn
 //
@@ -622,17 +622,17 @@ var ErrKhongPhaiCOD = errors.New(
 // Đã ghi rồi thì trả về false, không lỗi: `fulfillment.progress_changed`
 // được phát lại là chuyện bình thường của mô hình at-least-once, và báo
 // lỗi sẽ khiến event kẹt trong hàng đợi mãi.
-func (o *Order) GhiNhanTienCOD(now time.Time) (bool, error) {
-	// Dùng `ThuTienKhiGiao` chứ không so thẳng với COD: quy tắc "phương
+func (o *Order) RecordCODPayment(now time.Time) (bool, error) {
+	// Dùng `CollectOnDelivery` chứ không so thẳng với COD: quy tắc "phương
 	// thức nào thu tiền lúc giao" nằm ở MỘT chỗ, và thêm một phương thức
 	// trả sau sau này chỉ phải sửa chỗ đó.
-	if !o.paymentMethod.ThuTienKhiGiao() {
-		return false, ErrKhongPhaiCOD
+	if !o.paymentMethod.CollectOnDelivery() {
+		return false, ErrNotCOD
 	}
 	if o.status != StatusDelivered && o.status != StatusCompleted {
-		return false, ErrChuaGiaoXong
+		return false, ErrNotYetDelivered
 	}
-	if o.DaThuTien() {
+	if o.IsPaid() {
 		return false, nil
 	}
 	o.paidAt = now

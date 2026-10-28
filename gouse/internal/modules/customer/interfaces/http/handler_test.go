@@ -334,7 +334,7 @@ func TestEmailCannotBeChangedViaProfile(t *testing.T) {
 	h, svc := newHandler(t)
 	id := newCustomer(t, svc, "a@example.com")
 
-	r := jsonReq("PATCH", "/api/v1/me", map[string]any{"email": "keTomo@example.com"})
+	r := jsonReq("PATCH", "/api/v1/me", map[string]any{"email": "stranger@example.com"})
 	res, _ := do(t, h, asCustomer(r, id))
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("mã trạng thái = %d, muốn 400", res.StatusCode)

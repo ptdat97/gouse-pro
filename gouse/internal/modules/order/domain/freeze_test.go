@@ -70,7 +70,7 @@ func newOrder(t *testing.T, lines ...*domain.Line) *domain.Order {
 //
 // Sai lệch này phá vỡ niềm tin của seller và không giải thích được khi có
 // tranh chấp.
-func TestDongBangGiuNguyenDuLieuDoiSoat(t *testing.T) {
+func TestFreezingKeepsReconciliationData(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 
 	// Ngày 10/08: đặt hàng với giá 299.000đ và hoa hồng 10%.
@@ -113,7 +113,7 @@ func TestDongBangGiuNguyenDuLieuDoiSoat(t *testing.T) {
 //
 // Seller đổi tên sản phẩm → hóa đơn cũ vẫn phải đúng.
 // Sửa variant → vẫn biết khách mua size nào.
-func TestDongBangTenSanPhamVaBienThe(t *testing.T) {
+func TestProductAndVariantNamesAreFrozen(t *testing.T) {
 	l, err := domain.NewLine(domain.NewLineParams{
 		OfferID:            ids.MustNew(ids.PrefixOffer),
 		SKUID:              ids.MustNew(ids.PrefixSKU),
@@ -140,7 +140,7 @@ func TestDongBangTenSanPhamVaBienThe(t *testing.T) {
 }
 
 // Tên sản phẩm là BẮT BUỘC: thiếu thì hóa đơn hiện một dòng vô danh.
-func TestTenSanPhamBatBuocKhiDongBang(t *testing.T) {
+func TestProductNameIsRequiredWhenFreezing(t *testing.T) {
 	_, err := domain.NewLine(domain.NewLineParams{
 		OfferID:        ids.MustNew(ids.PrefixOffer),
 		SellerID:       ids.MustNew(ids.PrefixSeller),
@@ -158,7 +158,7 @@ func TestTenSanPhamBatBuocKhiDongBang(t *testing.T) {
 //
 // Nhưng phải có cách liên hệ: đơn không biết thuộc về ai và không liên hệ
 // được là đơn không giao được.
-func TestKhachVangLaiDatDuocHang(t *testing.T) {
+func TestGuestsCanPlaceOrders(t *testing.T) {
 	line := newLine(t, ids.MustNew(ids.PrefixSeller), 299000, 1, 1000)
 
 	// Có email khách vãng lai → được.
@@ -191,7 +191,7 @@ func TestKhachVangLaiDatDuocHang(t *testing.T) {
 }
 
 // QUY TẮC 5: PlaceOrder phải idempotent — khóa là BẮT BUỘC.
-func TestKhoaIdempotencyBatBuoc(t *testing.T) {
+func TestOrderIdempotencyKeyIsMandatory(t *testing.T) {
 	line := newLine(t, ids.MustNew(ids.PrefixSeller), 299000, 1, 1000)
 	_, err := domain.NewOrder(domain.NewOrderParams{
 		OrderNumber: "FC-2026-08-000003",
@@ -207,7 +207,7 @@ func TestKhoaIdempotencyBatBuoc(t *testing.T) {
 // HỦY TỪNG PHẦN: seller B hết hàng, hai seller còn lại vẫn giao được.
 //
 // Tổng tiền tự động giảm; phí ship KHÔNG thu lại (mục 6.3).
-func TestHuyTungPhanKhongThuLaiPhiShip(t *testing.T) {
+func TestPartialCancelDoesNotReclaimShippingFee(t *testing.T) {
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	sellerB := ids.MustNew(ids.PrefixSeller)
 
@@ -261,7 +261,7 @@ func TestHuyTungPhanKhongThuLaiPhiShip(t *testing.T) {
 }
 
 // Hủy dòng CUỐI CÙNG nghĩa là hủy cả đơn.
-func TestHuyDongCuoiCungLaHuyCaDon(t *testing.T) {
+func TestCancellingTheLastLineCancelsTheOrder(t *testing.T) {
 	line := newLine(t, ids.MustNew(ids.PrefixSeller), 299000, 1, 1000)
 	o := newOrder(t, line)
 
@@ -282,7 +282,7 @@ func TestHuyDongCuoiCungLaHuyCaDon(t *testing.T) {
 //
 //	Có Adjustment: mỗi dòng có khoản giảm riêng
 //	  → khách trả món C, hoàn 100.000 − 10.000 = 90.000đ. ĐỌC TRỰC TIẾP.
-func TestAdjustmentGiaiQuyetHoanTienTungPhan(t *testing.T) {
+func TestAdjustmentsResolvePartialRefunds(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 
 	// Ba món: 200.000 + 200.000 + 100.000 = 500.000.
@@ -331,7 +331,7 @@ func TestAdjustmentGiaiQuyetHoanTienTungPhan(t *testing.T) {
 //
 // Không có nhãn thì hóa đơn hiện một khoản trừ vô danh — khách không hiểu
 // và sẽ khiếu nại.
-func TestAdjustmentBatBuocCoNhan(t *testing.T) {
+func TestAdjustmentMustCarryALabel(t *testing.T) {
 	_, err := domain.NewAdjustment(
 		domain.AdjustmentPromotion, "", vnd(-10000),
 		"PROMOTION", ids.MustNew(ids.PrefixCampaign), domain.BearerPlatform, testNow)
@@ -349,7 +349,7 @@ func TestAdjustmentBatBuocCoNhan(t *testing.T) {
 }
 
 // Đơn phải có ít nhất một dòng hàng.
-func TestDonPhaiCoItNhatMotDong(t *testing.T) {
+func TestAnOrderNeedsAtLeastOneLine(t *testing.T) {
 	_, err := domain.NewOrder(domain.NewOrderParams{
 		OrderNumber:    "FC-2026-08-000005",
 		CustomerID:     ids.MustNew(ids.PrefixCustomer),
@@ -367,7 +367,7 @@ func TestDonPhaiCoItNhatMotDong(t *testing.T) {
 // trong subtotal và trong phí ship. `TaxAmount` là phần TÁCH RA để ghi hóa
 // đơn — cộng nó vào tổng là thu thuế hai lần, và tổng vẫn trông hợp lý nên
 // không ai thấy.
-func TestTinhTongTienDonHang(t *testing.T) {
+func TestOrderTotalIsComputed(t *testing.T) {
 	line := newLine(t, ids.MustNew(ids.PrefixSeller), 500000, 2, 1000)
 
 	o, err := domain.NewOrder(domain.NewOrderParams{
@@ -395,7 +395,7 @@ func TestTinhTongTienDonHang(t *testing.T) {
 }
 
 // Không hủy được đơn đã ở trạng thái cuối.
-func TestKhongHuyDuocDonDaKetThuc(t *testing.T) {
+func TestAFinishedOrderCannotBeCancelled(t *testing.T) {
 	line := newLine(t, ids.MustNew(ids.PrefixSeller), 299000, 1, 1000)
 	o := newOrder(t, line)
 

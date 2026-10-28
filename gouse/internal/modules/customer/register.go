@@ -128,7 +128,7 @@ func (m *Module) RegisterShopper(
 	// tại, và khi đó cờ "cần xác minh" không bao giờ bật.
 	hasGuestOrders := false
 	if m.orders != nil {
-		if n, countErr := m.orders.DemDonVangLai(ctx, email); countErr == nil && n > 0 {
+		if n, countErr := m.orders.CountGuestOrders(ctx, email); countErr == nil && n > 0 {
 			hasGuestOrders = true
 		}
 	}

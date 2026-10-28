@@ -78,7 +78,7 @@ func (m *Module) VerifyEmailAndMerge(
 	// Đã gắn vào ĐÚNG tài khoản này rồi: không phải lỗi.
 	//
 	// VẪN thử gắn đơn: lần trước có thể đã gắn hồ sơ xong mà gắn đơn hỏng,
-	// và `GanDonVangLai` chỉ đụng đơn còn `customer_id` rỗng nên chạy lại
+	// và `AttachGuestOrders` chỉ đụng đơn còn `customer_id` rỗng nên chạy lại
 	// không gây hại.
 	if profile.UserID().String() == res.UserID {
 		out.MergedOrderCount = m.mergeGuestOrders(ctx, res.Email, profile.ID().String())
@@ -112,7 +112,7 @@ func (m *Module) mergeGuestOrders(ctx context.Context, email, customerID string)
 	if m.orders == nil {
 		return 0
 	}
-	n, err := m.orders.GanDonVangLaiChoKhach(ctx, email, customerID)
+	n, err := m.orders.AttachGuestOrdersToCustomer(ctx, email, customerID)
 	if err != nil {
 		return 0
 	}

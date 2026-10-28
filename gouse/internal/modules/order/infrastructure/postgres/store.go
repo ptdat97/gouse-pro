@@ -411,18 +411,18 @@ func (s *OrderStore) findOne(ctx context.Context, where string, args ...any) (*d
 
 func (s *OrderStore) ListByCustomer(
 	ctx context.Context, customerID ids.ID, status domain.Status,
-	limit int, moc *domain.MocPhanTrang,
+	limit int, cursor *domain.Cursor,
 ) ([]*domain.Order, error) {
 	// `$2 = '' OR status = $2` giữ MỘT câu truy vấn cho cả hai trường hợp.
 	//
 	// Dựng câu lệnh động theo nhánh sẽ có hai đường đi, và đường ít dùng
 	// hơn là đường không ai kiểm. Điều kiện mốc đọc tiếp cũng vậy: `$4 IS
 	// NULL` tắt nó đi thay vì ghép thêm chuỗi SQL.
-	var mocTG *time.Time
-	var mocID *string
-	if moc != nil {
-		t, id := moc.PlacedAt, moc.ID.String()
-		mocTG, mocID = &t, &id
+	var cursorTime *time.Time
+	var cursorID *string
+	if cursor != nil {
+		t, id := cursor.PlacedAt, cursor.ID.String()
+		cursorTime, cursorID = &t, &id
 	}
 
 	// So sánh CẢ CẶP `(placed_at, id)` chứ không riêng `placed_at`: hai đơn
@@ -443,7 +443,7 @@ func (s *OrderStore) ListByCustomer(
 		        OR (placed_at, id) < ($4::timestamptz, $5::text))
 		 ORDER BY placed_at DESC, id DESC
 		 LIMIT $3`,
-		customerID.String(), string(status), limitOr(limit, 20), mocTG, mocID)
+		customerID.String(), string(status), limitOr(limit, 20), cursorTime, cursorID)
 	if err != nil {
 		return nil, fmt.Errorf("order: liệt kê đơn của khách: %w", err)
 	}
@@ -685,7 +685,7 @@ func withLines(o *domain.Order, lines []*domain.Line) *domain.Order {
 		// cho đơn giao từ năm ngoái mà không gì báo.
 		//
 		// Lần thứ ba xảy ra DÙ chú thích này đã cảnh báo đúng điều đó. Kỷ
-		// luật con người không đủ — hàng rào là `TestDonKhuHoiKhongMatTruong`
+		// luật con người không đủ — hàng rào là `TestRoundTripLosesNoField`
 		// ở gói này.
 		CancellationReason: o.CancellationReason(),
 		IdempotencyKey:     o.IdempotencyKey(),

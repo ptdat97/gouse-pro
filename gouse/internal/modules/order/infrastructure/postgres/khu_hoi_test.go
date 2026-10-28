@@ -15,7 +15,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
-var luc = time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+var at = time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
 
 func newPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -31,7 +31,7 @@ func newPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// TestDonKhuHoiKhongMatTruong.
+// TestRoundTripLosesNoField.
 //
 // # Lớp lỗi mà bài này canh, và vì sao kỷ luật con người không đủ
 //
@@ -50,27 +50,27 @@ func newPool(t *testing.T) *pgxpool.Pool {
 //
 // Lần thứ ba xảy ra DÙ chú thích ngay trên đó đã cảnh báo đúng điều này.
 // Đó là bằng chứng đủ: chỗ này cần hàng rào, không cần thêm lời nhắc.
-func TestDonKhuHoiKhongMatTruong(t *testing.T) {
+func TestRoundTripLosesNoField(t *testing.T) {
 	pool := newPool(t)
 	ctx := context.Background()
 	store := postgres.NewOrderStore(pool)
 
-	goc := thamSoDayDu(t)
-	don := domain.RestoreOrder(goc)
+	original := fullParams(t)
+	ord := domain.RestoreOrder(original)
 
-	if err := store.Save(ctx, don); err != nil {
+	if err := store.Save(ctx, ord); err != nil {
 		t.Fatalf("lưu đơn: %v", err)
 	}
 
-	docLai, err := store.FindByID(ctx, don.ID())
+	reread, err := store.FindByID(ctx, ord.ID())
 	if err != nil {
 		t.Fatalf("đọc lại: %v", err)
 	}
 
-	soSanh(t, goc, rutRa(docLai), rongLucTao)
+	compare(t, original, rutRa(reread), emptyAtCreate)
 }
 
-// TestDonKhuHoiQuaDuongCapNhat canh câu UPDATE và `withLines`.
+// TestRoundTripThroughTheUpdatePath canh câu UPDATE và `withLines`.
 //
 // # Vì sao bài TẠO ở trên KHÔNG đủ, và tôi đã phát hiện bằng cách phá
 //
@@ -84,54 +84,54 @@ func TestDonKhuHoiKhongMatTruong(t *testing.T) {
 //
 // Bài này lấp chỗ đó: ghi rồi CẬP NHẬT với mọi trường đã điền, đọc lại, và
 // so TẤT CẢ — không bỏ qua trường nào.
-func TestDonKhuHoiQuaDuongCapNhat(t *testing.T) {
+func TestRoundTripThroughTheUpdatePath(t *testing.T) {
 	pool := newPool(t)
 	ctx := context.Background()
 	store := postgres.NewOrderStore(pool)
 
-	goc := thamSoDayDu(t)
+	original := fullParams(t)
 
 	// Tạo với version 0 — đúng thứ database đặt cho dòng mới.
-	tao := goc
-	tao.Version = 0
-	if err := store.Save(ctx, domain.RestoreOrder(tao)); err != nil {
+	created := original
+	created.Version = 0
+	if err := store.Save(ctx, domain.RestoreOrder(created)); err != nil {
 		t.Fatalf("lưu đơn: %v", err)
 	}
 
-	if err := store.Update(ctx, domain.RestoreOrder(tao)); err != nil {
+	if err := store.Update(ctx, domain.RestoreOrder(created)); err != nil {
 		t.Fatalf("cập nhật: %v", err)
 	}
 
-	docLai, err := store.FindByID(ctx, tao.ID)
+	reread, err := store.FindByID(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("đọc lại: %v", err)
 	}
 
 	// Update tăng version, nên so với 1 chứ không phải 0.
-	mong := tao
+	mong := created
 	mong.Version = 1
-	soSanh(t, mong, rutRa(docLai), nil)
+	compare(t, mong, rutRa(reread), nil)
 }
 
-// rongLucTao là trường một đơn VỪA TẠO chưa thể có.
+// emptyAtCreate là trường một đơn VỪA TẠO chưa thể có.
 //
 // Hướng của danh sách này quan trọng: mặc định của một trường MỚI là "phải
 // khứ hồi được". Quên xử lý nó thì bài test ĐỎ — không phải xanh.
-var rongLucTao = map[string]bool{
+var emptyAtCreate = map[string]bool{
 	"CompletedAt":        true, // đặt khi đơn chốt
 	"DeliveredAt":        true, // đặt khi giao xong
 	"CancellationReason": true,
 	"Version":            true, // database đặt, không phải bộ nhớ
 }
 
-// thamSoDayDu dựng tham số với MỌI trường khác rỗng.
+// fullParams dựng tham số với MỌI trường khác rỗng.
 //
 // Reflect ở cuối là phần quan trọng nhất: nó biến "quên điền trường mới"
 // từ một bài test xanh giả thành một lỗi có tên.
-func thamSoDayDu(t *testing.T) domain.RestoreOrderParams {
+func fullParams(t *testing.T) domain.RestoreOrderParams {
 	t.Helper()
 
-	tien := func(v int64) money.Money {
+	amt := func(v int64) money.Money {
 		t.Helper()
 		m, err := money.New(v, money.VND)
 		if err != nil {
@@ -150,8 +150,8 @@ func thamSoDayDu(t *testing.T) domain.RestoreOrderParams {
 		ID: ids.MustNew(ids.PrefixOrderLine), OfferID: ids.MustNew(ids.PrefixOffer),
 		SKUID: ids.MustNew(ids.PrefixSKU), SellerID: ids.MustNew(ids.PrefixSeller),
 		ProductName: "Áo thun basic", VariantDescription: "Đen / M",
-		UnitPrice: tien(250_000), Quantity: 2,
-		Status: domain.LineActive, CreatedAt: luc, UpdatedAt: luc,
+		UnitPrice: amt(250_000), Quantity: 2,
+		Status: domain.LineActive, CreatedAt: at, UpdatedAt: at,
 	})
 
 	p := domain.RestoreOrderParams{
@@ -163,9 +163,9 @@ func thamSoDayDu(t *testing.T) domain.RestoreOrderParams {
 		ShippingAddress:    dc,
 		BillingAddress:     dc,
 		Currency:           money.VND,
-		ShippingFee:        tien(30_000),
-		DiscountAmount:     tien(10_000),
-		TaxAmount:          tien(8_000),
+		ShippingFee:        amt(30_000),
+		DiscountAmount:     amt(10_000),
+		TaxAmount:          amt(8_000),
 		Status:             domain.StatusDelivered,
 		Lines:              []*domain.Line{line},
 		IdempotencyKey:     ids.MustNew(ids.PrefixRequest).String(),
@@ -173,12 +173,12 @@ func thamSoDayDu(t *testing.T) domain.RestoreOrderParams {
 		PaymentMethod:      domain.PaymentMethodCOD,
 		Version:            1,
 		CancellationReason: "khách đổi ý",
-		PlacedAt:           luc,
-		CompletedAt:        luc.Add(96 * time.Hour),
-		PaidAt:             luc.Add(48 * time.Hour),
-		DeliveredAt:        luc.Add(48 * time.Hour),
-		CreatedAt:          luc,
-		UpdatedAt:          luc.Add(time.Hour),
+		PlacedAt:           at,
+		CompletedAt:        at.Add(96 * time.Hour),
+		PaidAt:             at.Add(48 * time.Hour),
+		DeliveredAt:        at.Add(48 * time.Hour),
+		CreatedAt:          at,
+		UpdatedAt:          at.Add(time.Hour),
 	}
 
 	// HÀNG RÀO CHO CHÍNH BÀI KIỂM.
@@ -232,26 +232,26 @@ func rutRa(o *domain.Order) domain.RestoreOrderParams {
 	}
 }
 
-// soSanh đối chiếu TỪNG trường và gọi tên trường lệch.
+// compare đối chiếu TỪNG trường và gọi tên trường lệch.
 //
 // `reflect.DeepEqual` trên cả struct chỉ nói "khác nhau" — với hơn hai
 // mươi trường thì đó là thông điệp gần như vô dụng.
-func soSanh(t *testing.T, goc, sau domain.RestoreOrderParams, boQua map[string]bool) {
+func compare(t *testing.T, original, after domain.RestoreOrderParams, skip map[string]bool) {
 	t.Helper()
 
-	a := reflect.ValueOf(goc)
-	b := reflect.ValueOf(sau)
+	a := reflect.ValueOf(original)
+	b := reflect.ValueOf(after)
 	for i := 0; i < a.NumField(); i++ {
 		ten := a.Type().Field(i).Name
-		if boQua[ten] {
+		if skip[ten] {
 			continue
 		}
 		// Dòng hàng so riêng: chúng là con trỏ, và DeepEqual trên con trỏ
 		// so địa chỉ chứ không so nội dung.
 		if ten == "Lines" {
-			if len(sau.Lines) != len(goc.Lines) {
+			if len(after.Lines) != len(original.Lines) {
 				t.Errorf("số dòng hàng = %d, cần %d",
-					len(sau.Lines), len(goc.Lines))
+					len(after.Lines), len(original.Lines))
 			}
 			continue
 		}

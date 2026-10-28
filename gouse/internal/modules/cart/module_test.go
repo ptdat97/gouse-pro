@@ -141,7 +141,7 @@ func newCart(t *testing.T, svc *application.Service) *domain.Cart {
 // Khách thêm 10 món trong khi kho chỉ còn 3. Giỏ nhận, đánh dấu, và KHÔNG
 // khóa gì cả. Nếu giỏ giữ hàng thì ba món kia bị khóa cho tới khi khách
 // quay lại — có thể là không bao giờ.
-func TestGioKhongKhoaHangDuQuaSoLuongTon(t *testing.T) {
+func TestCartDoesNotBlockWhenQuantityExceedsStock(t *testing.T) {
 	svc, lookup, _ := newService(t)
 	ctx := context.Background()
 
@@ -181,7 +181,7 @@ func TestGioKhongKhoaHangDuQuaSoLuongTon(t *testing.T) {
 //
 // Đây là chỗ ĐỐI LẬP với order: cùng một vòng ghi–đọc, order phải ra con số
 // CŨ còn cart phải ra con số MỚI.
-func TestGiaTrongGioTheoGiaHienTaiQuaDatabase(t *testing.T) {
+func TestCartPriceFollowsLivePriceViaDatabase(t *testing.T) {
 	svc, lookup, pool := newService(t)
 	ctx := context.Background()
 
@@ -224,7 +224,7 @@ func TestGiaTrongGioTheoGiaHienTaiQuaDatabase(t *testing.T) {
 }
 
 // MÓN KHÔNG HỢP LỆ CHỈ ĐÁNH DẤU, KHÔNG BỊ XÓA — qua database.
-func TestMonKhongHopLeVanNamTrongDatabase(t *testing.T) {
+func TestAnInvalidItemStaysInTheDatabase(t *testing.T) {
 	svc, lookup, _ := newService(t)
 	ctx := context.Background()
 
@@ -278,7 +278,7 @@ func TestMonKhongHopLeVanNamTrongDatabase(t *testing.T) {
 //
 // Hai giỏ ACTIVE nghĩa là khách thêm hàng ở tab này rồi thanh toán ở tab
 // kia mà không thấy nó.
-func TestMuoiTabChiTaoMotGio(t *testing.T) {
+func TestTenTabsCreateOneCart(t *testing.T) {
 	svc, _, _ := newService(t)
 	ctx := context.Background()
 
@@ -326,7 +326,7 @@ func TestMuoiTabChiTaoMotGio(t *testing.T) {
 }
 
 // GỘP GIỎ KHI ĐĂNG NHẬP — tài khoản ĐÃ có giỏ.
-func TestGopGioKhiDangNhapQuaDatabase(t *testing.T) {
+func TestCartsMergeOnLoginViaDatabase(t *testing.T) {
 	svc, lookup, _ := newService(t)
 	ctx := context.Background()
 
@@ -411,7 +411,7 @@ func TestGopGioKhiDangNhapQuaDatabase(t *testing.T) {
 // Đây là đường đi phổ biến nhất — khách thêm hàng rồi mới đăng ký — và đổi
 // chủ giữ nguyên mọi nguồn giới thiệu, thứ sẽ mất nếu tạo giỏ mới rồi chép
 // món sang.
-func TestDangNhapKhiChuaCoGioThiDoiChu(t *testing.T) {
+func TestLoggingInWithoutACartJustReassignsTheOwner(t *testing.T) {
 	svc, lookup, _ := newService(t)
 	ctx := context.Background()
 
@@ -458,7 +458,7 @@ func TestDangNhapKhiChuaCoGioThiDoiChu(t *testing.T) {
 //
 // cart.md mục 11: hiển thị giỏ 10 món cần dữ liệu từ bốn module. Gọi trong
 // vòng lặp thì mỗi lần khách mở giỏ là hàng chục lượt gọi.
-func TestDongBoGioMuoiMonChiMotLuotTraCuu(t *testing.T) {
+func TestSyncingATenItemCartDoesOneLookupRound(t *testing.T) {
 	svc, lookup, _ := newService(t)
 	ctx := context.Background()
 
@@ -492,7 +492,7 @@ func TestDongBoGioMuoiMonChiMotLuotTraCuu(t *testing.T) {
 }
 
 // GIỎ ĐÃ THÀNH ĐƠN thì khóa lại, nhưng KHÔNG bị xóa khỏi database.
-func TestGioDaThanhDonVanNamTrongDatabase(t *testing.T) {
+func TestAConvertedCartStaysInTheDatabase(t *testing.T) {
 	svc, lookup, _ := newService(t)
 	ctx := context.Background()
 
@@ -542,7 +542,7 @@ func TestGioDaThanhDonVanNamTrongDatabase(t *testing.T) {
 
 // THÊM CÙNG OFFER HAI LẦN thì CỘNG DỒN — kiểm chứng cả ràng buộc UNIQUE
 // (cart_id, offer_id) ở database.
-func TestThemCungOfferHaiLanQuaDatabase(t *testing.T) {
+func TestAddingTheSameOfferTwiceViaDatabase(t *testing.T) {
 	svc, lookup, _ := newService(t)
 	ctx := context.Background()
 
@@ -582,7 +582,7 @@ func TestThemCungOfferHaiLanQuaDatabase(t *testing.T) {
 //
 // Khác biệt đó có hậu quả thật: job nhắc giỏ bỏ quên và các báo cáo đọc
 // thẳng bảng này, không đi qua đồng bộ.
-func TestTenSellerLuuVaDocLaiQuaDatabase(t *testing.T) {
+func TestSellerNameSurvivesASaveAndReadViaDatabase(t *testing.T) {
 	svc, lookup, pool := newService(t)
 	ctx := context.Background()
 

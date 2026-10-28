@@ -6,7 +6,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
-// MocPhanTrang là vị trí đọc tiếp trong lịch sử đơn, theo KHÓA của bản ghi
+// Cursor là vị trí đọc tiếp trong lịch sử đơn, theo KHÓA của bản ghi
 // cuối trang trước — không phải số bản ghi cần bỏ qua.
 //
 // # Vì sao không dùng offset
@@ -28,7 +28,7 @@ import (
 // micro-giây có chung mốc. Nếu ranh giới trang rơi đúng vào chỗ trùng đó
 // thì so sánh theo mình `placed_at` hoặc bỏ sót hoặc lặp các đơn cùng mốc.
 // Cặp `(placed_at, id)` là duy nhất vì `id` là khóa chính.
-type MocPhanTrang struct {
+type Cursor struct {
 	PlacedAt time.Time
 	ID       ids.ID
 }

@@ -29,16 +29,16 @@ type fakeRepo struct{ orders []*domain.Order }
 
 var _ domain.Repository = (*fakeRepo)(nil)
 
-// GanDonVangLai không dùng trong các bài ở đây — bản giả chỉ cần thoả
+// AttachGuestOrders không dùng trong các bài ở đây — bản giả chỉ cần thoả
 // interface. Trả 0 chứ không panic: một bản giả panic ở phương thức không
 // liên quan làm bài test đỏ vì lý do sai.
-func (f *fakeRepo) GanDonVangLai(
+func (f *fakeRepo) AttachGuestOrders(
 	context.Context, string, ids.ID,
 ) (int, error) {
 	return 0, nil
 }
 
-func (f *fakeRepo) DemDonVangLai(context.Context, string) (int, error) { return 0, nil }
+func (f *fakeRepo) CountGuestOrders(context.Context, string) (int, error) { return 0, nil }
 
 func (r *fakeRepo) Save(_ context.Context, o *domain.Order) error {
 	r.orders = append(r.orders, o)
@@ -75,7 +75,7 @@ func (r *fakeRepo) FindBySourceCheckout(_ context.Context, _ ids.ID) (*domain.Or
 
 func (r *fakeRepo) ListByCustomer(
 	_ context.Context, customerID ids.ID, status domain.Status,
-	limit int, moc *domain.MocPhanTrang,
+	limit int, cursor *domain.Cursor,
 ) ([]*domain.Order, error) {
 	var mine []*domain.Order
 	for _, o := range r.orders {
@@ -101,16 +101,16 @@ func (r *fakeRepo) ListByCustomer(
 		}
 		return mine[i].ID().String() > mine[j].ID().String()
 	})
-	if moc != nil {
-		var sau []*domain.Order
+	if cursor != nil {
+		var after []*domain.Order
 		for _, o := range mine {
-			if o.PlacedAt().Before(moc.PlacedAt) ||
-				(o.PlacedAt().Equal(moc.PlacedAt) &&
-					o.ID().String() < moc.ID.String()) {
-				sau = append(sau, o)
+			if o.PlacedAt().Before(cursor.PlacedAt) ||
+				(o.PlacedAt().Equal(cursor.PlacedAt) &&
+					o.ID().String() < cursor.ID.String()) {
+				after = append(after, o)
 			}
 		}
-		mine = sau
+		mine = after
 	}
 	if limit > 0 && len(mine) > limit {
 		mine = mine[:limit]
@@ -229,18 +229,18 @@ func do(t *testing.T, h http.Handler, r *http.Request) (*http.Response, map[stri
 
 // ---------------------------------------------------------------- Test
 
-// TestChiThayDonCuaChinhMinh là test quan trọng nhất của tệp này.
+// TestOnlySeesItsOwnOrders là test quan trọng nhất của tệp này.
 //
 // Lịch sử mua hàng chứa tên, địa chỉ và những gì một người đã mua. Rò rỉ nó
 // không phải "lỗi hiển thị" — đó là lộ dữ liệu cá nhân của người khác.
-func TestChiThayDonCuaChinhMinh(t *testing.T) {
+func TestOnlySeesItsOwnOrders(t *testing.T) {
 	h, repo := newHandler(t)
 
 	toi := ids.MustNew(ids.PrefixCustomer)
-	nguoiKhac := ids.MustNew(ids.PrefixCustomer)
+	otherCustomer := ids.MustNew(ids.PrefixCustomer)
 	_ = repo.Save(context.Background(), newOrder(t, toi, "+84901234567"))
-	_ = repo.Save(context.Background(), newOrder(t, nguoiKhac, "+84907654321"))
-	_ = repo.Save(context.Background(), newOrder(t, nguoiKhac, "+84907654321"))
+	_ = repo.Save(context.Background(), newOrder(t, otherCustomer, "+84907654321"))
+	_ = repo.Save(context.Background(), newOrder(t, otherCustomer, "+84907654321"))
 
 	res, body := do(t, h, asCustomer(
 		httptest.NewRequest("GET", "/api/v1/orders", nil), toi))
@@ -254,13 +254,13 @@ func TestChiThayDonCuaChinhMinh(t *testing.T) {
 	}
 }
 
-// TestChuaDangNhapKhongXemDuocLichSu kiểm chứng đường danh sách đóng với
+// TestAnonymousCannotSeeOrderHistory kiểm chứng đường danh sách đóng với
 // khách vãng lai.
 //
 // Khách vãng lai không có định danh bền vững nào ngoài cookie phiên, và
 // cookie phiên đổi mỗi lần đổi thiết bị. Trả danh sách theo cookie nghĩa là
 // hai người dùng chung một máy thấy đơn của nhau.
-func TestChuaDangNhapKhongXemDuocLichSu(t *testing.T) {
+func TestAnonymousCannotSeeOrderHistory(t *testing.T) {
 	h, _ := newHandler(t)
 
 	res, _ := do(t, h, asGuest(httptest.NewRequest("GET", "/api/v1/orders", nil)))
@@ -269,19 +269,19 @@ func TestChuaDangNhapKhongXemDuocLichSu(t *testing.T) {
 	}
 }
 
-// TestKhongXemDuocChiTietDonNguoiKhac kiểm chứng quyền ở đường chi tiết.
+// TestCannotSeeAnotherCustomersOrderDetail kiểm chứng quyền ở đường chi tiết.
 //
 // Response chứa tên người nhận, số điện thoại và địa chỉ đầy đủ.
-func TestKhongXemDuocChiTietDonNguoiKhac(t *testing.T) {
+func TestCannotSeeAnotherCustomersOrderDetail(t *testing.T) {
 	h, repo := newHandler(t)
 
-	chuDon := ids.MustNew(ids.PrefixCustomer)
-	keTomo := ids.MustNew(ids.PrefixCustomer)
-	o := newOrder(t, chuDon, "+84901234567")
+	orderOwner := ids.MustNew(ids.PrefixCustomer)
+	stranger := ids.MustNew(ids.PrefixCustomer)
+	o := newOrder(t, orderOwner, "+84901234567")
 	_ = repo.Save(context.Background(), o)
 
 	res, _ := do(t, h, asCustomer(
-		httptest.NewRequest("GET", "/api/v1/orders/"+o.ID().String(), nil), keTomo))
+		httptest.NewRequest("GET", "/api/v1/orders/"+o.ID().String(), nil), stranger))
 
 	// 404 chứ không phải 403: mã hiển thị của đơn tăng dần, nên hai mã khác
 	// nhau cho "có thật" và "không có" sẽ đếm được số đơn của nền tảng.
@@ -290,12 +290,12 @@ func TestKhongXemDuocChiTietDonNguoiKhac(t *testing.T) {
 	}
 }
 
-// TestKhachVangLaiTraDonBangSoDienThoai kiểm chứng đường tra đơn của khách
+// TestGuestsLookUpOrdersByPhoneNumber kiểm chứng đường tra đơn của khách
 // không có tài khoản.
 //
 // Họ chỉ có mã hiển thị trong email xác nhận, không có mã nội bộ — nên
 // đường dẫn phải nhận cả hai dạng.
-func TestKhachVangLaiTraDonBangSoDienThoai(t *testing.T) {
+func TestGuestsLookUpOrdersByPhoneNumber(t *testing.T) {
 	h, repo := newHandler(t)
 
 	o := newOrder(t, "", "+84901234567")
@@ -326,11 +326,11 @@ func TestKhachVangLaiTraDonBangSoDienThoai(t *testing.T) {
 	}
 }
 
-// TestLyDoHuyPhaiNamTrongDanhSach kiểm chứng danh sách lý do là ĐÓNG.
+// TestCancelReasonMustComeFromTheList kiểm chứng danh sách lý do là ĐÓNG.
 //
 // Năm lý do dẫn tới năm hành động khác nhau của nền tảng. Cho chuỗi tự do
 // đi qua nghĩa là không tổng hợp được gì.
-func TestLyDoHuyPhaiNamTrongDanhSach(t *testing.T) {
+func TestCancelReasonMustComeFromTheList(t *testing.T) {
 	h, repo := newHandler(t)
 
 	customerID := ids.MustNew(ids.PrefixCustomer)
@@ -347,23 +347,23 @@ func TestLyDoHuyPhaiNamTrongDanhSach(t *testing.T) {
 	}
 }
 
-// TestKhongHuyDuocDonNguoiKhac kiểm chứng quyền ở đường hủy đơn.
+// TestCannotCancelAnotherCustomersOrder kiểm chứng quyền ở đường hủy đơn.
 //
 // Đây là thao tác GHI: đọc nhầm đơn người khác là lộ dữ liệu, hủy nhầm đơn
 // người khác là phá hàng hóa họ đang chờ.
-func TestKhongHuyDuocDonNguoiKhac(t *testing.T) {
+func TestCannotCancelAnotherCustomersOrder(t *testing.T) {
 	h, repo := newHandler(t)
 
-	chuDon := ids.MustNew(ids.PrefixCustomer)
-	keTomo := ids.MustNew(ids.PrefixCustomer)
-	o := newOrder(t, chuDon, "+84901234567")
+	orderOwner := ids.MustNew(ids.PrefixCustomer)
+	stranger := ids.MustNew(ids.PrefixCustomer)
+	o := newOrder(t, orderOwner, "+84901234567")
 	_ = repo.Save(context.Background(), o)
 
 	r := httptest.NewRequest("POST", "/api/v1/orders/"+o.ID().String()+"/cancel",
 		bytes.NewBufferString(`{"reason":"CHANGED_MIND"}`))
 	r.Header.Set("Content-Type", "application/json")
 
-	res, _ := do(t, h, asCustomer(r, keTomo))
+	res, _ := do(t, h, asCustomer(r, stranger))
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("mã trạng thái = %d, muốn 404", res.StatusCode)
 	}
@@ -375,10 +375,10 @@ func TestKhongHuyDuocDonNguoiKhac(t *testing.T) {
 	}
 }
 
-// TestHuyDonGhiLaiLyDo kiểm chứng lý do được LƯU chứ không chỉ kiểm tra.
+// TestCancelRecordsTheReason kiểm chứng lý do được LƯU chứ không chỉ kiểm tra.
 //
 // Bắt khách chọn một trong năm lý do rồi vứt đi là bắt họ làm việc vô ích.
-func TestHuyDonGhiLaiLyDo(t *testing.T) {
+func TestCancelRecordsTheReason(t *testing.T) {
 	h, repo := newHandler(t)
 
 	customerID := ids.MustNew(ids.PrefixCustomer)
@@ -402,11 +402,11 @@ func TestHuyDonGhiLaiLyDo(t *testing.T) {
 	}
 }
 
-// TestPhanTrangBaoDungConTrangSau kiểm chứng `has_more`.
+// TestPagingReportsHasNextPageCorrectly kiểm chứng `has_more`.
 //
 // Sai trường này thì giao diện hoặc dừng sớm (khách mất lịch sử) hoặc gọi
 // mãi một trang rỗng.
-func TestPhanTrangBaoDungConTrangSau(t *testing.T) {
+func TestPagingReportsHasNextPageCorrectly(t *testing.T) {
 	h, repo := newHandler(t)
 
 	customerID := ids.MustNew(ids.PrefixCustomer)

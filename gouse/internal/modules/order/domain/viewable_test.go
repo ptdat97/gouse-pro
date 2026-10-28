@@ -51,13 +51,13 @@ func orderFor(t *testing.T, customerID ids.ID, guestEmail, guestPhone string) *d
 //
 // Mỗi nơi tự cài lại nghĩa là sớm muộn một nơi cài lỏng hơn, và MỘT nơi
 // lỏng là đủ để lộ lịch sử mua hàng của người khác.
-func TestQuyenXemDon(t *testing.T) {
-	chuDon := ids.MustNew(ids.PrefixCustomer)
-	keTomo := ids.MustNew(ids.PrefixCustomer)
+func TestOrderViewPermission(t *testing.T) {
+	orderOwner := ids.MustNew(ids.PrefixCustomer)
+	stranger := ids.MustNew(ids.PrefixCustomer)
 
-	daDangNhap := orderFor(t, chuDon, "a@example.com", "+84901234567")
-	vangLai := orderFor(t, "", "b@example.com", "+84907654321")
-	khongSDT := orderFor(t, "", "c@example.com", "")
+	loggedIn := orderFor(t, orderOwner, "a@example.com", "+84901234567")
+	guestOrder := orderFor(t, "", "b@example.com", "+84907654321")
+	noPhone := orderFor(t, "", "c@example.com", "")
 
 	cases := []struct {
 		name       string
@@ -66,27 +66,27 @@ func TestQuyenXemDon(t *testing.T) {
 		phone      string
 		want       bool
 	}{
-		{"chủ đơn xem đơn của mình", daDangNhap, chuDon.String(), "", true},
-		{"người khác KHÔNG xem được", daDangNhap, keTomo.String(), "", false},
+		{"chủ đơn xem đơn của mình", loggedIn, orderOwner.String(), "", true},
+		{"người khác KHÔNG xem được", loggedIn, stranger.String(), "", false},
 		{
 			name: "biết số điện thoại KHÔNG mở được đơn đã có chủ",
 			// Đơn đã gắn với tài khoản thì số điện thoại không còn là
 			// chìa khóa — nếu không, ai biết số của khách đều đọc được đơn.
-			order: daDangNhap, customerID: "", phone: "+84901234567", want: false,
+			order: loggedIn, customerID: "", phone: "+84901234567", want: false,
 		},
-		{"vãng lai đúng số điện thoại", vangLai, "", "+84907654321", true},
-		{"vãng lai sai số điện thoại", vangLai, "", "+84900000000", false},
-		{"vãng lai không gửi số điện thoại", vangLai, "", "", false},
+		{"vãng lai đúng số điện thoại", guestOrder, "", "+84907654321", true},
+		{"vãng lai sai số điện thoại", guestOrder, "", "+84900000000", false},
+		{"vãng lai không gửi số điện thoại", guestOrder, "", "", false},
 		{
 			name: "số điện thoại có khoảng trắng vẫn khớp",
 			// Người dùng dán từ tin nhắn thì hay kèm khoảng trắng.
-			order: vangLai, customerID: "", phone: "  +84907654321  ", want: true,
+			order: guestOrder, customerID: "", phone: "  +84907654321  ", want: true,
 		},
 		{
 			name: "đơn KHÔNG có số điện thoại thì không ai mở bằng số rỗng",
 			// Chuỗi rỗng không được khớp với chuỗi rỗng — nếu không, một
 			// đơn thiếu số điện thoại mở cho bất kỳ ai không gửi gì.
-			order: khongSDT, customerID: "", phone: "", want: false,
+			order: noPhone, customerID: "", phone: "", want: false,
 		},
 	}
 

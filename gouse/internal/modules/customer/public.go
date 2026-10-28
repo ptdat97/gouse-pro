@@ -408,24 +408,16 @@ type NotifierPort interface {
 // Khai HẸP: module này chỉ cần một việc — chuyển chủ các đơn vãng lai sau
 // khi đã xác minh quyền sở hữu email.
 type OrderPort interface {
-	// GanDonVangLaiChoKhach gắn đơn vãng lai của một email vào hồ sơ khách.
+	// AttachGuestOrdersToCustomer gắn đơn vãng lai của một email vào hồ sơ
+	// khách.
 	//
 	// Trả SỐ ĐƠN đã gắn.
-	//
-	// # Vì sao hai method này còn tên tiếng Việt
-	//
-	// Cổng do module NÀY khai, nhưng bên CÀI là `order.Module` — và `order`
-	// chưa được đổi tên. Interface của Go là cấu trúc, nên đổi tên ở đây mà
-	// không đổi bên cài làm `order.Module` không còn thỏa cổng, và lỗi hiện
-	// ở chỗ GÁN trong `internal/app` chứ không ở đây.
-	//
-	// Đổi cùng lúc với `order`. Xem docs/03-architecture/quy-uoc-dat-ten.md.
-	GanDonVangLaiChoKhach(ctx context.Context, guestEmail, customerID string) (int, error)
+	AttachGuestOrdersToCustomer(ctx context.Context, guestEmail, customerID string) (int, error)
 
-	// DemDonVangLai đếm đơn VÃNG LAI của một email.
+	// CountGuestOrders đếm đơn VÃNG LAI của một email.
 	//
 	// Dùng lúc đăng ký để biết có lịch sử đang chờ hay không. Phải hỏi
 	// `order` chứ không tra hồ sơ khách: khách vãng lai KHÔNG có hồ sơ —
 	// đo trên database phát triển 07/09 là 0 hồ sơ vãng lai nhưng 3150 đơn.
-	DemDonVangLai(ctx context.Context, guestEmail string) (int, error)
+	CountGuestOrders(ctx context.Context, guestEmail string) (int, error)
 }

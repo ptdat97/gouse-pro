@@ -75,7 +75,7 @@ func line(sellerID string, price int64, qty, rate int, name string) order.PlaceO
 //
 // Khách bấm "Đặt hàng" hai lần, hoặc client thử lại sau timeout — không
 // được tạo hai đơn. Hai đơn nghĩa là khách bị trừ tiền hai lần.
-func TestDatHangHaiLanChiTaoMotDon(t *testing.T) {
+func TestPlacingTwiceCreatesOneOrder(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
@@ -115,7 +115,7 @@ func TestDatHangHaiLanChiTaoMotDon(t *testing.T) {
 //
 // Test này chạy 10 request SONG SONG với cùng một khóa. Kết quả đúng là:
 // đúng MỘT đơn trong database, và cả 10 lời gọi đều trả về đơn đó.
-func TestDatHangSongSongVoiCungKhoaChiRaMotDon(t *testing.T) {
+func TestConcurrentPlaceWithSameKeyYieldsOneOrder(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
@@ -174,7 +174,7 @@ func TestDatHangSongSongVoiCungKhoaChiRaMotDon(t *testing.T) {
 }
 
 // KHÁCH VÃNG LAI đặt được hàng (quy tắc 6), nhưng phải liên hệ được.
-func TestKhachVangLaiDatDuocHangQuaDatabase(t *testing.T) {
+func TestGuestsCanPlaceOrdersViaDatabase(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
@@ -212,7 +212,7 @@ func TestKhachVangLaiDatDuocHangQuaDatabase(t *testing.T) {
 //
 // Đơn 3 món 500.000đ giảm 50.000đ, phân bổ về từng dòng. Khách trả món C
 // (100.000đ) thì hoàn 100.000 − 10.000 = 90.000đ, không phải tính lại tỷ lệ.
-func TestKhoanDieuChinhPhanBoVeTungDong(t *testing.T) {
+func TestAdjustmentsAreAllocatedToEachLine(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
@@ -275,7 +275,7 @@ func TestKhoanDieuChinhPhanBoVeTungDong(t *testing.T) {
 // chứng minh nó cũng không đổi khi đi qua PostgreSQL: nếu store JOIN sang
 // bảng product hay pricing để lấy tên và giá, đối soát tháng trước sẽ ra số
 // khác sau khi seller đổi giá.
-func TestDongBangSongSotQuaVongGhiDoc(t *testing.T) {
+func TestFrozenDataSurvivesAWriteReadRound(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
@@ -355,7 +355,7 @@ const adminActor = "usr_01J9XABC123DEF456GHJKMNPQR"
 //
 // admin-api.md mục 6: đọc trộm dữ liệu khách không để lại dấu vết nào khác,
 // nên chính việc ĐỌC phải sinh bản ghi.
-func TestXemChiTietDonGhiVetTruyCap(t *testing.T) {
+func TestViewingOrderDetailLeavesAnAccessTrail(t *testing.T) {
 	m, db := newModuleWithDB(t)
 	ctx := context.Background()
 	v := placeForAdmin(t, m, "xem-chi-tiet")
@@ -391,7 +391,7 @@ func TestXemChiTietDonGhiVetTruyCap(t *testing.T) {
 //
 // Lý do trống biến nhật ký truy cập thành danh sách vô nghĩa — không phân
 // biệt được tra cứu chính đáng với tò mò.
-func TestXemChiTietDonThieuLyDoBiTuChoi(t *testing.T) {
+func TestViewingOrderDetailWithoutAReasonIsRejected(t *testing.T) {
 	m, db := newModuleWithDB(t)
 	ctx := context.Background()
 	v := placeForAdmin(t, m, "thieu-ly-do")
@@ -416,7 +416,7 @@ func TestXemChiTietDonThieuLyDoBiTuChoi(t *testing.T) {
 }
 
 // Hủy đơn ghi vết trong CÙNG giao dịch với việc đổi trạng thái.
-func TestHuyDonQuanTriGhiVet(t *testing.T) {
+func TestAdminCancelLeavesAnAuditTrail(t *testing.T) {
 	m, db := newModuleWithDB(t)
 	ctx := context.Background()
 	v := placeForAdmin(t, m, "huy-don")
@@ -447,7 +447,7 @@ func TestHuyDonQuanTriGhiVet(t *testing.T) {
 }
 
 // Hủy đơn thất bại KHÔNG để lại trạng thái nửa vời.
-func TestHuyDonLyDoRacKhongDoiTrangThai(t *testing.T) {
+func TestCancelWithAJunkReasonChangesNoStatus(t *testing.T) {
 	m, db := newModuleWithDB(t)
 	ctx := context.Background()
 	v := placeForAdmin(t, m, "huy-ly-do-rac")
@@ -477,7 +477,7 @@ func TestHuyDonLyDoRacKhongDoiTrangThai(t *testing.T) {
 }
 
 // Danh sách quản trị lọc được theo mã đơn và trạng thái.
-func TestDanhSachDonQuanTriLocDuoc(t *testing.T) {
+func TestAdminOrderListIsFilterable(t *testing.T) {
 	m := newModule(t)
 	ctx := context.Background()
 
@@ -533,7 +533,7 @@ func TestDanhSachDonQuanTriLocDuoc(t *testing.T) {
 // Test TRUY VẤN THẲNG bảng `order`. Đọc qua module thì không phân biệt được
 // "đã ghi xuống" với "còn trong bộ nhớ từ lúc hủy" — và các báo cáo về lý
 // do hủy đọc thẳng bảng này.
-func TestLyDoHuyCuaKhachLuuXuongDatabase(t *testing.T) {
+func TestCustomerCancelReasonIsPersisted(t *testing.T) {
 	m, db := newModuleWithDB(t)
 	ctx := context.Background()
 	v := placeForAdmin(t, m, "khach-tu-huy")
@@ -558,7 +558,7 @@ func TestLyDoHuyCuaKhachLuuXuongDatabase(t *testing.T) {
 // Lý do của nhân viên là VĂN BẢN TỰ DO đã được kiểm tra chất lượng và ghi
 // vào nhật ký thao tác (ADR-0011). Chép nó vào cột dữ liệu nghiệp vụ sẽ
 // làm hỏng mọi báo cáo tổng hợp theo năm lý do đóng của khách.
-func TestHuyBoiQuanTriKhongGhiLyDoVaoDon(t *testing.T) {
+func TestAdminCancelDoesNotWriteTheReasonIntoTheOrder(t *testing.T) {
 	m, db := newModuleWithDB(t)
 	ctx := context.Background()
 	v := placeForAdmin(t, m, "quan-tri-huy")

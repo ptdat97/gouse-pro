@@ -100,7 +100,7 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, moc, err := page(r)
+	limit, cursor, err := page(r)
 	if err != nil {
 		h.failCustomer(w, r, err)
 		return
@@ -118,12 +118,12 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 	// Lấy DƯ MỘT bản ghi để biết còn trang sau không, thay vì chạy thêm
 	// một truy vấn COUNT trên toàn bộ lịch sử mua hàng.
 	orders, err := h.svc.ListCustomerOrders(
-		r.Context(), customerID, wanted, limit+1, moc)
-	if errors.Is(err, application.ErrTrangThaiKhongHopLe) {
+		r.Context(), customerID, wanted, limit+1, cursor)
+	if errors.Is(err, application.ErrInvalidStatusFilter) {
 		// 400 chứ không phải danh sách rỗng: rỗng trông giống "khách chưa
 		// có đơn nào" chứ không giống "bạn gõ sai trạng thái".
 		h.failCustomer(w, r, apierror.New(apierror.CodeValidationFailed,
-			fmt.Sprintf("status phải là một trong: %s", tenTrangThai())))
+			fmt.Sprintf("status phải là một trong: %s", statusNames())))
 		return
 	}
 	if err != nil {
@@ -149,7 +149,7 @@ func (h *CustomerHandler) listMyOrders(w http.ResponseWriter, r *http.Request) {
 		// Mốc là KHÓA của bản ghi cuối trang này, không phải số đã đọc.
 		// Đơn mới về giữa hai lần đọc nằm ở đầu danh sách, tức phần khách
 		// đã xem — nó không đẩy phần chưa đọc đi đâu cả.
-		next := maHoaMoc(orders[len(orders)-1])
+		next := encodeCursor(orders[len(orders)-1])
 		res.Pagination.NextCursor = &next
 	}
 
@@ -239,7 +239,7 @@ func (h *CustomerHandler) getOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.okCustomer(w, r, http.StatusOK,
-		toCustomerDetail(o, h.svc.HanDoiTra(), h.svc.Now()))
+		toCustomerDetail(o, h.svc.ReturnWindow(), h.svc.Now()))
 }
 
 // ---------------------------------------------------------------- Hủy đơn
@@ -397,7 +397,7 @@ func (h *CustomerHandler) owns(r *http.Request, o *domain.Order) bool {
 // làm được — và đặc tả coi `next_cursor` là chuỗi mờ nên client không thấy
 // khác biệt. Hệ quả có thật: đơn mới đặt xen vào giữa hai lần lật trang có
 // thể làm một đơn xuất hiện hai lần. Xem backlog P3-12.
-func page(r *http.Request) (limit int, moc *domain.MocPhanTrang, err error) {
+func page(r *http.Request) (limit int, cursor *domain.Cursor, err error) {
 	q := r.URL.Query()
 
 	limit = defaultPageSize
@@ -411,16 +411,16 @@ func page(r *http.Request) (limit int, moc *domain.MocPhanTrang, err error) {
 	}
 
 	if v := q.Get("cursor"); v != "" {
-		moc, err = giaiMaMoc(v)
+		cursor, err = decodeCursor(v)
 		if err != nil {
 			return 0, nil, err
 		}
 	}
 
-	return limit, moc, nil
+	return limit, cursor, nil
 }
 
-// maHoaMoc gói mốc đọc tiếp thành một chuỗi cho client.
+// encodeCursor gói mốc đọc tiếp thành một chuỗi cho client.
 //
 // Client phải coi đây là chuỗi ĐỤC: hình dạng bên trong là chuyện của máy
 // chủ và đổi được bất cứ lúc nào. Base64 không phải để giấu — nó chỉ ngăn
@@ -437,34 +437,34 @@ func page(r *http.Request) (limit int, moc *domain.MocPhanTrang, err error) {
 // vòng đúng — đã thử đổi sang nano và không bài test nào đỏ. Chọn
 // micro-giây vì nó nói thẳng ra giả định đó, thay vì mang theo ba chữ số
 // vĩnh viễn bằng 0.
-func maHoaMoc(o *domain.Order) string {
+func encodeCursor(o *domain.Order) string {
 	return base64.RawURLEncoding.EncodeToString(fmt.Appendf(nil, "%d|%s",
 		o.PlacedAt().UnixMicro(), o.ID().String()))
 }
 
-func giaiMaMoc(v string) (*domain.MocPhanTrang, error) {
-	hong := apierror.New(apierror.CodeValidationFailed, "cursor không hợp lệ")
+func decodeCursor(v string) (*domain.Cursor, error) {
+	badCursor := apierror.New(apierror.CodeValidationFailed, "cursor không hợp lệ")
 
-	tho, err := base64.RawURLEncoding.DecodeString(v)
+	rawCursor, err := base64.RawURLEncoding.DecodeString(v)
 	if err != nil {
-		return nil, hong
+		return nil, badCursor
 	}
-	truoc, sau, co := strings.Cut(string(tho), "|")
+	before, after, co := strings.Cut(string(rawCursor), "|")
 	if !co {
-		return nil, hong
+		return nil, badCursor
 	}
-	micro, err := strconv.ParseInt(truoc, 10, 64)
+	micro, err := strconv.ParseInt(before, 10, 64)
 	if err != nil {
-		return nil, hong
+		return nil, badCursor
 	}
 	// Kiểm CẢ tiền tố: mốc mang id của thực thể khác (offer, sku…) là
 	// cursor bịa, và bịa thì phải trả 400 chứ không phải lặng lẽ đọc ra
 	// một trang rỗng trông như "hết đơn".
-	id, err := ids.Parse(sau, ids.PrefixOrder)
+	id, err := ids.Parse(after, ids.PrefixOrder)
 	if err != nil {
-		return nil, hong
+		return nil, badCursor
 	}
-	return &domain.MocPhanTrang{
+	return &domain.Cursor{
 		PlacedAt: time.UnixMicro(micro).UTC(), ID: id,
 	}, nil
 }
@@ -504,7 +504,7 @@ func toSummary(o *domain.Order) summaryJSON {
 // dựng cả service. `han` bằng 0 nghĩa là chưa nối cấu hình — khi đó hai
 // trường hạn đổi trả vắng mặt thay vì mang một con số bịa.
 func toCustomerDetail(
-	o *domain.Order, han time.Duration, now time.Time,
+	o *domain.Order, returnWindow time.Duration, now time.Time,
 ) customerDetailJSON {
 	lines := make([]customerLineJSON, 0, len(o.Lines()))
 	for _, l := range o.Lines() {
@@ -548,10 +548,10 @@ func toCustomerDetail(
 	// Đơn chưa giao xong thì `DeliveredAt` rỗng và cả hai trường vắng
 	// mặt: chưa giao thì câu hỏi đúng là "bao giờ tới", không phải "còn
 	// trả được không".
-	if !o.DeliveredAt().IsZero() && han > 0 {
-		hanChot := o.DeliveredAt().Add(han)
-		out.ReturnDeadline = hanChot.UTC().Format(time.RFC3339)
-		out.CanReturn = now.Before(hanChot)
+	if !o.DeliveredAt().IsZero() && returnWindow > 0 {
+		deadline := o.DeliveredAt().Add(returnWindow)
+		out.ReturnDeadline = deadline.UTC().Format(time.RFC3339)
+		out.CanReturn = now.Before(deadline)
 	}
 
 	if addr := o.ShippingAddress(); !addr.IsEmpty() {
@@ -569,12 +569,12 @@ func toCustomerDetail(
 	return out
 }
 
-// tenTrangThai liệt kê trạng thái hợp lệ cho thông báo lỗi.
+// statusNames liệt kê trạng thái hợp lệ cho thông báo lỗi.
 //
 // Lấy từ domain chứ không chép tay: chép tay thì thêm một trạng thái mới
 // sẽ để thông báo lỗi nói thiếu, và người tích hợp đi tìm cái không có.
-func tenTrangThai() string {
-	ds := domain.MoiTrangThai()
+func statusNames() string {
+	ds := domain.AllStatuses()
 	ten := make([]string, 0, len(ds))
 	for _, s := range ds {
 		ten = append(ten, string(s))

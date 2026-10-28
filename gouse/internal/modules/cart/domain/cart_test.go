@@ -57,7 +57,7 @@ func itemParams(price int64, qty int) domain.NewItemParams {
 //
 // Test này khóa lại điều đó bằng cách kiểm tra availableQuantity chỉ là
 // THÔNG TIN THAM KHẢO: nó không ngăn khách thêm nhiều hơn số hàng còn.
-func TestGioHangKhongGiuTonKho(t *testing.T) {
+func TestTheCartReservesNoStock(t *testing.T) {
 	c := newCart(t)
 
 	// Kho chỉ còn 3, nhưng khách vẫn thêm được 10 vào giỏ.
@@ -99,7 +99,7 @@ func TestGioHangKhongGiuTonKho(t *testing.T) {
 //
 // Giỏ hiện giá cũ sau khi seller giảm giá sẽ làm khách bỏ lỡ khuyến mãi;
 // tệ hơn là hiện giá thấp rồi bị tính giá cao ở bước thanh toán.
-func TestGiaTrongGioCapNhatDongKhongDongBang(t *testing.T) {
+func TestCartPriceFollowsLiveNotFrozen(t *testing.T) {
 	c := newCart(t)
 
 	item, err := c.AddItem(itemParams(299000, 2))
@@ -133,40 +133,40 @@ func TestGiaTrongGioCapNhatDongKhongDongBang(t *testing.T) {
 //
 // Xóa im lặng làm khách bối rối: họ nhớ đã thêm món đó, không hiểu vì sao
 // nó biến mất, rồi nghi ngờ cả những món còn lại.
-func TestMonKhongHopLeChiDanhDauKhongBiXoa(t *testing.T) {
+func TestAnInvalidItemIsFlaggedNotDeleted(t *testing.T) {
 	for _, tc := range []struct {
-		ten  string
-		sync domain.SyncData
-		mong domain.ItemAvailability
+		name     string
+		sync     domain.SyncData
+		expected domain.ItemAvailability
 	}{
 		{
-			ten:  "offer bị gỡ",
-			sync: domain.SyncData{OfferExists: false, SellerActive: true},
-			mong: domain.AvailabilityUnavailable,
+			name:     "offer bị gỡ",
+			sync:     domain.SyncData{OfferExists: false, SellerActive: true},
+			expected: domain.AvailabilityUnavailable,
 		},
 		{
-			ten:  "seller bị đình chỉ",
-			sync: domain.SyncData{OfferExists: true, SellerActive: false},
-			mong: domain.AvailabilityUnavailable,
+			name:     "seller bị đình chỉ",
+			sync:     domain.SyncData{OfferExists: true, SellerActive: false},
+			expected: domain.AvailabilityUnavailable,
 		},
 		{
-			ten: "hết hàng",
+			name: "hết hàng",
 			sync: domain.SyncData{
 				OfferExists: true, SellerActive: true,
 				IsSellable: true, AvailableQuantity: 0,
 			},
-			mong: domain.AvailabilityOutOfStock,
+			expected: domain.AvailabilityOutOfStock,
 		},
 		{
-			ten: "offer ngừng bán",
+			name: "offer ngừng bán",
 			sync: domain.SyncData{
 				OfferExists: true, SellerActive: true,
 				IsSellable: false, AvailableQuantity: 50,
 			},
-			mong: domain.AvailabilityOutOfStock,
+			expected: domain.AvailabilityOutOfStock,
 		},
 	} {
-		t.Run(tc.ten, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			c := newCart(t)
 			item, err := c.AddItem(itemParams(299000, 1))
 			if err != nil {
@@ -175,8 +175,8 @@ func TestMonKhongHopLeChiDanhDauKhongBiXoa(t *testing.T) {
 
 			item.Sync(tc.sync, testNow)
 
-			if item.Availability() != tc.mong {
-				t.Errorf("tình trạng = %q, mong %q", item.Availability(), tc.mong)
+			if item.Availability() != tc.expected {
+				t.Errorf("tình trạng = %q, mong %q", item.Availability(), tc.expected)
 			}
 			// Điều quan trọng nhất: món VẪN Ở TRONG GIỎ.
 			if c.ItemCount() != 1 {
@@ -200,7 +200,7 @@ func TestMonKhongHopLeChiDanhDauKhongBiXoa(t *testing.T) {
 // THÊM CÙNG MỘT OFFER HAI LẦN thì CỘNG DỒN, không tạo hai dòng.
 //
 // Khách mong thấy "số lượng 2", không phải hai dòng giống hệt nhau.
-func TestThemCungOfferThiCongDon(t *testing.T) {
+func TestAddingTheSameOfferAccumulates(t *testing.T) {
 	c := newCart(t)
 
 	p := itemParams(299000, 1)
@@ -223,7 +223,7 @@ func TestThemCungOfferThiCongDon(t *testing.T) {
 //
 // Vượt max thì BÁO LỖI chứ không tự cắt: khách chọn 10 mà giỏ im lặng để 5
 // là hiểu nhầm sẽ lộ ra ở bước thanh toán.
-func TestTonTrongGioiHanSoLuongCuaOffer(t *testing.T) {
+func TestRespectsTheOffersQuantityLimits(t *testing.T) {
 	c := newCart(t)
 
 	p := itemParams(299000, 6)
@@ -264,7 +264,7 @@ func TestTonTrongGioiHanSoLuongCuaOffer(t *testing.T) {
 //	Món TRÙNG offer  → cộng số lượng
 //	Món KHÔNG trùng  → thêm vào
 //	Nguồn giới thiệu → giữ của lần thêm GẦN NHẤT
-func TestGopGioKhiDangNhap(t *testing.T) {
+func TestCartsMergeOnLogin(t *testing.T) {
 	// Giỏ của tài khoản, đã có sẵn từ trước.
 	account := newCart(t)
 	shared := itemParams(299000, 1)
@@ -316,7 +316,7 @@ func TestGopGioKhiDangNhap(t *testing.T) {
 // Đây là chỗ DUY NHẤT hệ thống tự đổi số lượng của khách, và nó không được
 // im lặng: khách đăng nhập xong thấy giỏ ít hàng hơn lúc chưa đăng nhập mà
 // không hiểu vì sao là trải nghiệm tệ nhất của luồng này.
-func TestGopGioVuotGioiHanThiCatNhungPhaiBao(t *testing.T) {
+func TestMergeOverTheLimitTrimsButMustWarn(t *testing.T) {
 	p := itemParams(299000, 3)
 	p.MaxOrderQuantity = 5
 
@@ -364,7 +364,7 @@ func TestGopGioVuotGioiHanThiCatNhungPhaiBao(t *testing.T) {
 // GIỎ PHẢI BIẾT THUỘC VỀ AI: khách đã đăng nhập hoặc một phiên.
 //
 // Giỏ không có chủ là giỏ không tìm lại được ở phiên sau.
-func TestGioPhaiCoChu(t *testing.T) {
+func TestACartMustHaveAnOwner(t *testing.T) {
 	_, err := domain.NewCart(domain.NewCartParams{Currency: money.VND, Now: testNow})
 	if !errors.Is(err, domain.ErrNoOwner) {
 		t.Errorf("lỗi = %v, mong ErrNoOwner", err)
@@ -386,7 +386,7 @@ func TestGioPhaiCoChu(t *testing.T) {
 //
 //	Cart     : 30 ngày   (không giữ hàng nên để lâu không hại ai)
 //	Checkout : 15 phút   (giữ hàng nên phải nhả sớm)
-func TestGioSongLauHonCheckoutRatNhieu(t *testing.T) {
+func TestTheCartOutlivesTheCheckoutByFar(t *testing.T) {
 	c := newCart(t)
 
 	if got := c.ExpiresAt().Sub(testNow); got != domain.DefaultTTL {
@@ -409,7 +409,7 @@ func TestGioSongLauHonCheckoutRatNhieu(t *testing.T) {
 // KHÔNG TRỘN NHIỀU ĐƠN VỊ TIỀN TỆ trong một giỏ.
 //
 // Cộng tiền khác đơn vị ra một con số vô nghĩa.
-func TestKhongTronNhieuDonViTienTe(t *testing.T) {
+func TestCurrenciesAreNeverMixed(t *testing.T) {
 	c := newCart(t)
 
 	p := itemParams(299000, 1)
@@ -428,7 +428,7 @@ func TestKhongTronNhieuDonViTienTe(t *testing.T) {
 //
 // Giữ lại vì nó cho biết nội dung nào dẫn tới việc mua thật — dữ liệu đầu
 // vào của bánh đà creator commerce.
-func TestGioDaThanhDonThiKhoaLai(t *testing.T) {
+func TestAConvertedCartIsLocked(t *testing.T) {
 	c := newCart(t)
 	if _, err := c.AddItem(itemParams(299000, 1)); err != nil {
 		t.Fatalf("AddItem: %v", err)
@@ -451,7 +451,7 @@ func TestGioDaThanhDonThiKhoaLai(t *testing.T) {
 //
 // Nhờ vậy đo được tỷ lệ "thêm giỏ" của từng nội dung — tín hiệu ý định mua
 // mạnh hơn lượt xem nhiều — và quy kết đúng khi khách mua sau vài ngày.
-func TestGhiNhanNguonGioiThieuTuLucThemGio(t *testing.T) {
+func TestReferralSourceIsRecordedAtAddTime(t *testing.T) {
 	c := newCart(t)
 
 	contentID := ids.MustNew(ids.PrefixContent)
@@ -491,7 +491,7 @@ func TestGhiNhanNguonGioiThieuTuLucThemGio(t *testing.T) {
 //
 // Khách cần hiểu hàng đến từ đâu và thời gian giao sẽ khác nhau. Việc chia
 // thật diễn ra ở bước tạo FulfillmentOrder.
-func TestNhomTheoSellerDeHienThi(t *testing.T) {
+func TestGroupedBySellerForDisplay(t *testing.T) {
 	c := newCart(t)
 
 	sellerA := ids.MustNew(ids.PrefixSeller)
@@ -516,7 +516,7 @@ func TestNhomTheoSellerDeHienThi(t *testing.T) {
 }
 
 // XÓA MÓN là hành động của KHÁCH, và là đường DUY NHẤT món rời khỏi giỏ.
-func TestChiKhachMoiXoaDuocMon(t *testing.T) {
+func TestOnlyTheOwnerCanRemoveAnItem(t *testing.T) {
 	c := newCart(t)
 	item, err := c.AddItem(itemParams(299000, 1))
 	if err != nil {

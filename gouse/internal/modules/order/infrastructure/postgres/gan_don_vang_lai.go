@@ -7,12 +7,12 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
-// GanDonVangLai gắn đơn vãng lai của một email vào hồ sơ khách.
+// AttachGuestOrders gắn đơn vãng lai của một email vào hồ sơ khách.
 //
 // `customer_id = ”` trong mệnh đề WHERE là ràng buộc quan trọng nhất: đơn
 // đã thuộc về một khách khác KHÔNG được chuyển chủ, kể cả khi trùng email.
 // Thiếu điều kiện đó thì một lần xác minh có thể kéo đơn của người khác về.
-func (s *OrderStore) GanDonVangLai(
+func (s *OrderStore) AttachGuestOrders(
 	ctx context.Context, guestEmail string, customerID ids.ID,
 ) (int, error) {
 	tag, err := s.pool.Exec(ctx, `
@@ -26,8 +26,8 @@ func (s *OrderStore) GanDonVangLai(
 	return int(tag.RowsAffected()), nil
 }
 
-// DemDonVangLai đếm đơn vãng lai của một email.
-func (s *OrderStore) DemDonVangLai(ctx context.Context, guestEmail string) (int, error) {
+// CountGuestOrders đếm đơn vãng lai của một email.
+func (s *OrderStore) CountGuestOrders(ctx context.Context, guestEmail string) (int, error) {
 	var n int
 	if err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM "order"

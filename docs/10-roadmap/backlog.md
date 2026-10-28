@@ -4566,7 +4566,7 @@ nhận. Đo trên sổ cái thật: **0 bút toán THU TIỀN trong toàn hệ t
 `ApplyFulfillmentProgress` khi đơn COD giao TRỌN. Chi tiết quyết định nằm ở
 phần bổ sung của [ADR-0018](../adr/0018-checkout-completed-khong-phai-da-tra-tien.md).
 
-`PaymentMethod.ThuTienKhiGiao()` — hàm từng nằm trong danh sách "không ai
+`PaymentMethod.CollectOnDelivery()` — hàm từng nằm trong danh sách "không ai
 gọi" của mục 8 — nay có bên gọi thật.
 
 ### Lỗi lần thứ BA của cùng một hàm

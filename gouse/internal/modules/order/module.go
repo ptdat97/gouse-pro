@@ -85,7 +85,7 @@ func New(cfg Config) (*Module, error) {
 		deps.Events = NewEventPublisher(cfg.Events)
 	}
 	if cfg.OpsConfig != nil {
-		deps.Han = &hanDoiTraAdapter{cfg: cfg.OpsConfig}
+		deps.ReturnWindow = &returnWindowAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -581,17 +581,17 @@ func translateErr(err error) error {
 	case errors.Is(err, domain.ErrMissingIdempKey),
 		errors.Is(err, domain.ErrNoCustomer),
 		errors.Is(err, domain.ErrNoLines),
-		errors.Is(err, domain.ErrPaymentMethodKhongHopLe):
+		errors.Is(err, domain.ErrInvalidPaymentMethod):
 		return ErrInvalidInput
 	}
 	return err
 }
 
-// hanDoiTraAdapter đọc hạn đổi trả từ cấu hình vận hành.
-type hanDoiTraAdapter struct{ cfg *opsconfig.Store }
+// returnWindowAdapter đọc hạn đổi trả từ cấu hình vận hành.
+type returnWindowAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.HanDoiTraPort = (*hanDoiTraAdapter)(nil)
+var _ application.ReturnWindowPort = (*returnWindowAdapter)(nil)
 
-func (a *hanDoiTraAdapter) HanDoiTra() time.Duration {
+func (a *returnWindowAdapter) ReturnWindow() time.Duration {
 	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
 }
