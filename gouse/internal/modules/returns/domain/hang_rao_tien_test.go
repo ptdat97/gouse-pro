@@ -29,7 +29,7 @@ func returnLines(lineID ids.ID, amount int64) domain.Lines {
 		SKUID:        ids.MustNew(ids.PrefixSKU),
 		Quantity:     1,
 		RefundAmount: vnd(amount),
-		LyDo:         domain.ReasonSizeTooSmall,
+		ReasonCode:   domain.ReasonSizeTooSmall,
 	}
 }
 

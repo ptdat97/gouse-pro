@@ -99,8 +99,8 @@ func (h *CustomerHandler) request(w http.ResponseWriter, r *http.Request) {
 		lines = append(lines, application.RequestedLine{
 			OrderLineID: ids.ID(strings.TrimSpace(it.OrderLineID)),
 			Quantity:    it.Quantity,
-			LyDo:        domain.LyDo(strings.ToUpper(strings.TrimSpace(it.ReasonCode))),
-			ChiTiet:     it.ReasonDetail,
+			ReasonCode:  domain.ReasonCode(strings.ToUpper(strings.TrimSpace(it.ReasonCode))),
+			Detail:      it.ReasonDetail,
 		})
 	}
 
@@ -111,7 +111,7 @@ func (h *CustomerHandler) request(w http.ResponseWriter, r *http.Request) {
 		Lines:      lines,
 	})
 	if err != nil {
-		h.fail(w, r, dich(err))
+		h.fail(w, r, translate(err))
 		return
 	}
 
@@ -127,7 +127,7 @@ func (h *CustomerHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	ds, err := h.svc.ListByOrder(r.Context(), ids.ID(orderID))
 	if err != nil {
-		h.fail(w, r, dich(err))
+		h.fail(w, r, translate(err))
 		return
 	}
 
@@ -179,7 +179,7 @@ func NewSellerHandler(svc *application.Service, log *slog.Logger) *SellerHandler
 
 func (h *SellerHandler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/seller/returns", http.HandlerFunc(h.list))
-	mux.Handle("POST /api/v1/seller/returns/{return_id}/approve", http.HandlerFunc(h.duyet))
+	mux.Handle("POST /api/v1/seller/returns/{return_id}/approve", http.HandlerFunc(h.approve))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/reject", http.HandlerFunc(h.tuChoi))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", http.HandlerFunc(h.receiveGoods))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/inspect", http.HandlerFunc(h.inspection))
@@ -194,7 +194,7 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 	ds, err := h.svc.ListBySeller(r.Context(), sellerID,
 		strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("status"))), 50)
 	if err != nil {
-		h.fail(w, r, dich(err))
+		h.fail(w, r, translate(err))
 		return
 	}
 	out := make([]returnJSON, 0, len(ds))
@@ -204,9 +204,9 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, http.StatusOK, map[string]any{"data": out})
 }
 
-func (h *SellerHandler) duyet(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) approve(w http.ResponseWriter, r *http.Request) {
 	h.step(w, r, func(sellerID, id ids.ID) (*domain.ReturnRequest, error) {
-		return h.svc.Duyet(r.Context(), id, sellerID)
+		return h.svc.Approve(r.Context(), id, sellerID)
 	})
 }
 
@@ -284,7 +284,7 @@ func (h *SellerHandler) step(
 	}
 	y, err := lam(sellerID, ids.ID(r.PathValue("return_id")))
 	if err != nil {
-		h.fail(w, r, dich(err))
+		h.fail(w, r, translate(err))
 		return
 	}
 	h.ok(w, r, http.StatusOK, map[string]any{"return": toJSON(y)})
@@ -341,8 +341,8 @@ type returnJSON struct {
 func toJSON(y *domain.ReturnRequest) returnJSON {
 	out := returnJSON{
 		ID: y.ID().String(), OrderID: y.OrderID().String(),
-		Status: string(y.Status()), ReasonCode: string(y.LyDo()),
-		CustomerNote: y.Note(), RejectReason: y.LyDoTuChoi(),
+		Status: string(y.Status()), ReasonCode: string(y.ReasonCode()),
+		CustomerNote: y.Note(), RejectReason: y.RejectReason(),
 		RefundAmount: moneyJSON{
 			Amount:   y.RefundAmount().Amount(),
 			Currency: string(y.RefundAmount().Currency()),
@@ -353,7 +353,7 @@ func toJSON(y *domain.ReturnRequest) returnJSON {
 		out.Items = append(out.Items, returnLineJSON{
 			OrderLineID: d.OrderLineID.String(), SKUID: d.SKUID.String(),
 			Quantity:   d.Quantity,
-			ReasonCode: string(d.LyDo), ReasonDetail: d.ChiTiet,
+			ReasonCode: string(d.ReasonCode), ReasonDetail: d.Detail,
 			Inspection: string(d.Inspection), InspectionNote: d.InspectionNote,
 			Refund: moneyJSON{
 				Amount:   d.RefundAmount.Amount(),
@@ -364,8 +364,8 @@ func toJSON(y *domain.ReturnRequest) returnJSON {
 	return out
 }
 
-// dich chuyển lỗi nội bộ thành lỗi HTTP.
-func dich(err error) error {
+// translate chuyển lỗi nội bộ thành lỗi HTTP.
+func translate(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		return apierror.New(apierror.CodeNotFound, "Không tìm thấy yêu cầu trả hàng")

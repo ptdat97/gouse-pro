@@ -98,7 +98,7 @@ type InventoryPort interface {
 	// Đây là bước DUY NHẤT đưa hàng hoàn trở lại bán được. Không có nó,
 	// hàng nằm chết ở Returned vĩnh viễn.
 	RecordInspection(
-		ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, lyDo string,
+		ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, reason string,
 	) error
 }
 
@@ -134,7 +134,7 @@ type Repository interface {
 
 	// SaveWithEvent ghi yêu cầu VÀ chạy fn trong CÙNG giao dịch.
 	SaveWithEvent(ctx context.Context, y *domain.ReturnRequest, fn domain.TxFunc) error
-	TimTheoID(ctx context.Context, id ids.ID) (*domain.ReturnRequest, error)
+	FindByID(ctx context.Context, id ids.ID) (*domain.ReturnRequest, error)
 	FindByOrder(ctx context.Context, orderID ids.ID) ([]*domain.ReturnRequest, error)
 	FindBySeller(ctx context.Context, sellerID ids.ID, status string, limit int) ([]*domain.ReturnRequest, error)
 
@@ -177,9 +177,9 @@ type ReturnRequested struct {
 
 // SignalLine là một dòng hàng bị trả, kèm lý do chuẩn hóa.
 type SignalLine struct {
-	SKUID    ids.ID
-	Quantity int
-	LyDo     string
+	SKUID      ids.ID
+	Quantity   int
+	ReasonCode string
 }
 
 // signalLines rút phần supply-chain cần từ yêu cầu trả hàng.
@@ -192,9 +192,9 @@ func signalLines(y *domain.ReturnRequest) []SignalLine {
 	out := make([]SignalLine, 0, len(y.Lines()))
 	for _, d := range y.Lines() {
 		out = append(out, SignalLine{
-			SKUID:    d.SKUID,
-			Quantity: d.Quantity,
-			LyDo:     string(d.LyDo),
+			SKUID:      d.SKUID,
+			Quantity:   d.Quantity,
+			ReasonCode: string(d.ReasonCode),
 		})
 	}
 	return out
@@ -324,8 +324,8 @@ type RequestInput struct {
 type RequestedLine struct {
 	OrderLineID ids.ID
 	Quantity    int
-	LyDo        domain.LyDo
-	ChiTiet     string
+	ReasonCode  domain.ReasonCode
+	Detail      string
 }
 
 // Request tạo một yêu cầu trả hàng.
@@ -397,8 +397,8 @@ func (s *Service) Request(
 			SKUID:        d.SKUID,
 			Quantity:     qty,
 			RefundAmount: amount,
-			LyDo:         xin.LyDo,
-			ChiTiet:      xin.ChiTiet,
+			ReasonCode:   xin.ReasonCode,
+			Detail:       xin.Detail,
 		})
 	}
 
@@ -433,19 +433,19 @@ func (s *Service) Request(
 	return y, nil
 }
 
-// Duyet nhà bán chấp nhận yêu cầu.
-func (s *Service) Duyet(ctx context.Context, id, sellerID ids.ID) (*domain.ReturnRequest, error) {
+// Approve nhà bán chấp nhận yêu cầu.
+func (s *Service) Approve(ctx context.Context, id, sellerID ids.ID) (*domain.ReturnRequest, error) {
 	return s.transition(ctx, id, sellerID, func(y *domain.ReturnRequest, now time.Time) error {
-		return y.Duyet(now)
+		return y.Approve(now)
 	})
 }
 
 // TuChoi nhà bán từ chối yêu cầu, kèm lý do.
 func (s *Service) TuChoi(
-	ctx context.Context, id, sellerID ids.ID, lyDo string,
+	ctx context.Context, id, sellerID ids.ID, reason string,
 ) (*domain.ReturnRequest, error) {
 	return s.transition(ctx, id, sellerID, func(y *domain.ReturnRequest, now time.Time) error {
-		return y.TuChoi(lyDo, now)
+		return y.TuChoi(reason, now)
 	})
 }
 
@@ -499,7 +499,7 @@ func (s *Service) ReceiveAndRefund(
 	//
 	// Cùng cách module fulfillment làm: mỗi lượt đổi trạng thái bắt đầu
 	// bằng một lượt đọc.
-	moi, err := s.repo.TimTheoID(ctx, y.ID())
+	moi, err := s.repo.FindByID(ctx, y.ID())
 	if err != nil {
 		return nil, err
 	}
@@ -560,7 +560,7 @@ func (s *Service) transition(
 	ctx context.Context, id, sellerID ids.ID,
 	step func(*domain.ReturnRequest, time.Time) error,
 ) (*domain.ReturnRequest, error) {
-	y, err := s.repo.TimTheoID(ctx, id)
+	y, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +627,7 @@ func (s *Service) Inspection(
 		return nil, domain.ErrNoLines
 	}
 
-	y, err := s.repo.TimTheoID(ctx, id)
+	y, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}

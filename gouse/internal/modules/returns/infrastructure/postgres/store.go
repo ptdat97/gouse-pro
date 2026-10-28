@@ -64,8 +64,8 @@ func (s *Store) SaveWithEvent(
 			version       = return_request.version + 1
 		WHERE return_request.version = $15`,
 		y.ID().String(), y.OrderID().String(), y.SellerID().String(),
-		y.CustomerID().String(), string(y.Status()), string(y.LyDo()),
-		y.Note(), y.LyDoTuChoi(),
+		y.CustomerID().String(), string(y.Status()), string(y.ReasonCode()),
+		y.Note(), y.RejectReason(),
 		y.RefundAmount().Amount(), string(y.RefundAmount().Currency()),
 		y.RequestedAt(), nullTime(y.DecidedAt()), nullTime(y.ReceivedAt()),
 		nullTime(y.RefundedAt()),
@@ -93,7 +93,7 @@ func (s *Store) SaveWithEvent(
 			d.ID.String(), y.ID().String(), d.OrderLineID.String(),
 			d.SKUID.String(), d.Quantity,
 			d.RefundAmount.Amount(), string(d.RefundAmount.Currency()),
-			string(d.LyDo), d.ChiTiet,
+			string(d.ReasonCode), d.Detail,
 			inspectionOrDefault(d.Inspection), d.InspectionNote,
 			nullTime(d.InspectedAt)); err != nil {
 			return fmt.Errorf("returns: ghi dòng trả hàng: %w", err)
@@ -112,7 +112,7 @@ func (s *Store) SaveWithEvent(
 	return nil
 }
 
-func (s *Store) TimTheoID(ctx context.Context, id ids.ID) (*domain.ReturnRequest, error) {
+func (s *Store) FindByID(ctx context.Context, id ids.ID) (*domain.ReturnRequest, error) {
 	y, err := s.read(ctx, `WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, err
@@ -184,12 +184,12 @@ func (s *Store) read(
 
 	for rows.Next() {
 		var p domain.KhoiPhucParams
-		var id, orderID, sellerID, customerID, status, lyDo, tienTe string
+		var id, orderID, sellerID, customerID, status, reason, tienTe string
 		var soTien int64
 		var decided, received, refunded *time.Time
 
 		if err := rows.Scan(&id, &orderID, &sellerID, &customerID, &status,
-			&lyDo, &p.Note, &p.LyDoTuChoi, &soTien, &tienTe,
+			&reason, &p.Note, &p.RejectReason, &soTien, &tienTe,
 			&p.RequestedAt, &decided, &received, &refunded,
 			&p.Version, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
@@ -204,8 +204,8 @@ func (s *Store) read(
 		p.OrderID = ids.ID(orderID)
 		p.SellerID = ids.ID(sellerID)
 		p.CustomerID = ids.ID(customerID)
-		p.Status = domain.TrangThai(status)
-		p.LyDo = domain.LyDo(lyDo)
+		p.Status = domain.Status(status)
+		p.ReasonCode = domain.ReasonCode(reason)
 		p.RefundAmount = amount
 		p.DecidedAt = deref(decided)
 		p.ReceivedAt = deref(received)
@@ -235,13 +235,13 @@ func (s *Store) read(
 	defer lrows.Close()
 
 	for lrows.Next() {
-		var reqID, id, lineID, skuID, tienTe, lyDo, chiTiet string
+		var reqID, id, lineID, skuID, tienTe, reason, chiTiet string
 		var inspection, ghiChuKD string
 		var kiemLuc *time.Time
 		var qty int
 		var soTien int64
 		if err := lrows.Scan(&reqID, &id, &lineID, &skuID, &qty, &soTien,
-			&tienTe, &lyDo, &chiTiet, &inspection, &ghiChuKD, &kiemLuc); err != nil {
+			&tienTe, &reason, &chiTiet, &inspection, &ghiChuKD, &kiemLuc); err != nil {
 			return nil, err
 		}
 		amount, err := money.New(soTien, money.Currency(tienTe))
@@ -252,7 +252,7 @@ func (s *Store) read(
 			p.Lines = append(p.Lines, domain.Lines{
 				ID: ids.ID(id), OrderLineID: ids.ID(lineID),
 				SKUID: ids.ID(skuID), Quantity: qty, RefundAmount: amount,
-				LyDo: domain.LyDo(lyDo), ChiTiet: chiTiet,
+				ReasonCode: domain.ReasonCode(reason), Detail: chiTiet,
 				Inspection:     domain.InspectionOutcome(inspection),
 				InspectionNote: ghiChuKD,
 				InspectedAt:    deref(kiemLuc),

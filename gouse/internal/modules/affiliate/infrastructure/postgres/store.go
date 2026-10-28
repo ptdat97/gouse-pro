@@ -120,7 +120,7 @@ func (s *Store) ByOrderAndSeller(
 	}
 	defer rows.Close()
 
-	return quetNhieu(rows)
+	return scanMany(rows)
 }
 
 // CapNhat ghi lại trạng thái đã đổi.
@@ -181,7 +181,7 @@ func (s *Store) TotalsByCreator(
 	return out, rows.Err()
 }
 
-func quetNhieu(rows pgx.Rows) ([]*domain.CommissionRecord, error) {
+func scanMany(rows pgx.Rows) ([]*domain.CommissionRecord, error) {
 	var out []*domain.CommissionRecord
 	for rows.Next() {
 		c, err := scanCommission(rows)
@@ -275,5 +275,5 @@ func (s *Store) ByOrderLines(
 	}
 	defer rows.Close()
 
-	return quetNhieu(rows)
+	return scanMany(rows)
 }

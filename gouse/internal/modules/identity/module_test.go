@@ -613,7 +613,7 @@ func TestLogoutIsIdempotent(t *testing.T) {
 //
 // AuthContext.SellerIDs là thứ module fulfillment dùng để lọc truy vấn.
 // Trả sai danh sách này là seller đọc được đơn của đối thủ.
-func TestPhamViTheoVaiTro(t *testing.T) {
+func TestScopesByRole(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -724,7 +724,7 @@ func TestGrantAndRevokeRole(t *testing.T) {
 //
 // Go cho phép ép bất kỳ chuỗi nào thành domain.Role, nên nếu biên không
 // chặn thì "SUPER_ADMIN" đi thẳng xuống database.
-func TestVaiTroLaBiTuChoi(t *testing.T) {
+func TestUnknownRoleIsRejected(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 

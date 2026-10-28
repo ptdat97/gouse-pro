@@ -193,7 +193,7 @@ func TestBatchFetchUsesOneQuery(t *testing.T) {
 	}
 }
 
-func TestLocThuongHieu(t *testing.T) {
+func TestFilterByBrand(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()

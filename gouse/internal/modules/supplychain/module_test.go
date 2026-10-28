@@ -452,7 +452,7 @@ func TestReturnEventEmitsSignalWithReason(t *testing.T) {
 	bus.Subscribe(supplychain.NewSignalHandler(m))
 
 	skuTooSmall := ids.MustNew(ids.PrefixSKU).String()
-	skuKhac := ids.MustNew(ids.PrefixSKU).String()
+	otherSKU := ids.MustNew(ids.PrefixSKU).String()
 
 	e, err := eventbus.NewEvent(
 		eventbus.TypeReturnRequested, eventbus.AggregateReturn,
@@ -461,7 +461,7 @@ func TestReturnEventEmitsSignalWithReason(t *testing.T) {
 			"order_id": ids.MustNew(ids.PrefixOrder).String(),
 			"lines": []map[string]any{
 				{"sku_id": skuTooSmall, "quantity": 1, "reason_code": "SIZE_TOO_SMALL"},
-				{"sku_id": skuKhac, "quantity": 2, "reason_code": "NOT_AS_DESCRIBED"},
+				{"sku_id": otherSKU, "quantity": 2, "reason_code": "NOT_AS_DESCRIBED"},
 			},
 		})
 	if err != nil {
@@ -504,7 +504,7 @@ func TestReturnEventEmitsSignalWithReason(t *testing.T) {
 	var sl int
 	if err := pool.QueryRow(ctx, `
 		SELECT quantity FROM demand_signal
-		 WHERE signal_type = 'RETURN' AND sku_id = $1`, skuKhac).
+		 WHERE signal_type = 'RETURN' AND sku_id = $1`, otherSKU).
 		Scan(&sl); err != nil {
 		t.Fatalf("đọc số lượng: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestReturnEventEmitsSignalWithReason(t *testing.T) {
 	}
 }
 
-// TestEventYeuThichSinhHaiTinHieu.
+// TestWishlistEventEmitsTwoSignals.
 //
 // # HAI tín hiệu từ MỘT hành động, và vì sao không gộp
 //
@@ -525,7 +525,7 @@ func TestReturnEventEmitsSignalWithReason(t *testing.T) {
 // lệch giữa chúng chính là thứ quyết định nên sản xuất bao nhiêu.
 // `NOTIFY_REQUEST` là một trong BA tín hiệu module này tồn tại để thu, và
 // trước hôm nay không bên phát nào tồn tại.
-func TestEventYeuThichSinhHaiTinHieu(t *testing.T) {
+func TestWishlistEventEmitsTwoSignals(t *testing.T) {
 	m, pool := newModule(t)
 	ctx := context.Background()
 

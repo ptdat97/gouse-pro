@@ -58,63 +58,63 @@ var (
 			"không tính được số tiền thực trả, từ chối hoàn tự động")
 )
 
-// LyDo là lý do trả hàng, CHUẨN HÓA.
+// ReasonCode là lý do trả hàng, CHUẨN HÓA.
 //
 // Lý do quyết định DÒNG TIỀN và HÀNH ĐỘNG KHẮC PHỤC — hàng lỗi thì truy
 // vết lô sản xuất, sai size thì sửa bảng size, hỏng khi vận chuyển thì
 // khiếu nại đối tác. Văn bản tự do không phân tích được.
-type LyDo string
+type ReasonCode string
 
 const (
-	ReasonSizeTooSmall     LyDo = "SIZE_TOO_SMALL"
-	ReasonSizeTooLarge     LyDo = "SIZE_TOO_LARGE"
-	ReasonNotAsDescribed   LyDo = "NOT_AS_DESCRIBED"
-	ReasonColorMismatch    LyDo = "COLOR_DIFFERENT"
-	LyDoChatLuong          LyDo = "QUALITY_ISSUE"
-	ReasonDefective        LyDo = "DEFECTIVE"
-	ReasonWrongItem        LyDo = "WRONG_ITEM_SENT"
-	ReasonDamagedInTransit LyDo = "DAMAGED_IN_TRANSIT"
-	ReasonChangedMind      LyDo = "CHANGED_MIND"
-	ReasonLateDelivery     LyDo = "LATE_DELIVERY"
+	ReasonSizeTooSmall     ReasonCode = "SIZE_TOO_SMALL"
+	ReasonSizeTooLarge     ReasonCode = "SIZE_TOO_LARGE"
+	ReasonNotAsDescribed   ReasonCode = "NOT_AS_DESCRIBED"
+	ReasonColorMismatch    ReasonCode = "COLOR_DIFFERENT"
+	ReasonQualityIssue     ReasonCode = "QUALITY_ISSUE"
+	ReasonDefective        ReasonCode = "DEFECTIVE"
+	ReasonWrongItem        ReasonCode = "WRONG_ITEM_SENT"
+	ReasonDamagedInTransit ReasonCode = "DAMAGED_IN_TRANSIT"
+	ReasonChangedMind      ReasonCode = "CHANGED_MIND"
+	ReasonLateDelivery     ReasonCode = "LATE_DELIVERY"
 )
 
-var lyDoHopLe = map[LyDo]bool{
+var validReasons = map[ReasonCode]bool{
 	ReasonSizeTooSmall: true, ReasonSizeTooLarge: true,
 	ReasonNotAsDescribed: true, ReasonColorMismatch: true,
-	LyDoChatLuong: true, ReasonDefective: true,
+	ReasonQualityIssue: true, ReasonDefective: true,
 	ReasonWrongItem: true, ReasonDamagedInTransit: true,
 	ReasonChangedMind: true, ReasonLateDelivery: true,
 }
 
-func (l LyDo) HopLe() bool { return lyDoHopLe[l] }
+func (l ReasonCode) IsValid() bool { return validReasons[l] }
 
 // IsSellerFault cho biết lý do này quy trách nhiệm cho bên bán.
 //
 // Dùng để quyết ai chịu phí vận chuyển chiều về. Khách đổi ý thì khách
 // chịu; hàng lỗi hay giao sai thì không.
-func (l LyDo) IsSellerFault() bool {
+func (l ReasonCode) IsSellerFault() bool {
 	switch l {
-	case ReasonDefective, ReasonWrongItem, ReasonNotAsDescribed, ReasonColorMismatch, LyDoChatLuong:
+	case ReasonDefective, ReasonWrongItem, ReasonNotAsDescribed, ReasonColorMismatch, ReasonQualityIssue:
 		return true
 	}
 	return false
 }
 
-// TrangThai là trạng thái một yêu cầu trả hàng.
-type TrangThai string
+// Status là trạng thái một yêu cầu trả hàng.
+type Status string
 
 const (
-	TTYeuCau        TrangThai = "REQUESTED"
-	TTDuyet         TrangThai = "APPROVED"
-	TTTuChoi        TrangThai = "REJECTED"
-	StatusReceived  TrangThai = "RECEIVED"
-	StatusRefunded  TrangThai = "REFUNDED"
-	StatusCancelled TrangThai = "CANCELLED"
+	StatusRequested Status = "REQUESTED"
+	StatusApproved  Status = "APPROVED"
+	StatusRejected  Status = "REJECTED"
+	StatusReceived  Status = "RECEIVED"
+	StatusRefunded  Status = "REFUNDED"
+	StatusCancelled Status = "CANCELLED"
 )
 
 // IsFinal cho biết trạng thái đã là cuối, không đổi được nữa.
-func (t TrangThai) IsFinal() bool {
-	return t == TTTuChoi || t == StatusRefunded || t == StatusCancelled
+func (t Status) IsFinal() bool {
+	return t == StatusRejected || t == StatusRefunded || t == StatusCancelled
 }
 
 // Lines là một dòng hàng xin trả.
@@ -130,15 +130,15 @@ type Lines struct {
 	// hàng về kho, giá có thể đã đổi và khuyến mãi có thể đã kết thúc.
 	RefundAmount money.Money
 
-	// LyDo là lý do trả CỦA DÒNG NÀY.
+	// ReasonCode là lý do trả CỦA DÒNG NÀY.
 	//
 	// Khách trả hai món trong một đơn vì hai lý do khác nhau là chuyện
 	// thường — cái áo chật, cái quần lỗi đường may. Mỗi lý do dẫn tới một
 	// hành động khắc phục khác nhau, nên gộp chúng lại là mất cả hai.
-	LyDo LyDo
+	ReasonCode ReasonCode
 
-	// ChiTiet là mô tả thêm của khách cho dòng này.
-	ChiTiet string
+	// Detail là mô tả thêm của khách cho dòng này.
+	Detail string
 
 	// Inspection là kết quả kiểm định hàng hoàn: PENDING, PASSED, FAILED.
 	//
@@ -169,10 +169,10 @@ type ReturnRequest struct {
 	sellerID   ids.ID
 	customerID ids.ID
 
-	status     TrangThai
-	lyDo       LyDo
-	note       string
-	lyDoTuChoi string
+	status       Status
+	reason       ReasonCode
+	note         string
+	rejectReason string
 
 	lines        []Lines
 	refundAmount money.Money
@@ -203,7 +203,7 @@ func New(p NewParams) (*ReturnRequest, error) {
 		return nil, ErrNoLines
 	}
 	for _, d := range p.Lines {
-		if !d.LyDo.HopLe() {
+		if !d.ReasonCode.IsValid() {
 			return nil, ErrInvalidReason
 		}
 	}
@@ -212,12 +212,12 @@ func New(p NewParams) (*ReturnRequest, error) {
 	// vì để bên gọi truyền vào — hai nguồn cho cùng một con số tiền sớm
 	// muộn sẽ lệch nhau.
 	tong := p.Lines[0].RefundAmount
-	daThay := map[ids.ID]bool{p.Lines[0].OrderLineID: true}
+	seen := map[ids.ID]bool{p.Lines[0].OrderLineID: true}
 	for _, d := range p.Lines[1:] {
-		if daThay[d.OrderLineID] {
+		if seen[d.OrderLineID] {
 			return nil, ErrDuplicateLine
 		}
-		daThay[d.OrderLineID] = true
+		seen[d.OrderLineID] = true
 
 		sum, err := tong.Add(d.RefundAmount)
 		if err != nil {
@@ -231,10 +231,10 @@ func New(p NewParams) (*ReturnRequest, error) {
 		orderID:    p.OrderID,
 		sellerID:   p.SellerID,
 		customerID: p.CustomerID,
-		status:     TTYeuCau,
+		status:     StatusRequested,
 		// Lý do CHÍNH là lý do của dòng đầu — chỉ để lọc nhanh danh sách.
 		// Lý do đầy đủ nằm ở từng dòng.
-		lyDo:         p.Lines[0].LyDo,
+		reason:       p.Lines[0].ReasonCode,
 		note:         strings.TrimSpace(p.Note),
 		lines:        p.Lines,
 		refundAmount: tong,
@@ -244,12 +244,12 @@ func New(p NewParams) (*ReturnRequest, error) {
 	}, nil
 }
 
-// Duyet chấp nhận yêu cầu trả hàng.
-func (y *ReturnRequest) Duyet(now time.Time) error {
-	if y.status != TTYeuCau {
+// Approve chấp nhận yêu cầu trả hàng.
+func (y *ReturnRequest) Approve(now time.Time) error {
+	if y.status != StatusRequested {
 		return ErrInvalidStatus
 	}
-	y.status = TTDuyet
+	y.status = StatusApproved
 	y.decidedAt = now
 	y.touch(now)
 	return nil
@@ -259,15 +259,15 @@ func (y *ReturnRequest) Duyet(now time.Time) error {
 //
 // Khách cần biết vì sao để quyết định làm gì tiếp — khiếu nại, gửi thêm
 // ảnh, hay chấp nhận. Từ chối không lý do biến mọi trường hợp thành khiếu nại.
-func (y *ReturnRequest) TuChoi(lyDo string, now time.Time) error {
-	if y.status != TTYeuCau {
+func (y *ReturnRequest) TuChoi(reason string, now time.Time) error {
+	if y.status != StatusRequested {
 		return ErrInvalidStatus
 	}
-	if strings.TrimSpace(lyDo) == "" {
+	if strings.TrimSpace(reason) == "" {
 		return ErrMissingReason
 	}
-	y.status = TTTuChoi
-	y.lyDoTuChoi = strings.TrimSpace(lyDo)
+	y.status = StatusRejected
+	y.rejectReason = strings.TrimSpace(reason)
 	y.decidedAt = now
 	y.touch(now)
 	return nil
@@ -279,7 +279,7 @@ func (y *ReturnRequest) TuChoi(lyDo string, now time.Time) error {
 // bắt buộc là hàng hoàn không bao giờ tự động thành Available. Vi phạm nó
 // nghĩa là bán lại hàng hỏng cho khách khác.
 func (y *ReturnRequest) GoodsReceived(now time.Time) error {
-	if y.status != TTDuyet {
+	if y.status != StatusApproved {
 		return ErrInvalidStatus
 	}
 	y.status = StatusReceived
@@ -301,7 +301,7 @@ func (y *ReturnRequest) Refunded(now time.Time) error {
 
 // Cancel để khách rút yêu cầu khi chưa ai xử lý.
 func (y *ReturnRequest) Cancel(now time.Time) error {
-	if y.status != TTYeuCau {
+	if y.status != StatusRequested {
 		return ErrInvalidStatus
 	}
 	y.status = StatusCancelled
@@ -315,10 +315,10 @@ func (y *ReturnRequest) ID() ids.ID                { return y.id }
 func (y *ReturnRequest) OrderID() ids.ID           { return y.orderID }
 func (y *ReturnRequest) SellerID() ids.ID          { return y.sellerID }
 func (y *ReturnRequest) CustomerID() ids.ID        { return y.customerID }
-func (y *ReturnRequest) Status() TrangThai         { return y.status }
-func (y *ReturnRequest) LyDo() LyDo                { return y.lyDo }
+func (y *ReturnRequest) Status() Status            { return y.status }
+func (y *ReturnRequest) ReasonCode() ReasonCode    { return y.reason }
 func (y *ReturnRequest) Note() string              { return y.note }
-func (y *ReturnRequest) LyDoTuChoi() string        { return y.lyDoTuChoi }
+func (y *ReturnRequest) RejectReason() string      { return y.rejectReason }
 func (y *ReturnRequest) RefundAmount() money.Money { return y.refundAmount }
 func (y *ReturnRequest) RequestedAt() time.Time    { return y.requestedAt }
 func (y *ReturnRequest) DecidedAt() time.Time      { return y.decidedAt }
@@ -339,10 +339,10 @@ type KhoiPhucParams struct {
 	OrderID      ids.ID
 	SellerID     ids.ID
 	CustomerID   ids.ID
-	Status       TrangThai
-	LyDo         LyDo
+	Status       Status
+	ReasonCode   ReasonCode
 	Note         string
-	LyDoTuChoi   string
+	RejectReason string
 	Lines        []Lines
 	RefundAmount money.Money
 
@@ -360,8 +360,8 @@ type KhoiPhucParams struct {
 func KhoiPhuc(p KhoiPhucParams) *ReturnRequest {
 	return &ReturnRequest{
 		id: p.ID, orderID: p.OrderID, sellerID: p.SellerID,
-		customerID: p.CustomerID, status: p.Status, lyDo: p.LyDo,
-		note: p.Note, lyDoTuChoi: p.LyDoTuChoi,
+		customerID: p.CustomerID, status: p.Status, reason: p.ReasonCode,
+		note: p.Note, rejectReason: p.RejectReason,
 		lines: p.Lines, refundAmount: p.RefundAmount,
 		requestedAt: p.RequestedAt, decidedAt: p.DecidedAt,
 		receivedAt: p.ReceivedAt, refundedAt: p.RefundedAt,

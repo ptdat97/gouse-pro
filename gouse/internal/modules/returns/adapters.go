@@ -171,7 +171,7 @@ func (a *inventoryAdapter) findRecord(
 
 // RecordInspection chuyển hàng hoàn sang Available hoặc Damaged.
 func (a *inventoryAdapter) RecordInspection(
-	ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, lyDo string,
+	ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, reason string,
 ) error {
 	item, err := a.findRecord(ctx, skuID, sellerID)
 	if err != nil {
@@ -179,7 +179,7 @@ func (a *inventoryAdapter) RecordInspection(
 	}
 	return a.api.ProcessReturnInspection(ctx, inventory.InspectionRequest{
 		ItemID: item.ID, Quantity: qty, Passed: dat,
-		Reason: lyDo, PerformedBy: "returns",
+		Reason: reason, PerformedBy: "returns",
 	})
 }
 

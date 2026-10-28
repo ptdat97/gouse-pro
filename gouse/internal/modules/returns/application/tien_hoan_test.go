@@ -31,17 +31,17 @@ func lines(niemYet, dieuChinh int64, sl int) application.OrderLine {
 // Hoàn 200.000đ là mất 20.000đ MỖI LẦN, nhân với tỷ lệ hoàn hàng của
 // ngành thời trang.
 func TestRefundUsesAmountActuallyPaid(t *testing.T) {
-	monA := lines(200_000, -20_000, 1)
+	lineA := lines(200_000, -20_000, 1)
 	ord := application.Order{
 		Delivered: true, OrderDiscount: vnd(50_000),
 		Lines: []application.OrderLine{
-			monA,
+			lineA,
 			lines(200_000, -20_000, 1),
 			lines(100_000, -10_000, 1),
 		},
 	}
 
-	got, err := application.ComputeRefund(ord, monA, 1)
+	got, err := application.ComputeRefund(ord, lineA, 1)
 	if err != nil {
 		t.Fatalf("tính tiền hoàn: %v", err)
 	}
@@ -66,15 +66,15 @@ func TestRefundUsesAmountActuallyPaid(t *testing.T) {
 //
 // Thà TỪ CHỐI và bắt xử lý tay còn hơn âm thầm trả ra số tiền sai.
 func TestRefundRejectedWhenDiscountNotAllocated(t *testing.T) {
-	monA := lines(200_000, 0, 1) // KHÔNG có khoản điều chỉnh
+	lineA := lines(200_000, 0, 1) // KHÔNG có khoản điều chỉnh
 	ord := application.Order{
 		Delivered: true,
 		// Đơn CÓ giảm giá…
 		OrderDiscount: vnd(50_000),
-		Lines:         []application.OrderLine{monA, lines(300_000, 0, 1)},
+		Lines:         []application.OrderLine{lineA, lines(300_000, 0, 1)},
 	}
 
-	_, err := application.ComputeRefund(ord, monA, 1)
+	_, err := application.ComputeRefund(ord, lineA, 1)
 	if !errors.Is(err, domain.ErrDiscountNotAllocated) {
 		t.Errorf("tính được tiền hoàn cho đơn có giảm giá CHƯA phân bổ "+
 			"(lỗi: %v) — sẽ hoàn thừa đúng bằng phần giảm", err)
@@ -83,13 +83,13 @@ func TestRefundRejectedWhenDiscountNotAllocated(t *testing.T) {
 
 // TestFullRefundWithoutDiscount — ca thường, không được vướng hàng rào.
 func TestFullRefundWithoutDiscount(t *testing.T) {
-	monA := lines(199_000, 0, 1)
+	lineA := lines(199_000, 0, 1)
 	ord := application.Order{
 		Delivered: true, OrderDiscount: vnd(0),
-		Lines: []application.OrderLine{monA},
+		Lines: []application.OrderLine{lineA},
 	}
 
-	got, err := application.ComputeRefund(ord, monA, 1)
+	got, err := application.ComputeRefund(ord, lineA, 1)
 	if err != nil {
 		t.Fatalf("đơn không giảm giá vẫn bị chặn: %v", err)
 	}
@@ -104,10 +104,10 @@ func TestFullRefundWithoutDiscount(t *testing.T) {
 // lần trả hàng của cả nền tảng.
 func TestPartialReturnRoundsDown(t *testing.T) {
 	// 3 món, thực trả 100.000đ → 33.333,33đ mỗi món.
-	monA := lines(100_000, 0, 3)
-	ord := application.Order{Delivered: true, Lines: []application.OrderLine{monA}}
+	lineA := lines(100_000, 0, 3)
+	ord := application.Order{Delivered: true, Lines: []application.OrderLine{lineA}}
 
-	got, err := application.ComputeRefund(ord, monA, 1)
+	got, err := application.ComputeRefund(ord, lineA, 1)
 	if err != nil {
 		t.Fatalf("tính tiền hoàn: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestPartialReturnRoundsDown(t *testing.T) {
 	}
 
 	// Trả TRỌN dòng thì lấy đủ, không mất phần dư.
-	tron, err := application.ComputeRefund(ord, monA, 3)
+	tron, err := application.ComputeRefund(ord, lineA, 3)
 	if err != nil {
 		t.Fatalf("tính tiền hoàn trọn dòng: %v", err)
 	}
@@ -127,11 +127,11 @@ func TestPartialReturnRoundsDown(t *testing.T) {
 }
 
 func TestQuantityOverOrderedIsRejected(t *testing.T) {
-	monA := lines(100_000, 0, 2)
-	ord := application.Order{Delivered: true, Lines: []application.OrderLine{monA}}
+	lineA := lines(100_000, 0, 2)
+	ord := application.Order{Delivered: true, Lines: []application.OrderLine{lineA}}
 
 	for _, sl := range []int{0, -1, 3} {
-		if _, err := application.ComputeRefund(ord, monA, sl); !errors.Is(err, domain.ErrQuantityExceeded) {
+		if _, err := application.ComputeRefund(ord, lineA, sl); !errors.Is(err, domain.ErrQuantityExceeded) {
 			t.Errorf("số lượng %d được chấp nhận", sl)
 		}
 	}

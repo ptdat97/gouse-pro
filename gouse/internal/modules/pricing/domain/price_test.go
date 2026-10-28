@@ -152,7 +152,7 @@ func TestInvalidDateRange(t *testing.T) {
 
 // Biên: bao gồm From, KHÔNG bao gồm To. Hai mức giá liền kề không được
 // cùng hiệu lực tại một thời điểm.
-func TestBienKhoangThoiGian(t *testing.T) {
+func TestPeriodBoundaries(t *testing.T) {
 	p := domain.Period{From: testNow, To: testNow.Add(2 * time.Hour)}
 
 	cases := []struct {

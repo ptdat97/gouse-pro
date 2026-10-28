@@ -604,14 +604,14 @@ func TestNotYetMeasurableMustSaySoNotReturnZero(t *testing.T) {
 		return got
 	}
 
-	for ten, ly := range analytics.NotYetMeasurable() {
+	for ten, reason := range analytics.NotYetMeasurable() {
 		got := read(ten)
 		if got.NotMeasurable == "" {
 			t.Errorf("%s nằm trong sổ chưa-đo-được mà trả Value=%d không "+
 				"kèm lý do — người đọc tưởng đã đo được", ten, got.Value)
 		}
-		if !strings.Contains(ly, "ADR-") {
-			t.Errorf("lý do của %s không trỏ tới quyết định nào: %q", ten, ly)
+		if !strings.Contains(reason, "ADR-") {
+			t.Errorf("lý do của %s không trỏ tới quyết định nào: %q", ten, reason)
 		}
 	}
 

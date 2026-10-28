@@ -90,7 +90,7 @@ func TestKhachTraHangDiTronLuong(t *testing.T) {
 	}
 
 	// --- nhà bán duyệt rồi nhận hàng ---
-	if err := a.mods.returns.Duyet(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.Approve(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
 
@@ -216,7 +216,7 @@ func TestKiemDinhDuaHangHoanTroLaiBanDuoc(t *testing.T) {
 	yc, _ := res.body["return"].(map[string]any)
 	maYC, _ := yc["id"].(string)
 
-	if err := a.mods.returns.Duyet(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.Approve(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
 	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
@@ -291,7 +291,7 @@ func TestLoaiHangPhaiNeuLyDo(t *testing.T) {
 	yc, _ := res.body["return"].(map[string]any)
 	maYC, _ := yc["id"].(string)
 
-	if err := a.mods.returns.Duyet(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.Approve(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
 	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {

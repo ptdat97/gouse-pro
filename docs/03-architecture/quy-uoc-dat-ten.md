@@ -208,6 +208,17 @@ Bài học không phải "vá bộ lọc" mà là: con số ở bảng Tiến đ
 bằng công cụ đo nó. Thấy một tên sót thì ĐỪNG sửa riêng tên ấy — vá bộ lọc
 rồi ĐO LẠI mọi module đã ghi xong.
 
+Lượt đo lại tìm ra 29 tên ở 9 module, trong đó `returns` giữ CẢ HAI kiểu
+enum lõi (`LyDo`, `TrangThai`) cùng ba hằng trạng thái — một enum NỬA Anh
+nửa Việt (`ReasonSizeTooSmall` cạnh `LyDoChatLuong`, `StatusReceived` cạnh
+`TTYeuCau`), đúng thứ mục 2 gọi là tệ hơn cả hai thái cực. Cả hai kiểu còn
+bị `cmd/apicheck/enum_cap.go` ghim bằng CHUỖI, nên đổi tên mà quên sổ gác
+thì `apicheck` đỏ — lần này là hàng rào chạy đúng.
+
+Và một chú thích nêu tên ĐÃ CHẾT sống sót qua lượt `affiliate`:
+`// TrangThai là trạng thái…` đứng trên một khối `const` không còn kiểu
+nào tên ấy.
+
 ### Biến vòng lặp trùng tên HÀM cùng gói
 
 ```go
@@ -365,7 +376,8 @@ XONG   modules/customer                 82   (kernel, lá)
 XONG   modules/seller                   43   (kernel, lá)
 XONG   modules/inventory               107   (kernel)
 XONG   modules/product                 237   (kernel) + 12 sót ở recommendation
-CÒN    1662 định danh Go ở 6 module
+XONG   lượt DỌN SÓT                      29   ở 9 module đã ghi XONG
+CÒN    1633 định danh Go ở 6 module
 
 ĐÃ GỠ customer.OrderPort vẫn HOÃN (chờ `order`), nhưng cổng gợi ý size thì
        xong: `GoiYSizePort`/`GoiYSize` đổi CÙNG LÚC với adapter ở

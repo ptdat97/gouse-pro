@@ -98,13 +98,13 @@ func (m *Module) GetMetric(ctx context.Context, req MetricRequest) (MetricView, 
 	//
 	// Đọc kho ra bản ghi rỗng rồi trả `Value: 0` là đúng thứ ADR-0020
 	// điều 4 cấm — và nó im lặng, nên người đọc không có cách nào biết.
-	if ly := domain.NotYetMeasurable[req.Name]; ly != "" {
+	if reason := domain.NotYetMeasurable[req.Name]; reason != "" {
 		return MetricView{
 			Name:          req.Name,
 			PeriodStart:   req.PeriodStart,
 			Granularity:   req.Granularity,
 			SellerID:      req.SellerID,
-			NotMeasurable: ly,
+			NotMeasurable: reason,
 		}, nil
 	}
 

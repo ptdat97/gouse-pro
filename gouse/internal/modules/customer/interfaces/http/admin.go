@@ -70,8 +70,8 @@ type adminCustomerResponse struct {
 // thoả mãn ngay từ cấu trúc chứ không nhờ một câu lệnh lọc — không có gì
 // để rò. Khi nào thêm số đo, đây là chỗ phải xem lại.
 func (h *AdminHandler) getCustomer(w http.ResponseWriter, r *http.Request) {
-	lyDo := strings.TrimSpace(r.Header.Get("X-Access-Reason"))
-	if lyDo == "" {
+	reason := strings.TrimSpace(r.Header.Get("X-Access-Reason"))
+	if reason == "" {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"Thiếu header X-Access-Reason — mọi lần xem hồ sơ khách đều "+
 				"được ghi nhật ký, và một lần ghi không có lý do thì không "+
@@ -97,7 +97,7 @@ func (h *AdminHandler) getCustomer(w http.ResponseWriter, r *http.Request) {
 	c, err := h.svc.GetAsAdmin(r.Context(), application.ViewCustomerInput{
 		CustomerID: customerID,
 		ActorID:    ac.UserID,
-		Reason:     lyDo,
+		Reason:     reason,
 		RequestID:  logger.RequestIDFromContext(r.Context()),
 	})
 	if err != nil {

@@ -128,13 +128,13 @@ var (
 	ErrInvalidStatus = errors.New("returns: không thực hiện được với trạng thái hiện tại")
 )
 
-// Duyet là lối vào cho test tích hợp và công cụ vận hành.
-func (m *Module) Duyet(ctx context.Context, returnID, sellerID string) error {
+// Approve là lối vào cho test tích hợp và công cụ vận hành.
+func (m *Module) Approve(ctx context.Context, returnID, sellerID string) error {
 	id, err := ids.Parse(returnID, ids.PrefixReturnRequest)
 	if err != nil {
 		return ErrInvalidID
 	}
-	_, err = m.svc.Duyet(ctx, id, ids.ID(sellerID))
+	_, err = m.svc.Approve(ctx, id, ids.ID(sellerID))
 	return translateErr(err)
 }
 

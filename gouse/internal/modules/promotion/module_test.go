@@ -258,7 +258,7 @@ func TestDiscountCap(t *testing.T) {
 //
 // Cờ FreeShipping tách khỏi Discount: phí vận chuyển do module khác tính,
 // và promotion không biết nó là bao nhiêu.
-func TestMienPhiShipTheoNguong(t *testing.T) {
+func TestFreeShippingAboveThreshold(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	req := basePromo()

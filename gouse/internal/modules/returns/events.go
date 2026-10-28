@@ -45,20 +45,20 @@ func (p *eventPublisher) PublishReturnRequested(
 		SKUID    string `json:"sku_id"`
 		Quantity int    `json:"quantity"`
 
-		// LyDo là mã lý do CHUẨN HÓA, ví dụ SIZE_TOO_SMALL.
+		// ReasonCode là mã lý do CHUẨN HÓA, ví dụ SIZE_TOO_SMALL.
 		//
 		// Chuẩn hóa là điều làm nó dùng được: "áo bé quá" và "chật" viết
 		// tự do không gom được thành một con số, còn mã thì gom được — và
 		// chỉ khi gom được thì nó mới nói lên bảng size có sai hay không.
-		LyDo string `json:"reason_code"`
+		ReasonCode string `json:"reason_code"`
 	}
 
 	lines := make([]linePayload, 0, len(in.Lines))
 	for _, d := range in.Lines {
 		lines = append(lines, linePayload{
-			SKUID:    d.SKUID.String(),
-			Quantity: d.Quantity,
-			LyDo:     d.LyDo,
+			SKUID:      d.SKUID.String(),
+			Quantity:   d.Quantity,
+			ReasonCode: d.ReasonCode,
 		})
 	}
 

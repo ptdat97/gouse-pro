@@ -122,7 +122,7 @@ func TestLateRequestIsRejected(t *testing.T) {
 		Lines: []application.RequestedLine{{
 			OrderLineID: ids.MustNew(ids.PrefixOrderLine),
 			Quantity:    1,
-			LyDo:        "CHANGED_MIND",
+			ReasonCode:  "CHANGED_MIND",
 		}},
 	})
 	if !errors.Is(err, domain.ErrReturnWindowClosed) {

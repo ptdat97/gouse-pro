@@ -28,7 +28,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/affiliate/domain"
 )
 
-// TrangThai là trạng thái của một khoản hoa hồng, dưới dạng chuỗi.
+// Trạng thái của một khoản hoa hồng, dưới dạng chuỗi.
 const (
 	StatusPending   = string(domain.CommissionPending)
 	StatusAvailable = string(domain.CommissionAvailable)
