@@ -44,18 +44,18 @@ func TestEveryDomainErrorHasANon500Path(t *testing.T) {
 
 	fnSrc := readTranslateWriteErrorBody(t, "seller.go")
 
-	var thieu []string
+	var missingErrs []string
 	for _, name := range wantErr {
 		if _, skip := errorsWithoutBranch[name]; skip {
 			continue
 		}
 		if !strings.Contains(fnSrc, "domain."+name) {
-			thieu = append(thieu, name)
+			missingErrs = append(missingErrs, name)
 		}
 	}
-	sort.Strings(thieu)
+	sort.Strings(missingErrs)
 
-	for _, name := range thieu {
+	for _, name := range missingErrs {
 		t.Errorf("domain.%s không có nhánh trong `translateWriteError` — nó sẽ ra "+
 			"500 \"vui lòng thử lại\", một lời khuyên không bao giờ đúng. "+
 			"Thêm nhánh, hoặc khai lý do vào `errorsWithoutBranch`.", name)

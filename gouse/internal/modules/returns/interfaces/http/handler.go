@@ -180,7 +180,7 @@ func NewSellerHandler(svc *application.Service, log *slog.Logger) *SellerHandler
 func (h *SellerHandler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/seller/returns", http.HandlerFunc(h.list))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/approve", http.HandlerFunc(h.approve))
-	mux.Handle("POST /api/v1/seller/returns/{return_id}/reject", http.HandlerFunc(h.tuChoi))
+	mux.Handle("POST /api/v1/seller/returns/{return_id}/reject", http.HandlerFunc(h.reject))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/receive", http.HandlerFunc(h.receiveGoods))
 	mux.Handle("POST /api/v1/seller/returns/{return_id}/inspect", http.HandlerFunc(h.inspection))
 }
@@ -216,7 +216,7 @@ func (h *SellerHandler) receiveGoods(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *SellerHandler) tuChoi(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) reject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Reason string `json:"reason"`
 	}
@@ -232,7 +232,7 @@ func (h *SellerHandler) tuChoi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.step(w, r, func(sellerID, id ids.ID) (*domain.ReturnRequest, error) {
-		return h.svc.TuChoi(r.Context(), id, sellerID, req.Reason)
+		return h.svc.Reject(r.Context(), id, sellerID, req.Reason)
 	})
 }
 
@@ -259,17 +259,17 @@ func (h *SellerHandler) inspection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kq := make([]application.LineInspectionOutcome, 0, len(req.Lines))
+	result := make([]application.LineInspectionOutcome, 0, len(req.Lines))
 	for _, l := range req.Lines {
-		kq = append(kq, application.LineInspectionOutcome{
+		result = append(result, application.LineInspectionOutcome{
 			OrderLineID: ids.ID(strings.TrimSpace(l.OrderLineID)),
-			Dat:         l.Passed,
+			Passed:      l.Passed,
 			Note:        l.Note,
 		})
 	}
 
 	h.step(w, r, func(sellerID, id ids.ID) (*domain.ReturnRequest, error) {
-		return h.svc.Inspection(r.Context(), id, sellerID, kq)
+		return h.svc.Inspection(r.Context(), id, sellerID, result)
 	})
 }
 

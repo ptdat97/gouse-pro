@@ -40,11 +40,11 @@ type OrderLine struct {
 	// TienHang là đơn giá × số lượng, CHƯA trừ khuyến mãi.
 	LineAmount int64
 
-	// KhuyenMai là các khoản giảm ĐÃ PHÂN BỔ cho dòng này, số ÂM.
+	// AllocatedDiscounts là các khoản giảm ĐÃ PHÂN BỔ cho dòng này, số ÂM.
 	//
 	// Chỉ khoản loại khuyến mãi: thuế và phí vận chuyển không phải doanh
 	// thu hàng hóa — xem `domain.CommissionBase`.
-	KhuyenMai []int64
+	AllocatedDiscounts []int64
 
 	Currency string
 
@@ -215,8 +215,8 @@ func (s *Service) attributeLine(
 			d.OrderLineID, d.Currency, err)
 	}
 
-	km := make([]money.Money, 0, len(d.KhuyenMai))
-	for _, v := range d.KhuyenMai {
+	km := make([]money.Money, 0, len(d.AllocatedDiscounts))
+	for _, v := range d.AllocatedDiscounts {
 		m, err := money.New(v, cur)
 		if err != nil {
 			return fmt.Errorf("affiliate: khoản khuyến mãi của dòng %s: %w",
@@ -333,21 +333,21 @@ func (s *Service) reverseAll(
 	ctx context.Context, records []*domain.CommissionRecord, reason string,
 ) (int, error) {
 	now := s.clock()
-	var daDao int
+	var reversed int
 	for _, c := range records {
 		before := c.Status()
 		if err := c.Reverse(reason, now); err != nil {
-			return daDao, err
+			return reversed, err
 		}
 		if c.Status() == before {
 			continue // đã đảo từ lượt trước
 		}
 		if err := s.repo.Update(ctx, c); err != nil {
-			return daDao, err
+			return reversed, err
 		}
-		daDao++
+		reversed++
 	}
-	return daDao, nil
+	return reversed, nil
 }
 
 // UnlockByOrder chuyển hoa hồng của một (đơn, nhà bán) sang RÚT ĐƯỢC.
@@ -383,7 +383,7 @@ func (s *Service) UnlockByOrder(
 	}
 
 	now := s.clock()
-	var daMo int
+	var unlocked int
 	for _, c := range records {
 		if c.Status() != domain.CommissionPending {
 			continue
@@ -395,15 +395,15 @@ func (s *Service) UnlockByOrder(
 			if errors.Is(err, domain.ErrAlreadyReversed) {
 				continue
 			}
-			return daMo, err
+			return unlocked, err
 		}
 		if err := s.repo.Update(ctx, c); err != nil {
-			return daMo, err
+			return unlocked, err
 		}
-		daMo++
+		unlocked++
 	}
 
-	return daMo, nil
+	return unlocked, nil
 }
 
 // CreatorBalance là tổng tiền theo từng trạng thái của một creator.

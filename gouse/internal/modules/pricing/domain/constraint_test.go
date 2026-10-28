@@ -71,7 +71,7 @@ func TestValidateSellerPriceAgainstFrame(t *testing.T) {
 
 	cases := []struct {
 		ten      string
-		gia      int64
+		price    int64
 		mongOK   bool
 		mongCode domain.ViolationCode
 	}{
@@ -86,7 +86,7 @@ func TestValidateSellerPriceAgainstFrame(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.ten, func(t *testing.T) {
-			got := c.Check(vnd(tc.gia))
+			got := c.Check(vnd(tc.price))
 			if got.Allowed != tc.mongOK {
 				t.Errorf("Allowed = %v, mong %v (%s)", got.Allowed, tc.mongOK, got.Message)
 			}

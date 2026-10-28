@@ -81,7 +81,7 @@ func TestDoubleReleaseCreatesNoStockFromNothing(t *testing.T) {
 	start.Add(1)
 
 	var mu sync.Mutex
-	var thanhCong int
+	var succeeded int
 
 	for i := 0; i < songSong; i++ {
 		done.Add(1)
@@ -90,7 +90,7 @@ func TestDoubleReleaseCreatesNoStockFromNothing(t *testing.T) {
 			start.Wait()
 			if err := m.ReleaseReservation(ctx, res.ID); err == nil {
 				mu.Lock()
-				thanhCong++
+				succeeded++
 				mu.Unlock()
 			}
 		}()
@@ -98,8 +98,8 @@ func TestDoubleReleaseCreatesNoStockFromNothing(t *testing.T) {
 	start.Done()
 	done.Wait()
 
-	if thanhCong != 1 {
-		t.Errorf("%d lượt nhả cùng thành công, cần đúng 1", thanhCong)
+	if succeeded != 1 {
+		t.Errorf("%d lượt nhả cùng thành công, cần đúng 1", succeeded)
 	}
 
 	// Con số phải TRỞ VỀ ĐÚNG trạng thái trước khi giữ, không hơn.

@@ -618,10 +618,10 @@ func (s *WishlistStore) loadItems(
 func (s *WishlistStore) AddItem(
 	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
 ) (bool, error) {
-	return s.AddItemKemEvent(ctx, wishlistID, item, nil)
+	return s.AddItemWithEvent(ctx, wishlistID, item, nil)
 }
 
-// AddItemKemEvent thêm món VÀ chạy fn trong CÙNG một giao dịch.
+// AddItemWithEvent thêm món VÀ chạy fn trong CÙNG một giao dịch.
 //
 // Cần cho Transactional Outbox: món yêu thích và tín hiệu nhu cầu sinh ra
 // từ nó phải cùng thành công hoặc cùng thất bại.
@@ -629,7 +629,7 @@ func (s *WishlistStore) AddItem(
 // fn CHỈ chạy khi món THẬT SỰ được thêm. `ON CONFLICT DO NOTHING` nghĩa là
 // bấm tim lần thứ hai không thêm gì — và phát tín hiệu cho một lần bấm
 // không đổi gì sẽ thổi phồng nhu cầu theo số lần khách bấm lại.
-func (s *WishlistStore) AddItemKemEvent(
+func (s *WishlistStore) AddItemWithEvent(
 	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
 	fn domain.TxFunc,
 ) (bool, error) {

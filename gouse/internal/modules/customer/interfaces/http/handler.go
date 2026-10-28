@@ -224,24 +224,24 @@ func (h *Handler) recordConsent(
 	}
 
 	for _, c := range []struct {
-		loai domain.ConsentType
-		gia  *bool
+		kind    domain.ConsentType
+		granted *bool
 	}{
 		{domain.ConsentMarketingEmail, p.Email},
 		{domain.ConsentMarketingSMS, p.SMS},
 	} {
-		if c.gia == nil {
+		if c.granted == nil {
 			continue
 		}
 		if _, err := h.svc.RecordConsent(r.Context(), domain.NewConsentParams{
 			CustomerID: id,
-			Type:       c.loai,
-			Granted:    *c.gia,
+			Type:       c.kind,
+			Granted:    *c.granted,
 			Source:     "settings",
 
 			// Băm IP ngay tại biên: bên trong không bao giờ thấy địa chỉ
 			// nguyên văn, nên không có chỗ nào lỡ tay ghi nó ra nhật ký.
-			IPHash:    privacy.HashIP(diaChiIP(r)),
+			IPHash:    privacy.HashIP(clientIP(r)),
 			UserAgent: r.UserAgent(),
 		}); err != nil {
 			return err
@@ -464,12 +464,12 @@ func (h *Handler) addWishlistItem(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------- Hỗ trợ
 
 // customerID lấy định danh khách hàng của người gọi.
-// diaChiIP lấy IP của người gọi, ưu tiên header của bộ cân bằng tải.
+// clientIP lấy IP của người gọi, ưu tiên header của bộ cân bằng tải.
 //
 // Header này client tự đặt được, nên nó KHÔNG dùng cho phân quyền — chỉ
 // để ghi kèm bằng chứng đồng ý. Giá trị được BĂM trước khi lưu: IP nguyên
 // văn là dữ liệu cá nhân, cần cơ sở pháp lý để giữ.
-func diaChiIP(r *http.Request) string {
+func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if first, _, found := strings.Cut(xff, ","); found {
 			return strings.TrimSpace(first)

@@ -276,9 +276,9 @@ func TestInvariantsHoldAcrossRandomOperationSequences(t *testing.T) {
 			qty := 1 + rng.Intn(10)
 
 			var (
-				got     domain.Quantities
-				err     error
-				doiTong int // tổng thay đổi bao nhiêu nếu thành công
+				got        domain.Quantities
+				err        error
+				totalDelta int // tổng thay đổi bao nhiêu nếu thành công
 			)
 			switch rng.Intn(10) {
 			case 0:
@@ -291,13 +291,13 @@ func TestInvariantsHoldAcrossRandomOperationSequences(t *testing.T) {
 				got, err = q.Uncommit(qty)
 			case 4:
 				got, err = q.Ship(qty)
-				doiTong = -qty
+				totalDelta = -qty
 			case 5:
 				got, err = q.Receive(qty)
-				doiTong = qty
+				totalDelta = qty
 			case 6:
 				got, err = q.ReceiveReturn(qty)
-				doiTong = qty
+				totalDelta = qty
 			case 7:
 				got, err = q.InspectionPassed(qty)
 			case 8:
@@ -314,7 +314,7 @@ func TestInvariantsHoldAcrossRandomOperationSequences(t *testing.T) {
 				continue
 			}
 
-			physicalTotal += doiTong
+			physicalTotal += totalDelta
 			if got.Total() != physicalTotal {
 				t.Fatalf("lần %d bước %d: tổng = %d, mong %d", round, step, got.Total(), physicalTotal)
 			}

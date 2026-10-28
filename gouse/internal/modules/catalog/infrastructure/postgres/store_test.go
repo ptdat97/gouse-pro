@@ -98,7 +98,7 @@ func TestSaveAndReadBackBrand(t *testing.T) {
 }
 
 // Ràng buộc UNIQUE ở DATABASE — điều kho in-memory chỉ mô phỏng được.
-func TestSlugTrungBiChanBoiDatabase(t *testing.T) {
+func TestDuplicateSlugBlockedByDatabase(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()

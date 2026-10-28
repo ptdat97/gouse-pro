@@ -62,13 +62,13 @@ func TestGiaNgoaiKhungBiChanLucGhi(t *testing.T) {
 	// Đây là trường hợp bán phá giá, và cũng là trường hợp gõ thiếu một số 0.
 	duoiSan := khung.min / 10
 	err := taoOffer(duoiSan)
-	var ngoaiKhung *marketapp.GiaNgoaiKhungError
+	var ngoaiKhung *marketapp.PriceOutOfFrameError
 	if !errors.As(err, &ngoaiKhung) {
 		t.Fatalf("giá %d (khung %d–%d) phải bị CHẶN, nhận err=%v — "+
 			"price_constraint lại không ai đọc",
 			duoiSan, khung.min, khung.max, err)
 	}
-	if ngoaiKhung.Ma == "" {
+	if ngoaiKhung.Code == "" {
 		t.Error("lỗi không mang MÃ máy đọc được — giao diện không biết chỉ " +
 			"vào đâu để nhà bán sửa")
 	}
@@ -122,7 +122,7 @@ func TestDoiGiaCungPhaiQuaKhungGia(t *testing.T) {
 		money.MustNew(khung.min/10, money.VND), money.Money{},
 		ids.ID(B.sellerID))
 
-	var ngoaiKhung *marketapp.GiaNgoaiKhungError
+	var ngoaiKhung *marketapp.PriceOutOfFrameError
 	if !errors.As(err, &ngoaiKhung) {
 		t.Fatalf("SỬA giá xuống %d (khung %d–%d) phải bị chặn, nhận err=%v — "+
 			"kiểm lúc tạo mà bỏ lúc sửa là hàng rào có cửa sau",

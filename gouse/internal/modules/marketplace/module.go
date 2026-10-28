@@ -114,10 +114,10 @@ func New(cfg Config) (*Module, error) {
 		deps.Inventory = &inventoryAdapter{api: cfg.Inventory}
 	}
 	if cfg.OpsConfig != nil {
-		deps.ChinhSach = &chinhSachAdapter{cfg: cfg.OpsConfig}
+		deps.Policy = &policyAdapter{cfg: cfg.OpsConfig}
 	}
 	if cfg.Pricing != nil {
-		deps.KhungGia = &khungGiaAdapter{api: cfg.Pricing}
+		deps.PriceFrame = &priceFrameAdapter{api: cfg.Pricing}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -274,20 +274,20 @@ func (a *inventoryAdapter) AvailableForSKUs(
 	return out, nil
 }
 
-// khungGiaAdapter nối tới module pricing.
+// priceFrameAdapter nối tới module pricing.
 //
 // Dịch `PriceCheck` thành bốn giá trị thuần: tầng application của marketplace
 // chỉ biết interface do chính nó khai, nên nó kiểm chứng được bằng bản giả mà
 // không cần dựng module pricing thật.
-type khungGiaAdapter struct{ api pricing.API }
+type priceFrameAdapter struct{ api pricing.API }
 
-var _ application.KhungGiaPort = (*khungGiaAdapter)(nil)
+var _ application.PriceFramePort = (*priceFrameAdapter)(nil)
 
-func (a *khungGiaAdapter) KiemGiaNhaBan(
-	ctx context.Context, skuID ids.ID, gia money.Money,
+func (a *priceFrameAdapter) CheckSellerPrice(
+	ctx context.Context, skuID ids.ID, price money.Money,
 ) (bool, string, string, bool, error) {
 	res, err := a.api.ValidateSellerPrice(ctx, skuID.String(),
-		gia.Amount(), string(gia.Currency()))
+		price.Amount(), string(price.Currency()))
 	if err != nil {
 		return false, "", "", false, err
 	}
@@ -390,12 +390,12 @@ func (m *Module) CanSellerCreateOffer(
 	if err != nil {
 		return false, "", ErrInvalidID
 	}
-	kID, err := ids.Parse(skuID, ids.PrefixSKU)
+	parsedSKU, err := ids.Parse(skuID, ids.PrefixSKU)
 	if err != nil {
 		return false, "", ErrInvalidID
 	}
 
-	err = m.svc.CheckCanCreateOffer(ctx, sID, kID)
+	err = m.svc.CheckCanCreateOffer(ctx, sID, parsedSKU)
 	switch {
 	case err == nil:
 		return true, "OK", nil
@@ -455,16 +455,16 @@ func translateErr(err error) error {
 	return err
 }
 
-// chinhSachAdapter dịch tham số vận hành sang từ vựng của marketplace.
+// policyAdapter dịch tham số vận hành sang từ vựng của marketplace.
 //
 // ĐỌC MỖI LẦN GỌI, không chụp lúc khởi động: đổi trọng số buy box phải có
 // tác dụng ở lượt xem trang kế tiếp, không phải ở lần triển khai kế tiếp.
 // Đó là cả lý do những con số này được đưa lên giao diện.
-type chinhSachAdapter struct{ cfg *opsconfig.Store }
+type policyAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
+var _ application.PolicyPort = (*policyAdapter)(nil)
 
-func (a *chinhSachAdapter) TrongSoBuyBox() domain.BuyBoxWeights {
+func (a *policyAdapter) BuyBoxWeights() domain.BuyBoxWeights {
 	return domain.BuyBoxWeights{
 		Price:       a.cfg.DocSoNguyen(opsconfig.KeyTrongSoGia),
 		Handling:    a.cfg.DocSoNguyen(opsconfig.KeyTrongSoChuanBi),
@@ -472,10 +472,10 @@ func (a *chinhSachAdapter) TrongSoBuyBox() domain.BuyBoxWeights {
 	}
 }
 
-func (a *chinhSachAdapter) DiemHieuSuatMacDinh() int {
+func (a *policyAdapter) DefaultPerformanceScore() int {
 	return a.cfg.DocSoNguyen(opsconfig.KeyDiemHieuSuatMacDinh)
 }
 
-func (a *chinhSachAdapter) GioChuanBiMacDinh() int {
+func (a *policyAdapter) DefaultHandlingHours() int {
 	return a.cfg.DocSoNguyen(opsconfig.KeyGioChuanBiMacDinh)
 }

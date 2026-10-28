@@ -87,7 +87,7 @@ func (m *Module) RegisterShopper(
 	//
 	//	hồ sơ CÓ user_id     → đã có tài khoản → đăng nhập
 	//	hồ sơ KHÔNG có       → khách vãng lai  → tra đơn bằng mã + SĐT
-	var hoSoVangLai ids.ID
+	var guestProfileID ids.ID
 	if existing, err := m.svc.GetByEmail(ctx, email); err == nil {
 		if !existing.UserID().IsZero() {
 			return out, identity.ErrDuplicateEmail
@@ -101,7 +101,7 @@ func (m *Module) RegisterShopper(
 		//
 		// Nay: tạo tài khoản, chưa gắn hồ sơ. Gộp xảy ra sau khi bấm liên
 		// kết xác minh trong hộp thư — thứ chứng minh họ đọc được email đó.
-		hoSoVangLai = existing.ID()
+		guestProfileID = existing.ID()
 	} else if !errors.Is(err, domain.ErrNotFound) {
 		return out, err
 	}
@@ -143,9 +143,9 @@ func (m *Module) RegisterShopper(
 	// rỗng và họ được coi như khách vãng lai, nên đơn mới vẫn rơi đúng vào
 	// hồ sơ đó qua `EnsureByEmail`. Thứ họ CHƯA thấy là lịch sử cũ — đúng
 	// điều đang chờ xác minh.
-	if !hoSoVangLai.IsZero() {
+	if !guestProfileID.IsZero() {
 		return RegisterResult{
-			CustomerID:             hoSoVangLai.String(),
+			CustomerID:             guestProfileID.String(),
 			UserID:                 user.ID,
 			NeedsEmailVerification: true,
 		}, nil

@@ -79,19 +79,19 @@ type SuspensionRecord struct {
 
 // Service là tầng application của module seller.
 type Service struct {
-	sellers   domain.Repository
-	audit     AuditRecorder
-	clock     Clock
-	chinhSach ChinhSachPort
+	sellers domain.Repository
+	audit   AuditRecorder
+	clock   Clock
+	policy  PolicyPort
 }
 
 type Deps struct {
 	Sellers domain.Repository
 	Clock   Clock
 
-	// ChinhSach có thể nil: khi đó không có sàn hoa hồng và không có mức
+	// Policy có thể nil: khi đó không có sàn hoa hồng và không có mức
 	// đề xuất — đúng bằng hành vi trước khi có tham số vận hành.
-	ChinhSach ChinhSachPort
+	Policy PolicyPort
 
 	// Audit có thể nil: các use case không nhạy cảm vẫn chạy được. Chỉ
 	// SuspendWithAudit bắt buộc có nó, và nó báo lỗi rõ nếu thiếu.
@@ -104,7 +104,7 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{sellers: d.Sellers, audit: d.Audit, clock: clock,
-		chinhSach: d.ChinhSach}
+		policy: d.Policy}
 }
 
 // ErrCommissionBelowFloor: tỷ lệ hoa hồng thấp hơn sàn chính sách.
@@ -499,11 +499,11 @@ func (s *Service) change(
 	return sel, nil
 }
 
-// ChinhSachPort cấp con số chính sách hoa hồng, đọc LÚC CHẠY.
+// PolicyPort cấp con số chính sách hoa hồng, đọc LÚC CHẠY.
 //
 // Tỷ lệ của TỪNG nhà bán là dữ liệu (khác nhau theo hợp đồng); hai con số
 // ở đây là chính sách quanh nó.
-type ChinhSachPort interface {
+type PolicyPort interface {
 	// CommissionFloor là mức tối thiểu, theo điểm cơ bản. 0 = không có sàn.
 	CommissionFloor() int32
 
@@ -514,16 +514,16 @@ type ChinhSachPort interface {
 
 // commissionFloor đọc sàn hoa hồng, MỖI LẦN duyệt.
 func (s *Service) commissionFloor() int32 {
-	if s.chinhSach == nil {
+	if s.policy == nil {
 		return 0
 	}
-	return s.chinhSach.CommissionFloor()
+	return s.policy.CommissionFloor()
 }
 
 // SuggestedCommission trả mức đề xuất để giao diện điền sẵn.
 func (s *Service) SuggestedCommission() int32 {
-	if s.chinhSach == nil {
+	if s.policy == nil {
 		return 0
 	}
-	return s.chinhSach.SuggestedCommission()
+	return s.policy.SuggestedCommission()
 }

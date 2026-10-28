@@ -26,9 +26,9 @@ import (
 // cửa sổ trượt thật cần giữ dấu thời gian từng sự kiện, tức là đổi một
 // lượng bộ nhớ lớn lấy độ chính xác không ai cần ở đây.
 type SessionLimit struct {
-	nguong func() int
-	window time.Duration
-	now    func() time.Time
+	threshold func() int
+	window    time.Duration
+	now       func() time.Time
 
 	mu    sync.Mutex
 	count map[string]int
@@ -37,14 +37,14 @@ type SessionLimit struct {
 
 // NewSessionLimit tạo bộ giới hạn với ngưỡng đọc LÚC CHẠY.
 //
-// `nguong` là hàm chứ không phải số: ngưỡng là tham số vận hành, và đổi nó
+// `threshold` là hàm chứ không phải số: ngưỡng là tham số vận hành, và đổi nó
 // phải có tác dụng ở lô kế tiếp chứ không phải ở lần triển khai kế tiếp.
-func NewSessionLimit(nguong func() int, window time.Duration) *SessionLimit {
+func NewSessionLimit(threshold func() int, window time.Duration) *SessionLimit {
 	return &SessionLimit{
-		nguong: nguong,
-		window: window,
-		now:    func() time.Time { return time.Now() },
-		count:  make(map[string]int),
+		threshold: threshold,
+		window:    window,
+		now:       func() time.Time { return time.Now() },
+		count:     make(map[string]int),
 	}
 }
 
@@ -54,11 +54,11 @@ var _ LimitPort = (*SessionLimit)(nil)
 //
 // Ngưỡng <= 0 nghĩa là TẮT giới hạn — dùng khi chưa nối cấu hình.
 func (g *SessionLimit) Allowed(sessionID string, eventCount int) bool {
-	nguong := 0
-	if g.nguong != nil {
-		nguong = g.nguong()
+	threshold := 0
+	if g.threshold != nil {
+		threshold = g.threshold()
 	}
-	if nguong <= 0 {
+	if threshold <= 0 {
 		return true
 	}
 
@@ -76,7 +76,7 @@ func (g *SessionLimit) Allowed(sessionID string, eventCount int) bool {
 		g.start = now
 	}
 
-	if g.count[sessionID]+eventCount > nguong {
+	if g.count[sessionID]+eventCount > threshold {
 		return false
 	}
 	g.count[sessionID] += eventCount

@@ -255,11 +255,11 @@ func (y *ReturnRequest) Approve(now time.Time) error {
 	return nil
 }
 
-// TuChoi từ chối yêu cầu, BẮT BUỘC nêu lý do.
+// Reject từ chối yêu cầu, BẮT BUỘC nêu lý do.
 //
 // Khách cần biết vì sao để quyết định làm gì tiếp — khiếu nại, gửi thêm
 // ảnh, hay chấp nhận. Từ chối không lý do biến mọi trường hợp thành khiếu nại.
-func (y *ReturnRequest) TuChoi(reason string, now time.Time) error {
+func (y *ReturnRequest) Reject(reason string, now time.Time) error {
 	if y.status != StatusRequested {
 		return ErrInvalidStatus
 	}
@@ -333,8 +333,8 @@ func (y *ReturnRequest) Lines() []Lines {
 	return append([]Lines(nil), y.lines...)
 }
 
-// KhoiPhucParams dựng lại từ kho lưu trữ.
-type KhoiPhucParams struct {
+// RestoreParams dựng lại từ kho lưu trữ.
+type RestoreParams struct {
 	ID           ids.ID
 	OrderID      ids.ID
 	SellerID     ids.ID
@@ -356,8 +356,8 @@ type KhoiPhucParams struct {
 	UpdatedAt time.Time
 }
 
-// KhoiPhuc dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
-func KhoiPhuc(p KhoiPhucParams) *ReturnRequest {
+// Restore dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
+func Restore(p RestoreParams) *ReturnRequest {
 	return &ReturnRequest{
 		id: p.ID, orderID: p.OrderID, sellerID: p.SellerID,
 		customerID: p.CustomerID, status: p.Status, reason: p.ReasonCode,
@@ -377,12 +377,12 @@ func KhoiPhuc(p KhoiPhucParams) *ReturnRequest {
 // ghi một điều chưa ai biết — và nó sẽ đẩy hàng vào Available trong khi
 // kho chưa có gì.
 func (y *ReturnRequest) RecordInspection(
-	orderLineID ids.ID, dat bool, note string, now time.Time,
+	orderLineID ids.ID, passed bool, note string, now time.Time,
 ) error {
 	if y.status != StatusReceived && y.status != StatusRefunded {
 		return ErrGoodsNotReceived
 	}
-	if !dat && strings.TrimSpace(note) == "" {
+	if !passed && strings.TrimSpace(note) == "" {
 		return ErrMissingFaultReason
 	}
 
@@ -397,7 +397,7 @@ func (y *ReturnRequest) RecordInspection(
 		}
 
 		y.lines[i].Inspection = InspectionFailed
-		if dat {
+		if passed {
 			y.lines[i].Inspection = InspectionPassed
 		}
 		y.lines[i].InspectionNote = strings.TrimSpace(note)

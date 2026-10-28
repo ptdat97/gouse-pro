@@ -113,16 +113,16 @@ func TestRecordsUnmetDemand(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		loai string
+		kind string
 		mong int
 	}{
 		{supplychain.SignalSearchNoResult, 1},
 		{supplychain.SignalStockout, 1},
 		{supplychain.SignalNotifyRequest, 1},
 	} {
-		if counts[tc.loai] != tc.mong {
+		if counts[tc.kind] != tc.mong {
 			t.Errorf("%s = %d, mong %d — đây là tín hiệu đo nhu cầu chưa "+
-				"đáp ứng, mất nó là mất vĩnh viễn", tc.loai, counts[tc.loai], tc.mong)
+				"đáp ứng, mất nó là mất vĩnh viễn", tc.kind, counts[tc.kind], tc.mong)
 		}
 	}
 }
@@ -476,28 +476,28 @@ func TestReturnEventEmitsSignalWithReason(t *testing.T) {
 
 	// MỘT tín hiệu MỖI DÒNG: một yêu cầu có thể trả ba món với ba lý do
 	// khác nhau, và gộp lại sẽ buộc phải chọn một lý do đại diện.
-	var soTinHieu int
+	var signalCount int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM demand_signal WHERE signal_type = 'RETURN'`).
-		Scan(&soTinHieu); err != nil {
+		Scan(&signalCount); err != nil {
 		t.Fatalf("đếm tín hiệu: %v", err)
 	}
-	if soTinHieu != 2 {
-		t.Fatalf("ghi được %d tín hiệu RETURN, cần 2 (một mỗi dòng)", soTinHieu)
+	if signalCount != 2 {
+		t.Fatalf("ghi được %d tín hiệu RETURN, cần 2 (một mỗi dòng)", signalCount)
 	}
 
 	// LÝ DO phải tới được metadata — đó là phần đáng giữ nhất.
-	var lyDo string
+	var reasonCode string
 	if err := pool.QueryRow(ctx, `
 		SELECT metadata->>'reason_code' FROM demand_signal
 		 WHERE signal_type = 'RETURN' AND sku_id = $1`, skuTooSmall).
-		Scan(&lyDo); err != nil {
+		Scan(&reasonCode); err != nil {
 		t.Fatalf("đọc lý do: %v", err)
 	}
-	if lyDo != "SIZE_TOO_SMALL" {
+	if reasonCode != "SIZE_TOO_SMALL" {
 		t.Errorf("mã lý do = %q, cần SIZE_TOO_SMALL — không có nó thì tín "+
 			"hiệu chỉ nói CÓ hàng bị trả, không nói VÌ SAO, và dữ liệu "+
-			"chất lượng của thời trang mất hết", lyDo)
+			"chất lượng của thời trang mất hết", reasonCode)
 	}
 
 	// Số lượng phải giữ nguyên: trả 2 món khác trả 1 món.
@@ -534,9 +534,9 @@ func TestWishlistEventEmitsTwoSignals(t *testing.T) {
 	bus.Subscribe(supplychain.NewSignalHandler(m))
 
 	productNotifyRequest := ids.MustNew(ids.PrefixProduct).String()
-	spChiThich := ids.MustNew(ids.PrefixProduct).String()
+	likedProduct := ids.MustNew(ids.PrefixProduct).String()
 
-	publish := func(productID string, muonBao bool) {
+	publish := func(productID string, wantsNotice bool) {
 		t.Helper()
 		e, err := eventbus.NewEvent(
 			eventbus.TypeWishlistItemAdded, eventbus.AggregateCustomer,
@@ -545,7 +545,7 @@ func TestWishlistEventEmitsTwoSignals(t *testing.T) {
 				"customer_id":           ids.MustNew(ids.PrefixCustomer).String(),
 				"product_id":            productID,
 				"variant_id":            "",
-				"notify_when_available": muonBao,
+				"notify_when_available": wantsNotice,
 			})
 		if err != nil {
 			t.Fatalf("NewEvent: %v", err)
@@ -556,19 +556,19 @@ func TestWishlistEventEmitsTwoSignals(t *testing.T) {
 	}
 
 	publish(productNotifyRequest, true)
-	publish(spChiThich, false)
+	publish(likedProduct, false)
 	if _, err := bus.DispatchBatch(ctx, 10); err != nil {
 		t.Fatalf("DispatchBatch: %v", err)
 	}
 
-	count := func(loai, productID string) int {
+	count := func(kind, productID string) int {
 		t.Helper()
 		var n int
 		if err := pool.QueryRow(ctx, `
 			SELECT count(*) FROM demand_signal
-			 WHERE signal_type = $1 AND product_id = $2`, loai, productID).
+			 WHERE signal_type = $1 AND product_id = $2`, kind, productID).
 			Scan(&n); err != nil {
-			t.Fatalf("đếm tín hiệu %s: %v", loai, err)
+			t.Fatalf("đếm tín hiệu %s: %v", kind, err)
 		}
 		return n
 	}
@@ -584,10 +584,10 @@ func TestWishlistEventEmitsTwoSignals(t *testing.T) {
 	}
 
 	// Món chỉ thích: CHỈ MỘT.
-	if got := count("WISHLIST", spChiThich); got != 1 {
+	if got := count("WISHLIST", likedProduct); got != 1 {
 		t.Errorf("món chỉ thích có %d tín hiệu WISHLIST, cần 1", got)
 	}
-	if got := count("NOTIFY_REQUEST", spChiThich); got != 0 {
+	if got := count("NOTIFY_REQUEST", likedProduct); got != 0 {
 		t.Errorf("món KHÔNG xin báo mà có %d tín hiệu NOTIFY_REQUEST — "+
 			"gộp hai mức cam kết lại thì không còn phân biệt được", got)
 	}
@@ -627,12 +627,12 @@ func TestCoalescedSignalRerunDoesNotDoubleCount(t *testing.T) {
 	sp := ids.MustNew(ids.PrefixProduct).String()
 	day := "2026-09-16"
 
-	coalesced := func(soPhien int) {
+	coalesced := func(sessionCount int) {
 		t.Helper()
 		if err := m.RecordCoalescedSignals(ctx, []supplychain.SignalRequest{{
 			Type:       supplychain.SignalView,
 			ProductID:  sp,
-			Quantity:   soPhien,
+			Quantity:   sessionCount,
 			OccurredAt: day + "T00:00:00Z",
 			SourceType: "view_rollup",
 			SourceID:   day,
@@ -641,12 +641,12 @@ func TestCoalescedSignalRerunDoesNotDoubleCount(t *testing.T) {
 		}
 	}
 
-	count := func() (soDong, soLuong int) {
+	count := func() (rowCount, totalQty int) {
 		t.Helper()
 		if err := pool.QueryRow(ctx, `
 			SELECT count(*), coalesce(max(quantity), 0) FROM demand_signal
 			 WHERE signal_type = 'VIEW' AND product_id = $1`, sp).
-			Scan(&soDong, &soLuong); err != nil {
+			Scan(&rowCount, &totalQty); err != nil {
 			t.Fatalf("đếm tín hiệu: %v", err)
 		}
 		return
@@ -700,15 +700,15 @@ func TestCoalescedSignalRerunDoesNotDoubleCount(t *testing.T) {
 			t.Fatalf("ghi tín hiệu thêm giỏ: %v", err)
 		}
 	}
-	var themGio int
+	var cartAdds int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM demand_signal
 		 WHERE signal_type = 'ADD_TO_CART' AND product_id = $1`, sp).
-		Scan(&themGio); err != nil {
+		Scan(&cartAdds); err != nil {
 		t.Fatalf("đếm thêm giỏ: %v", err)
 	}
-	if themGio != 2 {
+	if cartAdds != 2 {
 		t.Errorf("hai lần thêm giỏ cho %d dòng, cần 2 — chỉ mục chống trùng "+
-			"của dòng GOM đang lan sang nhật ký chỉ-thêm", themGio)
+			"của dòng GOM đang lan sang nhật ký chỉ-thêm", cartAdds)
 	}
 }

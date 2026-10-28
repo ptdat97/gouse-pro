@@ -197,12 +197,41 @@ Bốn tên lọt lượt `product` vì chỉ nghĩ trong đầu mà không ghi v
 `tao`, `boQua`, `coKetQua`, `tenPG`. `go build`, `go vet`, `make check` đều
 XANH — không có cách nào thấy ngoài việc đếm lại.
 
-### Bộ lọc tiếng Việt CŨNG bỏ sót, và nó làm bảng Tiến độ nói sai
+### CẢ HAI công cụ đo đều bỏ sót — và đó mới là vấn đề
 
 Bộ âm tiết thiếu `ly`, `trang`, `cac`, `goi`, `khop`, `chuan`, nên
 `LyDo`, `TrangThai`, `CacSize`, `GoiY`, `KhopBienThe`, `SizeDaChuan` KHÔNG
 bị đếm. Mười hai module ghi "XONG" mà vẫn còn tên tiếng Việt; `returns` còn
 mười lăm, trong đó có cả hai kiểu enum lõi.
+
+Vá bộ âm tiết thì nó lại sót tiếp (`chinh`, `sach` → `seller` vẫn giữ
+`ChinhSachPort`). Một ALLOWLIST âm tiết Việt KHÔNG BAO GIỜ đầy: mỗi lần vá
+là mỗi lần đoán thêm. Cách đúng là đo NGƯỢC — liệt kê định danh có từ KHÔNG
+có trong `/usr/share/dict/words` (và không nằm trong danh sách từ kỹ thuật).
+Bộ ngược ồn hơn, nhưng ồn thì ĐỌC ĐƯỢC, còn sót thì không.
+
+Hai bộ bổ nhau: bộ Việt cho con số, bộ ngược cho danh sách phải đọc. Dùng
+CẢ HAI mỗi lượt.
+
+### Và công cụ LIỆT KÊ định danh cũng có điểm mù
+
+`ident` chỉ đọc `f.Decls` cộng `AssignStmt` kiểu `:=`, nên KHÔNG thấy:
+
+```text
+var ( a, b atomic.Int64 )   khai `var` NHÓM trong thân hàm
+for _, x := range xs        biến của RangeStmt
+func(a, b int) { … }        tham số của func literal
+func f() (n int, err error) kết quả CÓ TÊN
+type t struct{…}            `type` khai trong hàm
+```
+
+Sửa thành MỘT lượt `ast.Inspect` qua mọi nút: `inventory` nhảy từ 566 lên
+603 định danh, và lộ ra `hetHang`, `thanhCong`, `xungDot`, `soKhach`,
+`batDau`, `daGiu` — một bài test đua tranh viết toàn tiếng Việt mà hai lượt
+đo trước đó báo "sạch".
+
+Thứ tự kiểm là: sửa công cụ TRƯỚC, đo lại SAU. Đo bằng công cụ hỏng thì con
+số tử tế chỉ nói rằng công cụ không nhìn thấy gì.
 
 Bài học không phải "vá bộ lọc" mà là: con số ở bảng Tiến độ chỉ đáng tin
 bằng công cụ đo nó. Thấy một tên sót thì ĐỪNG sửa riêng tên ấy — vá bộ lọc
@@ -376,15 +405,19 @@ XONG   modules/customer                 82   (kernel, lá)
 XONG   modules/seller                   43   (kernel, lá)
 XONG   modules/inventory               107   (kernel)
 XONG   modules/product                 237   (kernel) + 12 sót ở recommendation
-XONG   lượt DỌN SÓT                      29   ở 9 module đã ghi XONG
-CÒN    1633 định danh Go ở 6 module
+XONG   modules/marketplace              74   (kernel)
+XONG   lượt DỌN SÓT                     140   ở 13 module đã ghi XONG
+       (29 lượt một + 44 lượt hai + 47 lượt ba, sau khi sửa CẢ HAI công cụ)
+CÒN    order 89 · payment 260 · fulfillment 228 · cart 46 · checkout 153
 
 ĐÃ GỠ customer.OrderPort vẫn HOÃN (chờ `order`), nhưng cổng gợi ý size thì
        xong: `GoiYSizePort`/`GoiYSize` đổi CÙNG LÚC với adapter ở
        `internal/app` nên không còn phải hoãn.
 
-CÒN    marketplace 54 · order 85 · payment 239 · fulfillment 208 ·
-       cart 41 · checkout 138 — rồi `internal/platform`, `internal/app`, `cmd`.
+       Rồi `internal/platform`, `internal/app`, `cmd`.
+
+Con số nay ĐO BẰNG CẢ HAI bộ (xem mục 3), nên cao hơn các lượt trước dù
+công việc đã làm nhiều hơn — lượt trước đo bằng công cụ có điểm mù.
 
 Nhóm KERNEL đi từ LÁ lên GỐC — module không import module nghiệp vụ nào
 trước, `checkout` gần cuối, `internal/app` sau cùng vì nó gọi mọi module.

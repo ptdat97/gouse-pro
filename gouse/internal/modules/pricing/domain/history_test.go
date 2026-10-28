@@ -194,8 +194,8 @@ func TestHistoryQueryBoundaries(t *testing.T) {
 	}
 
 	// Khoảng rỗng chứa mọi thời điểm.
-	var moHai domain.DateRange
-	if !moHai.Contains(testNow) {
+	var openEnded domain.DateRange
+	if !openEnded.Contains(testNow) {
 		t.Error("khoảng rỗng phải chứa mọi thời điểm")
 	}
 }

@@ -54,56 +54,56 @@ func TestMarketingStopsWithoutConsent(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range []struct {
-		ten      string
-		customer *fakeCustomer
-		category string
-		channel  string
-		khachID  string
-		wantSent bool
+		ten        string
+		customer   *fakeCustomer
+		category   string
+		channel    string
+		customerID string
+		wantSent   bool
 	}{
 		{
-			ten:      "marketing KHÔNG đồng ý → dừng",
-			customer: &fakeCustomer{consent: map[string]bool{}},
-			category: notification.CategoryMarketing,
-			channel:  notification.ChannelEmail,
-			khachID:  "cus_01",
-			wantSent: false,
+			ten:        "marketing KHÔNG đồng ý → dừng",
+			customer:   &fakeCustomer{consent: map[string]bool{}},
+			category:   notification.CategoryMarketing,
+			channel:    notification.ChannelEmail,
+			customerID: "cus_01",
+			wantSent:   false,
 		},
 		{
 			ten: "marketing CÓ đồng ý → gửi",
 			customer: &fakeCustomer{consent: map[string]bool{
 				"MARKETING_EMAIL": true,
 			}},
-			category: notification.CategoryMarketing,
-			channel:  notification.ChannelEmail,
-			khachID:  "cus_01",
-			wantSent: true,
+			category:   notification.CategoryMarketing,
+			channel:    notification.ChannelEmail,
+			customerID: "cus_01",
+			wantSent:   true,
 		},
 		{
-			ten:      "GIAO DỊCH thì không hỏi đồng ý, luôn gửi",
-			customer: &fakeCustomer{consent: map[string]bool{}},
-			category: notification.CategoryTransactional,
-			channel:  notification.ChannelEmail,
-			khachID:  "cus_01",
-			wantSent: true,
+			ten:        "GIAO DỊCH thì không hỏi đồng ý, luôn gửi",
+			customer:   &fakeCustomer{consent: map[string]bool{}},
+			category:   notification.CategoryTransactional,
+			channel:    notification.ChannelEmail,
+			customerID: "cus_01",
+			wantSent:   true,
 		},
 		{
-			ten:      "tra đồng ý HỎNG → dừng, không cho qua",
-			customer: &fakeCustomer{failure: errors.New("database sập")},
-			category: notification.CategoryMarketing,
-			channel:  notification.ChannelEmail,
-			khachID:  "cus_01",
-			wantSent: false,
+			ten:        "tra đồng ý HỎNG → dừng, không cho qua",
+			customer:   &fakeCustomer{failure: errors.New("database sập")},
+			category:   notification.CategoryMarketing,
+			channel:    notification.ChannelEmail,
+			customerID: "cus_01",
+			wantSent:   false,
 		},
 		{
 			ten: "không biết khách nào → dừng",
 			customer: &fakeCustomer{consent: map[string]bool{
 				"MARKETING_EMAIL": true,
 			}},
-			category: notification.CategoryMarketing,
-			channel:  notification.ChannelEmail,
-			khachID:  "",
-			wantSent: false,
+			category:   notification.CategoryMarketing,
+			channel:    notification.ChannelEmail,
+			customerID: "",
+			wantSent:   false,
 		},
 	} {
 		t.Run(tc.ten, func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestMarketingStopsWithoutConsent(t *testing.T) {
 				Category:  tc.category,
 				Template:  "thu_thu_nghiem",
 				Recipient: "customer@example.com",
-				UserID:    tc.khachID,
+				UserID:    tc.customerID,
 				Subject:   "Thử",
 				Body:      "Thử",
 			})
@@ -156,8 +156,8 @@ func TestConsentIsCheckedPerChannel(t *testing.T) {
 
 	for _, tc := range []struct {
 		channelName string
-		muonHoi     string
-		moTaSai     string
+		wantAsked   string
+		wrongDesc   string
 	}{
 		{notification.ChannelEmail, "MARKETING_EMAIL", "email"},
 		{notification.ChannelSMS, "MARKETING_SMS", "tin nhắn"},
@@ -183,9 +183,9 @@ func TestConsentIsCheckedPerChannel(t *testing.T) {
 			if len(k.daHoi) == 0 {
 				t.Fatal("không hỏi đồng ý lần nào")
 			}
-			if got := k.daHoi[len(k.daHoi)-1]; got != tc.muonHoi {
+			if got := k.daHoi[len(k.daHoi)-1]; got != tc.wantAsked {
 				t.Fatalf("hỏi loại đồng ý %q, cần %q — đồng ý nhận %s "+
-					"không phải giấy phép cho kênh khác", got, tc.muonHoi, tc.moTaSai)
+					"không phải giấy phép cho kênh khác", got, tc.wantAsked, tc.wrongDesc)
 			}
 
 			var status string

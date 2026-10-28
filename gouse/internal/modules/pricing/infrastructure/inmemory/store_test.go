@@ -95,10 +95,10 @@ func TestStoreAlsoReturnsDeactivatedPrices(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 
 	base := newPrice(t, skuID, 490000, domain.PriceTypeBase)
-	ngung := newPrice(t, skuID, 250000, domain.PriceTypeClearance)
-	ngung.Deactivate(testNow)
+	clearance := newPrice(t, skuID, 250000, domain.PriceTypeClearance)
+	clearance.Deactivate(testNow)
 
-	for _, p := range []*domain.Price{base, ngung} {
+	for _, p := range []*domain.Price{base, clearance} {
 		if err := s.Save(ctx, p); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
@@ -300,16 +300,16 @@ func TestHistoryIsAppendOnly(t *testing.T) {
 	}
 }
 
-func TestLichSuLocTheoKhoangThoiGian(t *testing.T) {
+func TestHistoryFiltersByPeriod(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewHistoryStore()
 	skuID := ids.MustNew(ids.PrefixSKU)
 
-	for i, ngay := range []int{-45, -20, -5} {
+	for i, dayOffset := range []int{-45, -20, -5} {
 		p, err := domain.NewPricePoint(domain.NewPricePointParams{
 			SKUID:  skuID,
 			Amount: vnd(int64(100000 * (i + 1))),
-			Now:    testNow.AddDate(0, 0, ngay),
+			Now:    testNow.AddDate(0, 0, dayOffset),
 		})
 		if err != nil {
 			t.Fatalf("NewPricePoint: %v", err)

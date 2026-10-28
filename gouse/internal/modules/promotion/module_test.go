@@ -368,7 +368,7 @@ func TestPerCustomerUseLimit(t *testing.T) {
 //
 // Một mã giảm 10% không biết trước mỗi lượt tốn bao nhiêu, nên giới hạn
 // theo lượt KHÔNG chặn được chi phí.
-func TestNganSachChanChiPhi(t *testing.T) {
+func TestBudgetCapsTheCost(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -699,7 +699,7 @@ func TestOrderCancelReleasesUse(t *testing.T) {
 }
 
 // GIẢI PHÓNG LÀ IDEMPOTENT: gọi lại KHÔNG trừ ngân sách lần nữa.
-func TestGiaiPhongIdempotent(t *testing.T) {
+func TestReleaseIsIdempotent(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -815,7 +815,7 @@ func TestAllocationLosesNoMoneyOnRemainder(t *testing.T) {
 //
 // Không trả lời được thì không tính được seller thực nhận bao nhiêu, và
 // đối soát cuối tháng sẽ lệch đúng bằng tổng tiền khuyến mãi.
-func TestAiChiuChiPhiKhuyenMai(t *testing.T) {
+func TestWhoBearsThePromotionCost(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	sellerID := ids.MustNew(ids.PrefixSeller).String()
 

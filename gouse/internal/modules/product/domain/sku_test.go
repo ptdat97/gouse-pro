@@ -155,8 +155,8 @@ func TestAddSKUAttachesToVariant(t *testing.T) {
 }
 
 func TestDimensionsProperties(t *testing.T) {
-	var rong domain.Dimensions
-	if !rong.IsZero() {
+	var empty domain.Dimensions
+	if !empty.IsZero() {
 		t.Error("kích thước rỗng phải IsZero")
 	}
 

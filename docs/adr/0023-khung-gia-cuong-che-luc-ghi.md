@@ -102,12 +102,12 @@ Bài test phải tự dựng SKU thương hiệu MỞ kèm khung giá — xem
 
 Lời gọi `pricing` lỗi hạ tầng thì **chặn**, không cho qua: không chứng minh
 được giá hợp lệ thì với dữ liệu tiền phải xử như "không hợp lệ". Cùng lựa
-chọn với `notification.CoDongY` — không chứng minh được đồng ý thì không gửi.
+chọn với `notification.HasConsent` — không chứng minh được đồng ý thì không gửi.
 
-### Cổng `KhungGiaPort` nil = KHÔNG kiểm
+### Cổng `PriceFramePort` nil = KHÔNG kiểm
 
 Một môi trường chưa dựng `pricing` vẫn bán được hàng, cùng cách
-`ChinhSachPort` nil rơi về mặc định của domain. Nối dây ở **cả hai** gốc —
+`PolicyPort` nil rơi về mặc định của domain. Nối dây ở **cả hai** gốc —
 `internal/app` và `cmd/worker` — dù worker không tạo offer: để nil ở một gốc
 tạo ra khác biệt IM LẶNG giữa hai chỗ, đúng dạng lỗi `eventcheck` R4 vừa được
 dựng để gác ở tầng bên nhận event (P3-86).

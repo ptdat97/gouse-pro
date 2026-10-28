@@ -117,16 +117,16 @@ func TestNoOversellWhenManyBuyersRaceForLastUnits(t *testing.T) {
 	cleanInventory(t, pool)
 	ctx := context.Background()
 
-	const soKhach = 20
+	const buyers = 20
 	item := seedItem(t, pool, 1) // CHỈ CÒN 1 SẢN PHẨM
 	store := postgres.NewItemStore(pool)
 
 	var (
-		thanhCong atomic.Int64
-		xungDot   atomic.Int64
-		hetHang   atomic.Int64
-		batDau    = make(chan struct{})
-		wg        sync.WaitGroup
+		succeeded  atomic.Int64
+		conflicts  atomic.Int64
+		outOfStock atomic.Int64
+		start      = make(chan struct{})
+		wg         sync.WaitGroup
 	)
 
 	// Mọi khách ĐỌC TRƯỚC, ghi SAU — ép tất cả cùng nhìn thấy "còn 1".
@@ -134,7 +134,7 @@ func TestNoOversellWhenManyBuyersRaceForLastUnits(t *testing.T) {
 	// Không làm vậy thì goroutine chạy sau đọc được trạng thái đã cập nhật,
 	// thấy hết hàng và dừng lại — khóa lạc quan không hề bị thử thách, và
 	// test vẫn xanh kể cả khi khóa bị vô hiệu.
-	snapshots := make([]*domain.InventoryItem, soKhach)
+	snapshots := make([]*domain.InventoryItem, buyers)
 	for i := range snapshots {
 		cur, err := store.FindByID(ctx, item.ID())
 		if err != nil {
@@ -143,16 +143,16 @@ func TestNoOversellWhenManyBuyersRaceForLastUnits(t *testing.T) {
 		snapshots[i] = cur
 	}
 
-	for i := 0; i < soKhach; i++ {
+	for i := 0; i < buyers; i++ {
 		wg.Add(1)
 		go func(cur *domain.InventoryItem) {
 			defer wg.Done()
-			<-batDau // chờ tất cả sẵn sàng rồi cùng lao vào
+			<-start // chờ tất cả sẵn sàng rồi cùng lao vào
 
 			if err := cur.Reserve(1, testNow); err != nil {
 				// Hết hàng: KHÔNG thử lại (mục 5.4).
 				if errors.Is(err, domain.ErrInsufficientStock) {
-					hetHang.Add(1)
+					outOfStock.Add(1)
 					return
 				}
 				t.Errorf("Reserve: %v", err)
@@ -161,20 +161,20 @@ func TestNoOversellWhenManyBuyersRaceForLastUnits(t *testing.T) {
 
 			switch err := store.ApplyChange(ctx, cur, cur.Version()); {
 			case err == nil:
-				thanhCong.Add(1)
+				succeeded.Add(1)
 			case errors.Is(err, domain.ErrVersionConflict):
-				xungDot.Add(1)
+				conflicts.Add(1)
 			default:
 				t.Errorf("ApplyChange: %v", err)
 			}
 		}(snapshots[i])
 	}
 
-	close(batDau)
+	close(start)
 	wg.Wait()
 
 	// CHỈ MỘT khách được giữ hàng.
-	if got := thanhCong.Load(); got != 1 {
+	if got := succeeded.Load(); got != 1 {
 		t.Errorf("số khách giữ được hàng = %d, mong ĐÚNG 1 — đã bán quá số lượng!", got)
 	}
 
@@ -193,7 +193,7 @@ func TestNoOversellWhenManyBuyersRaceForLastUnits(t *testing.T) {
 	}
 
 	t.Logf("trong %d khách: %d thành công, %d xung đột phiên bản, %d thấy hết hàng",
-		soKhach, thanhCong.Load(), xungDot.Load(), hetHang.Load())
+		buyers, succeeded.Load(), conflicts.Load(), outOfStock.Load())
 }
 
 // Nhiều hàng, nhiều khách: tổng số bán ra KHÔNG được vượt số lượng có.
@@ -206,23 +206,23 @@ func TestTotalSoldNeverExceedsStock(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		stock   = 10
-		soKhach = 30
+		stock  = 10
+		buyers = 30
 	)
 	item := seedItem(t, pool, stock)
 	store := postgres.NewItemStore(pool)
 
 	var (
-		daGiu  atomic.Int64
-		batDau = make(chan struct{})
-		wg     sync.WaitGroup
+		reserved atomic.Int64
+		start    = make(chan struct{})
+		wg       sync.WaitGroup
 	)
 
-	for i := 0; i < soKhach; i++ {
+	for i := 0; i < buyers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			<-batDau
+			<-start
 
 			// Thử lại tối đa 3 lần khi xung đột phiên bản (mục 5.4).
 			for round := 0; round < 3; round++ {
@@ -237,7 +237,7 @@ func TestTotalSoldNeverExceedsStock(t *testing.T) {
 				}
 				err = store.ApplyChange(ctx, cur, cur.Version())
 				if err == nil {
-					daGiu.Add(1)
+					reserved.Add(1)
 					return
 				}
 				if !errors.Is(err, domain.ErrVersionConflict) {
@@ -249,10 +249,10 @@ func TestTotalSoldNeverExceedsStock(t *testing.T) {
 		}()
 	}
 
-	close(batDau)
+	close(start)
 	wg.Wait()
 
-	got := daGiu.Load()
+	got := reserved.Load()
 	if got > stock {
 		t.Errorf("giữ được %d, vượt tồn kho %d — ĐÃ BÁN QUÁ SỐ LƯỢNG", got, stock)
 	}
@@ -271,7 +271,7 @@ func TestTotalSoldNeverExceedsStock(t *testing.T) {
 	}
 
 	t.Logf("tồn kho %d, %d khách tranh mua, giữ được %d, còn lại %d",
-		stock, soKhach, got, q.Available())
+		stock, buyers, got, q.Available())
 }
 
 // Ràng buộc CHECK ở database là LỚP BẢO VỆ CUỐI CÙNG.
@@ -358,15 +358,15 @@ func TestSameSKUDifferentOwnerAreSeparateRows(t *testing.T) {
 	}
 
 	// Và phân biệt được chủ sở hữu.
-	var coNenTang, coSeller bool
+	var hasPlatform, hasSeller bool
 	for _, it := range found[platformItem.SKUID()] {
 		if it.IsPlatformOwned() {
-			coNenTang = true
+			hasPlatform = true
 		} else if it.OwnerID() == sellerID {
-			coSeller = true
+			hasSeller = true
 		}
 	}
-	if !coNenTang || !coSeller {
+	if !hasPlatform || !hasSeller {
 		t.Error("không phân biệt được hàng nền tảng với hàng seller")
 	}
 }

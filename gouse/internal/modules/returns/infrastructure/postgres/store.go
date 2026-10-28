@@ -179,23 +179,23 @@ func (s *Store) read(
 	defer rows.Close()
 
 	var out []*domain.ReturnRequest
-	var ma []string
-	theoID := map[ids.ID]*domain.KhoiPhucParams{}
+	var reqIDs []string
+	byID := map[ids.ID]*domain.RestoreParams{}
 
 	for rows.Next() {
-		var p domain.KhoiPhucParams
-		var id, orderID, sellerID, customerID, status, reason, tienTe string
-		var soTien int64
+		var p domain.RestoreParams
+		var id, orderID, sellerID, customerID, status, reason, currency string
+		var amountRaw int64
 		var decided, received, refunded *time.Time
 
 		if err := rows.Scan(&id, &orderID, &sellerID, &customerID, &status,
-			&reason, &p.Note, &p.RejectReason, &soTien, &tienTe,
+			&reason, &p.Note, &p.RejectReason, &amountRaw, &currency,
 			&p.RequestedAt, &decided, &received, &refunded,
 			&p.Version, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 
-		amount, err := money.New(soTien, money.Currency(tienTe))
+		amount, err := money.New(amountRaw, money.Currency(currency))
 		if err != nil {
 			return nil, fmt.Errorf("returns: số tiền hỏng ở bản ghi %s: %w", id, err)
 		}
@@ -211,13 +211,13 @@ func (s *Store) read(
 		p.ReceivedAt = deref(received)
 		p.RefundedAt = deref(refunded)
 
-		theoID[p.ID] = &p
-		ma = append(ma, id)
+		byID[p.ID] = &p
+		reqIDs = append(reqIDs, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(ma) == 0 {
+	if len(reqIDs) == 0 {
 		return nil, nil
 	}
 
@@ -228,34 +228,34 @@ func (s *Store) read(
 		       quantity, line_refund, line_currency, reason_code, reason_detail,
 		       inspection, inspection_note, inspected_at
 		  FROM return_line WHERE return_request_id = ANY($1)
-		 ORDER BY created_at, id`, ma)
+		 ORDER BY created_at, id`, reqIDs)
 	if err != nil {
 		return nil, fmt.Errorf("returns: đọc dòng trả hàng: %w", err)
 	}
 	defer lrows.Close()
 
 	for lrows.Next() {
-		var reqID, id, lineID, skuID, tienTe, reason, chiTiet string
-		var inspection, ghiChuKD string
-		var kiemLuc *time.Time
+		var reqID, id, lineID, skuID, currency, reason, detail string
+		var inspection, inspectNote string
+		var inspectedAt *time.Time
 		var qty int
-		var soTien int64
-		if err := lrows.Scan(&reqID, &id, &lineID, &skuID, &qty, &soTien,
-			&tienTe, &reason, &chiTiet, &inspection, &ghiChuKD, &kiemLuc); err != nil {
+		var amountRaw int64
+		if err := lrows.Scan(&reqID, &id, &lineID, &skuID, &qty, &amountRaw,
+			&currency, &reason, &detail, &inspection, &inspectNote, &inspectedAt); err != nil {
 			return nil, err
 		}
-		amount, err := money.New(soTien, money.Currency(tienTe))
+		amount, err := money.New(amountRaw, money.Currency(currency))
 		if err != nil {
 			return nil, err
 		}
-		if p := theoID[ids.ID(reqID)]; p != nil {
+		if p := byID[ids.ID(reqID)]; p != nil {
 			p.Lines = append(p.Lines, domain.Lines{
 				ID: ids.ID(id), OrderLineID: ids.ID(lineID),
 				SKUID: ids.ID(skuID), Quantity: qty, RefundAmount: amount,
-				ReasonCode: domain.ReasonCode(reason), Detail: chiTiet,
+				ReasonCode: domain.ReasonCode(reason), Detail: detail,
 				Inspection:     domain.InspectionOutcome(inspection),
-				InspectionNote: ghiChuKD,
-				InspectedAt:    deref(kiemLuc),
+				InspectionNote: inspectNote,
+				InspectedAt:    deref(inspectedAt),
 			})
 		}
 	}
@@ -263,8 +263,8 @@ func (s *Store) read(
 		return nil, err
 	}
 
-	for _, id := range ma {
-		out = append(out, domain.KhoiPhuc(*theoID[ids.ID(id)]))
+	for _, id := range reqIDs {
+		out = append(out, domain.Restore(*byID[ids.ID(id)]))
 	}
 	return out, nil
 }

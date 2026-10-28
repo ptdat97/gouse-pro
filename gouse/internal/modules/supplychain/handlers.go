@@ -133,7 +133,7 @@ func (h *RecordSignalsFromEvents) Handle(ctx context.Context, e eventbus.Event) 
 	case eventbus.TypeReturnRequested:
 		return h.handleReturn(ctx, e)
 	case eventbus.TypeWishlistItemAdded:
-		return h.handleYeuThich(ctx, e)
+		return h.handleWishlist(ctx, e)
 	}
 	// Loại event không quan tâm: không phải lỗi.
 	return nil
@@ -343,9 +343,9 @@ func (h *RecordSignalsFromEvents) handleStockout(
 // returnPayload là dữ liệu từ event khách xin trả hàng.
 type returnPayload struct {
 	Lines []struct {
-		SKUID    string `json:"sku_id"`
-		Quantity int    `json:"quantity"`
-		LyDo     string `json:"reason_code"`
+		SKUID      string `json:"sku_id"`
+		Quantity   int    `json:"quantity"`
+		ReasonCode string `json:"reason_code"`
 	} `json:"lines"`
 }
 
@@ -390,22 +390,22 @@ func (h *RecordSignalsFromEvents) handleReturn(
 			OccurredAt: e.OccurredAt.Format(time.RFC3339),
 			SourceType: "return_request",
 			SourceID:   e.AggregateID.String(),
-			Metadata:   map[string]string{"reason_code": d.LyDo},
+			Metadata:   map[string]string{"reason_code": d.ReasonCode},
 		})
 	}
 
 	return h.module.RecordSignals(ctx, reqs)
 }
 
-// yeuThichPayload là dữ liệu từ event thêm món vào yêu thích.
-type yeuThichPayload struct {
+// wishlistPayload là dữ liệu từ event thêm món vào yêu thích.
+type wishlistPayload struct {
 	CustomerID         string `json:"customer_id"`
 	ProductID          string `json:"product_id"`
 	VariantID          string `json:"variant_id"`
 	WantsRestockNotice bool   `json:"notify_when_available"`
 }
 
-// handleYeuThich ghi tín hiệu WISHLIST, và NOTIFY_REQUEST nếu khách xin báo.
+// handleWishlist ghi tín hiệu WISHLIST, và NOTIFY_REQUEST nếu khách xin báo.
 //
 // # HAI tín hiệu từ MỘT hành động, và vì sao không gộp
 //
@@ -422,15 +422,15 @@ type yeuThichPayload struct {
 // Khách thường thích cả sản phẩm rồi mới chọn size. `variant_id` có thể
 // rỗng, và điền một SKU đoán vào đó sẽ làm mọi phép tổng hợp theo size sai.
 // Cột `product_id` của bảng tín hiệu tồn tại đúng cho trường hợp này.
-func (h *RecordSignalsFromEvents) handleYeuThich(
+func (h *RecordSignalsFromEvents) handleWishlist(
 	ctx context.Context, e eventbus.Event,
 ) error {
-	var p yeuThichPayload
+	var p wishlistPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event yêu thích: %w", err)
 	}
 
-	chung := SignalRequest{
+	base := SignalRequest{
 		SKUID:      p.VariantID,
 		ProductID:  p.ProductID,
 		Quantity:   1,
@@ -441,12 +441,12 @@ func (h *RecordSignalsFromEvents) handleYeuThich(
 
 	reqs := make([]SignalRequest, 0, 2)
 
-	yeuThich := chung
-	yeuThich.Type = SignalWishlist
-	reqs = append(reqs, yeuThich)
+	wishlist := base
+	wishlist.Type = SignalWishlist
+	reqs = append(reqs, wishlist)
 
 	if p.WantsRestockNotice {
-		notifyRequest := chung
+		notifyRequest := base
 		notifyRequest.Type = SignalNotifyRequest
 		reqs = append(reqs, notifyRequest)
 	}

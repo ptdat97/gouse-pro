@@ -72,7 +72,7 @@ func New(cfg Config) (*Module, error) {
 		deps.Audit = NewAuditRecorder(cfg.Audit)
 	}
 	if cfg.OpsConfig != nil {
-		deps.ChinhSach = &chinhSachAdapter{cfg: cfg.OpsConfig}
+		deps.Policy = &policyAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -316,19 +316,19 @@ func translateErr(err error) error {
 	return err
 }
 
-// chinhSachAdapter đọc chính sách hoa hồng từ cấu hình vận hành.
+// policyAdapter đọc chính sách hoa hồng từ cấu hình vận hành.
 //
 // ĐỌC MỖI LẦN DUYỆT: đổi sàn phải có tác dụng ở hồ sơ duyệt kế tiếp, không
 // phải ở lần triển khai kế tiếp.
-type chinhSachAdapter struct{ cfg *opsconfig.Store }
+type policyAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
+var _ application.PolicyPort = (*policyAdapter)(nil)
 
-func (a *chinhSachAdapter) CommissionFloor() int32 {
+func (a *policyAdapter) CommissionFloor() int32 {
 	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongSan))
 }
 
-func (a *chinhSachAdapter) SuggestedCommission() int32 {
+func (a *policyAdapter) SuggestedCommission() int32 {
 	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongDeXuat))
 }
 

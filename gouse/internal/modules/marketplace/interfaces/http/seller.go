@@ -55,8 +55,8 @@ type StockPort interface {
 	) error
 }
 
-// maxTrangSeller khớp `maximum: 100` của tham số Limit dùng chung.
-const maxTrangSeller = 100
+// maxSellerPage khớp `maximum: 100` của tham số Limit dùng chung.
+const maxSellerPage = 100
 
 type SellerHandler struct {
 	svc *application.Service
@@ -136,9 +136,9 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 		// hơn hợp đồng. Kiểu lệch này không ai thấy — request 150 chạy
 		// tốt, cho tới khi một client sinh từ đặc tả từ chối gửi nó, hoặc
 		// một proxy kiểm hợp đồng chặn lại.
-		if convErr != nil || n < 1 || n > maxTrangSeller {
+		if convErr != nil || n < 1 || n > maxSellerPage {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
-				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d", maxTrangSeller)))
+				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d", maxSellerPage)))
 			return
 		}
 		limit = n
@@ -156,11 +156,11 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 	wanted := strings.TrimSpace(r.URL.Query().Get("status"))
 
 	data := make([]sellerOfferJSON, 0, len(list))
-	for _, so := range list {
-		if wanted != "" && string(so.Offer.Status()) != wanted {
+	for _, entry := range list {
+		if wanted != "" && string(entry.Offer.Status()) != wanted {
 			continue
 		}
-		data = append(data, toSellerOffer(so.Offer, so.IsSellable))
+		data = append(data, toSellerOffer(entry.Offer, entry.IsSellable))
 	}
 	h.ok(w, r, http.StatusOK, listOffersResponse{Data: data})
 }

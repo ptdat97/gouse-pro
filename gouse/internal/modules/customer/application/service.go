@@ -553,10 +553,10 @@ func (s *Service) AddToWishlist(
 
 	// Món yêu thích và tín hiệu nhu cầu vào CÙNG một giao dịch.
 	//
-	// `AddItemKemEvent` chỉ chạy hàm này khi món THẬT SỰ được thêm: bấm
+	// `AddItemWithEvent` chỉ chạy hàm này khi món THẬT SỰ được thêm: bấm
 	// tim lần thứ hai không thêm gì, và phát tín hiệu cho một lần bấm
 	// không đổi gì sẽ thổi phồng nhu cầu theo số lần khách bấm lại.
-	return s.wishlists.AddItemKemEvent(ctx, w.ID(), item,
+	return s.wishlists.AddItemWithEvent(ctx, w.ID(), item,
 		func(txCtx context.Context) error {
 			return s.events.PublishWishlistItemAdded(txCtx, WishlistItemAdded{
 				CustomerID:         customerID,

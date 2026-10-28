@@ -268,7 +268,7 @@ func (h *SellerHandler) editDraft(w http.ResponseWriter, r *http.Request) {
 		raw    *string
 		prefix ids.Prefix
 		name   string
-		dich   **ids.ID
+		target **ids.ID
 	}{
 		{body.CategoryID, ids.PrefixCategory, "category_id", &in.CategoryID},
 		{body.SizeChartID, ids.PrefixSizeChart, "size_chart_id", &in.SizeChartID},
@@ -287,7 +287,7 @@ func (h *SellerHandler) editDraft(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		*t.dich = &id
+		*t.target = &id
 	}
 
 	p, err := h.svc.EditForSeller(r.Context(), sellerID, pid, in)
@@ -505,7 +505,7 @@ func readRefIDs(in *application.CreateProductInput, body createProductBody) erro
 		raw    string
 		prefix ids.Prefix
 		name   string
-		dich   *ids.ID
+		target *ids.ID
 	}{
 		{body.CollectionID, ids.PrefixCollection, "collection_id", &in.CollectionID},
 		{body.CategoryID, ids.PrefixCategory, "category_id", &in.CategoryID},
@@ -519,7 +519,7 @@ func readRefIDs(in *application.CreateProductInput, body createProductBody) erro
 			return apierror.New(apierror.CodeValidationFailed,
 				t.name+" không đúng định dạng")
 		}
-		*t.dich = id
+		*t.target = id
 	}
 	return nil
 }

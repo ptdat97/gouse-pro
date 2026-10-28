@@ -854,7 +854,7 @@ func TestConcurrentDuplicateRegistration(t *testing.T) {
 // Hai tab trình duyệt cùng làm mới phiên là chuyện thường. Nếu cả hai
 // thành công, một trong hai token sẽ bị bỏ rơi và người dùng bị đăng xuất
 // ngẫu nhiên.
-func TestXoayTokenSongSong(t *testing.T) {
+func TestConcurrentTokenRotation(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 

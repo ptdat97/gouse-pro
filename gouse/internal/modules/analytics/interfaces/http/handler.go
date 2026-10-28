@@ -75,7 +75,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/events", http.HandlerFunc(h.writeBatch))
 }
 
-type suKienJSON struct {
+type eventJSON struct {
 	Name        string         `json:"name"`
 	SubjectType string         `json:"subject_type"`
 	SubjectID   string         `json:"subject_id"`
@@ -88,8 +88,8 @@ type loJSON struct {
 	// Nó nối các sự kiện của một lượt truy cập để đo được phễu. Server
 	// không gắn nó với tài khoản nào ở đây — khách đăng nhập rồi thì sự
 	// kiện nghiệp vụ phía sau đã mang `customer_id`.
-	SessionID string       `json:"session_id"`
-	Events    []suKienJSON `json:"events"`
+	SessionID string      `json:"session_id"`
+	Events    []eventJSON `json:"events"`
 }
 
 // writeBatch phục vụ POST /api/v1/events (operationId: trackBehaviorEvents).

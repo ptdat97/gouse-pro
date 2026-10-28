@@ -331,7 +331,7 @@ func TestValidateSellerPrice(t *testing.T) {
 
 	cases := []struct {
 		ten    string
-		gia    int64
+		price  int64
 		mongOK bool
 	}{
 		{"trong khung", 300000, true},
@@ -340,7 +340,7 @@ func TestValidateSellerPrice(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.ten, func(t *testing.T) {
-			got, err := svc.ValidateSellerPrice(ctx, skuID, vnd(tc.gia))
+			got, err := svc.ValidateSellerPrice(ctx, skuID, vnd(tc.price))
 			if err != nil {
 				t.Fatalf("ValidateSellerPrice: %v", err)
 			}
@@ -369,16 +369,16 @@ func TestWithoutFrameAnyPositivePriceIsAccepted(t *testing.T) {
 	}
 
 	// Nhưng giá 0 hoặc âm thì vẫn phải chặn.
-	for _, gia := range []int64{0, -1000} {
-		got, err := svc.ValidateSellerPrice(ctx, skuID, vnd(gia))
+	for _, price := range []int64{0, -1000} {
+		got, err := svc.ValidateSellerPrice(ctx, skuID, vnd(price))
 		if err != nil {
 			t.Fatalf("ValidateSellerPrice: %v", err)
 		}
 		if got.Allowed {
-			t.Errorf("giá %d phải bị chặn dù chưa có khung giá", gia)
+			t.Errorf("giá %d phải bị chặn dù chưa có khung giá", price)
 		}
 		if got.Code != domain.ViolationNotPositive {
-			t.Errorf("giá %d: Code = %q, mong PRICE_NOT_POSITIVE", gia, got.Code)
+			t.Errorf("giá %d: Code = %q, mong PRICE_NOT_POSITIVE", price, got.Code)
 		}
 	}
 }

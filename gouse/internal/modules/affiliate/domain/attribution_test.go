@@ -114,33 +114,33 @@ func TestMissingCreatorIsRejected(t *testing.T) {
 // Một bản quy công không nói ai chịu tiền là một khoản chi phí không ai ghi
 // nhận — và lúc đối soát sẽ trừ nhầm bên.
 func TestCostBearerMustBeValid(t *testing.T) {
-	for _, ben := range []domain.CostBearer{"", "AI_DO", "platform"} {
+	for _, bearer := range []domain.CostBearer{"", "AI_DO", "platform"} {
 		_, err := domain.NewAttribution(domain.NewAttributionParams{
 			OrderID:     ids.MustNew(ids.PrefixOrder),
 			OrderLineID: ids.MustNew(ids.PrefixOrderLine),
 			CreatorID:   ids.MustNew(ids.PrefixCreator),
 			Rate:        types.MustNewBasisPoints(500),
 			Base:        vnd(100_000),
-			CostBearer:  ben,
+			CostBearer:  bearer,
 			Now:         at,
 		})
 		if !errors.Is(err, domain.ErrInvalidCostBearer) {
-			t.Errorf("bên chịu %q phải bị từ chối, nhận %v", ben, err)
+			t.Errorf("bên chịu %q phải bị từ chối, nhận %v", bearer, err)
 		}
 	}
 
 	// Và hai giá trị hợp lệ phải đi qua.
-	for _, ben := range []domain.CostBearer{domain.CostBearerPlatform, domain.CostBearerSeller} {
+	for _, bearer := range []domain.CostBearer{domain.CostBearerPlatform, domain.CostBearerSeller} {
 		if _, err := domain.NewAttribution(domain.NewAttributionParams{
 			OrderID:     ids.MustNew(ids.PrefixOrder),
 			OrderLineID: ids.MustNew(ids.PrefixOrderLine),
 			CreatorID:   ids.MustNew(ids.PrefixCreator),
 			Rate:        types.MustNewBasisPoints(500),
 			Base:        vnd(100_000),
-			CostBearer:  ben,
+			CostBearer:  bearer,
 			Now:         at,
 		}); err != nil {
-			t.Errorf("bên chịu %q phải hợp lệ: %v", ben, err)
+			t.Errorf("bên chịu %q phải hợp lệ: %v", bearer, err)
 		}
 	}
 }

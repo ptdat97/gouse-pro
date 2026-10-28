@@ -2955,7 +2955,7 @@ lỗi nào báo. Hôm nay điều đó không thể xảy ra.
 **Yêu cầu sản phẩm không mất gì.** "Hết hàng vẫn hiển thị để khách đăng ký
 nhận thông báo" (design-system.md 4.1) vẫn đúng: offer hết hàng ở trạng
 thái `ACTIVE` nên vẫn hiện, chỉ `is_sellable` tắt.
-`TestHetHangThiOfferKhongConBanDuoc` đã khóa đúng ba điều đó — hiện, không
+`TestOutOfStockOfferIsNoLongerSellable` đã khóa đúng ba điều đó — hiện, không
 mua được, không thắng buy box. Phá `IsVisibleToCustomer` → đỏ ngay.
 
 **Migration 000040 SIẾT ràng buộc CHECK.** Sửa mỗi code là chưa đủ: ràng
@@ -4718,7 +4718,7 @@ KHÔNG được đáp ứng, thứ không bao giờ xuất hiện trong dữ li�
 ### Một hàng rào không có test, tìm ra bằng cách phá
 
 `ON CONFLICT DO NOTHING` nghĩa là bấm tim lần hai không ghi gì. Bộ phát
-event nằm NGOÀI câu lệnh đó, nên `AddItemKemEvent` kiểm cờ "đã thêm được"
+event nằm NGOÀI câu lệnh đó, nên `AddItemWithEvent` kiểm cờ "đã thêm được"
 trước khi chạy nó — không kiểm thì nhu cầu của một sản phẩm bằng **số lần
 bấm**, không phải số người muốn.
 
@@ -7294,10 +7294,10 @@ giá đó, và lúc ấy không có đường sửa nào ngoài hủy đơn ho�
 #### Đã làm
 
 ```text
-marketplace/application  KhungGiaPort + GiaNgoaiKhungError (mang MÃ)
-                         kiemKhungGia() gọi ở CreateOffer (bước 4)
+marketplace/application  PriceFramePort + PriceOutOfFrameError (mang MÃ)
+                         checkPriceFrame() gọi ở CreateOffer (bước 4)
                          và ở UpdatePrice
-marketplace/module.go    Config.Pricing + khungGiaAdapter
+marketplace/module.go    Config.Pricing + priceFrameAdapter
 internal/app + worker    nối ở CẢ HAI gốc ghép nối
 internal/app            `pricing` vào `Modules` (test cần dựng khung giá)
 docs/04-modules/pricing  Tầng: CHƯA XẾP ĐƯỢC → KERNEL — đường mua hàng
@@ -7926,12 +7926,12 @@ Allowed = true
   bình thường      → đi qua
 ```
 
-Nhánh giữa hiện **không đi đâu**: `kiemKhungGia` đọc cờ rồi bỏ. Giá lệch xa
+Nhánh giữa hiện **không đi đâu**: `checkPriceFrame` đọc cờ rồi bỏ. Giá lệch xa
 giá tham chiếu (ngưỡng `suspicious_below_bp`, mặc định 5000 = 50%) thường là
 lỗi nhập liệu — gõ thiếu một số 0 — nhưng cũng có thể là hàng thanh lý thật,
 nên chặn thẳng sẽ cản việc bán hàng hợp lệ.
 
-Đây là khoảng trống **ĐÃ BIẾT**, ghi ra ngay trong mã (`_ = canRaSoat` kèm
+Đây là khoảng trống **ĐÃ BIẾT**, ghi ra ngay trong mã (`_ = needsReview` kèm
 chú thích) chứ không để lặng. Dựng hàng đợi rà soát bây giờ là dựng thứ chưa
 có người dùng — đúng lỗi ADR-0023 vừa sửa.
 

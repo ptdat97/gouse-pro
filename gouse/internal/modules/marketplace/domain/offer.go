@@ -73,7 +73,7 @@ const (
 // event `inventory.depleted` chỉ tồn tại trong chú thích. Cài nốt nó sẽ
 // THÊM một kiểu hỏng chưa từng có: event `replenished` chết sau 5 lần thử
 // là bị dead-letter vĩnh viễn, offer kẹt OUT_OF_STOCK, và vì
-// `IsSellable = o.IsSellable() && coHang` nên offer thành KHÔNG BÁN ĐƯỢC
+// `IsSellable = o.IsSellable() && inStock` nên offer thành KHÔNG BÁN ĐƯỢC
 // dù kho đầy hàng — nhà bán mất doanh thu mà không có lỗi nào báo.
 
 // canTransitionTo mã hóa vòng đời offer.

@@ -74,22 +74,22 @@ func (a *orderAdapter) GetOrderForReturn(
 			return application.Order{}, err
 		}
 
-		dieuChinh := money.Money{}
+		adjustments := money.Money{}
 		for _, adj := range l.Adjustments {
 			m, err := toMoney(adj.Amount)
 			if err != nil {
 				return application.Order{}, err
 			}
-			if dieuChinh.IsZero() {
-				dieuChinh = m
+			if adjustments.IsZero() {
+				adjustments = m
 				continue
 			}
-			if dieuChinh, err = dieuChinh.Add(m); err != nil {
+			if adjustments, err = adjustments.Add(m); err != nil {
 				return application.Order{}, err
 			}
 		}
-		if dieuChinh.IsZero() {
-			if dieuChinh, err = money.New(0, tong.Currency()); err != nil {
+		if adjustments.IsZero() {
+			if adjustments, err = money.New(0, tong.Currency()); err != nil {
 				return application.Order{}, err
 			}
 		}
@@ -97,7 +97,7 @@ func (a *orderAdapter) GetOrderForReturn(
 		ord.Lines = append(ord.Lines, application.OrderLine{
 			ID: ids.ID(l.ID), SKUID: ids.ID(l.SKUID), SellerID: ids.ID(l.SellerID),
 			Quantity: l.Quantity, LineTotal: tong,
-			TongDieuChinh: dieuChinh, Commission: commission,
+			TotalAdjustments: adjustments, Commission: commission,
 		})
 	}
 	return ord, nil
@@ -171,14 +171,14 @@ func (a *inventoryAdapter) findRecord(
 
 // RecordInspection chuyển hàng hoàn sang Available hoặc Damaged.
 func (a *inventoryAdapter) RecordInspection(
-	ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, reason string,
+	ctx context.Context, skuID, sellerID ids.ID, qty int, passed bool, reason string,
 ) error {
 	item, err := a.findRecord(ctx, skuID, sellerID)
 	if err != nil {
 		return err
 	}
 	return a.api.ProcessReturnInspection(ctx, inventory.InspectionRequest{
-		ItemID: item.ID, Quantity: qty, Passed: dat,
+		ItemID: item.ID, Quantity: qty, Passed: passed,
 		Reason: reason, PerformedBy: "returns",
 	})
 }

@@ -136,12 +136,12 @@ func (f *fakeWishlists) FindDefault(
 	}), nil
 }
 
-// AddItemKemEvent: bản giả CHẠY fn khi thêm được, đúng như bản thật.
+// AddItemWithEvent: bản giả CHẠY fn khi thêm được, đúng như bản thật.
 //
 // Trả nil ở đây sẽ làm bài test xanh với một bộ phát event không bao giờ
 // được gọi — đúng lớp lỗi "khai mà không ai chạy" mà dự án này đã gặp
 // mười hai lần.
-func (f *fakeWishlists) AddItemKemEvent(
+func (f *fakeWishlists) AddItemWithEvent(
 	ctx context.Context, wishlistID ids.ID, item domain.WishlistItem,
 	fn domain.TxFunc,
 ) (bool, error) {

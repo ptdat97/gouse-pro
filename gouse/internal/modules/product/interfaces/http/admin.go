@@ -79,7 +79,7 @@ type rejectBody struct {
 	Reason string `json:"reason"`
 }
 
-// tuChoi từ chối sản phẩm kèm LÝ DO.
+// reject từ chối sản phẩm kèm LÝ DO.
 //
 // Lý do BẮT BUỘC: nhà bán phải biết sửa gì. Một lần từ chối không nói lý
 // do là một gian hàng đứng im không hiểu vì sao, và họ sẽ gửi lại đúng

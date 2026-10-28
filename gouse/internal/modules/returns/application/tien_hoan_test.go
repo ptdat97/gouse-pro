@@ -15,11 +15,11 @@ import (
 
 func vnd(n int64) money.Money { return money.MustNew(n, money.VND) }
 
-func lines(niemYet, dieuChinh int64, sl int) application.OrderLine {
+func lines(listPrice, adjustments int64, qty int) application.OrderLine {
 	return application.OrderLine{
 		ID: ids.MustNew(ids.PrefixOrderLine), SKUID: ids.MustNew(ids.PrefixSKU),
-		SellerID: ids.MustNew(ids.PrefixSeller), Quantity: sl,
-		LineTotal: vnd(niemYet), TongDieuChinh: vnd(dieuChinh),
+		SellerID: ids.MustNew(ids.PrefixSeller), Quantity: qty,
+		LineTotal: vnd(listPrice), TotalAdjustments: vnd(adjustments),
 	}
 }
 
@@ -61,7 +61,7 @@ func TestRefundUsesAmountActuallyPaid(t *testing.T) {
 // hoàn nhiều hơn đã thu."
 //
 // Nên hôm nay, một đơn có mã giảm giá sẽ có `discount_amount > 0` mà mọi
-// dòng đều `TongDieuChinh = 0`. Hoàn theo giá dòng khi đó là hoàn thừa
+// dòng đều `TotalAdjustments = 0`. Hoàn theo giá dòng khi đó là hoàn thừa
 // đúng bằng phần giảm.
 //
 // Thà TỪ CHỐI và bắt xử lý tay còn hơn âm thầm trả ra số tiền sai.
@@ -130,9 +130,9 @@ func TestQuantityOverOrderedIsRejected(t *testing.T) {
 	lineA := lines(100_000, 0, 2)
 	ord := application.Order{Delivered: true, Lines: []application.OrderLine{lineA}}
 
-	for _, sl := range []int{0, -1, 3} {
-		if _, err := application.ComputeRefund(ord, lineA, sl); !errors.Is(err, domain.ErrQuantityExceeded) {
-			t.Errorf("số lượng %d được chấp nhận", sl)
+	for _, qty := range []int{0, -1, 3} {
+		if _, err := application.ComputeRefund(ord, lineA, qty); !errors.Is(err, domain.ErrQuantityExceeded) {
+			t.Errorf("số lượng %d được chấp nhận", qty)
 		}
 	}
 }

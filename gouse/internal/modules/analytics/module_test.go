@@ -443,7 +443,7 @@ func TestBatchWriteSkipsBadEvent(t *testing.T) {
 // TÍNH GMV, SỐ ĐƠN VÀ AOV.
 //
 // GMV KHÔNG PHẢI DOANH THU của nền tảng — nền tảng chỉ nhận hoa hồng.
-func TestTinhGMVvaAOV(t *testing.T) {
+func TestComputesGMVAndAOV(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -1123,9 +1123,9 @@ func TestMixedOrderCountsAsOneNotThree(t *testing.T) {
 	ctx := context.Background()
 
 	// MỘT đơn, ba nhà bán, ba sự kiện — đúng như bên nhận thật ghi.
-	const maDon = "ord_01K0000000000000000TRON"
+	const orderID = "ord_01K0000000000000000TRON"
 	for i, v := range []int64{300_000, 200_000, 100_000} {
-		ev := orderOf(maDon, "ses-1", "sel-"+string(rune('a'+i)), v, day)
+		ev := orderOf(orderID, "ses-1", "sel-"+string(rune('a'+i)), v, day)
 		if err := m.TrackEvent(ctx, ev); err != nil {
 			t.Fatalf("TrackEvent: %v", err)
 		}

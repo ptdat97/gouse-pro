@@ -104,12 +104,12 @@ func TestPublicProfileLeaksNoInternalData(t *testing.T) {
 	// Và kiểm tra thẳng vào thân response: giá trị nhạy cảm không được
 	// xuất hiện ở BẤT KỲ đâu, kể cả trong một trường lồng nhau nào đó.
 	raw, _ := json.Marshal(body)
-	for _, bimat := range []string{
+	for _, secret := range []string{
 		"Công ty TNHH", "0123456789", "example.com", "+84901234567", "1500",
 	} {
-		if strings.Contains(string(raw), bimat) {
+		if strings.Contains(string(raw), secret) {
 			t.Errorf("dữ liệu nội bộ %q xuất hiện trong response công khai: %s",
-				bimat, raw)
+				secret, raw)
 		}
 	}
 }

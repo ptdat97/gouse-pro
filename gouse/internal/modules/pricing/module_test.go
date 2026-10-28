@@ -140,7 +140,7 @@ func TestValidateSellerPriceViaPublicAPI(t *testing.T) {
 
 	cases := []struct {
 		ten    string
-		gia    int64
+		price  int64
 		mongOK bool
 	}{
 		{"trong khung", 450000, true},
@@ -149,7 +149,7 @@ func TestValidateSellerPriceViaPublicAPI(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.ten, func(t *testing.T) {
-			got, err := m.ValidateSellerPrice(ctx, seeded.PricedSKUID, tc.gia, "VND")
+			got, err := m.ValidateSellerPrice(ctx, seeded.PricedSKUID, tc.price, "VND")
 			if err != nil {
 				t.Fatalf("ValidateSellerPrice: %v", err)
 			}

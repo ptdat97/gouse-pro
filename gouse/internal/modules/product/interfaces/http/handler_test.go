@@ -196,9 +196,9 @@ func TestProductDetailMatchesTheSpec(t *testing.T) {
 	// về offer và sẽ không bao giờ nằm ở đây. Buy box còn quyết theo SKU
 	// nữa — mỗi size là một cuộc cạnh tranh riêng — nên "buy box của sản
 	// phẩm" không có nghĩa. Đặc tả đã bỏ hai trường đó (P3-20).
-	for _, khongThuoc := range []string{"price_from", "buy_box_offer", "rating"} {
-		if _, ok := body[khongThuoc]; ok {
-			t.Errorf("trả trường %q — không thuộc module product", khongThuoc)
+	for _, notOurs := range []string{"price_from", "buy_box_offer", "rating"} {
+		if _, ok := body[notOurs]; ok {
+			t.Errorf("trả trường %q — không thuộc module product", notOurs)
 		}
 	}
 	if _, ok := sku["available"]; ok {
@@ -224,8 +224,8 @@ func TestUnapprovedProductReturns404(t *testing.T) {
 
 	// Thông báo lỗi không được lộ việc sản phẩm có tồn tại.
 	msg, _ := payload["message"].(string)
-	for _, cam := range []string{"nháp", "DRAFT", "chưa duyệt", "chưa xuất bản"} {
-		if strings.Contains(msg, cam) {
+	for _, banned := range []string{"nháp", "DRAFT", "chưa duyệt", "chưa xuất bản"} {
+		if strings.Contains(msg, banned) {
 			t.Errorf("thông báo lỗi %q lộ trạng thái sản phẩm", msg)
 		}
 	}

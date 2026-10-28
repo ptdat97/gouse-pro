@@ -405,7 +405,7 @@ func TestAddressesAreIsolatedBetweenCustomers(t *testing.T) {
 }
 
 // XÓA ĐỊA CHỈ LÀ XÓA MỀM, và gỡ luôn cờ mặc định.
-func TestXoaDiaChiLaXoaMem(t *testing.T) {
+func TestAddressDeleteIsSoftDelete(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 

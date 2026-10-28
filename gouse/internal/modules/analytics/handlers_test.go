@@ -592,28 +592,28 @@ func TestCheckoutFeedsConversionFunnel(t *testing.T) {
 	}
 
 	// Mã phiên thanh toán vẫn phải tra được, ở đúng chỗ của nó.
-	var soCoSubject int
+	var withSubject int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM event_log
 		 WHERE event_name = $1 AND subject_id <> ''`,
-		analytics.EventCheckoutStart).Scan(&soCoSubject); err != nil {
+		analytics.EventCheckoutStart).Scan(&withSubject); err != nil {
 		t.Fatalf("đọc event_log: %v", err)
 	}
-	if soCoSubject != 1 {
+	if withSubject != 1 {
 		t.Errorf("sự kiện checkout_start có subject_id: %d, cần 1 — "+
-			"không có nó thì `cart_conversion_rate` không đếm được", soCoSubject)
+			"không có nó thì `cart_conversion_rate` không đếm được", withSubject)
 	}
 	_ = cartID
 
 	// Giá trị phiên bỏ dở phải ghi được: bỏ 5 triệu khác bỏ 50 nghìn.
-	var tien int64
+	var amount int64
 	if err := pool.QueryRow(ctx, `
 		SELECT coalesce(sum(amount), 0) FROM event_log WHERE event_name = $1`,
-		analytics.EventCheckoutExpired).Scan(&tien); err != nil {
+		analytics.EventCheckoutExpired).Scan(&amount); err != nil {
 		t.Fatalf("đọc tiền: %v", err)
 	}
-	if tien != 500_000 {
+	if amount != 500_000 {
 		t.Errorf("tiền của phiên bỏ dở = %d, cần 500000 — không đo được "+
-			"giá trị bị mất", tien)
+			"giá trị bị mất", amount)
 	}
 }

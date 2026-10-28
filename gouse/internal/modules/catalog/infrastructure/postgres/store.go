@@ -28,11 +28,11 @@ const authCols = `
 
 func scanAuth(row pgx.Row) (*domain.BrandAuthorization, error) {
 	var (
-		p                          domain.RestoreAuthorizationParams
-		id, brandID, sellerID, stt string
-		approvedAt                 *time.Time
+		p                             domain.RestoreAuthorizationParams
+		id, brandID, sellerID, status string
+		approvedAt                    *time.Time
 	)
-	err := row.Scan(&id, &brandID, &sellerID, &stt, &p.DocumentURL,
+	err := row.Scan(&id, &brandID, &sellerID, &status, &p.DocumentURL,
 		&p.ValidFrom, &p.ValidUntil, &p.ApprovedBy, &approvedAt, &p.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -43,7 +43,7 @@ func scanAuth(row pgx.Row) (*domain.BrandAuthorization, error) {
 	p.ID = ids.ID(id)
 	p.BrandID = ids.ID(brandID)
 	p.SellerID = ids.ID(sellerID)
-	p.Status = domain.AuthorizationStatus(stt)
+	p.Status = domain.AuthorizationStatus(status)
 	p.ApprovedAt = timeOrZero(approvedAt)
 	return domain.RestoreBrandAuthorization(p), nil
 }
@@ -154,11 +154,11 @@ const collectionCols = `
 
 func scanCollection(row pgx.Row) (*domain.Collection, error) {
 	var (
-		p                domain.RestoreCollectionParams
-		id, brandID, stt string
+		p                   domain.RestoreCollectionParams
+		id, brandID, status string
 	)
 	err := row.Scan(&id, &brandID, &p.Name, &p.Slug, &p.Season, &p.Theme,
-		&p.LaunchDate, &p.EndOfSeasonDate, &stt, &p.CreatedAt, &p.UpdatedAt)
+		&p.LaunchDate, &p.EndOfSeasonDate, &status, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -167,7 +167,7 @@ func scanCollection(row pgx.Row) (*domain.Collection, error) {
 	}
 	p.ID = ids.ID(id)
 	p.BrandID = ids.ID(brandID)
-	p.Status = domain.CollectionStatus(stt)
+	p.Status = domain.CollectionStatus(status)
 	return domain.RestoreCollection(p), nil
 }
 
@@ -261,11 +261,11 @@ const categoryCols = `
 
 func scanCategory(row pgx.Row) (*domain.Category, error) {
 	var (
-		p                 domain.RestoreCategoryParams
-		id, parentID, stt string
+		p                    domain.RestoreCategoryParams
+		id, parentID, status string
 	)
 	err := row.Scan(&id, &parentID, &p.Name, &p.Slug, &p.Depth,
-		&p.DisplayOrder, &stt, &p.CreatedAt, &p.UpdatedAt)
+		&p.DisplayOrder, &status, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -274,7 +274,7 @@ func scanCategory(row pgx.Row) (*domain.Category, error) {
 	}
 	p.ID = ids.ID(id)
 	p.ParentID = ids.ID(parentID)
-	p.Status = domain.Status(stt)
+	p.Status = domain.Status(status)
 	return domain.RestoreCategory(p), nil
 }
 

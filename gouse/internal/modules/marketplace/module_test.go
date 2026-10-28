@@ -154,7 +154,7 @@ func (h *harness) createOffer(t *testing.T, skuID, sellerID ids.ID, price int64)
 //
 // Rủi ro hàng giả là rủi ro SỐNG CÒN của marketplace thời trang. Seller
 // không có ủy quyền KHÔNG được tạo offer cho thương hiệu được bảo vệ.
-func TestSellerKhongCoUyQuyenKhongTaoDuocOffer(t *testing.T) {
+func TestSellerWithoutPermissionCannotCreateOffer(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -185,7 +185,7 @@ func TestSellerKhongCoUyQuyenKhongTaoDuocOffer(t *testing.T) {
 //
 // Giữa lúc tạo nháp và lúc đưa lên bán có thể đã nhiều ngày, và giấy ủy
 // quyền có thể đã hết hạn.
-func TestKiemTraLaiQuyenBanKhiDuaOfferLenBan(t *testing.T) {
+func TestRechecksSellPermissionWhenActivatingOffer(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -216,7 +216,7 @@ func TestKiemTraLaiQuyenBanKhiDuaOfferLenBan(t *testing.T) {
 }
 
 // Seller không hoạt động thì không tạo được offer.
-func TestSellerKhongHoatDongKhongTaoDuocOffer(t *testing.T) {
+func TestInactiveSellerCannotCreateOffer(t *testing.T) {
 	h := newHarness(t)
 	h.seller.active = false
 
@@ -230,7 +230,7 @@ func TestSellerKhongHoatDongKhongTaoDuocOffer(t *testing.T) {
 }
 
 // SKU đã ngừng kinh doanh thì không tạo được offer.
-func TestSKUNgungKinhDoanhKhongTaoDuocOffer(t *testing.T) {
+func TestCannotCreateOfferForDiscontinuedSKU(t *testing.T) {
 	h := newHarness(t)
 	h.product.sellable = false
 
@@ -247,7 +247,7 @@ func TestSKUNgungKinhDoanhKhongTaoDuocOffer(t *testing.T) {
 //
 // Hai offer cùng lúc thì không biết giá nào là giá thật, và buy box chọn
 // nhầm sẽ bán với giá seller không định.
-func TestMotSellerChiMotOfferActiveChoMotSKU(t *testing.T) {
+func TestOneSellerHasOneActiveOfferPerSKU(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -275,7 +275,7 @@ func TestMotSellerChiMotOfferActiveChoMotSKU(t *testing.T) {
 // QUY TẮC 5: lưu lịch sử MỌI lần đổi giá.
 //
 // Cần cho việc phát hiện thao túng giá (tăng rồi giảm để giả vờ khuyến mãi).
-func TestMoiLanDoiGiaDeuGhiLichSu(t *testing.T) {
+func TestEveryOfferPriceChangeWritesHistory(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	o := h.createOffer(t, ids.MustNew(ids.PrefixSKU), ids.MustNew(ids.PrefixSeller), 100000)
@@ -300,7 +300,7 @@ func TestMoiLanDoiGiaDeuGhiLichSu(t *testing.T) {
 //
 // Offer KHÔNG lưu số lượng — nguồn sự thật là inventory. Hiển thị "mua
 // ngay" rồi báo hết hàng ở bước thanh toán là trải nghiệm tệ nhất.
-func TestBuyBoxChiChonOfferConHang(t *testing.T) {
+func TestBuyBoxOnlyPicksInStockOffers(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -331,7 +331,7 @@ func TestBuyBoxChiChonOfferConHang(t *testing.T) {
 // Buy box theo LÔ phải cho cùng kết quả với tra từng cái.
 //
 // Nếu lệch, trang danh sách và trang chi tiết sẽ hiển thị giá khác nhau.
-func TestBuyBoxTheoLoKhopVoiTraTungCai(t *testing.T) {
+func TestBatchBuyBoxMatchesOneByOne(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -366,7 +366,7 @@ func TestBuyBoxTheoLoKhopVoiTraTungCai(t *testing.T) {
 // Đình chỉ seller → ẩn TOÀN BỘ offer của họ (quy tắc 4).
 //
 // LƯU Ý: việc này KHÔNG hủy đơn đang xử lý — đó là việc của module order.
-func TestDinhChiSellerAnToanBoOffer(t *testing.T) {
+func TestSuspendingSellerHidesAllItsOffers(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	sellerID := ids.MustNew(ids.PrefixSeller)
@@ -395,7 +395,7 @@ func TestDinhChiSellerAnToanBoOffer(t *testing.T) {
 }
 
 // BẢO MẬT: thiếu sellerID phải là LỖI, không được trả offer của mọi seller.
-func TestThieuSellerIDTraLoiChuKhongTraToanBo(t *testing.T) {
+func TestMissingSellerIDErrorsInsteadOfReturningAllOffers(t *testing.T) {
 	h := newHarness(t)
 	h.createOffer(t, ids.MustNew(ids.PrefixSKU), ids.MustNew(ids.PrefixSeller), 100000)
 
@@ -409,7 +409,7 @@ func TestThieuSellerIDTraLoiChuKhongTraToanBo(t *testing.T) {
 }
 
 // Seller chỉ thấy offer của MÌNH (quy tắc 7 của module seller).
-func TestSellerChiThayOfferCuaMinh(t *testing.T) {
+func TestSellerOnlySeesItsOwnOffers(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -430,7 +430,7 @@ func TestSellerChiThayOfferCuaMinh(t *testing.T) {
 	}
 }
 
-func TestChiHoTroPostgres(t *testing.T) {
+func TestMarketplaceOnlyPostgresStorageSupported(t *testing.T) {
 	if _, err := marketplace.New(marketplace.Config{Storage: "memory"}); err == nil {
 		t.Error("mong lỗi với kho lưu trữ memory")
 	}
@@ -446,18 +446,18 @@ func TestChiHoTroPostgres(t *testing.T) {
 // Không có hàng rào này thì bất kỳ nhà bán nào cũng hạ giá offer của đối
 // thủ về 1đ — hoặc lưu trữ nó — chỉ bằng cách đoán định danh. Mà định danh
 // offer thì LỘ RA ở trang sản phẩm công khai.
-func TestSellerKhongSuaDuocOfferCuaNguoiKhac(t *testing.T) {
+func TestSellerCannotEditAnotherSellersOffer(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
-	chuOffer := ids.MustNew(ids.PrefixSeller)
-	keTomo := ids.MustNew(ids.PrefixSeller)
+	offerOwner := ids.MustNew(ids.PrefixSeller)
+	stranger := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
 
-	o := h.createOffer(t, skuID, chuOffer, 500_000)
+	o := h.createOffer(t, skuID, offerOwner, 500_000)
 
 	// Đọc có kiểm quyền: phải TỪ CHỐI.
-	if _, err := h.svc.OwnedOffer(ctx, o.ID(), keTomo); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := h.svc.OwnedOffer(ctx, o.ID(), stranger); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("OwnedOffer với seller khác: lỗi = %v, mong ErrNotFound", err)
 	}
 
@@ -465,14 +465,14 @@ func TestSellerKhongSuaDuocOfferCuaNguoiKhac(t *testing.T) {
 	//
 	// Hàng rào chặn nhầm người thật còn tệ hơn không có hàng rào: nó làm
 	// seller không bán được hàng và không ai hiểu vì sao.
-	if _, err := h.svc.OwnedOffer(ctx, o.ID(), chuOffer); err != nil {
+	if _, err := h.svc.OwnedOffer(ctx, o.ID(), offerOwner); err != nil {
 		t.Errorf("chủ offer không đọc được offer của mình: %v", err)
 	}
 
 	// Offer KHÔNG TỒN TẠI trả CÙNG một lỗi với offer của người khác —
 	// phân biệt hai trường hợp cho phép dò xem đối thủ đang bán những gì.
-	khong := ids.MustNew(ids.PrefixOffer)
-	if _, err := h.svc.OwnedOffer(ctx, khong, chuOffer); !errors.Is(err, domain.ErrNotFound) {
+	missingID := ids.MustNew(ids.PrefixOffer)
+	if _, err := h.svc.OwnedOffer(ctx, missingID, offerOwner); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("offer không tồn tại: lỗi = %v, mong ErrNotFound", err)
 	}
 }
@@ -481,7 +481,7 @@ func TestSellerKhongSuaDuocOfferCuaNguoiKhac(t *testing.T) {
 //
 // Hàng rào chặn nhầm người thật còn tệ hơn không có hàng rào: nó làm seller
 // không bán được hàng và không ai hiểu vì sao.
-func TestChuOfferVanSuaDuocOfferCuaMinh(t *testing.T) {
+func TestOwnerCanStillEditItsOwnOffer(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -497,7 +497,7 @@ func TestChuOfferVanSuaDuocOfferCuaMinh(t *testing.T) {
 	}
 }
 
-// TestHetHangThiOfferKhongConBanDuoc khóa quy tắc mà cả trang sản phẩm
+// TestOutOfStockOfferIsNoLongerSellable khóa quy tắc mà cả trang sản phẩm
 // dựa vào để bật/tắt nút mua.
 //
 // # Vì sao `Offer.IsSellable()` một mình là KHÔNG đủ
@@ -513,7 +513,7 @@ func TestChuOfferVanSuaDuocOfferCuaMinh(t *testing.T) {
 // Dấu hiệu nội tại của lỗi: nhãn "Đề xuất" BIẾN MẤT trong khi nút mua vẫn
 // sáng — buy box đã loại offer hết hàng, `is_sellable` thì không. Hai câu
 // trả lời khác nhau cho cùng một câu hỏi, trong cùng một response.
-func TestHetHangThiOfferKhongConBanDuoc(t *testing.T) {
+func TestOutOfStockOfferIsNoLongerSellable(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -559,8 +559,8 @@ func TestHetHangThiOfferKhongConBanDuoc(t *testing.T) {
 	}
 }
 
-// TestNhaBanBiDinhChiThiOfferKhongConBanDuoc khóa nửa còn lại của cùng
-// một quy tắc mà TestHetHangThiOfferKhongConBanDuoc đã khóa một nửa.
+// TestSuspendedSellerMakesOffersUnsellable khóa nửa còn lại của cùng
+// một quy tắc mà TestOutOfStockOfferIsNoLongerSellable đã khóa một nửa.
 //
 // Đặc tả của `Offer.is_sellable` (components/schemas.yaml) viết rõ:
 //
@@ -576,7 +576,7 @@ func TestHetHangThiOfferKhongConBanDuoc(t *testing.T) {
 // còn `is_sellable` thì không — nhãn "Đề xuất" biến mất trong khi nút
 // "Thêm vào giỏ" vẫn sáng. Hai câu trả lời khác nhau cho cùng một câu hỏi,
 // trong cùng một response.
-func TestNhaBanBiDinhChiThiOfferKhongConBanDuoc(t *testing.T) {
+func TestSuspendedSellerMakesOffersUnsellable(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -619,18 +619,18 @@ func TestNhaBanBiDinhChiThiOfferKhongConBanDuoc(t *testing.T) {
 	}
 }
 
-// chinhSachThu là bộ chính sách giả, đổi được giữa chừng.
-type chinhSachThu struct {
-	trongSo    domain.BuyBoxWeights
-	diem       int
-	gioChuanBi int
+// testPolicy là bộ chính sách giả, đổi được giữa chừng.
+type testPolicy struct {
+	weights       domain.BuyBoxWeights
+	score         int
+	handlingHours int
 }
 
-func (c *chinhSachThu) TrongSoBuyBox() domain.BuyBoxWeights { return c.trongSo }
-func (c *chinhSachThu) DiemHieuSuatMacDinh() int            { return c.diem }
-func (c *chinhSachThu) GioChuanBiMacDinh() int              { return c.gioChuanBi }
+func (c *testPolicy) BuyBoxWeights() domain.BuyBoxWeights { return c.weights }
+func (c *testPolicy) DefaultPerformanceScore() int        { return c.score }
+func (c *testPolicy) DefaultHandlingHours() int           { return c.handlingHours }
 
-// TestTrongSoBuyBoxDoiNguoiThang.
+// TestBuyBoxWeightsChangeTheWinner.
 //
 // # Vì sao bài này quan trọng nhất trong nhóm cấu hình
 //
@@ -647,14 +647,14 @@ func (c *chinhSachThu) GioChuanBiMacDinh() int              { return c.gioChuanB
 // Quan trọng: cổng được đổi GIỮA HAI LẦN GỌI trên CÙNG một service. Nếu
 // trọng số bị chụp lúc khởi tạo, lần gọi thứ hai vẫn ra kết quả cũ và bài
 // này đỏ.
-func TestTrongSoBuyBoxDoiNguoiThang(t *testing.T) {
+func TestBuyBoxWeightsChangeTheWinner(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	skuID := ids.MustNew(ids.PrefixSKU)
 
-	chinhSach := &chinhSachThu{
-		trongSo: domain.BuyBoxWeights{Price: 100, Handling: 0, Performance: 0},
-		diem:    50,
+	policy := &testPolicy{
+		weights: domain.BuyBoxWeights{Price: 100, Handling: 0, Performance: 0},
+		score:   50,
 	}
 	h.svc = application.NewService(application.Deps{
 		Offers:    marketpg.NewOfferStore(h.pool),
@@ -663,18 +663,18 @@ func TestTrongSoBuyBoxDoiNguoiThang(t *testing.T) {
 		Product:   h.product,
 		Seller:    h.seller,
 		Inventory: h.inv,
-		ChinhSach: chinhSach,
+		Policy:    policy,
 	})
 
 	h.inv.available[skuID] = 10
-	re, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
+	cheap, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
 		SKUID: skuID, SellerID: ids.MustNew(ids.PrefixSeller),
 		Price: vnd(90_000), HandlingTimeHours: 72, Activate: true,
 	})
 	if err != nil {
 		t.Fatalf("tạo offer rẻ: %v", err)
 	}
-	nhanh, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
+	faster, err := h.svc.CreateOffer(ctx, application.CreateOfferInput{
 		SKUID: skuID, SellerID: ids.MustNew(ids.PrefixSeller),
 		Price: vnd(120_000), HandlingTimeHours: 2, Activate: true,
 	})
@@ -682,7 +682,7 @@ func TestTrongSoBuyBoxDoiNguoiThang(t *testing.T) {
 		t.Fatalf("tạo offer nhanh: %v", err)
 	}
 
-	thang := func() ids.ID {
+	winnerID := func() ids.ID {
 		t.Helper()
 		got, err := h.svc.GetBuyBox(ctx, skuID)
 		if err != nil {
@@ -694,26 +694,26 @@ func TestTrongSoBuyBoxDoiNguoiThang(t *testing.T) {
 		return got.Winner.ID()
 	}
 
-	if got := thang(); got != re.ID() {
+	if got := winnerID(); got != cheap.ID() {
 		t.Fatalf("trọng số nghiêng hẳn về GIÁ mà người thắng là %s, cần %s",
-			got, re.ID())
+			got, cheap.ID())
 	}
 
 	// ĐỔI GIỮA CHỪNG, không dựng lại service.
-	chinhSach.trongSo = domain.BuyBoxWeights{Price: 0, Handling: 100, Performance: 0}
+	policy.weights = domain.BuyBoxWeights{Price: 0, Handling: 100, Performance: 0}
 
-	if got := thang(); got != nhanh.ID() {
+	if got := winnerID(); got != faster.ID() {
 		t.Errorf("đảo trọng số sang THỜI GIAN CHUẨN BỊ mà người thắng vẫn "+
 			"là %s, cần %s — trọng số bị chốt lúc khởi tạo, nên đổi tham "+
-			"số phải khởi động lại mới có tác dụng", got, nhanh.ID())
+			"số phải khởi động lại mới có tác dụng", got, faster.ID())
 	}
 }
 
-// TestGioChuanBiMacDinhTheoChinhSach.
+// TestDefaultHandlingHoursComeFromPolicy.
 //
 // Con số này vào CẢ điểm buy box lẫn ngày giao dự kiến báo cho khách. Nhà
 // bán KHÔNG khai thì nền tảng khai thay — và khai bao nhiêu là chính sách.
-func TestGioChuanBiMacDinhTheoChinhSach(t *testing.T) {
+func TestDefaultHandlingHoursComeFromPolicy(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -724,7 +724,7 @@ func TestGioChuanBiMacDinhTheoChinhSach(t *testing.T) {
 		Product:   h.product,
 		Seller:    h.seller,
 		Inventory: h.inv,
-		ChinhSach: &chinhSachThu{gioChuanBi: 48, diem: 50},
+		Policy:    &testPolicy{handlingHours: 48, score: 50},
 	})
 
 	skuID := ids.MustNew(ids.PrefixSKU)

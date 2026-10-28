@@ -75,7 +75,7 @@ func (a *orderAdapter) AttributableLines(
 			if adj.Type != order.AdjustmentPromotion {
 				continue
 			}
-			d.KhuyenMai = append(d.KhuyenMai, adj.Amount.Value)
+			d.AllocatedDiscounts = append(d.AllocatedDiscounts, adj.Amount.Value)
 		}
 
 		out = append(out, d)

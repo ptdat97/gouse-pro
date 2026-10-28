@@ -78,7 +78,7 @@ type InventoryPort interface {
 	AvailableForSKUs(ctx context.Context, skuIDs []ids.ID) (map[ids.ID]int, error)
 }
 
-// KhungGiaPort kiểm giá của nhà bán có nằm trong khung cho phép không.
+// PriceFramePort kiểm giá của nhà bán có nằm trong khung cho phép không.
 //
 // # Vì sao marketplace phải HỎI thay vì tự biết
 //
@@ -95,33 +95,33 @@ type InventoryPort interface {
 // "không, chỉ đảo được" thì việc cần làm là chặn, không phải đếm.
 //
 // Nil thì KHÔNG kiểm, và offer lưu như trước bản sửa này. Đó là chủ ý: một
-// môi trường chưa dựng `pricing` vẫn bán được hàng, cùng cách `ChinhSachPort`
+// môi trường chưa dựng `pricing` vẫn bán được hàng, cùng cách `PolicyPort`
 // nil rơi về mặc định của domain.
-type KhungGiaPort interface {
-	// KiemGiaNhaBan trả (được phép, mã vi phạm, thông điệp).
+type PriceFramePort interface {
+	// CheckSellerPrice trả (được phép, mã vi phạm, thông điệp).
 	//
-	// `canRaSoat` đúng khi giá VẪN được chấp nhận mà cần người xem lại —
+	// `needsReview` đúng khi giá VẪN được chấp nhận mà cần người xem lại —
 	// giá lệch xa thị trường thường là lỗi nhập liệu, nhưng cũng có thể là
 	// hàng thanh lý thật, nên chặn thẳng sẽ cản việc bán hàng hợp lệ.
-	KiemGiaNhaBan(
-		ctx context.Context, skuID ids.ID, gia money.Money,
-	) (duocPhep bool, ma, thongDiep string, canRaSoat bool, err error)
+	CheckSellerPrice(
+		ctx context.Context, skuID ids.ID, price money.Money,
+	) (allowed bool, violationCode, message string, needsReview bool, err error)
 }
 
-// GiaNgoaiKhungError khi giá nhà bán nằm ngoài khung cho phép.
+// PriceOutOfFrameError khi giá nhà bán nằm ngoài khung cho phép.
 //
 // Kiểu riêng vì nó mang MÃ máy đọc được: giao diện cần phân biệt "thấp hơn
 // giá tối thiểu" với "cao hơn giá tối đa" để chỉ đúng chỗ phải sửa, thay vì
 // một thông báo chung chung mà nhà bán phải đoán.
-type GiaNgoaiKhungError struct {
-	SKUID     ids.ID
-	Ma        string
-	ThongDiep string
+type PriceOutOfFrameError struct {
+	SKUID   ids.ID
+	Code    string
+	Message string
 }
 
-func (e *GiaNgoaiKhungError) Error() string {
+func (e *PriceOutOfFrameError) Error() string {
 	return fmt.Sprintf("marketplace: giá cho SKU %s ngoài khung (%s): %s",
-		e.SKUID, e.Ma, e.ThongDiep)
+		e.SKUID, e.Code, e.Message)
 }
 
 // NotAuthorizedError khi seller không được phép bán thương hiệu.
@@ -155,18 +155,18 @@ var (
 
 // Service là tầng application của module marketplace.
 type Service struct {
-	offers    domain.OfferRepository
-	history   domain.PriceHistoryRepository
-	catalog   CatalogPort
-	product   ProductPort
-	seller    SellerPort
-	inventory InventoryPort
-	chinhSach ChinhSachPort
-	khungGia  KhungGiaPort
-	clock     Clock
+	offers     domain.OfferRepository
+	history    domain.PriceHistoryRepository
+	catalog    CatalogPort
+	product    ProductPort
+	seller     SellerPort
+	inventory  InventoryPort
+	policy     PolicyPort
+	priceFrame PriceFramePort
+	clock      Clock
 }
 
-// ChinhSachPort cấp những con số CHÍNH SÁCH KINH DOANH, đọc lúc chạy.
+// PolicyPort cấp những con số CHÍNH SÁCH KINH DOANH, đọc lúc chạy.
 //
 // # Vì sao là cổng chứ không phải giá trị
 //
@@ -183,15 +183,15 @@ type Service struct {
 //
 // Cổng ĐỌC MỖI LẦN DÙNG. Bên cài đặt nằm ở tầng ngoài, nên tầng này không
 // biết tới `opsconfig` (quy tắc R1 của archcheck).
-type ChinhSachPort interface {
-	// TrongSoBuyBox trả trọng số công thức chọn buy box.
-	TrongSoBuyBox() domain.BuyBoxWeights
+type PolicyPort interface {
+	// BuyBoxWeights trả trọng số công thức chọn buy box.
+	BuyBoxWeights() domain.BuyBoxWeights
 
-	// DiemHieuSuatMacDinh là điểm của nhà bán CHƯA có lịch sử.
-	DiemHieuSuatMacDinh() int
+	// DefaultPerformanceScore là điểm của nhà bán CHƯA có lịch sử.
+	DefaultPerformanceScore() int
 
-	// GioChuanBiMacDinh áp cho offer không tự khai thời gian chuẩn bị.
-	GioChuanBiMacDinh() int
+	// DefaultHandlingHours áp cho offer không tự khai thời gian chuẩn bị.
+	DefaultHandlingHours() int
 }
 
 type Deps struct {
@@ -202,12 +202,12 @@ type Deps struct {
 	Seller    SellerPort
 	Inventory InventoryPort
 
-	// ChinhSach có thể nil: khi đó dùng mặc định của domain, đúng bằng
+	// Policy có thể nil: khi đó dùng mặc định của domain, đúng bằng
 	// hành vi trước khi có tham số vận hành.
-	ChinhSach ChinhSachPort
+	Policy PolicyPort
 
-	// KhungGia có thể nil: khi đó KHÔNG kiểm khung giá. Xem `KhungGiaPort`.
-	KhungGia KhungGiaPort
+	// PriceFrame có thể nil: khi đó KHÔNG kiểm khung giá. Xem `PriceFramePort`.
+	PriceFrame PriceFramePort
 
 	Clock Clock
 }
@@ -218,15 +218,15 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{
-		offers:    d.Offers,
-		history:   d.History,
-		catalog:   d.Catalog,
-		product:   d.Product,
-		seller:    d.Seller,
-		inventory: d.Inventory,
-		chinhSach: d.ChinhSach,
-		khungGia:  d.KhungGia,
-		clock:     clock,
+		offers:     d.Offers,
+		history:    d.History,
+		catalog:    d.Catalog,
+		product:    d.Product,
+		seller:     d.Seller,
+		inventory:  d.Inventory,
+		policy:     d.Policy,
+		priceFrame: d.PriceFrame,
+		clock:      clock,
 	}
 }
 
@@ -265,7 +265,7 @@ func (s *Service) CreateOffer(ctx context.Context, in CreateOfferInput) (*domain
 
 	// Bước 4: khung giá (ADR-0023). SAU hàng rào chống hàng giả vì bước ấy
 	// chặn nhiều hơn và rẻ hơn.
-	if err := s.kiemKhungGia(ctx, in.SKUID, in.Price); err != nil {
+	if err := s.checkPriceFrame(ctx, in.SKUID, in.Price); err != nil {
 		return nil, err
 	}
 
@@ -280,9 +280,9 @@ func (s *Service) CreateOffer(ctx context.Context, in CreateOfferInput) (*domain
 	// Thời gian chuẩn bị mặc định giải Ở ĐÂY, không ở domain: domain là
 	// hàm thuần, nó không đọc cấu hình vận hành. Nhà bán KHÔNG khai thì
 	// áp con số chính sách; khai rồi thì giữ nguyên lựa chọn của họ.
-	gioChuanBi := in.HandlingTimeHours
-	if gioChuanBi <= 0 {
-		gioChuanBi = s.gioChuanBiMacDinh()
+	handlingHours := in.HandlingTimeHours
+	if handlingHours <= 0 {
+		handlingHours = s.defaultHandlingHours()
 	}
 
 	now := s.clock.Now()
@@ -292,7 +292,7 @@ func (s *Service) CreateOffer(ctx context.Context, in CreateOfferInput) (*domain
 		Price:             in.Price,
 		CompareAt:         in.CompareAt,
 		Condition:         in.Condition,
-		HandlingTimeHours: gioChuanBi,
+		HandlingTimeHours: handlingHours,
 		MinOrderQuantity:  in.MinOrderQuantity,
 		MaxOrderQuantity:  in.MaxOrderQuantity,
 		Now:               now,
@@ -408,7 +408,7 @@ func (s *Service) UpdatePrice(
 
 	// Kiểm khung giá Ở ĐÂY nữa, không chỉ lúc tạo: đổi giá là đường đi vào
 	// vùng ngoài khung dễ nhất, và nó không đi qua `CreateOffer`.
-	if err := s.kiemKhungGia(ctx, o.SKUID(), price); err != nil {
+	if err := s.checkPriceFrame(ctx, o.SKUID(), price); err != nil {
 		return nil, err
 	}
 
@@ -425,31 +425,31 @@ func (s *Service) UpdatePrice(
 	return o, nil
 }
 
-// kiemKhungGia chặn giá ngoài khung TRƯỚC khi offer được lưu.
+// checkPriceFrame chặn giá ngoài khung TRƯỚC khi offer được lưu.
 //
 // Cổng nil = không kiểm. Lỗi hạ tầng của `pricing` thì CHẶN, không cho qua:
 // một lời gọi thất bại nghĩa là không chứng minh được giá hợp lệ, và với dữ
 // liệu tiền thì "không chứng minh được" phải xử như "không hợp lệ". Thất bại
 // theo hướng ĐÓNG — cùng lựa chọn với `notification.CoDongY`.
-func (s *Service) kiemKhungGia(ctx context.Context, skuID ids.ID, gia money.Money) error {
-	if s.khungGia == nil {
+func (s *Service) checkPriceFrame(ctx context.Context, skuID ids.ID, price money.Money) error {
+	if s.priceFrame == nil {
 		return nil
 	}
 
-	duocPhep, ma, thongDiep, canRaSoat, err := s.khungGia.KiemGiaNhaBan(ctx, skuID, gia)
+	allowed, violationCode, message, needsReview, err := s.priceFrame.CheckSellerPrice(ctx, skuID, price)
 	if err != nil {
 		return fmt.Errorf("marketplace: không kiểm được khung giá cho SKU %s: %w",
 			skuID, err)
 	}
-	if !duocPhep {
-		return &GiaNgoaiKhungError{SKUID: skuID, Ma: ma, ThongDiep: thongDiep}
+	if !allowed {
+		return &PriceOutOfFrameError{SKUID: skuID, Code: violationCode, Message: message}
 	}
 
-	// `canRaSoat` KHÔNG chặn, đúng thiết kế của `pricing`: giá lệch xa thị
+	// `needsReview` KHÔNG chặn, đúng thiết kế của `pricing`: giá lệch xa thị
 	// trường thường là lỗi nhập liệu, nhưng cũng có thể là hàng thanh lý
 	// thật. Tới khi có hàng đợi rà soát, nó chưa đi đâu — và đó là một
 	// khoảng trống ĐÃ BIẾT, không phải một chỗ bị quên. Xem P3-88.
-	_ = canRaSoat
+	_ = needsReview
 	return nil
 }
 
@@ -580,7 +580,7 @@ func (s *Service) buyBoxes(
 		// Điều kiện này nay đi vào ứng viên chứ không lọc trước vòng lặp:
 		// `SelectBuyBox` phải thấy ĐỦ ba đầu vào để dùng chung
 		// `CanCustomerBuy` với hai nơi còn lại.
-		coHang := s.inventory == nil || available[skuID] > 0
+		inStock := s.inventory == nil || available[skuID] > 0
 
 		candidates := make([]domain.BuyBoxCandidate, 0, len(offers))
 		for _, o := range offers {
@@ -592,13 +592,13 @@ func (s *Service) buyBoxes(
 			candidates = append(candidates, domain.BuyBoxCandidate{
 				Offer:        o,
 				SellerActive: active,
-				InStock:      coHang,
+				InStock:      inStock,
 				// Chưa có module chấm điểm hiệu suất (Phase 2).
-				PerformanceScore: s.diemHieuSuatMacDinh(),
+				PerformanceScore: s.defaultPerformanceScore(),
 			})
 		}
 
-		if res := domain.SelectBuyBox(candidates, s.trongSo()); res.Winner != nil {
+		if res := domain.SelectBuyBox(candidates, s.weights()); res.Winner != nil {
 			out[skuID] = res
 		}
 	}
@@ -739,7 +739,7 @@ func (s *Service) ListProductOffers(
 		}
 
 		box := boxes[sku]
-		coHang := s.inventory == nil || available[sku] > 0
+		inStock := s.inventory == nil || available[sku] > 0
 
 		for _, o := range offers {
 			// KHÔNG lộ offer đã lưu trữ hay bị đình chỉ: khách thấy một
@@ -758,7 +758,7 @@ func (s *Service) ListProductOffers(
 			out = append(out, ProductOffer{
 				Offer:      o,
 				IsBuyBox:   box.Winner != nil && box.Winner.ID() == o.ID(),
-				IsSellable: domain.CanCustomerBuy(o, coHang, active),
+				IsSellable: domain.CanCustomerBuy(o, inStock, active),
 			})
 		}
 	}
@@ -820,13 +820,13 @@ func (s *Service) SellableNow(ctx context.Context, o *domain.Offer) (bool, error
 		return false, nil
 	}
 
-	coHang := true
+	inStock := true
 	if s.inventory != nil {
 		available, err := s.inventory.AvailableForSKUs(ctx, []ids.ID{o.SKUID()})
 		if err != nil {
 			return false, fmt.Errorf("tra tồn kho: %w", err)
 		}
-		coHang = available[o.SKUID()] > 0
+		inStock = available[o.SKUID()] > 0
 	}
 
 	active := true
@@ -838,7 +838,7 @@ func (s *Service) SellableNow(ctx context.Context, o *domain.Offer) (bool, error
 		}
 	}
 
-	return domain.CanCustomerBuy(o, coHang, active), nil
+	return domain.CanCustomerBuy(o, inStock, active), nil
 }
 
 // ListSellerOffers trả offer của MỘT nhà bán kèm cờ bán được.
@@ -889,10 +889,10 @@ func (s *Service) ListSellerOffers(
 
 	out := make([]SellerOffer, 0, len(offers))
 	for _, o := range offers {
-		coHang := s.inventory == nil || available[o.SKUID()] > 0
+		inStock := s.inventory == nil || available[o.SKUID()] > 0
 		out = append(out, SellerOffer{
 			Offer:      o,
-			IsSellable: domain.CanCustomerBuy(o, coHang, active),
+			IsSellable: domain.CanCustomerBuy(o, inStock, active),
 		})
 	}
 	return out, nil
@@ -1027,39 +1027,39 @@ func (s *Service) GetPriceRanges(
 
 // ---------------------------------------------------- Chính sách lúc chạy
 
-// trongSo đọc trọng số buy box, MỖI LẦN tính.
+// weights đọc trọng số buy box, MỖI LẦN tính.
 //
 // Rơi về mặc định của domain khi chưa nối cấu hình — và cũng khi tổng ba
 // trọng số bằng 0. Tổng 0 không phải cấu hình hợp lệ dù từng khóa đều nằm
 // trong biên: khi đó mọi offer cùng 0 điểm và buy box thành ngẫu nhiên,
 // nên rơi về mặc định là hỏng theo hướng an toàn.
-func (s *Service) trongSo() domain.BuyBoxWeights {
-	if s.chinhSach == nil {
+func (s *Service) weights() domain.BuyBoxWeights {
+	if s.policy == nil {
 		return domain.DefaultWeights
 	}
-	w := s.chinhSach.TrongSoBuyBox()
+	w := s.policy.BuyBoxWeights()
 	if w.Price+w.Handling+w.Performance <= 0 {
 		return domain.DefaultWeights
 	}
 	return w
 }
 
-// diemHieuSuatMacDinh đọc điểm của nhà bán chưa có lịch sử.
-func (s *Service) diemHieuSuatMacDinh() int {
-	if s.chinhSach == nil {
+// defaultPerformanceScore đọc điểm của nhà bán chưa có lịch sử.
+func (s *Service) defaultPerformanceScore() int {
+	if s.policy == nil {
 		return domain.DefaultPerformanceScore
 	}
-	return s.chinhSach.DiemHieuSuatMacDinh()
+	return s.policy.DefaultPerformanceScore()
 }
 
-// gioChuanBiMacDinh đọc thời gian chuẩn bị áp cho offer không tự khai.
+// defaultHandlingHours đọc thời gian chuẩn bị áp cho offer không tự khai.
 //
 // Trả 0 nghĩa là "không có ý kiến", và domain dùng hằng số của chính nó.
 // Giữ hằng số ấy làm lưới cuối: domain phải đúng với MỌI đầu vào, kể cả
 // khi nối dây sai hoặc có bên gọi thứ hai không đi qua cấu hình.
-func (s *Service) gioChuanBiMacDinh() int {
-	if s.chinhSach == nil {
+func (s *Service) defaultHandlingHours() int {
+	if s.policy == nil {
 		return 0
 	}
-	return s.chinhSach.GioChuanBiMacDinh()
+	return s.policy.DefaultHandlingHours()
 }

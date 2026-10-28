@@ -32,9 +32,9 @@ type OrderLine struct {
 	// LineTotal là giá NIÊM YẾT của dòng: đơn giá × số lượng.
 	LineTotal money.Money
 
-	// TongDieuChinh là tổng các khoản cộng/trừ đã phân bổ cho dòng này.
+	// TotalAdjustments là tổng các khoản cộng/trừ đã phân bổ cho dòng này.
 	// Âm với khoản giảm giá.
-	TongDieuChinh money.Money
+	TotalAdjustments money.Money
 
 	// Commission là hoa hồng nền tảng của dòng, ĐÃ ĐÓNG BĂNG lúc đặt hàng.
 	//
@@ -98,7 +98,7 @@ type InventoryPort interface {
 	// Đây là bước DUY NHẤT đưa hàng hoàn trở lại bán được. Không có nó,
 	// hàng nằm chết ở Returned vĩnh viễn.
 	RecordInspection(
-		ctx context.Context, skuID, sellerID ids.ID, qty int, dat bool, reason string,
+		ctx context.Context, skuID, sellerID ids.ID, qty int, passed bool, reason string,
 	) error
 }
 
@@ -274,13 +274,13 @@ func ComputeRefund(ord Order, lines OrderLine, returnQuantity int) (money.Money,
 		return money.Money{}, domain.ErrQuantityExceeded
 	}
 
-	if ord.OrderDiscount.IsPositive() && !coDieuChinh(ord) {
+	if ord.OrderDiscount.IsPositive() && !hasAdjustments(ord) {
 		return money.Money{}, domain.ErrDiscountNotAllocated
 	}
 
 	// Giá thực trả của cả dòng = niêm yết + điều chỉnh (điều chỉnh âm khi
 	// là khoản giảm).
-	actuallyPaid, err := lines.LineTotal.Add(lines.TongDieuChinh)
+	actuallyPaid, err := lines.LineTotal.Add(lines.TotalAdjustments)
 	if err != nil {
 		return money.Money{}, err
 	}
@@ -297,14 +297,14 @@ func ComputeRefund(ord Order, lines OrderLine, returnQuantity int) (money.Money,
 	//
 	// Làm tròn xuống là chủ ý — làm tròn lên nghĩa là trả nhiều hơn đã
 	// thu, và phần chênh nhân với số lần trả hàng của cả nền tảng.
-	moiCai := actuallyPaid.Amount() / int64(lines.Quantity)
-	return money.New(moiCai*int64(returnQuantity), actuallyPaid.Currency())
+	perUnit := actuallyPaid.Amount() / int64(lines.Quantity)
+	return money.New(perUnit*int64(returnQuantity), actuallyPaid.Currency())
 }
 
-// coDieuChinh cho biết CÓ ÍT NHẤT một dòng mang khoản điều chỉnh.
-func coDieuChinh(ord Order) bool {
+// hasAdjustments cho biết CÓ ÍT NHẤT một dòng mang khoản điều chỉnh.
+func hasAdjustments(ord Order) bool {
 	for _, d := range ord.Lines {
-		if !d.TongDieuChinh.IsZero() {
+		if !d.TotalAdjustments.IsZero() {
 			return true
 		}
 	}
@@ -354,26 +354,26 @@ func (s *Service) Request(
 		return nil, domain.ErrReturnWindowClosed
 	}
 
-	daXin, err := s.repo.AlreadyRequestedLines(ctx, in.OrderID)
+	alreadyRequested, err := s.repo.AlreadyRequestedLines(ctx, in.OrderID)
 	if err != nil {
 		return nil, err
 	}
 
-	theoID := map[ids.ID]OrderLine{}
+	byID := map[ids.ID]OrderLine{}
 	for _, d := range ord.Lines {
-		theoID[d.ID] = d
+		byID[d.ID] = d
 	}
 
 	var returnLines []domain.Lines
 	var sellerID ids.ID
-	for _, xin := range in.Lines {
-		lineID, qty := xin.OrderLineID, xin.Quantity
-		d, co := theoID[lineID]
-		if !co {
+	for _, requested := range in.Lines {
+		lineID, qty := requested.OrderLineID, requested.Quantity
+		d, ok := byID[lineID]
+		if !ok {
 			return nil, fmt.Errorf("%w: dòng %s không thuộc đơn này",
 				domain.ErrNotFound, lineID)
 		}
-		if daXin[lineID]+qty > d.Quantity {
+		if alreadyRequested[lineID]+qty > d.Quantity {
 			return nil, domain.ErrDuplicateLine
 		}
 
@@ -397,8 +397,8 @@ func (s *Service) Request(
 			SKUID:        d.SKUID,
 			Quantity:     qty,
 			RefundAmount: amount,
-			ReasonCode:   xin.ReasonCode,
-			Detail:       xin.Detail,
+			ReasonCode:   requested.ReasonCode,
+			Detail:       requested.Detail,
 		})
 	}
 
@@ -440,12 +440,12 @@ func (s *Service) Approve(ctx context.Context, id, sellerID ids.ID) (*domain.Ret
 	})
 }
 
-// TuChoi nhà bán từ chối yêu cầu, kèm lý do.
-func (s *Service) TuChoi(
+// Reject nhà bán từ chối yêu cầu, kèm lý do.
+func (s *Service) Reject(
 	ctx context.Context, id, sellerID ids.ID, reason string,
 ) (*domain.ReturnRequest, error) {
 	return s.transition(ctx, id, sellerID, func(y *domain.ReturnRequest, now time.Time) error {
-		return y.TuChoi(reason, now)
+		return y.Reject(reason, now)
 	})
 }
 
@@ -525,19 +525,19 @@ func (s *Service) computeCommissionReversal(
 		return money.Money{}, err
 	}
 
-	theoID := map[ids.ID]OrderLine{}
+	byID := map[ids.ID]OrderLine{}
 	for _, d := range ord.Lines {
-		theoID[d.ID] = d
+		byID[d.ID] = d
 	}
 
 	tong := money.Money{}
 	for _, d := range y.Lines() {
-		goc, co := theoID[d.OrderLineID]
-		if !co || goc.Quantity == 0 || goc.Commission.IsZero() {
+		original, ok := byID[d.OrderLineID]
+		if !ok || original.Quantity == 0 || original.Commission.IsZero() {
 			continue
 		}
-		share := goc.Commission.Amount() * int64(d.Quantity) / int64(goc.Quantity)
-		m, err := money.New(share, goc.Commission.Currency())
+		share := original.Commission.Amount() * int64(d.Quantity) / int64(original.Quantity)
+		m, err := money.New(share, original.Commission.Currency())
 		if err != nil {
 			return money.Money{}, err
 		}
@@ -596,7 +596,7 @@ func (s *Service) ListBySeller(
 // LineInspectionOutcome là kết quả kiểm định một dòng hàng hoàn.
 type LineInspectionOutcome struct {
 	OrderLineID ids.ID
-	Dat         bool
+	Passed      bool
 	Note        string
 }
 
@@ -641,13 +641,13 @@ func (s *Service) Inspection(
 	}
 
 	now := s.clock.Now()
-	for _, kq := range outcome {
-		if _, co := byLine[kq.OrderLineID]; !co {
+	for _, result := range outcome {
+		if _, ok := byLine[result.OrderLineID]; !ok {
 			return nil, domain.ErrNotFound
 		}
 
 		// Hàng rào chống kiểm hai lần nằm ở đây, TRƯỚC mọi lượt ghi.
-		if err := y.RecordInspection(kq.OrderLineID, kq.Dat, kq.Note, now); err != nil {
+		if err := y.RecordInspection(result.OrderLineID, result.Passed, result.Note, now); err != nil {
 			return nil, err
 		}
 
@@ -658,10 +658,10 @@ func (s *Service) Inspection(
 		return nil, err
 	}
 
-	for _, kq := range outcome {
-		lines := byLine[kq.OrderLineID]
+	for _, result := range outcome {
+		lines := byLine[result.OrderLineID]
 		if err := s.inventory.RecordInspection(ctx, lines.SKUID, y.SellerID(),
-			lines.Quantity, kq.Dat, kq.Note); err != nil {
+			lines.Quantity, result.Passed, result.Note); err != nil {
 			return nil, fmt.Errorf("returns: ghi kết quả kiểm định vào tồn kho: %w", err)
 		}
 	}

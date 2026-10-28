@@ -173,8 +173,8 @@ func TestPeriodBoundaries(t *testing.T) {
 	}
 
 	// Khoảng mở hai đầu chứa mọi thời điểm.
-	var moHai domain.Period
-	if !moHai.Contains(testNow) || !moHai.IsOpenEnded() {
+	var openEnded domain.Period
+	if !openEnded.Contains(testNow) || !openEnded.IsOpenEnded() {
 		t.Error("khoảng rỗng phải chứa mọi thời điểm và là vô thời hạn")
 	}
 }
@@ -296,11 +296,11 @@ func TestCampaignPriceAppliesOnlyToCampaign(t *testing.T) {
 // hành, khách được lợi chứ không bị thiệt.
 func TestSameTypePicksLowerPrice(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
-	cao := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(490000) })
-	thap := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(390000) })
+	higher := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(490000) })
+	lower := newPrice(t, func(p *domain.NewPriceParams) { p.SKUID, p.Amount = skuID, vnd(390000) })
 
 	// Thử cả hai thứ tự để chắc chắn không phụ thuộc thứ tự đầu vào.
-	for _, list := range [][]*domain.Price{{cao, thap}, {thap, cao}} {
+	for _, list := range [][]*domain.Price{{higher, lower}, {lower, higher}} {
 		got := domain.SelectBest(list, testNow, "", "")
 		if got == nil || got.Amount().Amount() != 390000 {
 			t.Errorf("chọn giá %v, mong 390000", got.Amount())

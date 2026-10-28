@@ -55,7 +55,7 @@ func (h *RecordUseOnCheckoutCompleted) MaxEventVersion(eventType string) int {
 	return eventbus.DefaultMaxEventVersion
 }
 
-type luotDungPayload struct {
+type usagePayload struct {
 	OrderID        string `json:"order_id"`
 	CustomerID     string `json:"customer_id"`
 	CouponCode     string `json:"coupon_code"`
@@ -68,7 +68,7 @@ type luotDungPayload struct {
 // IDEMPOTENT theo đơn: `RecordUsage` trả nil khi lượt đã ghi, nên event
 // phát lại không đếm hai lần.
 func (h *RecordUseOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event) error {
-	var p luotDungPayload
+	var p usagePayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
 	}

@@ -570,7 +570,7 @@ func TestLaySellerTheoLo(t *testing.T) {
 	}
 }
 
-func TestSlugTrungBiChan(t *testing.T) {
+func TestDuplicateSlugIsBlocked(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 	apply(t, m, "trung-slug")
