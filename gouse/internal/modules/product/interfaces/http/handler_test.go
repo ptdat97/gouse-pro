@@ -57,8 +57,8 @@ func newServer(t *testing.T) (*http.ServeMux, *application.Service) {
 	return mux, svc
 }
 
-// taoSanPham tạo sản phẩm, tùy chọn duyệt luôn.
-func taoSanPham(t *testing.T, svc *application.Service, slug string, duyet bool) *domain.Product {
+// createProduct tạo sản phẩm, tùy chọn duyệt luôn.
+func createProduct(t *testing.T, svc *application.Service, slug string, approvedAt bool) *domain.Product {
 	t.Helper()
 	ctx := context.Background()
 
@@ -93,7 +93,7 @@ func taoSanPham(t *testing.T, svc *application.Service, slug string, duyet bool)
 		t.Fatalf("AddVariant: %v", err)
 	}
 
-	if duyet {
+	if approvedAt {
 		if _, err := svc.SubmitForReview(ctx, p.ID()); err != nil {
 			t.Fatalf("SubmitForReview: %v", err)
 		}
@@ -144,9 +144,9 @@ func errPayload(t *testing.T, body map[string]any) map[string]any {
 	return payload
 }
 
-func TestChiTietSanPhamKhopDacTa(t *testing.T) {
+func TestProductDetailMatchesTheSpec(t *testing.T) {
 	mux, svc := newServer(t)
-	p := taoSanPham(t, svc, "ao-so-mi", true)
+	p := createProduct(t, svc, "ao-so-mi", true)
 
 	rec, body := do(t, mux, "/api/v1/products/"+p.ID().String())
 	if rec.Code != http.StatusOK {
@@ -209,9 +209,9 @@ func TestChiTietSanPhamKhopDacTa(t *testing.T) {
 // Sản phẩm chưa duyệt phải trả 404, KHÔNG phải 403.
 //
 // 403 xác nhận tài nguyên tồn tại — đủ để đối thủ dò id và biết ta sắp bán gì.
-func TestSanPhamChuaDuyetTra404(t *testing.T) {
+func TestUnapprovedProductReturns404(t *testing.T) {
 	mux, svc := newServer(t)
-	p := taoSanPham(t, svc, "con-nhap", false)
+	p := createProduct(t, svc, "con-nhap", false)
 
 	rec, body := do(t, mux, "/api/v1/products/"+p.ID().String())
 	if rec.Code != http.StatusNotFound {
@@ -234,9 +234,9 @@ func TestSanPhamChuaDuyetTra404(t *testing.T) {
 // Tên thương hiệu thuộc module catalog. Trả `"name": ""` tệ hơn là bỏ hẳn
 // trường: chuỗi rỗng trông như dữ liệu hợp lệ và hiển thị thành khoảng
 // trắng trên trang, còn trường thiếu thì client biết phải lấy từ nguồn khác.
-func TestKhongTraTenRongChoThamChieuNgoaiModule(t *testing.T) {
+func TestNoEmptyNameForOutOfModuleRefs(t *testing.T) {
 	mux, svc := newServer(t)
-	p := taoSanPham(t, svc, "kiem-tra-ten", true)
+	p := createProduct(t, svc, "kiem-tra-ten", true)
 
 	_, body := do(t, mux, "/api/v1/products/"+p.ID().String())
 
@@ -247,12 +247,12 @@ func TestKhongTraTenRongChoThamChieuNgoaiModule(t *testing.T) {
 	if brand["id"] == nil || brand["id"] == "" {
 		t.Error("brand phải có id để client tra tên")
 	}
-	if name, có := brand["name"]; có && name == "" {
+	if name, present := brand["name"]; present && name == "" {
 		t.Error(`trả "name": "" — phải bỏ hẳn trường khi chưa biết tên`)
 	}
 }
 
-func TestIDSaiDinhDangTra400(t *testing.T) {
+func TestMalformedProductIDReturns400(t *testing.T) {
 	mux, _ := newServer(t)
 
 	for _, id := range []string{"khong-phai-id", "brd_01J9XABC123DEF456GHJKMNPQR", "123"} {
@@ -267,7 +267,7 @@ func TestIDSaiDinhDangTra400(t *testing.T) {
 	}
 }
 
-func TestKhongTimThayTra404(t *testing.T) {
+func TestNotFoundReturns404(t *testing.T) {
 	mux, _ := newServer(t)
 	rec, _ := do(t, mux, "/api/v1/products/"+ids.MustNew(ids.PrefixProduct).String())
 	if rec.Code != http.StatusNotFound {
@@ -277,10 +277,10 @@ func TestKhongTimThayTra404(t *testing.T) {
 
 // Endpoint công khai KHÔNG được cho lọc theo trạng thái qua query string —
 // `?status=DRAFT` sẽ lộ toàn bộ hàng chưa duyệt của mọi seller.
-func TestDanhSachKhongLoSanPhamChuaDuyet(t *testing.T) {
+func TestListHidesUnapprovedProducts(t *testing.T) {
 	mux, svc := newServer(t)
-	taoSanPham(t, svc, "da-duyet", true)
-	taoSanPham(t, svc, "con-nhap", false)
+	createProduct(t, svc, "da-duyet", true)
+	createProduct(t, svc, "con-nhap", false)
 
 	for _, path := range []string{
 		"/api/v1/products",
@@ -307,7 +307,7 @@ func TestDanhSachKhongLoSanPhamChuaDuyet(t *testing.T) {
 	}
 }
 
-func TestDanhSachTraMangRongChuKhongPhaiNull(t *testing.T) {
+func TestListReturnsEmptyArrayNotNull(t *testing.T) {
 	mux, _ := newServer(t)
 
 	rec, body := do(t, mux, "/api/v1/products")
@@ -324,7 +324,7 @@ func TestDanhSachTraMangRongChuKhongPhaiNull(t *testing.T) {
 	}
 }
 
-func TestLocSaiDinhDangTra400(t *testing.T) {
+func TestMalformedFilterReturns400(t *testing.T) {
 	mux, _ := newServer(t)
 
 	for _, q := range []string{"brand_id=sai", "category_id=sai", "collection_id=sai"} {
@@ -339,10 +339,10 @@ func TestLocSaiDinhDangTra400(t *testing.T) {
 //
 // Đây là dữ liệu client dùng để dựng bộ chọn màu/size — sai ở đây thì
 // khách không chọn được size, hoặc chọn nhầm.
-func TestNhieuBienTheTraDuMauVaSize(t *testing.T) {
+func TestManyVariantsReturnAllColorsAndSizes(t *testing.T) {
 	mux, svc := newServer(t)
 	ctx := context.Background()
-	p := taoSanPham(t, svc, "nhieu-bien-the", false)
+	p := createProduct(t, svc, "nhieu-bien-the", false)
 
 	// Thêm biến thể thứ hai: khác màu, khác size.
 	if _, err := svc.AddVariant(ctx, application.AddVariantInput{
@@ -374,20 +374,20 @@ func TestNhieuBienTheTraDuMauVaSize(t *testing.T) {
 
 	// Mỗi biến thể phải mang đúng size của MÌNH, không phải size của biến
 	// thể đầu tiên.
-	theoMau := map[string]string{}
+	byColor := map[string]string{}
 	for _, raw := range variants {
 		v := raw.(map[string]any)
 		skus := v["skus"].([]any)
 		if len(skus) != 1 {
 			t.Fatalf("biến thể %v có %d SKU, mong 1", v["color"], len(skus))
 		}
-		theoMau[v["color"].(string)] = skus[0].(map[string]any)["size"].(string)
+		byColor[v["color"].(string)] = skus[0].(map[string]any)["size"].(string)
 	}
-	if theoMau["Trắng"] != "M" {
-		t.Errorf("size của màu Trắng = %q, mong M", theoMau["Trắng"])
+	if byColor["Trắng"] != "M" {
+		t.Errorf("size của màu Trắng = %q, mong M", byColor["Trắng"])
 	}
-	if theoMau["Đen"] != "L" {
-		t.Errorf("size của màu Đen = %q, mong L", theoMau["Đen"])
+	if byColor["Đen"] != "L" {
+		t.Errorf("size của màu Đen = %q, mong L", byColor["Đen"])
 	}
 
 	// Danh sách phải gom được màu có sẵn.
@@ -406,11 +406,11 @@ func TestNhieuBienTheTraDuMauVaSize(t *testing.T) {
 // Không có đường này thì trang có danh sách mã (rõ nhất là yêu thích) phải
 // gọi getProduct cho từng mã — 30 món là 30 lượt đi-về, đúng vấn đề N+1 mà
 // GetProductsByIDs sinh ra để tránh.
-func TestTraNhieuSanPhamTheoMa(t *testing.T) {
+func TestManyProductsByCode(t *testing.T) {
 	mux, svc := newServer(t)
 
-	a := taoSanPham(t, svc, "ao-so-mi-a", true)
-	b := taoSanPham(t, svc, "ao-so-mi-b", true)
+	a := createProduct(t, svc, "ao-so-mi-a", true)
+	b := createProduct(t, svc, "ao-so-mi-b", true)
 
 	_, body := do(t, mux, "/api/v1/products?ids="+a.ID().String()+","+b.ID().String())
 	data := body["data"].([]any)
@@ -424,7 +424,7 @@ func TestTraNhieuSanPhamTheoMa(t *testing.T) {
 // Bên gọi đã sắp xếp danh sách của họ (yêu thích theo thời gian thêm). Trả
 // về thứ tự khác buộc họ sắp lại — hoặc tệ hơn, họ không nhận ra và hiển
 // thị sai thứ tự.
-func TestGiuDungThuTuMaDuocHoi(t *testing.T) {
+func TestKeepsTheRequestedCodeOrder(t *testing.T) {
 	mux, svc := newServer(t)
 
 	// SÁU sản phẩm, không phải hai. Duyệt map trong Go trả thứ tự ngẫu
@@ -434,7 +434,7 @@ func TestGiuDungThuTuMaDuocHoi(t *testing.T) {
 	const n = 6
 	made := make([]string, 0, n)
 	for i := 0; i < n; i++ {
-		p := taoSanPham(t, svc, "thu-tu-"+strconv.Itoa(i), true)
+		p := createProduct(t, svc, "thu-tu-"+strconv.Itoa(i), true)
 		made = append(made, p.ID().String())
 	}
 
@@ -463,41 +463,41 @@ func TestGiuDungThuTuMaDuocHoi(t *testing.T) {
 //
 // Đây là điểm dễ sót nhất của đường tra theo lô: bộ lọc `OnlyVisible` nằm ở
 // truy vấn danh sách, còn đường này đi thẳng vào FindByIDs và bỏ qua nó.
-func TestSanPhamChuaDuyetKhongLotQuaTraTheoMa(t *testing.T) {
+func TestUnapprovedProductIsNotReachableByCode(t *testing.T) {
 	mux, svc := newServer(t)
 
-	nhap := taoSanPham(t, svc, "con-nhap", false)
-	daDuyet := taoSanPham(t, svc, "da-duyet", true)
+	draftProduct := createProduct(t, svc, "con-nhap", false)
+	approved := createProduct(t, svc, "da-duyet", true)
 
 	_, body := do(t, mux,
-		"/api/v1/products?ids="+nhap.ID().String()+","+daDuyet.ID().String())
+		"/api/v1/products?ids="+draftProduct.ID().String()+","+approved.ID().String())
 	data := body["data"].([]any)
 
 	if len(data) != 1 {
 		t.Fatalf("trả về %d sản phẩm, mong 1 — hàng chưa duyệt đã lọt ra", len(data))
 	}
-	if got := data[0].(map[string]any)["id"]; got != daDuyet.ID().String() {
-		t.Errorf("sản phẩm trả về = %v, mong %v", got, daDuyet.ID())
+	if got := data[0].(map[string]any)["id"]; got != approved.ID().String() {
+		t.Errorf("sản phẩm trả về = %v, mong %v", got, approved.ID())
 	}
 }
 
 // MÃ KHÔNG TỒN TẠI thì VẮNG MẶT, không phải ô rỗng.
 //
 // Trả về phần tử rỗng buộc mọi vòng lặp ở giao diện phải kiểm tra null.
-func TestMaKhongTonTaiThiVangMat(t *testing.T) {
+func TestUnknownCodeIsSimplyAbsent(t *testing.T) {
 	mux, svc := newServer(t)
 
-	a := taoSanPham(t, svc, "co-that", true)
-	khong := ids.MustNew(ids.PrefixProduct)
+	a := createProduct(t, svc, "co-that", true)
+	missingID := ids.MustNew(ids.PrefixProduct)
 
-	_, body := do(t, mux, "/api/v1/products?ids="+a.ID().String()+","+khong.String())
+	_, body := do(t, mux, "/api/v1/products?ids="+a.ID().String()+","+missingID.String())
 	if data := body["data"].([]any); len(data) != 1 {
 		t.Errorf("trả về %d sản phẩm, mong 1", len(data))
 	}
 }
 
 // MÃ SAI ĐỊNH DẠNG bị từ chối thay vì âm thầm bỏ qua.
-func TestMaSaiDinhDangBiTuChoi(t *testing.T) {
+func TestMalformedCodeIsRejected(t *testing.T) {
 	mux, _ := newServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/products?ids=khong-phai-ma", nil)
@@ -513,7 +513,7 @@ func TestMaSaiDinhDangBiTuChoi(t *testing.T) {
 //
 // Không giới hạn thì một request kéo cả bảng sản phẩm, và mệnh đề IN với
 // hàng nghìn phần tử là truy vấn chậm mà không chỉ mục nào cứu được.
-func TestQuaNhieuMaBiTuChoi(t *testing.T) {
+func TestTooManyCodesIsRejected(t *testing.T) {
 	mux, _ := newServer(t)
 
 	list := make([]string, 0, 101)
@@ -531,9 +531,9 @@ func TestQuaNhieuMaBiTuChoi(t *testing.T) {
 	}
 }
 
-// TestChiTietTraBangSize kiểm tra trang chi tiết trả BẢNG SIZE.
+// TestDetailReturnsTheSizeChart kiểm tra trang chi tiết trả BẢNG SIZE.
 //
-// # Vì sao đây là một test riêng, không gộp vào TestChiTietSanPhamKhopDacTa
+// # Vì sao đây là một test riêng, không gộp vào TestProductDetailMatchesTheSpec
 //
 // `size_chart` từng được khai ở DTO, ở common.yaml và ở storefront.yaml
 // mà KHÔNG chỗ nào điền. Test cũ chỉ liệt kê tên trường nên nó xanh suốt
@@ -541,9 +541,9 @@ func TestQuaNhieuMaBiTuChoi(t *testing.T) {
 // không phải sự có mặt của khóa.
 //
 // Sai size là nguyên nhân hoàn hàng số một (docs/01-business/kpi.md mục 3).
-func TestChiTietTraBangSize(t *testing.T) {
+func TestDetailReturnsTheSizeChart(t *testing.T) {
 	mux, svc := newServer(t)
-	p := taoSanPham(t, svc, "ao-so-mi-bang-size", true)
+	p := createProduct(t, svc, "ao-so-mi-bang-size", true)
 
 	_, body := do(t, mux, "/api/v1/products/"+p.ID().String())
 

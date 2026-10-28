@@ -88,15 +88,15 @@ func NewVariant(p NewVariantParams) (*Variant, error) {
 	// Sai định dạng thì TỪ CHỐI chứ không bỏ qua: một mã màu hỏng hiện ra
 	// thành ô màu đen hoặc trong suốt trên trang, và khách chọn theo thứ
 	// nhìn thấy — tệ hơn hẳn việc không có ô màu nào.
-	if hex, co := attrs[AttrColorHex]; co {
-		chuan, err := ChuanHoaMaMau(hex)
+	if hex, ok := attrs[AttrColorHex]; ok {
+		normalize, err := NormalizeColorHex(hex)
 		if err != nil {
 			return nil, err
 		}
-		if chuan == "" {
+		if normalize == "" {
 			delete(attrs, AttrColorHex)
 		} else {
-			attrs[AttrColorHex] = chuan
+			attrs[AttrColorHex] = normalize
 		}
 	}
 
@@ -108,9 +108,9 @@ func NewVariant(p NewVariantParams) (*Variant, error) {
 	//
 	// KHÔNG ghi đè nếu bên gọi đã tự khai: họ biết rõ hơn phép đoán theo
 	// từ khóa.
-	if mau, co := attrs[AttrColor]; co {
-		if _, daCo := attrs[AttrColorFamily]; !daCo {
-			attrs[AttrColorFamily] = string(SuyRaNhomMau(mau))
+	if colorValue, ok := attrs[AttrColor]; ok {
+		if _, exists := attrs[AttrColorFamily]; !exists {
+			attrs[AttrColorFamily] = string(InferColorFamily(colorValue))
 		}
 	}
 

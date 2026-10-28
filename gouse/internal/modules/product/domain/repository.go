@@ -103,14 +103,14 @@ type Filter struct {
 
 	// ColorFamilies lọc theo NHÓM màu, không phải tên màu cụ thể.
 	//
-	// Xem domain.SuyRaNhomMau để biết vì sao lọc theo nhóm.
+	// Xem domain.InferColorFamily để biết vì sao lọc theo nhóm.
 	ColorFamilies []string
 
 	Limit  int
 	Offset int
 }
 
-// SizeDaChuan và NhomMauDaChuan trả danh sách lọc ĐÃ CHUẨN HÓA.
+// NormalizedSizes và NormalizedColorFamilies trả danh sách lọc ĐÃ CHUẨN HÓA.
 //
 // # Vì sao nằm ở MIỀN chứ không ở từng kho
 //
@@ -126,35 +126,35 @@ type Filter struct {
 //
 // Size về CHỮ THƯỜNG: người bán gõ "m", "M", "Free size" tùy ý.
 // Nhóm màu về CHỮ HOA: nhóm là hằng số hệ thống, không phải chuỗi người
-// dùng nhập — xem NhomMau.
-func (f Filter) SizeDaChuan() []string { return chuanHoaLoc(f.Sizes, strings.ToLower) }
+// dùng nhập — xem ColorFamily.
+func (f Filter) NormalizedSizes() []string { return normalizeFilterValues(f.Sizes, strings.ToLower) }
 
-func (f Filter) NhomMauDaChuan() []string {
-	return chuanHoaLoc(f.ColorFamilies, strings.ToUpper)
+func (f Filter) NormalizedColorFamilies() []string {
+	return normalizeFilterValues(f.ColorFamilies, strings.ToUpper)
 }
 
-// KhopBienThe trả true nếu bộ lọc biến thể KHÔNG loại sản phẩm này.
+// MatchesVariants trả true nếu bộ lọc biến thể KHÔNG loại sản phẩm này.
 //
 // Tương đương hai mệnh đề EXISTS của bản PostgreSQL: mỗi bộ lọc cần ÍT
 // NHẤT MỘT biến thể chưa lưu trữ khớp; danh sách rỗng thì không lọc.
-func (f Filter) KhopBienThe(bienThe []*Variant) bool {
-	return khopThuocTinh(bienThe, AttrSize, f.SizeDaChuan(), strings.ToLower) &&
-		khopThuocTinh(bienThe, AttrColorFamily, f.NhomMauDaChuan(), strings.ToUpper)
+func (f Filter) MatchesVariants(variantList []*Variant) bool {
+	return attributeMatches(variantList, AttrSize, f.NormalizedSizes(), strings.ToLower) &&
+		attributeMatches(variantList, AttrColorFamily, f.NormalizedColorFamilies(), strings.ToUpper)
 }
 
-func khopThuocTinh(
-	bienThe []*Variant, khoa string, can []string, chuan func(string) string,
+func attributeMatches(
+	variantList []*Variant, attrKey string, accepted []string, normalize func(string) string,
 ) bool {
-	if len(can) == 0 {
+	if len(accepted) == 0 {
 		return true
 	}
-	for _, v := range bienThe {
+	for _, v := range variantList {
 		if v == nil || v.Status() == StatusArchived {
 			continue
 		}
-		giaTri := chuan(v.Attributes()[khoa])
-		for _, x := range can {
-			if giaTri == x {
+		value := normalize(v.Attributes()[attrKey])
+		for _, x := range accepted {
+			if value == x {
 				return true
 			}
 		}
@@ -162,12 +162,12 @@ func khopThuocTinh(
 	return false
 }
 
-// chuanHoaLoc trả NIL khi không có gì để lọc, không phải mảng rỗng.
+// normalizeFilterValues trả NIL khi không có gì để lọc, không phải mảng rỗng.
 //
 // Điều kiện SQL bên PostgreSQL dùng `$n::text[] IS NULL` để bỏ qua bộ lọc.
 // Một mảng rỗng KHÔNG phải "không lọc" — nó là "không khớp gì cả", và khi
 // ấy danh mục trả về trắng trơn.
-func chuanHoaLoc(v []string, f func(string) string) []string {
+func normalizeFilterValues(v []string, f func(string) string) []string {
 	if len(v) == 0 {
 		return nil
 	}

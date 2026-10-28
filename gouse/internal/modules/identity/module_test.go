@@ -135,7 +135,7 @@ func TestRegisterThenLogin(t *testing.T) {
 //
 // Không chuẩn hóa thì khách tạo hai tài khoản rồi không hiểu vì sao mất
 // đơn hàng cũ.
-func TestEmailIsNormalized(t *testing.T) {
+func TestIdentityEmailIsNormalized(t *testing.T) {
 	m, _ := newModule(t, newClock())
 
 	register(t, m, "Khach@Example.com")
@@ -309,7 +309,7 @@ func TestLogsSuccessfulLoginsToo(t *testing.T) {
 //
 // IP là dữ liệu cá nhân. Băm vẫn cho phép phát hiện "nhiều lần thử từ cùng
 // một nguồn" mà không lưu chính địa chỉ đó.
-func TestDoesNotStoreRawIP(t *testing.T) {
+func TestIdentityDoesNotStoreRawIP(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 

@@ -40,24 +40,24 @@ import (
 // bài của nó chỉ đơn giản là không có. Bài này hỏi một câu khác: hai cài
 // đặt có TRẢ LỜI GIỐNG NHAU không.
 
-// hangThu là một sản phẩm thử cùng các biến thể của nó.
-type hangThu struct {
-	ten     string
-	bienThe []bienTheThu
+// testProduct là một sản phẩm thử cùng các biến thể của nó.
+type testProduct struct {
+	name        string
+	variantList []testVariant
 }
 
-type bienTheThu struct {
-	mau, size string
+type testVariant struct {
+	colorValue, size string
 }
 
-var danhMucThu = []hangThu{
-	{"Áo sơ mi linen", []bienTheThu{{"Trắng", "M"}, {"Xanh navy", "L"}}},
-	{"Áo thun cổ tròn", []bienTheThu{{"Đen", "M"}}},
-	{"Túi tote canvas", []bienTheThu{{"Be", "Free"}}},
+var testCatalog = []testProduct{
+	{"Áo sơ mi linen", []testVariant{{"Trắng", "M"}, {"Xanh navy", "L"}}},
+	{"Áo thun cổ tròn", []testVariant{{"Đen", "M"}}},
+	{"Túi tote canvas", []testVariant{{"Be", "Free"}}},
 
 	// Biến thể nhiều size cùng một màu: bản PostgreSQL dùng EXISTS chứ
 	// không JOIN, nên sản phẩm phải hiện ra ĐÚNG MỘT LẦN.
-	{"Quần jean ống suông", []bienTheThu{
+	{"Quần jean ống suông", []testVariant{
 		{"Xanh denim", "29"},
 		{"Xanh denim", "30"},
 		{"Xanh denim", "31"},
@@ -74,9 +74,9 @@ var danhMucThu = []hangThu{
 // Dựng nó bằng `RestoreVariant` sẽ là một bài test cho tình huống ứng dụng
 // không tạo ra nổi, và một bài như thế nói dối về phạm vi đang được bảo
 // vệ. Khi nào lưu trữ biến thể thành việc làm được, thêm ca vào đây — và
-// nhớ rằng bản in-memory đã sẵn sàng (xem `domain.Filter.KhopBienThe`).
+// nhớ rằng bản in-memory đã sẵn sàng (xem `domain.Filter.MatchesVariants`).
 
-func dungHang(t *testing.T, h hangThu) *domain.Product {
+func buildTestProduct(t *testing.T, h testProduct) *domain.Product {
 	t.Helper()
 	now := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
 
@@ -84,8 +84,8 @@ func dungHang(t *testing.T, h hangThu) *domain.Product {
 		BrandID:             ids.MustNew(ids.PrefixBrand),
 		CategoryID:          ids.MustNew(ids.PrefixCategory),
 		SizeChartID:         ids.MustNew(ids.PrefixSizeChart),
-		Name:                h.ten,
-		Slug:                slugThu(h.ten),
+		Name:                h.name,
+		Slug:                testSlug(h.name),
 		Description:         "Mô tả",
 		MaterialComposition: "100% cotton",
 		ProductType:         domain.ProductTypeTop,
@@ -94,12 +94,12 @@ func dungHang(t *testing.T, h hangThu) *domain.Product {
 		Now:                 now,
 	})
 	if err != nil {
-		t.Fatalf("NewProduct(%s): %v", h.ten, err)
+		t.Fatalf("NewProduct(%s): %v", h.name, err)
 	}
 
-	for _, b := range h.bienThe {
+	for _, b := range h.variantList {
 		v, err := domain.NewVariant(domain.NewVariantParams{
-			Attributes: map[string]string{"color": b.mau, "size": b.size},
+			Attributes: map[string]string{"color": b.colorValue, "size": b.size},
 			Now:        now,
 		})
 		if err != nil {
@@ -112,8 +112,8 @@ func dungHang(t *testing.T, h hangThu) *domain.Product {
 	return p
 }
 
-func slugThu(ten string) string {
-	s := strings.ToLower(ten)
+func testSlug(name string) string {
+	s := strings.ToLower(name)
 	s = strings.NewReplacer(
 		"á", "a", "à", "a", "ả", "a", "ã", "a", "ạ", "a", "â", "a", "ă", "a",
 		"é", "e", "è", "e", "ê", "e", "ể", "e",
@@ -124,7 +124,7 @@ func slugThu(ten string) string {
 	return s + "-" + strings.ToLower(ids.MustNew(ids.PrefixProduct).String()[20:])
 }
 
-func tenSapXep(ps []*domain.Product) []string {
+func sortedNames(ps []*domain.Product) []string {
 	out := make([]string, 0, len(ps))
 	for _, p := range ps {
 		out = append(out, p.Name())
@@ -133,7 +133,7 @@ func tenSapXep(ps []*domain.Product) []string {
 	return out
 }
 
-func TestHaiKhoLocBienTheGiongNhau(t *testing.T) {
+func TestBothStoresFilterVariantsAlike(t *testing.T) {
 	ctx := context.Background()
 	db := testdb.Open(t)
 
@@ -145,8 +145,8 @@ func TestHaiKhoLocBienTheGiongNhau(t *testing.T) {
 	pg := productpg.NewProductStore(db.Pool())
 	mem := inmemory.NewProductStore()
 
-	for _, h := range danhMucThu {
-		p := dungHang(t, h)
+	for _, h := range testCatalog {
+		p := buildTestProduct(t, h)
 		if err := pg.Save(ctx, p); err != nil {
 			t.Fatalf("ghi postgres: %v", err)
 		}
@@ -155,9 +155,9 @@ func TestHaiKhoLocBienTheGiongNhau(t *testing.T) {
 		}
 	}
 
-	bai := []struct {
-		ten string
-		f   domain.Filter
+	cases := []struct {
+		name string
+		f    domain.Filter
 	}{
 		{"không lọc", domain.Filter{}},
 		{"một nhóm màu", domain.Filter{ColorFamilies: []string{"WHITE"}}},
@@ -183,23 +183,23 @@ func TestHaiKhoLocBienTheGiongNhau(t *testing.T) {
 			domain.Filter{Sizes: []string{"Free"}, ColorFamilies: []string{"BLACK"}}},
 	}
 
-	for _, b := range bai {
-		t.Run(b.ten, func(t *testing.T) {
-			raPG, err := pg.List(ctx, b.f)
+	for _, b := range cases {
+		t.Run(b.name, func(t *testing.T) {
+			outPG, err := pg.List(ctx, b.f)
 			if err != nil {
 				t.Fatalf("postgres.List: %v", err)
 			}
-			raMem, err := mem.List(ctx, b.f)
+			outMem, err := mem.List(ctx, b.f)
 			if err != nil {
 				t.Fatalf("inmemory.List: %v", err)
 			}
 
-			tenPG, tenMem := tenSapXep(raPG), tenSapXep(raMem)
-			if strings.Join(tenPG, "|") != strings.Join(tenMem, "|") {
+			namesPG, namesMem := sortedNames(outPG), sortedNames(outMem)
+			if strings.Join(namesPG, "|") != strings.Join(namesMem, "|") {
 				t.Fatalf("hai kho trả khác nhau\n  postgres : %v\n  in-memory: %v",
-					tenPG, tenMem)
+					namesPG, namesMem)
 			}
-			t.Logf("cả hai: %v", tenPG)
+			t.Logf("cả hai: %v", namesPG)
 		})
 	}
 }

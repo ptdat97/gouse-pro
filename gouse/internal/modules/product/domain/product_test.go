@@ -58,7 +58,7 @@ func newTestVariant(t *testing.T, attrs map[string]string) *domain.Variant {
 	return v
 }
 
-func TestNewProductBatDauOTrangThaiNhap(t *testing.T) {
+func TestNewProductStartsAsDraft(t *testing.T) {
 	p := newTestProduct(t, nil)
 
 	if p.Status() != domain.StatusDraft {
@@ -73,9 +73,9 @@ func TestNewProductBatDauOTrangThaiNhap(t *testing.T) {
 	}
 }
 
-func TestNewProductTuChoiDuLieuThieu(t *testing.T) {
+func TestNewProductRejectsMissingData(t *testing.T) {
 	cases := []struct {
-		ten     string
+		name    string
 		mutate  func(*domain.NewProductParams)
 		wantErr error
 	}{
@@ -86,7 +86,7 @@ func TestNewProductTuChoiDuLieuThieu(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.ten, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			p := domain.NewProductParams{
 				BrandID:     ids.MustNew(ids.PrefixBrand),
 				CategoryID:  ids.MustNew(ids.PrefixCategory),
@@ -103,7 +103,7 @@ func TestNewProductTuChoiDuLieuThieu(t *testing.T) {
 	}
 }
 
-func TestNewProductTuChoiLoaiKhongHopLe(t *testing.T) {
+func TestNewProductRejectsInvalidType(t *testing.T) {
 	_, err := domain.NewProduct(domain.NewProductParams{
 		BrandID:     ids.MustNew(ids.PrefixBrand),
 		CategoryID:  ids.MustNew(ids.PrefixCategory),
@@ -119,14 +119,14 @@ func TestNewProductTuChoiLoaiKhongHopLe(t *testing.T) {
 
 // Quy tắc 3 và 4 (mục 12): sản phẩm phải đủ ảnh, mô tả, bảng size trước khi
 // được duyệt. Đây là hàng rào chính chống hàng đăng sơ sài.
-func TestKhongGuiDuyetDuocKhiThieuThongTin(t *testing.T) {
+func TestCannotSubmitWithMissingInfo(t *testing.T) {
 	cases := []struct {
-		ten     string
+		name    string
 		build   func(*testing.T) *domain.Product
 		wantErr error
 	}{
 		{
-			ten: "thiếu mô tả",
+			name: "thiếu mô tả",
 			build: func(t *testing.T) *domain.Product {
 				p := newReadyProduct(t)
 				// Dựng lại không có mô tả.
@@ -135,28 +135,28 @@ func TestKhongGuiDuyetDuocKhiThieuThongTin(t *testing.T) {
 			wantErr: domain.ErrMissingDescription,
 		},
 		{
-			ten: "thiếu ảnh",
+			name: "thiếu ảnh",
 			build: func(t *testing.T) *domain.Product {
 				return rebuildWithout(t, newReadyProduct(t), "images")
 			},
 			wantErr: domain.ErrNoImages,
 		},
 		{
-			ten: "thiếu biến thể",
+			name: "thiếu biến thể",
 			build: func(t *testing.T) *domain.Product {
 				return rebuildWithout(t, newReadyProduct(t), "variants")
 			},
 			wantErr: domain.ErrNoVariants,
 		},
 		{
-			ten: "thiếu bảng size",
+			name: "thiếu bảng size",
 			build: func(t *testing.T) *domain.Product {
 				return rebuildWithout(t, newReadyProduct(t), "sizechart")
 			},
 			wantErr: domain.ErrMissingSizeChart,
 		},
 		{
-			ten: "thiếu chất liệu",
+			name: "thiếu chất liệu",
 			build: func(t *testing.T) *domain.Product {
 				return rebuildWithout(t, newReadyProduct(t), "material")
 			},
@@ -165,7 +165,7 @@ func TestKhongGuiDuyetDuocKhiThieuThongTin(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.ten, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			p := tc.build(t)
 			if err := p.SubmitForReview(testNow); !errors.Is(err, tc.wantErr) {
 				t.Errorf("lỗi = %v, mong %v", err, tc.wantErr)
@@ -217,7 +217,7 @@ func rebuildWithout(t *testing.T, p *domain.Product, missing string) *domain.Pro
 
 // Túi và phụ kiện không có size — không được bắt buộc bảng size, nếu không
 // sẽ chặn việc đăng bán những mặt hàng hoàn toàn hợp lệ.
-func TestTuiVaPhuKienKhongCanBangSize(t *testing.T) {
+func TestBagsAndAccessoriesNeedNoSizeChart(t *testing.T) {
 	for _, pt := range []domain.ProductType{domain.ProductTypeBag, domain.ProductTypeAccessory} {
 		t.Run(string(pt), func(t *testing.T) {
 			if pt.NeedsSizeChart() {
@@ -252,7 +252,7 @@ func TestTuiVaPhuKienKhongCanBangSize(t *testing.T) {
 	}
 }
 
-func TestVongDoiSanPhamDayDu(t *testing.T) {
+func TestFullProductLifecycle(t *testing.T) {
 	p := newReadyProduct(t)
 
 	if err := p.SubmitForReview(testNow); err != nil {
@@ -262,15 +262,15 @@ func TestVongDoiSanPhamDayDu(t *testing.T) {
 		t.Fatalf("trạng thái = %q, mong PENDING_REVIEW", p.Status())
 	}
 
-	duyet := testNow.Add(2 * time.Hour)
-	if err := p.Approve(duyet); err != nil {
+	approvedAt := testNow.Add(2 * time.Hour)
+	if err := p.Approve(approvedAt); err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
 	if !p.IsVisibleToCustomer() {
 		t.Error("sản phẩm ACTIVE phải hiển thị cho khách")
 	}
-	if !p.PublishedAt().Equal(duyet) {
-		t.Errorf("publishedAt = %v, mong %v", p.PublishedAt(), duyet)
+	if !p.PublishedAt().Equal(approvedAt) {
+		t.Errorf("publishedAt = %v, mong %v", p.PublishedAt(), approvedAt)
 	}
 
 	// Tạm ngừng rồi bán lại KHÔNG được ghi đè publishedAt — nếu ghi đè,
@@ -284,12 +284,12 @@ func TestVongDoiSanPhamDayDu(t *testing.T) {
 	if err := p.Reactivate(testNow.Add(4 * time.Hour)); err != nil {
 		t.Fatalf("Reactivate: %v", err)
 	}
-	if !p.PublishedAt().Equal(duyet) {
-		t.Errorf("publishedAt bị ghi đè thành %v, phải giữ %v", p.PublishedAt(), duyet)
+	if !p.PublishedAt().Equal(approvedAt) {
+		t.Errorf("publishedAt bị ghi đè thành %v, phải giữ %v", p.PublishedAt(), approvedAt)
 	}
 }
 
-func TestTuChoiPhaiNeuLyDo(t *testing.T) {
+func TestRejectMustGiveAReason(t *testing.T) {
 	p := newReadyProduct(t)
 	if err := p.SubmitForReview(testNow); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
@@ -328,7 +328,7 @@ func TestTuChoiPhaiNeuLyDo(t *testing.T) {
 
 // ARCHIVED là trạng thái cuối. Cho phép bật lại sẽ phá vỡ giả định của các
 // module khác (đơn hàng cũ, báo cáo).
-func TestLuuTruLaTrangThaiCuoi(t *testing.T) {
+func TestArchivedIsAFinalStatus(t *testing.T) {
 	p := newReadyProduct(t)
 	if err := p.Archive(testNow); err != nil {
 		t.Fatalf("Archive: %v", err)
@@ -339,9 +339,9 @@ func TestLuuTruLaTrangThaiCuoi(t *testing.T) {
 		"gửi duyệt": p.SubmitForReview(testNow),
 		"tạm ngừng": p.Deactivate(testNow),
 	}
-	for ten, err := range cases {
+	for name, err := range cases {
 		if !errors.Is(err, domain.ErrInvalidStatus) {
-			t.Errorf("%s sau khi lưu trữ: lỗi = %v, mong ErrInvalidStatus", ten, err)
+			t.Errorf("%s sau khi lưu trữ: lỗi = %v, mong ErrInvalidStatus", name, err)
 		}
 	}
 	if p.Status() != domain.StatusArchived {
@@ -349,7 +349,7 @@ func TestLuuTruLaTrangThaiCuoi(t *testing.T) {
 	}
 }
 
-func TestKhongDuyetTrucTiepTuNhap(t *testing.T) {
+func TestCannotApproveStraightFromDraft(t *testing.T) {
 	p := newReadyProduct(t)
 	// Bỏ qua bước duyệt là lỗ hổng: sản phẩm chưa ai xem đã lên sàn.
 	if err := p.Approve(testNow); !errors.Is(err, domain.ErrInvalidStatus) {
@@ -358,7 +358,7 @@ func TestKhongDuyetTrucTiepTuNhap(t *testing.T) {
 }
 
 // Quy tắc 2 (mục 12): không trùng tổ hợp thuộc tính trong một Product.
-func TestKhongChoTrungToHopThuocTinh(t *testing.T) {
+func TestNoDuplicateAttributeCombination(t *testing.T) {
 	p := newTestProduct(t, nil)
 
 	v1 := newTestVariant(t, map[string]string{"color": "Trắng", "size": "M"})
@@ -384,7 +384,7 @@ func TestKhongChoTrungToHopThuocTinh(t *testing.T) {
 }
 
 // Bên ngoài KHÔNG được sửa trạng thái nội bộ qua lát cắt trả về.
-func TestKhongSuaDuocTrangThaiNoiBoQuaGetter(t *testing.T) {
+func TestGettersCannotMutateInternalState(t *testing.T) {
 	p := newReadyProduct(t)
 
 	imgs := p.Images()
@@ -400,16 +400,16 @@ func TestKhongSuaDuocTrangThaiNoiBoQuaGetter(t *testing.T) {
 	}
 }
 
-func TestSanPhamNenTangVaSanPhamSeller(t *testing.T) {
-	nenTang := newTestProduct(t, nil)
-	if !nenTang.IsPlatformCatalog() {
+func TestPlatformProductAndSellerProduct(t *testing.T) {
+	platformProduct := newTestProduct(t, nil)
+	if !platformProduct.IsPlatformCatalog() {
 		t.Error("sản phẩm không có seller phải là danh mục chuẩn của nền tảng")
 	}
 
-	cuaSeller := newTestProduct(t, func(p *domain.NewProductParams) {
+	ofSeller := newTestProduct(t, func(p *domain.NewProductParams) {
 		p.CreatedBySellerID = ids.MustNew(ids.PrefixSeller)
 	})
-	if cuaSeller.IsPlatformCatalog() {
+	if ofSeller.IsPlatformCatalog() {
 		t.Error("sản phẩm do seller tạo không phải danh mục chuẩn")
 	}
 }

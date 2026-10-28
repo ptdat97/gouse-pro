@@ -20,7 +20,7 @@ import (
 //
 // Khách giữ hàng có thể vì vừa, cũng có thể vì ngại trả. Khách trả hàng vì
 // size thì chủ động bỏ công nói ra rằng size đó sai, và sai theo hướng nào.
-// Quy tắc suy luận ưu tiên nguồn thứ hai — xem `domain.SuyLuanSize`.
+// Quy tắc suy luận ưu tiên nguồn thứ hai — xem `domain.InferSize`.
 type RecordSizeObservation struct {
 	module *Module
 	log    *slog.Logger
@@ -63,8 +63,8 @@ type returnPayload struct {
 	ReturnID   string `json:"return_id"`
 	CustomerID string `json:"customer_id"`
 	Lines      []struct {
-		SKUID string `json:"sku_id"`
-		LyDo  string `json:"reason_code"`
+		SKUID      string `json:"sku_id"`
+		ReasonCode string `json:"reason_code"`
 	} `json:"lines"`
 }
 
@@ -121,7 +121,7 @@ func (h *RecordSizeObservation) handleReturn(ctx context.Context, e eventbus.Eve
 
 	for _, d := range p.Lines {
 		var k domain.Outcome
-		switch d.LyDo {
+		switch d.ReasonCode {
 		case "SIZE_TOO_SMALL":
 			k = domain.OutcomeTight
 		case "SIZE_TOO_LARGE":

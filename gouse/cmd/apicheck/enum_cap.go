@@ -85,7 +85,7 @@ var capEnumDaKiem = []capEnum{
 		false, "lý do trả hàng"},
 	{"components/schemas.yaml#/ReturnRequest/properties/status", "modules/returns/domain", "TrangThai",
 		false, "trạng thái yêu cầu trả hàng"},
-	{"components/common.yaml#/schemas/ColorFamily", "modules/product/domain", "NhomMau",
+	{"components/common.yaml#/schemas/ColorFamily", "modules/product/domain", "ColorFamily",
 		false, "nhóm màu — đã lệch GRAY/GREY, xem P3-70"},
 	{"components/common.yaml#/schemas/SizeChart/properties/system", "modules/catalog/domain", "SizeSystem",
 		false, "hệ size"},

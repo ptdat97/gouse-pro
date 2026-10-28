@@ -112,7 +112,7 @@ func seedItem(t *testing.T, pool *pgxpool.Pool, available int) *domain.Inventory
 //
 // Test này KHÔNG kiểm chứng được bằng kho in-memory: nó cần hai giao dịch
 // database thật chạy song song trên cùng một dòng.
-func TestKhongBanQuaSoLuongKhiNhieuKhachMuaCungLuc(t *testing.T) {
+func TestNoOversellWhenManyBuyersRaceForLastUnits(t *testing.T) {
 	pool := newPool(t)
 	cleanInventory(t, pool)
 	ctx := context.Background()
@@ -200,16 +200,16 @@ func TestKhongBanQuaSoLuongKhiNhieuKhachMuaCungLuc(t *testing.T) {
 //
 // Khác test trên ở chỗ có nhiều người thắng — kiểm chứng rằng khóa lạc
 // quan không chỉ đúng ở trường hợp biên "còn 1".
-func TestTongBanRaKhongVuotTonKho(t *testing.T) {
+func TestTotalSoldNeverExceedsStock(t *testing.T) {
 	pool := newPool(t)
 	cleanInventory(t, pool)
 	ctx := context.Background()
 
 	const (
-		tonKho  = 10
+		stock   = 10
 		soKhach = 30
 	)
-	item := seedItem(t, pool, tonKho)
+	item := seedItem(t, pool, stock)
 	store := postgres.NewItemStore(pool)
 
 	var (
@@ -225,7 +225,7 @@ func TestTongBanRaKhongVuotTonKho(t *testing.T) {
 			<-batDau
 
 			// Thử lại tối đa 3 lần khi xung đột phiên bản (mục 5.4).
-			for lan := 0; lan < 3; lan++ {
+			for round := 0; round < 3; round++ {
 				cur, err := store.FindByID(ctx, item.ID())
 				if err != nil {
 					t.Errorf("FindByID: %v", err)
@@ -253,8 +253,8 @@ func TestTongBanRaKhongVuotTonKho(t *testing.T) {
 	wg.Wait()
 
 	got := daGiu.Load()
-	if got > tonKho {
-		t.Errorf("giữ được %d, vượt tồn kho %d — ĐÃ BÁN QUÁ SỐ LƯỢNG", got, tonKho)
+	if got > stock {
+		t.Errorf("giữ được %d, vượt tồn kho %d — ĐÃ BÁN QUÁ SỐ LƯỢNG", got, stock)
 	}
 
 	final, err := store.FindByID(ctx, item.ID())
@@ -265,20 +265,20 @@ func TestTongBanRaKhongVuotTonKho(t *testing.T) {
 	if int64(q.Reserved()) != got {
 		t.Errorf("reserved = %d, mong %d", q.Reserved(), got)
 	}
-	if q.Available()+q.Reserved() != tonKho {
+	if q.Available()+q.Reserved() != stock {
 		t.Errorf("available+reserved = %d, mong %d — bất biến bị phá",
-			q.Available()+q.Reserved(), tonKho)
+			q.Available()+q.Reserved(), stock)
 	}
 
 	t.Logf("tồn kho %d, %d khách tranh mua, giữ được %d, còn lại %d",
-		tonKho, soKhach, got, q.Available())
+		stock, soKhach, got, q.Available())
 }
 
 // Ràng buộc CHECK ở database là LỚP BẢO VỆ CUỐI CÙNG.
 //
 // Kể cả khi có lỗi logic ở tầng ứng dụng, database vẫn từ chối số âm.
 // Chỉ báo "số SKU có tồn kho âm" phải LUÔN bằng 0 (mục 13).
-func TestDatabaseTuChoiSoLuongAm(t *testing.T) {
+func TestDatabaseRejectsNegativeQuantity(t *testing.T) {
 	pool := newPool(t)
 	cleanInventory(t, pool)
 	ctx := context.Background()
@@ -298,7 +298,7 @@ func TestDatabaseTuChoiSoLuongAm(t *testing.T) {
 // Khóa định danh nghiệp vụ: một bản ghi cho mỗi (sku, địa điểm, chủ sở hữu).
 //
 // Hai bản ghi cho cùng tổ hợp làm tổng tồn kho tính ra sai mà không ai biết.
-func TestKhongTrungKhoaDinhDanhNghiepVu(t *testing.T) {
+func TestBusinessKeyIsUnique(t *testing.T) {
 	pool := newPool(t)
 	cleanInventory(t, pool)
 	ctx := context.Background()
@@ -306,7 +306,7 @@ func TestKhongTrungKhoaDinhDanhNghiepVu(t *testing.T) {
 	item := seedItem(t, pool, 0)
 	store := postgres.NewItemStore(pool)
 
-	trung, err := domain.NewInventoryItem(domain.NewItemParams{
+	duplicate, err := domain.NewInventoryItem(domain.NewItemParams{
 		SKUID:      item.SKUID(),
 		LocationID: item.LocationID(),
 		OwnerID:    item.OwnerID(),
@@ -316,7 +316,7 @@ func TestKhongTrungKhoaDinhDanhNghiepVu(t *testing.T) {
 		t.Fatalf("NewInventoryItem: %v", err)
 	}
 
-	if err := store.Create(ctx, trung); !errors.Is(err, domain.ErrDuplicateItem) {
+	if err := store.Create(ctx, duplicate); !errors.Is(err, domain.ErrDuplicateItem) {
 		t.Errorf("lỗi = %v, mong ErrDuplicateItem", err)
 	}
 }
@@ -326,40 +326,40 @@ func TestKhongTrungKhoaDinhDanhNghiepVu(t *testing.T) {
 // Đây là điểm mấu chốt của mô hình "nền tảng giao hộ": hàng của seller
 // nằm ở kho nền tảng vẫn thuộc sở hữu seller, không được gộp vào tài sản
 // của nền tảng.
-func TestCungSKUKhacChuSoHuuLaHaiBanGhiRieng(t *testing.T) {
+func TestSameSKUDifferentOwnerAreSeparateRows(t *testing.T) {
 	pool := newPool(t)
 	cleanInventory(t, pool)
 	ctx := context.Background()
 
-	cuaNenTang := seedItem(t, pool, 10)
+	platformItem := seedItem(t, pool, 10)
 	store := postgres.NewItemStore(pool)
 
 	sellerID := ids.MustNew(ids.PrefixSeller)
-	cuaSeller, err := domain.NewInventoryItem(domain.NewItemParams{
-		SKUID:      cuaNenTang.SKUID(),      // CÙNG SKU
-		LocationID: cuaNenTang.LocationID(), // CÙNG kho
-		OwnerID:    sellerID,                // KHÁC chủ sở hữu
+	sellerItem, err := domain.NewInventoryItem(domain.NewItemParams{
+		SKUID:      platformItem.SKUID(),      // CÙNG SKU
+		LocationID: platformItem.LocationID(), // CÙNG kho
+		OwnerID:    sellerID,                  // KHÁC chủ sở hữu
 		Now:        testNow,
 	})
 	if err != nil {
 		t.Fatalf("NewInventoryItem: %v", err)
 	}
-	if err := store.Create(ctx, cuaSeller); err != nil {
+	if err := store.Create(ctx, sellerItem); err != nil {
 		t.Fatalf("hàng seller gửi kho nền tảng phải tạo được bản ghi riêng: %v", err)
 	}
 
 	// Tra theo SKU phải ra CẢ HAI bản ghi.
-	found, err := store.FindBySKUs(ctx, []ids.ID{cuaNenTang.SKUID()}, "")
+	found, err := store.FindBySKUs(ctx, []ids.ID{platformItem.SKUID()}, "")
 	if err != nil {
 		t.Fatalf("FindBySKUs: %v", err)
 	}
-	if len(found[cuaNenTang.SKUID()]) != 2 {
-		t.Fatalf("số bản ghi = %d, mong 2", len(found[cuaNenTang.SKUID()]))
+	if len(found[platformItem.SKUID()]) != 2 {
+		t.Fatalf("số bản ghi = %d, mong 2", len(found[platformItem.SKUID()]))
 	}
 
 	// Và phân biệt được chủ sở hữu.
 	var coNenTang, coSeller bool
-	for _, it := range found[cuaNenTang.SKUID()] {
+	for _, it := range found[platformItem.SKUID()] {
 		if it.IsPlatformOwned() {
 			coNenTang = true
 		} else if it.OwnerID() == sellerID {

@@ -156,8 +156,94 @@ goiYSizeAdapter does not implement producthttp.GoiYSizePort
     (missing method GoiYSize)
 ```
 
-Đã xảy ra 24/10/2026 với `GoiYSize`: cổng thuộc module `product` (chưa đổi
-tên), nên method của adapter giữ tên tiếng Việt kèm một chú thích nói vì sao.
+Đã xảy ra 24/10/2026 với `GoiYSize`. Lúc ấy cổng thuộc `product` — module
+chưa đổi tên — nên adapter giữ tên cũ kèm chú thích. Lượt `product` đã gỡ:
+đổi CỔNG và BÊN CÀI trong CÙNG một lượt (`GoiYSizePort` →
+`SizeSuggestionPort`, `GoiYSize` → `SuggestSize`) thì không còn gì phải hoãn.
+
+Quy tắc còn giá trị: khi bên khai cổng chưa tới lượt thì hoãn, và khi tới
+lượt thì đổi hai đầu cùng nhau.
+
+### Ba phép rà TRẢ LỜI "SẠCH" MÀ KHÔNG RÀ GÌ CẢ
+
+Cả ba đều xảy ra thật trong lượt `inventory`/`product`, và cả ba đều IM LẶNG
+hoặc gần im lặng — đúng loại nguy hiểm nhất, vì kết quả rỗng trông giống hệt
+kết quả tốt.
+
+```text
+grep -rl "[[:<:]]Ten[[:>:]]"      grep BSD KHÔNG hiểu [[:<:]] — luôn rỗng
+grep -rlw "Ten"                   đúng
+
+FILES=$(find . -name '*.go')      zsh KHÔNG tách từ $FILES
+sed -i '' "s/a/b/" $FILES         sed nhận cả danh sách làm MỘT tên tệp
+find . -print0 | xargs -0 sed …   đúng
+
+set -- $pair                      zsh KHÔNG tách; $2 giữ giá trị cũ
+while IFS=' ' read -r a b         đúng
+```
+
+`sed` BSD thì CÓ hiểu `[[:<:]]`, nên quét chú thích bằng `sed` chạy đúng
+trong khi phép rà bằng `grep` ngay cạnh nó báo sạch. Hai công cụ, hai cú
+pháp — và chỉ một trong hai báo lỗi.
+
+Phép rà "còn chỗ nào ngoài module nhắc tên cũ không" báo RỖNG hai lần liền.
+Lần thứ ba, chạy bằng `grep -w`, nó tìm ra 23 chỗ: đặc tả OpenAPI nhắc tên
+HÀM Go (`SuyRaNhomMau`), `openapi.d.ts` sinh ra từ đặc tả, một chú thích ở
+`gouse-web`, một bài test e2e, và `docs/10-roadmap/backlog.md`.
+
+### Rà lại bằng `ident` sau khi áp là BẮT BUỘC
+
+Bốn tên lọt lượt `product` vì chỉ nghĩ trong đầu mà không ghi vào bảng:
+`tao`, `boQua`, `coKetQua`, `tenPG`. `go build`, `go vet`, `make check` đều
+XANH — không có cách nào thấy ngoài việc đếm lại.
+
+### Bộ lọc tiếng Việt CŨNG bỏ sót, và nó làm bảng Tiến độ nói sai
+
+Bộ âm tiết thiếu `ly`, `trang`, `cac`, `goi`, `khop`, `chuan`, nên
+`LyDo`, `TrangThai`, `CacSize`, `GoiY`, `KhopBienThe`, `SizeDaChuan` KHÔNG
+bị đếm. Mười hai module ghi "XONG" mà vẫn còn tên tiếng Việt; `returns` còn
+mười lăm, trong đó có cả hai kiểu enum lõi.
+
+Bài học không phải "vá bộ lọc" mà là: con số ở bảng Tiến độ chỉ đáng tin
+bằng công cụ đo nó. Thấy một tên sót thì ĐỪNG sửa riêng tên ấy — vá bộ lọc
+rồi ĐO LẠI mọi module đã ghi xong.
+
+### Biến vòng lặp trùng tên HÀM cùng gói
+
+```go
+func capOf(t int) int { … }
+
+for _, capOf := range []int{0, -1, -999} {   // che hàm capOf
+```
+
+Biên dịch được, chạy được, đọc thì sai. Đích của một luật phải tránh cả tên
+HÀM trong gói, không chỉ tên biến trong hàm.
+
+### Tên bài test trùng nhau TÍCH LŨY qua các lượt
+
+Bốn cặp sinh ra ở các lượt TRƯỚC, không lượt nào báo gì:
+
+```text
+TestMalformedIDReturnsErrInvalidID   seller + pricing
+TestNotFoundReturnsErrNotFound       catalog + pricing
+TestDoesNotStoreRawIP                identity + customer + analytics
+TestEmailIsNormalized                identity + customer
+```
+
+Go cho phép, nên không có lỗi; chỉ một dòng `FAIL TestX` không nói được là
+bài nào. Mỗi lượt phải chạy:
+
+```bash
+grep -rh "^func Test" --include='*_test.go' . \
+  | sed 's/func \(Test[A-Za-z0-9_]*\).*/\1/' | sort | uniq -d
+```
+
+### Tên định danh Go nằm trong ĐẶC TẢ và SỔ GÁC
+
+`cmd/apicheck/enum_cap.go` giữ tên kiểu Go dưới dạng CHUỖI
+(`"NhomMau"`), và `api/components/common.yaml` nhắc tên hàm Go trong phần
+mô tả. `go build` không thấy cả hai; `apicheck` thấy cái thứ nhất; cái thứ
+hai chỉ người đọc thấy.
 
 ### Đích đổi tên phải tránh TÊN GÓI
 
@@ -277,14 +363,19 @@ XONG   modules/pricing                  72   (kernel, lá)
 XONG   modules/identity                 36   (kernel, lá)
 XONG   modules/customer                 82   (kernel, lá)
 XONG   modules/seller                   43   (kernel, lá)
-CÒN    1888 định danh Go ở 8 module
+XONG   modules/inventory               107   (kernel)
+XONG   modules/product                 237   (kernel) + 12 sót ở recommendation
+CÒN    1662 định danh Go ở 6 module
 
-HOÃN   customer.OrderPort — hai method còn tiếng Việt vì `order.Module` CÀI
-       chúng và `order` chưa đổi. Đổi cùng lúc với `order`.
+ĐÃ GỠ customer.OrderPort vẫn HOÃN (chờ `order`), nhưng cổng gợi ý size thì
+       xong: `GoiYSizePort`/`GoiYSize` đổi CÙNG LÚC với adapter ở
+       `internal/app` nên không còn phải hoãn.
 
-Bảy module extension đã xong hết. Nhóm KERNEL đi từ LÁ lên GỐC — module
-không import module nghiệp vụ nào trước, `checkout` gần cuối, `internal/app`
-sau cùng vì nó gọi mọi module.
+CÒN    marketplace 54 · order 85 · payment 239 · fulfillment 208 ·
+       cart 41 · checkout 138 — rồi `internal/platform`, `internal/app`, `cmd`.
+
+Nhóm KERNEL đi từ LÁ lên GỐC — module không import module nghiệp vụ nào
+trước, `checkout` gần cuối, `internal/app` sau cùng vì nó gọi mọi module.
 ```
 
 Đo lại bất cứ lúc nào bằng cách liệt kê định danh KHAI BÁO qua `go/ast` rồi

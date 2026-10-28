@@ -8,7 +8,7 @@ import { watchApi } from "./loi-mang";
  * # Vì sao qua trình duyệt thật
  *
  * Logic lọc đã có test ở backend — và có cả một bài bắt HAI KHO phải trả
- * lời giống nhau (`TestHaiKhoLocBienTheGiongNhau`). Lặp lại chúng ở đây là
+ * lời giống nhau (`TestBothStoresFilterVariantsAlike`). Lặp lại chúng ở đây là
  * trả giá đắt cho cùng một câu trả lời.
  *
  * Ba thứ chỉ chỗ này thấy được:

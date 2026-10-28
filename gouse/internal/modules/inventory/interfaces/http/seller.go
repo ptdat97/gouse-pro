@@ -32,12 +32,12 @@ import (
 type OwnerResolver interface {
 	// InventoryOwnerID trả chủ sở hữu tồn kho của một nhà bán.
 	//
-	// PHẢI trả ErrPhamViNhaBanHong khi định danh nhà bán không phân giải
+	// PHẢI trả ErrBadSellerScope khi định danh nhà bán không phân giải
 	// được — sai định dạng, hoặc trỏ tới gian hàng không tồn tại.
 	InventoryOwnerID(ctx context.Context, sellerID string) (string, error)
 }
 
-// ErrPhamViNhaBanHong khi phạm vi nhà bán trong token không dùng được.
+// ErrBadSellerScope khi phạm vi nhà bán trong token không dùng được.
 //
 // # Vì sao KHÔNG phải 500
 //
@@ -51,7 +51,7 @@ type OwnerResolver interface {
 //
 // Tìm ra khi đo tải PH-17: một tài khoản trong dữ liệu phát triển có
 // grant trỏ tới gian hàng không tồn tại, và MỌI lượt gọi của nó trả 500.
-var ErrPhamViNhaBanHong = errors.New(
+var ErrBadSellerScope = errors.New(
 	"inventory: phạm vi nhà bán trong token không phân giải được")
 
 // SellerHandler phục vụ endpoint cập nhật tồn kho của nhà bán.
@@ -79,7 +79,7 @@ func (h *SellerHandler) ownerID(r *http.Request, sellerID ids.ID) (ids.ID, error
 	}
 	resolved, err := h.owner.InventoryOwnerID(r.Context(), sellerID.String())
 	if err != nil {
-		if errors.Is(err, ErrPhamViNhaBanHong) {
+		if errors.Is(err, ErrBadSellerScope) {
 			h.log.ErrorContext(r.Context(),
 				"phạm vi nhà bán trong token không phân giải được — "+
 					"kiểm tra bảng phân quyền",
@@ -254,7 +254,7 @@ func decodeJSON(r *http.Request, dst any) error {
 
 func translateInventory(err error) error {
 	switch {
-	case errors.Is(err, domain.ErrQuaLon):
+	case errors.Is(err, domain.ErrTooLarge):
 		// 400 chứ không phải 500: số quá lớn là lỗi của người gõ, và họ
 		// sửa được. Trả 500 khiến họ đi báo sự cố thay vì sửa con số, và
 		// giám sát đếm nó vào tỷ lệ lỗi máy chủ.

@@ -56,11 +56,11 @@ const maxRetries = 8
 
 // Service là tầng application của module inventory.
 type Service struct {
-	uow    domain.UnitOfWork
-	repos  domain.Repos
-	clock  Clock
-	tran   TranPort
-	events EventPublisher
+	uow     domain.UnitOfWork
+	repos   domain.Repos
+	clock   Clock
+	capPort CapPort
+	events  EventPublisher
 }
 
 // EventPublisher là cổng ra của module tới hàng đợi event.
@@ -98,7 +98,7 @@ type Deps struct {
 	Events EventPublisher
 
 	// Tran cấp trần số lượng nghiệp vụ. Nil thì dùng mặc định của domain.
-	Tran TranPort
+	Cap CapPort
 
 	Clock Clock
 }
@@ -109,11 +109,11 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{
-		uow:    d.UnitOfWork,
-		repos:  d.Repos,
-		clock:  clock,
-		tran:   d.Tran,
-		events: d.Events,
+		uow:     d.UnitOfWork,
+		repos:   d.Repos,
+		clock:   clock,
+		capPort: d.Cap,
+		events:  d.Events,
 	}
 }
 
@@ -389,7 +389,7 @@ func (s *Service) ExpireReservations(ctx context.Context, limit int) (int, error
 		return 0, err
 	}
 
-	daDon := 0
+	cleaned := 0
 	for _, r := range expired {
 		// Dọn TỪNG CÁI trong giao dịch riêng: một reservation lỗi không
 		// được chặn việc dọn những cái còn lại — nếu không, một bản ghi
@@ -401,11 +401,11 @@ func (s *Service) ExpireReservations(ctx context.Context, limit int) (int, error
 			if errors.Is(err, domain.ErrReservationNotActive) {
 				continue
 			}
-			return daDon, err
+			return cleaned, err
 		}
-		daDon++
+		cleaned++
 	}
-	return daDon, nil
+	return cleaned, nil
 }
 
 // CountExpiredPending đếm reservation quá hạn chưa dọn — chỉ báo giám sát.
@@ -527,7 +527,7 @@ func (s *Service) Adjust(ctx context.Context, in AdjustInput) error {
 
 	return s.simpleChange(ctx, in.ItemID, qty, domain.MovementAdjust, "", in.Reason, in.PerformedBy,
 		func(i *domain.InventoryItem, t time.Time) error {
-			return i.AdjustAvailable(in.Delta, s.tranSoLuong(), t)
+			return i.AdjustAvailable(in.Delta, s.quantityCap(), t)
 		})
 }
 
@@ -619,7 +619,7 @@ func (s *Service) SetAvailable(ctx context.Context, in SetAvailableInput) error 
 		var saved *domain.InventoryItem
 		return s.mutate(ctx, r, item, mutation{
 			apply: func(i *domain.InventoryItem, t time.Time) error {
-				return i.AdjustAvailable(delta, s.tranSoLuong(), t)
+				return i.AdjustAvailable(delta, s.quantityCap(), t)
 			},
 			movement:    domain.MovementAdjust,
 			quantity:    qty,
@@ -630,7 +630,7 @@ func (s *Service) SetAvailable(ctx context.Context, in SetAvailableInput) error 
 	})
 }
 
-// ErrItemNhapNhang — một SKU ở một kho có tồn kho của NHIỀU chủ sở hữu.
+// ErrAmbiguousItem — một SKU ở một kho có tồn kho của NHIỀU chủ sở hữu.
 //
 // Không phải lỗi dữ liệu: hàng seller gửi ở kho nền tảng vẫn THUỘC seller,
 // nên cùng SKU cùng kho có bản ghi riêng cho từng chủ. Nghĩa là cặp
@@ -638,16 +638,16 @@ func (s *Service) SetAvailable(ctx context.Context, in SetAvailableInput) error 
 //
 // Đoán bừa một trong số đó là kiểu hỏng tệ nhất ở đây: sửa nhầm tồn kho
 // của người khác, và cả hai bên đều không biết cho tới khi bán hụt.
-var ErrItemNhapNhang = errors.New(
+var ErrAmbiguousItem = errors.New(
 	"inventory: một SKU ở một kho có tồn kho của nhiều chủ sở hữu — " +
 		"phải nêu rõ inventory_owner_id")
 
-// TimItemKiemKe tìm bản ghi tồn kho để kiểm kê.
+// FindItemForCount tìm bản ghi tồn kho để kiểm kê.
 //
 // ownerID rỗng được chấp nhận KHI VÀ CHỈ KHI chỉ có đúng một chủ sở hữu —
 // trường hợp thường gặp, và bắt người vận hành gõ thêm một mã dài khi không
 // có gì để nhầm chỉ khiến họ chép dán sai.
-func (s *Service) TimItemKiemKe(
+func (s *Service) FindItemForCount(
 	ctx context.Context, skuID, locationID, ownerID ids.ID,
 ) (*domain.InventoryItem, error) {
 	if !ownerID.IsZero() {
@@ -656,36 +656,36 @@ func (s *Service) TimItemKiemKe(
 		})
 	}
 
-	theoSKU, err := s.repos.Items.FindBySKUs(ctx, []ids.ID{skuID}, locationID)
+	bySKU, err := s.repos.Items.FindBySKUs(ctx, []ids.ID{skuID}, locationID)
 	if err != nil {
 		return nil, err
 	}
-	ds := theoSKU[skuID]
-	switch len(ds) {
+	matches := bySKU[skuID]
+	switch len(matches) {
 	case 0:
 		return nil, domain.ErrNotFound
 	case 1:
-		return ds[0], nil
+		return matches[0], nil
 	default:
-		return nil, ErrItemNhapNhang
+		return nil, ErrAmbiguousItem
 	}
 }
 
-// TranPort đọc trần số lượng NGHIỆP VỤ đang áp dụng.
+// CapPort đọc trần số lượng NGHIỆP VỤ đang áp dụng.
 //
 // Cổng do BÊN GỌI khai: module inventory nói nó cần một con số, không nói
 // con số đến từ đâu. Nil thì dùng mặc định — module vẫn chạy đúng khi
 // chưa nối dây phần cấu hình.
-type TranPort interface {
-	TranSoLuong() int
+type CapPort interface {
+	QuantityCap() int
 }
 
-// tranSoLuong trả trần đang áp dụng, hoặc 0 để domain tự dùng mặc định.
-func (s *Service) tranSoLuong() int {
-	if s.tran == nil {
+// quantityCap trả trần đang áp dụng, hoặc 0 để domain tự dùng mặc định.
+func (s *Service) quantityCap() int {
+	if s.capPort == nil {
 		return 0
 	}
-	return s.tran.TranSoLuong()
+	return s.capPort.QuantityCap()
 }
 
 // CountInput là một lần kiểm kê thủ công của quản trị viên.
@@ -737,15 +737,15 @@ func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error
 		if err != nil {
 			return err
 		}
-		truoc := item.Quantities()
+		before := item.Quantities()
 
 		var saved *domain.InventoryItem
 		err = s.mutate(ctx, r, item, mutation{
 			apply: func(i *domain.InventoryItem, t time.Time) error {
-				return i.KiemKe(in.Available, in.Damaged, s.tranSoLuong(), t)
+				return i.Count(in.Available, in.Damaged, s.quantityCap(), t)
 			},
 			movement:    domain.MovementAdjust,
-			quantity:    lechKiemKe(truoc, in),
+			quantity:    countDelta(before, in),
 			reason:      in.Reason,
 			performedBy: in.PerformedBy,
 			result:      &saved,
@@ -754,15 +754,15 @@ func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error
 		// Đếm ra đúng con số đang có là kết quả TỐT, không phải lỗi: thoát
 		// êm và KHÔNG ghi dòng biến động nào. Một dòng "thay đổi 0 đơn vị"
 		// chỉ làm loãng sổ kho.
-		if errors.Is(err, domain.ErrKiemKeKhongDoi) {
-			ra = CountResult{Before: truoc, After: truoc}
+		if errors.Is(err, domain.ErrCountUnchanged) {
+			ra = CountResult{Before: before, After: before}
 			return nil
 		}
 		if err != nil {
 			return err
 		}
 
-		ra = CountResult{Before: truoc, After: saved.Quantities()}
+		ra = CountResult{Before: before, After: saved.Quantities()}
 		return nil
 	})
 	if err != nil {
@@ -771,20 +771,20 @@ func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error
 	return &ra, nil
 }
 
-// lechKiemKe là độ lớn thay đổi, dùng cho cột số lượng của dòng biến động.
+// countDelta là độ lớn thay đổi, dùng cho cột số lượng của dòng biến động.
 //
 // Cộng trị tuyệt đối của cả hai phần: một lần kiểm kê chuyển 5 đơn vị từ
 // lành sang hỏng là 10 đơn vị bị động tới, và ghi 0 sẽ khiến dòng nhật ký
 // trông như không có gì xảy ra.
-func lechKiemKe(truoc domain.Quantities, in CountInput) int {
-	tong := 0
+func countDelta(before domain.Quantities, in CountInput) int {
+	total := 0
 	if in.Available != nil {
-		tong += absInt(*in.Available - truoc.Available())
+		total += absInt(*in.Available - before.Available())
 	}
 	if in.Damaged != nil {
-		tong += absInt(*in.Damaged - truoc.Damaged())
+		total += absInt(*in.Damaged - before.Damaged())
 	}
-	return tong
+	return total
 }
 
 func absInt(x int) int {
@@ -879,7 +879,7 @@ func (s *Service) mutate(
 	// Lỗi phát event KHÔNG làm hỏng thao tác tồn kho: giữ hàng cho khách
 	// quan trọng hơn ghi một tín hiệu thống kê. Nhưng nó phải ồn — im
 	// lặng ở đây là mất dữ liệu mà không ai biết.
-	if item.VuaHetHang() && s.events != nil {
+	if item.JustDepleted() && s.events != nil {
 		if err := s.events.PublishDepleted(ctx, Depleted{
 			InventoryItemID: item.ID(),
 			SKUID:           item.SKUID(),
@@ -912,7 +912,7 @@ func (s *Service) withRetry(
 ) error {
 	var lastErr error
 
-	for lan := 0; lan < maxRetries; lan++ {
+	for round := 0; round < maxRetries; round++ {
 		err := s.uow.Do(ctx, fn)
 		if err == nil {
 			return nil
@@ -928,7 +928,7 @@ func (s *Service) withRetry(
 		//
 		// Ngẫu nhiên là cần thiết: nếu mọi request xung đột cùng chờ đúng
 		// một khoảng rồi cùng thử lại, chúng lại xung đột tiếp.
-		if lan < maxRetries-1 {
+		if round < maxRetries-1 {
 			// Dùng bộ sinh TOÀN CỤC của math/rand/v2, an toàn khi nhiều
 			// goroutine gọi cùng lúc.
 			//
@@ -936,7 +936,7 @@ func (s *Service) withRetry(
 			// nội bộ và nhiều request tranh nhau ghi vào đó. Đây đúng là
 			// hàm bị gọi song song nhiều nhất trong hệ thống — mỗi lần
 			// tranh chấp tồn kho đều đi qua đây.
-			delay := time.Duration(rand.IntN(10*(lan+1))+1) * time.Millisecond
+			delay := time.Duration(rand.IntN(10*(round+1))+1) * time.Millisecond
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

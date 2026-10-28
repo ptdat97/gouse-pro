@@ -24,23 +24,23 @@ func newTestSKU(t *testing.T, code string) *domain.SKU {
 
 // Mã SKU được người thật gõ và quét ở nhiều nơi. Không chuẩn hóa thì tồn kho
 // của cùng một mặt hàng sẽ âm thầm tách làm đôi.
-func TestMaSKUDuocChuanHoa(t *testing.T) {
-	cases := []struct{ vao, mong string }{
+func TestSKUCodeIsNormalized(t *testing.T) {
+	cases := []struct{ input, expected string }{
 		{"sm-lin-oxf-wht-m", "SM-LIN-OXF-WHT-M"},
 		{"  SM-LIN-OXF-WHT-M  ", "SM-LIN-OXF-WHT-M"},
 		{"Sm-Lin-Oxf-Wht-M", "SM-LIN-OXF-WHT-M"},
 	}
 	for _, tc := range cases {
-		s := newTestSKU(t, tc.vao)
-		if s.Code() != tc.mong {
-			t.Errorf("NewSKU(%q).Code() = %q, mong %q", tc.vao, s.Code(), tc.mong)
+		s := newTestSKU(t, tc.input)
+		if s.Code() != tc.expected {
+			t.Errorf("NewSKU(%q).Code() = %q, mong %q", tc.input, s.Code(), tc.expected)
 		}
 	}
 }
 
-func TestNewSKUTuChoiDuLieuSai(t *testing.T) {
+func TestNewSKURejectsBadData(t *testing.T) {
 	cases := []struct {
-		ten     string
+		name    string
 		params  domain.NewSKUParams
 		wantErr error
 	}{
@@ -53,7 +53,7 @@ func TestNewSKUTuChoiDuLieuSai(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		t.Run(tc.ten, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			if _, err := domain.NewSKU(tc.params); !errors.Is(err, tc.wantErr) {
 				t.Errorf("lỗi = %v, mong %v", err, tc.wantErr)
 			}
@@ -63,13 +63,13 @@ func TestNewSKUTuChoiDuLieuSai(t *testing.T) {
 
 // Thiếu trọng lượng/kích thước thì hãng vận chuyển tính theo mặc định,
 // thường cao hơn thực tế — chi phí âm thầm ăn vào biên lợi nhuận.
-func TestCanShipCanDuTrongLuongVaKichThuoc(t *testing.T) {
-	day := newTestSKU(t, "DU-THONG-TIN")
-	if !day.CanShip() {
+func TestCanShipNeedsWeightAndDimensions(t *testing.T) {
+	complete := newTestSKU(t, "DU-THONG-TIN")
+	if !complete.CanShip() {
 		t.Error("SKU đủ trọng lượng và kích thước phải giao được")
 	}
 
-	thieuCan, err := domain.NewSKU(domain.NewSKUParams{
+	missingWeight, err := domain.NewSKU(domain.NewSKUParams{
 		Code:       "THIEU-CAN",
 		Dimensions: domain.Dimensions{LengthMM: 300, WidthMM: 220, HeightMM: 40},
 		Now:        testNow,
@@ -77,30 +77,30 @@ func TestCanShipCanDuTrongLuongVaKichThuoc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSKU: %v", err)
 	}
-	if thieuCan.CanShip() {
+	if missingWeight.CanShip() {
 		t.Error("SKU thiếu trọng lượng không được coi là giao được")
 	}
 
-	thieuKichThuoc, err := domain.NewSKU(domain.NewSKUParams{
+	missingDimensions, err := domain.NewSKU(domain.NewSKUParams{
 		Code: "THIEU-KT", WeightGram: 320, Now: testNow,
 	})
 	if err != nil {
 		t.Fatalf("NewSKU: %v", err)
 	}
-	if thieuKichThuoc.CanShip() {
+	if missingDimensions.CanShip() {
 		t.Error("SKU thiếu kích thước không được coi là giao được")
 	}
 
 	// Bổ sung thông tin sau thì phải giao được.
-	if err := thieuCan.SetShippingInfo(320, domain.Dimensions{LengthMM: 300, WidthMM: 220, HeightMM: 40}, testNow); err != nil {
+	if err := missingWeight.SetShippingInfo(320, domain.Dimensions{LengthMM: 300, WidthMM: 220, HeightMM: 40}, testNow); err != nil {
 		t.Fatalf("SetShippingInfo: %v", err)
 	}
-	if !thieuCan.CanShip() {
+	if !missingWeight.CanShip() {
 		t.Error("sau khi bổ sung thông tin, SKU phải giao được")
 	}
 }
 
-func TestNgungKinhDoanhSKU(t *testing.T) {
+func TestDiscontinueSKU(t *testing.T) {
 	s := newTestSKU(t, "NGUNG-BAN")
 	if !s.IsSellable() {
 		t.Fatal("SKU mới phải bán được")
@@ -118,7 +118,7 @@ func TestNgungKinhDoanhSKU(t *testing.T) {
 
 // Quy tắc 1 (mục 12) ở phạm vi biến thể. Tính duy nhất toàn hệ thống do
 // tầng application và ràng buộc database bảo đảm.
-func TestKhongChoTrungMaSKUTrongBienThe(t *testing.T) {
+func TestNoDuplicateSKUCodeInAVariant(t *testing.T) {
 	v := newTestVariant(t, map[string]string{"color": "Trắng", "size": "M"})
 
 	if err := v.AddSKU(newTestSKU(t, "AO-WHT-M"), testNow); err != nil {
@@ -134,7 +134,7 @@ func TestKhongChoTrungMaSKUTrongBienThe(t *testing.T) {
 	}
 }
 
-func TestAddSKUGanVaoBienThe(t *testing.T) {
+func TestAddSKUAttachesToVariant(t *testing.T) {
 	v := newTestVariant(t, map[string]string{"color": "Đen", "size": "L"})
 	s := newTestSKU(t, "AO-BLK-L")
 
@@ -154,7 +154,7 @@ func TestAddSKUGanVaoBienThe(t *testing.T) {
 	}
 }
 
-func TestDimensionsThuocTinh(t *testing.T) {
+func TestDimensionsProperties(t *testing.T) {
 	var rong domain.Dimensions
 	if !rong.IsZero() {
 		t.Error("kích thước rỗng phải IsZero")
@@ -164,12 +164,12 @@ func TestDimensionsThuocTinh(t *testing.T) {
 	if d.IsZero() {
 		t.Error("kích thước có giá trị không được IsZero")
 	}
-	if got, mong := d.VolumeMM3(), 300*200*40; got != mong {
-		t.Errorf("thể tích = %d, mong %d", got, mong)
+	if got, expected := d.VolumeMM3(), 300*200*40; got != expected {
+		t.Errorf("thể tích = %d, mong %d", got, expected)
 	}
 }
 
-func TestSKUCoTienToDung(t *testing.T) {
+func TestSKUHasTheRightIDPrefix(t *testing.T) {
 	s := newTestSKU(t, "TIEN-TO")
 	if s.ID().Prefix() != ids.PrefixSKU {
 		t.Errorf("tiền tố = %q, mong %q", s.ID().Prefix(), ids.PrefixSKU)

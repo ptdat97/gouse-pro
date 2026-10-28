@@ -19,15 +19,15 @@ import (
 //
 // Đây là loại sự cố KHÔNG CÓ THÔNG BÁO LỖI nào cả: hệ thống vẫn chạy, chỉ
 // là doanh số tụt dần. Test này bảo vệ đúng cơ chế đó.
-func TestNhieuKhachBoCheckoutThiHangQuayLaiKe(t *testing.T) {
+func TestAbandonedCheckoutsReturnStockToShelf(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
 	skuID := ids.MustNew(ids.PrefixSKU).String()
 
-	const tonKho = 10
+	const stock = 10
 	item, err := m.Receive(ctx, inventory.ReceiveRequest{
-		SKUID: skuID, LocationID: locID, Quantity: tonKho,
+		SKUID: skuID, LocationID: locID, Quantity: stock,
 	})
 	if err != nil {
 		t.Fatalf("Receive: %v", err)
@@ -62,12 +62,12 @@ func TestNhieuKhachBoCheckoutThiHangQuayLaiKe(t *testing.T) {
 	}
 
 	// Đây là việc cmd/worker gọi định kỳ 30 giây một lần.
-	daDon, err := m.Service().ExpireReservations(ctx, 200)
+	cleaned, err := m.Service().ExpireReservations(ctx, 200)
 	if err != nil {
 		t.Fatalf("ExpireReservations: %v", err)
 	}
-	if daDon != 3 {
-		t.Errorf("đã dọn = %d, mong 3", daDon)
+	if cleaned != 3 {
+		t.Errorf("đã dọn = %d, mong 3", cleaned)
 	}
 
 	// TOÀN BỘ hàng phải quay lại kệ.
@@ -75,8 +75,8 @@ func TestNhieuKhachBoCheckoutThiHangQuayLaiKe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAvailability: %v", err)
 	}
-	if av[skuID] != tonKho {
-		t.Errorf("khả dụng = %d, mong %d — hàng chưa quay lại kệ đầy đủ", av[skuID], tonKho)
+	if av[skuID] != stock {
+		t.Errorf("khả dụng = %d, mong %d — hàng chưa quay lại kệ đầy đủ", av[skuID], stock)
 	}
 
 	// Và không còn tồn đọng.
@@ -94,7 +94,7 @@ func TestNhieuKhachBoCheckoutThiHangQuayLaiKe(t *testing.T) {
 // Quan trọng vì worker có thể chạy nhiều bản song song (nhiều pod), và hai
 // bản có thể cùng quét một khoảng thời gian. Nếu dọn hai lần cộng hàng lên
 // hai lần, tồn kho ảo sẽ nhiều hơn thực tế.
-func TestDonHaiLanKhongCongHangLenHaiLan(t *testing.T) {
+func TestDoubleSweepDoesNotRestoreStockTwice(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -116,12 +116,12 @@ func TestDonHaiLanKhongCongHangLenHaiLan(t *testing.T) {
 	if _, err := m.Service().ExpireReservations(ctx, 100); err != nil {
 		t.Fatalf("ExpireReservations lần 1: %v", err)
 	}
-	daDon, err := m.Service().ExpireReservations(ctx, 100)
+	cleaned, err := m.Service().ExpireReservations(ctx, 100)
 	if err != nil {
 		t.Fatalf("ExpireReservations lần 2: %v", err)
 	}
-	if daDon != 0 {
-		t.Errorf("lượt hai dọn được %d, mong 0", daDon)
+	if cleaned != 0 {
+		t.Errorf("lượt hai dọn được %d, mong 0", cleaned)
 	}
 
 	av, err := m.GetAvailability(ctx, []string{skuID}, locID)
@@ -137,7 +137,7 @@ func TestDonHaiLanKhongCongHangLenHaiLan(t *testing.T) {
 // Reservation CÒN HẠN không được đụng tới.
 //
 // Dọn nhầm hàng đang giữ hợp lệ sẽ khiến khách đang thanh toán mất hàng.
-func TestKhongDonReservationConHan(t *testing.T) {
+func TestSweepSkipsLiveReservations(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -158,12 +158,12 @@ func TestKhongDonReservationConHan(t *testing.T) {
 		t.Fatalf("Reserve: %v", err)
 	}
 
-	daDon, err := m.Service().ExpireReservations(ctx, 100)
+	cleaned, err := m.Service().ExpireReservations(ctx, 100)
 	if err != nil {
 		t.Fatalf("ExpireReservations: %v", err)
 	}
-	if daDon != 0 {
-		t.Errorf("dọn nhầm %d reservation còn hạn", daDon)
+	if cleaned != 0 {
+		t.Errorf("dọn nhầm %d reservation còn hạn", cleaned)
 	}
 
 	// Hàng vẫn được giữ cho khách.

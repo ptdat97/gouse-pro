@@ -33,7 +33,7 @@ type fakeCatalog struct {
 	sizeChartOK   bool
 	sellCallCount int
 
-	danhMucKhongCo bool
+	categoryMissing bool
 
 	chart         *application.SizeChartInfo
 	chartErr      error
@@ -49,12 +49,12 @@ func (f *fakeCatalog) CanSellerSellBrand(context.Context, ids.ID, ids.ID) (bool,
 	return f.allowSell, f.denyReason, f.sellErr
 }
 
-// CategoryExists: mặc định CÓ, trừ khi bài test đặt `danhMucKhongCo`.
+// CategoryExists: mặc định CÓ, trừ khi bài test đặt `categoryMissing`.
 //
 // Mặc định có để mọi bài test viết trước khi có kiểm tra này vẫn đo đúng
 // thứ chúng đo.
 func (f *fakeCatalog) CategoryExists(context.Context, ids.ID) (bool, error) {
-	return !f.danhMucKhongCo, nil
+	return !f.categoryMissing, nil
 }
 
 func (f *fakeCatalog) SizeChartExistsFor(context.Context, ids.ID, string) (ids.ID, bool, error) {
@@ -100,7 +100,7 @@ func baseInput() application.CreateProductInput {
 	}
 }
 
-func TestTaoSanPham(t *testing.T) {
+func TestCreateProduct(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
 
@@ -125,7 +125,7 @@ func TestTaoSanPham(t *testing.T) {
 	}
 }
 
-func TestTaoSanPhamTuChoiThuongHieuKhongTonTai(t *testing.T) {
+func TestCreateProductRejectsUnknownBrand(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, &fakeCatalog{brandExists: false})
 
@@ -136,7 +136,7 @@ func TestTaoSanPhamTuChoiThuongHieuKhongTonTai(t *testing.T) {
 
 // HÀNG RÀO CHỐNG HÀNG GIẢ. Seller không có ủy quyền không được tạo sản phẩm
 // mang thương hiệu được bảo vệ.
-func TestSellerKhongCoUyQuyenKhongTaoDuocSanPham(t *testing.T) {
+func TestSellerWithoutPermissionCannotCreateProduct(t *testing.T) {
 	ctx := context.Background()
 	cat := &fakeCatalog{
 		brandExists: true,
@@ -174,7 +174,7 @@ func TestSellerKhongCoUyQuyenKhongTaoDuocSanPham(t *testing.T) {
 
 // Nền tảng tự tạo sản phẩm cho thương hiệu của mình thì KHÔNG cần kiểm tra
 // ủy quyền — bắt buộc sẽ chặn chính own brand của nền tảng.
-func TestNenTangTaoSanPhamKhongCanKiemTraUyQuyen(t *testing.T) {
+func TestPlatformProductNeedsNoSellPermissionCheck(t *testing.T) {
 	ctx := context.Background()
 	cat := &fakeCatalog{brandExists: true, allowSell: false, denyReason: "NO_AUTHORIZATION"}
 	svc := newService(t, cat)
@@ -189,7 +189,7 @@ func TestNenTangTaoSanPhamKhongCanKiemTraUyQuyen(t *testing.T) {
 
 // Bảng size gắn với (thương hiệu, loại sản phẩm) và catalog đã biết. Bắt
 // người đăng bán tự tìm id là nguồn gốc của việc gắn sai hoặc bỏ trống.
-func TestTuTraBangSizeKhiKhongChiDinh(t *testing.T) {
+func TestFallsBackToTheDefaultSizeChart(t *testing.T) {
 	ctx := context.Background()
 	sizeChartID := ids.MustNew(ids.PrefixSizeChart)
 	cat := &fakeCatalog{
@@ -210,7 +210,7 @@ func TestTuTraBangSizeKhiKhongChiDinh(t *testing.T) {
 	}
 }
 
-func TestThemBienTheVaSKU(t *testing.T) {
+func TestAddVariantAndSKU(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
 
@@ -246,7 +246,7 @@ func TestThemBienTheVaSKU(t *testing.T) {
 }
 
 // Quy tắc 1: mã SKU duy nhất toàn hệ thống, kể cả giữa hai sản phẩm khác nhau.
-func TestKhongThemDuocSKUTrungMaOSanPhamKhac(t *testing.T) {
+func TestCannotAddSKUWithACodeUsedElsewhere(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
 
@@ -279,11 +279,11 @@ func TestKhongThemDuocSKUTrungMaOSanPhamKhac(t *testing.T) {
 	}
 }
 
-func TestVongDoiXuatBanQuaService(t *testing.T) {
+func TestPublishLifecycleThroughTheService(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
 
-	p := taoSanPhamDuDieuKien(t, svc)
+	p := createEligibleProduct(t, svc)
 
 	if _, err := svc.SubmitForReview(ctx, p.ID()); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
@@ -309,7 +309,7 @@ func TestVongDoiXuatBanQuaService(t *testing.T) {
 // Giữa lúc gửi duyệt và lúc duyệt có thể đã nhiều ngày — giấy ủy quyền có
 // thể đã hết hạn. Không kiểm tra lại nghĩa là hàng không còn được phép bán
 // vẫn lên sàn.
-func TestKiemTraLaiQuyenBanTruocKhiXuatBan(t *testing.T) {
+func TestRechecksSellPermissionBeforePublish(t *testing.T) {
 	ctx := context.Background()
 	cat := newCatalogOK()
 	svc := newService(t, cat)
@@ -349,10 +349,10 @@ func TestKiemTraLaiQuyenBanTruocKhiXuatBan(t *testing.T) {
 	}
 }
 
-func TestTuChoiVaGuiLai(t *testing.T) {
+func TestRejectAndResubmit(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
-	p := taoSanPhamDuDieuKien(t, svc)
+	p := createEligibleProduct(t, svc)
 
 	if _, err := svc.SubmitForReview(ctx, p.ID()); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
@@ -375,25 +375,25 @@ func TestTuChoiVaGuiLai(t *testing.T) {
 }
 
 // Sản phẩm chưa duyệt KHÔNG được lọt vào danh sách hiển thị cho khách.
-func TestSanPhamChuaDuyetKhongLotRaTrangKhach(t *testing.T) {
+func TestUnapprovedProductStaysOffCustomerPages(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
 	coll := ids.MustNew(ids.PrefixCollection)
 
 	// Một sản phẩm đã duyệt.
-	daDuyet := taoSanPhamDuDieuKien(t, svc, func(in *application.CreateProductInput) {
+	approved := createEligibleProduct(t, svc, func(in *application.CreateProductInput) {
 		in.Slug = "da-duyet"
 		in.CollectionID = coll
 	})
-	if _, err := svc.SubmitForReview(ctx, daDuyet.ID()); err != nil {
+	if _, err := svc.SubmitForReview(ctx, approved.ID()); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
 	}
-	if _, err := svc.Approve(ctx, daDuyet.ID()); err != nil {
+	if _, err := svc.Approve(ctx, approved.ID()); err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
 
 	// Một sản phẩm còn nháp trong CÙNG bộ sưu tập.
-	taoSanPhamDuDieuKien(t, svc, func(in *application.CreateProductInput) {
+	createEligibleProduct(t, svc, func(in *application.CreateProductInput) {
 		in.Slug = "con-nhap"
 		in.CollectionID = coll
 	})
@@ -412,10 +412,10 @@ func TestSanPhamChuaDuyetKhongLotRaTrangKhach(t *testing.T) {
 
 // Quên truyền sellerID phải thành LỖI RÕ RÀNG, không được âm thầm trả về
 // dữ liệu của tất cả seller.
-func TestThieuSellerIDTraLoiChuKhongTraToanBo(t *testing.T) {
+func TestMissingSellerIDErrorsInsteadOfReturningEverything(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
-	taoSanPhamDuDieuKien(t, svc)
+	createEligibleProduct(t, svc)
 
 	got, err := svc.ListSellerProducts(ctx, "", "")
 	if !errors.Is(err, application.ErrSellerRequired) {
@@ -426,18 +426,18 @@ func TestThieuSellerIDTraLoiChuKhongTraToanBo(t *testing.T) {
 	}
 }
 
-func TestSellerChiThaySanPhamCuaMinh(t *testing.T) {
+func TestSellerOnlySeesItsOwnProducts(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, newCatalogOK())
 
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	sellerB := ids.MustNew(ids.PrefixSeller)
 
-	taoSanPhamDuDieuKien(t, svc, func(in *application.CreateProductInput) {
+	createEligibleProduct(t, svc, func(in *application.CreateProductInput) {
 		in.Slug = "cua-a"
 		in.SellerID = sellerA
 	})
-	taoSanPhamDuDieuKien(t, svc, func(in *application.CreateProductInput) {
+	createEligibleProduct(t, svc, func(in *application.CreateProductInput) {
 		in.Slug = "cua-b"
 		in.SellerID = sellerB
 	})
@@ -454,8 +454,8 @@ func TestSellerChiThaySanPhamCuaMinh(t *testing.T) {
 	}
 }
 
-// taoSanPhamDuDieuKien tạo sản phẩm đã đủ điều kiện gửi duyệt.
-func taoSanPhamDuDieuKien(
+// createEligibleProduct tạo sản phẩm đã đủ điều kiện gửi duyệt.
+func createEligibleProduct(
 	t *testing.T, svc *application.Service, mutate ...func(*application.CreateProductInput),
 ) *domain.Product {
 	t.Helper()
@@ -498,10 +498,10 @@ func taoSanPhamDuDieuKien(
 // kết quả" là nhầm hai câu hỏi trái ngược nhau, và một bài test gộp chúng
 // sẽ xanh cả khi mã phát nhầm loại.
 type fakeSearchSignals struct {
-	queries  []string // không ra kết quả
-	coKetQua []string // có ra kết quả
-	soKetQua []int
-	err      error
+	queries     []string // không ra kết quả
+	withResults []string // có ra kết quả
+	resultCount []int
+	err         error
 }
 
 func (f *fakeSearchSignals) PublishSearchNoResult(_ context.Context, q string) error {
@@ -512,8 +512,8 @@ func (f *fakeSearchSignals) PublishSearchNoResult(_ context.Context, q string) e
 func (f *fakeSearchSignals) PublishSearchPerformed(
 	_ context.Context, q string, n int,
 ) error {
-	f.coKetQua = append(f.coKetQua, q)
-	f.soKetQua = append(f.soKetQua, n)
+	f.withResults = append(f.withResults, q)
+	f.resultCount = append(f.resultCount, n)
 	return f.err
 }
 
@@ -533,7 +533,7 @@ func newServiceWithSignals(
 //
 // Đây là dữ liệu mà bán hàng một mình không bao giờ cho biết: khách MUỐN
 // gì mà nền tảng KHÔNG CÓ. Không ghi hôm nay thì không tạo ngược được.
-func TestTimKhongRaKetQuaGhiTinHieu(t *testing.T) {
+func TestSearchWithNoResultsWritesASignal(t *testing.T) {
 	sig := &fakeSearchSignals{}
 	svc := newServiceWithSignals(t, newCatalogOK(), sig)
 	ctx := context.Background()
@@ -557,7 +557,7 @@ func TestTimKhongRaKetQuaGhiTinHieu(t *testing.T) {
 // Tín hiệu ghi hỏng KHÔNG được làm hỏng tìm kiếm.
 //
 // Khách đang đợi kết quả, không đợi hệ thống ghi số liệu.
-func TestGhiTinHieuHongKhongLamHongTimKiem(t *testing.T) {
+func TestFailedSignalWriteDoesNotBreakSearch(t *testing.T) {
 	sig := &fakeSearchSignals{err: errors.New("outbox hỏng")}
 	svc := newServiceWithSignals(t, newCatalogOK(), sig)
 
@@ -570,12 +570,12 @@ func TestGhiTinHieuHongKhongLamHongTimKiem(t *testing.T) {
 //
 // Ghi cả khi tìm thấy sẽ làm loãng tín hiệu: "nhu cầu không được đáp ứng"
 // trộn lẫn với "nhu cầu đã đáp ứng" thì không dùng để lập kế hoạch được.
-func TestCoKetQuaThiKhongGhiTinHieu(t *testing.T) {
+func TestResultsFoundWritesNoSignal(t *testing.T) {
 	sig := &fakeSearchSignals{}
 	svc := newServiceWithSignals(t, newCatalogOK(), sig)
 	ctx := context.Background()
 
-	p := taoSanPhamDuDieuKien(t, svc)
+	p := createEligibleProduct(t, svc)
 	if _, err := svc.SubmitForReview(ctx, p.ID()); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
 	}
@@ -596,13 +596,13 @@ func TestCoKetQuaThiKhongGhiTinHieu(t *testing.T) {
 }
 
 // Tìm kiếm KHÔNG lộ sản phẩm chưa duyệt.
-func TestTimKiemKhongLoHangChuaDuyet(t *testing.T) {
+func TestSearchHidesUnapprovedProducts(t *testing.T) {
 	sig := &fakeSearchSignals{}
 	svc := newServiceWithSignals(t, newCatalogOK(), sig)
 	ctx := context.Background()
 
 	// Tạo nhưng KHÔNG duyệt.
-	taoSanPhamDuDieuKien(t, svc)
+	createEligibleProduct(t, svc)
 
 	found, err := svc.Search(ctx, "linen", 20, 0)
 	if err != nil {
@@ -618,12 +618,12 @@ func TestTimKiemKhongLoHangChuaDuyet(t *testing.T) {
 	}
 }
 
-// TestSizeChartOfKhongCoBangSizeTraNil kiểm tra sản phẩm không gắn bảng size.
+// TestSizeChartOfReturnsNilWithoutAChart kiểm tra sản phẩm không gắn bảng size.
 //
 // Túi và phụ kiện không cần bảng size (ProductType.NeedsSizeChart). Với
 // chúng KHÔNG được gọi sang catalog: một lời gọi chắc chắn không ra gì là
 // độ trễ thừa trên mọi trang phụ kiện.
-func TestSizeChartOfKhongCoBangSizeTraNil(t *testing.T) {
+func TestSizeChartOfReturnsNilWithoutAChart(t *testing.T) {
 	cat := newCatalogOK()
 	svc := newService(t, cat)
 
@@ -647,13 +647,13 @@ func TestSizeChartOfKhongCoBangSizeTraNil(t *testing.T) {
 	}
 }
 
-// TestSizeChartOfLoiCatalogTraLoi kiểm tra lỗi được ĐẨY LÊN, không nuốt.
+// TestSizeChartOfPropagatesCatalogError kiểm tra lỗi được ĐẨY LÊN, không nuốt.
 //
 // Tầng application không tự quyết định "thiếu bảng size thì thôi" — đó là
 // quyết định trình bày và nó nằm ở handler. Nuốt lỗi ở đây sẽ khiến một
 // catalog hỏng trông y hệt một sản phẩm không có bảng size, và không ai
 // biết trang sản phẩm đang mất số đo.
-func TestSizeChartOfLoiCatalogTraLoi(t *testing.T) {
+func TestSizeChartOfPropagatesCatalogError(t *testing.T) {
 	cat := newCatalogOK()
 	cat.chartErr = errors.New("catalog sập")
 	svc := newService(t, cat)
@@ -668,7 +668,7 @@ func TestSizeChartOfLoiCatalogTraLoi(t *testing.T) {
 	}
 }
 
-// TestTimCoKetQuaCungLaTinHieuNhuCau.
+// TestASuccessfulSearchIsAlsoADemandSignal.
 //
 // # Vì sao bài này tồn tại
 //
@@ -679,12 +679,12 @@ func TestSizeChartOfLoiCatalogTraLoi(t *testing.T) {
 // Thiếu vế này thì vế kia đọc sai: "áo khoác dạ" 240 lượt tìm không ra kết
 // quả trông như một cơ hội lớn, mà không biết "áo sơ mi" được tìm 24.000
 // lượt. Một con số không có mẫu số để so.
-func TestTimCoKetQuaCungLaTinHieuNhuCau(t *testing.T) {
+func TestASuccessfulSearchIsAlsoADemandSignal(t *testing.T) {
 	sig := &fakeSearchSignals{}
 	svc := newServiceWithSignals(t, newCatalogOK(), sig)
 	ctx := context.Background()
 
-	p := taoSanPhamDuDieuKien(t, svc)
+	p := createEligibleProduct(t, svc)
 	if _, err := svc.SubmitForReview(ctx, p.ID()); err != nil {
 		t.Fatalf("SubmitForReview: %v", err)
 	}
@@ -704,25 +704,25 @@ func TestTimCoKetQuaCungLaTinHieuNhuCau(t *testing.T) {
 		t.Errorf("tìm CÓ kết quả mà ghi tín hiệu 'không ra kết quả': %v",
 			sig.queries)
 	}
-	if len(sig.coKetQua) != 1 {
+	if len(sig.withResults) != 1 {
 		t.Fatalf("phải ghi ĐÚNG 1 tín hiệu tìm-có-kết-quả, nhận %d",
-			len(sig.coKetQua))
+			len(sig.withResults))
 	}
-	if sig.coKetQua[0] != "áo sơ mi" {
-		t.Errorf("từ khóa bị đổi: %q", sig.coKetQua[0])
+	if sig.withResults[0] != "áo sơ mi" {
+		t.Errorf("từ khóa bị đổi: %q", sig.withResults[0])
 	}
-	if sig.soKetQua[0] != len(found) {
-		t.Errorf("số kết quả ghi %d, thực tế %d", sig.soKetQua[0], len(found))
+	if sig.resultCount[0] != len(found) {
+		t.Errorf("số kết quả ghi %d, thực tế %d", sig.resultCount[0], len(found))
 	}
 }
 
-// TestLatTrangKhongPhaiMotNhuCauMOI.
+// TestPagingIsNotANewDemandSignal.
 //
 // Khách lật sang trang hai của cùng một từ khóa không phải một lần hỏi
 // mới. Đếm mỗi trang một lượt sẽ thổi phồng đúng những từ khóa ra NHIỀU
 // kết quả nhất — tức làm tín hiệu nghiêng về thứ danh mục đã phục vụ tốt,
 // ngược với điều nó tồn tại để tìm.
-func TestLatTrangKhongPhaiMotNhuCauMOI(t *testing.T) {
+func TestPagingIsNotANewDemandSignal(t *testing.T) {
 	sig := &fakeSearchSignals{}
 	svc := newServiceWithSignals(t, newCatalogOK(), sig)
 	ctx := context.Background()
@@ -731,8 +731,8 @@ func TestLatTrangKhongPhaiMotNhuCauMOI(t *testing.T) {
 		t.Fatalf("Search: %v", err)
 	}
 
-	if len(sig.queries)+len(sig.coKetQua) != 0 {
+	if len(sig.queries)+len(sig.withResults) != 0 {
 		t.Errorf("trang thứ hai cũng ghi tín hiệu: khong_ra=%v co_ra=%v",
-			sig.queries, sig.coKetQua)
+			sig.queries, sig.withResults)
 	}
 }

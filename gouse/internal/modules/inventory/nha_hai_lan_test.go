@@ -13,7 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
-// dongHoChan là đồng hồ thật, nhưng DỪNG ở lần gọi đầu tiên.
+// blockingClock là đồng hồ thật, nhưng DỪNG ở lần gọi đầu tiên.
 //
 // # Vì sao đây là điểm chèn hợp lệ, không phải mẹo test
 //
@@ -27,37 +27,37 @@ import (
 // Clock vốn đã là cổng tiêm sẵn có của module (`inventory.Config.Clock`),
 // không phải thứ thêm vào để test dễ. Chặn ở đây cho ta điều khiển được
 // đúng cái xen kẽ cần dựng lại, mà không sửa một dòng code production nào.
-type dongHoChan struct {
-	mu     sync.Mutex
-	daChan bool
-	toiRoi chan struct{} // đóng khi đã vào giữa hai lần đọc
-	diTiep chan struct{} // bên test đóng để cho đi tiếp
+type blockingClock struct {
+	mu      sync.Mutex
+	blocked bool
+	arrived chan struct{} // đóng khi đã vào giữa hai lần đọc
+	proceed chan struct{} // bên test đóng để cho đi tiếp
 }
 
-func newDongHoChan() *dongHoChan {
-	return &dongHoChan{
-		toiRoi: make(chan struct{}),
-		diTiep: make(chan struct{}),
+func newBlockingClock() *blockingClock {
+	return &blockingClock{
+		arrived: make(chan struct{}),
+		proceed: make(chan struct{}),
 	}
 }
 
-func (d *dongHoChan) Now() time.Time {
+func (d *blockingClock) Now() time.Time {
 	d.mu.Lock()
-	lanDau := !d.daChan
-	d.daChan = true
+	first := !d.blocked
+	d.blocked = true
 	d.mu.Unlock()
 
 	// CHỈ chặn lần đầu. `withRetry` chạy lại toàn bộ closure khi xung đột
 	// phiên bản, và lần chạy lại phải đi thẳng — nếu không, bài test treo
 	// thay vì đo được điều nó muốn đo.
-	if lanDau {
-		close(d.toiRoi)
-		<-d.diTiep
+	if first {
+		close(d.arrived)
+		<-d.proceed
 	}
 	return types.BayGio()
 }
 
-// TestNhaGiuHangHaiLan_TaiHienXacDinh dựng lại ĐÚNG cơ chế của PH-31.
+// TestDoubleReleaseRaceDeterministic dựng lại ĐÚNG cơ chế của PH-31.
 //
 // # Vì sao ba lần thử tái hiện trước đều xanh
 //
@@ -97,13 +97,13 @@ func (d *dongHoChan) Now() time.Time {
 //
 // Bài test này KHÔNG trông chờ vào xác suất: nó dừng T2 đúng giữa hai lần
 // đọc bằng đồng hồ, chạy trọn T1, rồi thả T2 ra.
-func TestNhaGiuHangHaiLan_TaiHienXacDinh(t *testing.T) {
-	mNhanh, db := newModule(t)
+func TestDoubleReleaseRaceDeterministic(t *testing.T) {
+	mFast, db := newModule(t)
 	ctx := context.Background()
 
-	dongHo := newDongHoChan()
-	mCham, err := inventory.New(inventory.Config{
-		Storage: "postgres", DB: db, Clock: dongHo,
+	clock := newBlockingClock()
+	mSlow, err := inventory.New(inventory.Config{
+		Storage: "postgres", DB: db, Clock: clock,
 	})
 	if err != nil {
 		t.Fatalf("dựng module thứ hai: %v", err)
@@ -112,7 +112,7 @@ func TestNhaGiuHangHaiLan_TaiHienXacDinh(t *testing.T) {
 	locID := newLocation(t, db)
 	skuID := ids.MustNew(ids.PrefixSKU)
 
-	item, err := mNhanh.Receive(ctx, inventory.ReceiveRequest{
+	item, err := mFast.Receive(ctx, inventory.ReceiveRequest{
 		SKUID: skuID.String(), LocationID: locID, Quantity: 10,
 		PerformedBy: "test",
 	})
@@ -121,7 +121,7 @@ func TestNhaGiuHangHaiLan_TaiHienXacDinh(t *testing.T) {
 	}
 
 	// Reservation NẠN NHÂN — cái sẽ bị nhả hai lần.
-	res, err := mNhanh.Reserve(ctx, inventory.ReserveRequest{
+	res, err := mFast.Reserve(ctx, inventory.ReserveRequest{
 		ItemID: item.ID, Quantity: 1, TTL: 15 * time.Minute,
 	})
 	if err != nil {
@@ -135,67 +135,67 @@ func TestNhaGiuHangHaiLan_TaiHienXacDinh(t *testing.T) {
 	// thứ hai ("không đủ hàng"). Trong production, SKU đang bán luôn có
 	// nhiều lượt giữ cùng lúc, nên `reserved` vẫn dương và lượt nhả thứ
 	// hai đi lọt. Đó là lý do lỗi này chỉ xuất hiện trên hệ thống thật.
-	if _, err := mNhanh.Reserve(ctx, inventory.ReserveRequest{
+	if _, err := mFast.Reserve(ctx, inventory.ReserveRequest{
 		ItemID: item.ID, Quantity: 5, TTL: 15 * time.Minute,
 	}); err != nil {
 		t.Fatalf("giữ hàng của người khác: %v", err)
 	}
 
-	truoc := doTonKho(t, db, item.ID)
-	if truoc.khaDung != 4 || truoc.dangGiu != 6 {
+	before := readStock(t, db, item.ID)
+	if before.available != 4 || before.reserved != 6 {
 		t.Fatalf("trạng thái ban đầu sai: khả dụng %d, đang giữ %d",
-			truoc.khaDung, truoc.dangGiu)
+			before.available, before.reserved)
 	}
 
 	// T2 — dừng lại ngay sau khi đọc reservation.
-	loiT2 := make(chan error, 1)
+	errT2Ch := make(chan error, 1)
 	go func() {
-		loiT2 <- mCham.ReleaseReservation(ctx, res.ID)
+		errT2Ch <- mSlow.ReleaseReservation(ctx, res.ID)
 	}()
 
 	select {
-	case <-dongHo.toiRoi:
+	case <-clock.arrived:
 	case <-time.After(5 * time.Second):
 		t.Fatal("T2 không tới được chỗ chặn — đường code đã đổi?")
 	}
 
 	// T1 — chạy trọn vẹn và commit trong lúc T2 đang dừng.
-	if err := mNhanh.ReleaseReservation(ctx, res.ID); err != nil {
+	if err := mFast.ReleaseReservation(ctx, res.ID); err != nil {
 		t.Fatalf("T1 nhả hàng: %v", err)
 	}
 
-	giua := doTonKho(t, db, item.ID)
-	if giua.khaDung != 5 || giua.dangGiu != 5 {
+	middle := readStock(t, db, item.ID)
+	if middle.available != 5 || middle.reserved != 5 {
 		t.Fatalf("sau T1 phải là 5/5, đang là %d/%d",
-			giua.khaDung, giua.dangGiu)
+			middle.available, middle.reserved)
 	}
 
 	// Thả T2. Bản reservation trong bộ nhớ của nó vẫn ghi ACTIVE.
-	close(dongHo.diTiep)
+	close(clock.proceed)
 
 	var errT2 error
 	select {
-	case errT2 = <-loiT2:
+	case errT2 = <-errT2Ch:
 	case <-time.After(10 * time.Second):
 		t.Fatal("T2 không kết thúc")
 	}
 
 	// ---------------------------------------------------------------
 
-	sau := doTonKho(t, db, item.ID)
+	after := readStock(t, db, item.ID)
 
 	// Bất biến: hàng khả dụng = tổng nhập − tổng đang giữ CÒN SỐNG.
 	// Reservation của "người khác" vẫn giữ 5, nên khả dụng phải đúng 5.
-	if sau.khaDung != 5 {
+	if after.available != 5 {
 		t.Errorf("HÀNG SINH TỪ KHÔNG KHÍ: khả dụng %d, cần 5 — "+
-			"lượt giữ của người khác vẫn ôm 5 trong tổng 10", sau.khaDung)
+			"lượt giữ của người khác vẫn ôm 5 trong tổng 10", after.available)
 	}
-	if sau.dangGiu != 5 {
+	if after.reserved != 5 {
 		t.Errorf("đang giữ %d, cần 5 — con số này phải khớp lượt giữ còn sống",
-			sau.dangGiu)
+			after.reserved)
 	}
 
-	if n := demNhaCua(t, db, res.ID); n != 1 {
+	if n := countReleasesOf(t, db, res.ID); n != 1 {
 		t.Errorf("reservation có %d biến động RELEASE, cần đúng 1", n)
 	}
 
@@ -209,22 +209,22 @@ func TestNhaGiuHangHaiLan_TaiHienXacDinh(t *testing.T) {
 	}
 }
 
-type tonKho struct{ khaDung, dangGiu int }
+type stock struct{ available, reserved int }
 
-func doTonKho(t *testing.T, db *database.DB, itemID string) tonKho {
+func readStock(t *testing.T, db *database.DB, itemID string) stock {
 	t.Helper()
-	var tk tonKho
+	var st stock
 	err := db.Pool().QueryRow(context.Background(),
 		`SELECT quantity_available, quantity_reserved
 		   FROM inventory_item WHERE id = $1`, itemID).
-		Scan(&tk.khaDung, &tk.dangGiu)
+		Scan(&st.available, &st.reserved)
 	if err != nil {
 		t.Fatalf("đọc tồn kho: %v", err)
 	}
-	return tk
+	return st
 }
 
-func demNhaCua(t *testing.T, db *database.DB, reservationID string) int {
+func countReleasesOf(t *testing.T, db *database.DB, reservationID string) int {
 	t.Helper()
 	var n int
 	err := db.Pool().QueryRow(context.Background(),
@@ -237,7 +237,7 @@ func demNhaCua(t *testing.T, db *database.DB, reservationID string) int {
 	return n
 }
 
-// TestChotVaHetHanChongNhau_TaiHienXacDinh — cùng lớp lỗi với PH-31.
+// TestCommitAndExpiryRaceDeterministic — cùng lớp lỗi với PH-31.
 //
 // `commitWith` có ĐÚNG hình dạng của `releaseWith`: đọc reservation, kiểm
 // trạng thái trong bộ nhớ, đọc tồn kho, ghi cả hai. Nên nó dính đúng cái
@@ -250,13 +250,13 @@ func demNhaCua(t *testing.T, db *database.DB, reservationID string) int {
 //
 // Bài này tồn tại vì sửa xong một chỗ mà không kiểm chỗ có cùng hình dạng
 // thì mới chỉ sửa được triệu chứng.
-func TestChotVaHetHanChongNhau_TaiHienXacDinh(t *testing.T) {
-	mNhanh, db := newModule(t)
+func TestCommitAndExpiryRaceDeterministic(t *testing.T) {
+	mFast, db := newModule(t)
 	ctx := context.Background()
 
-	dongHo := newDongHoChan()
-	mCham, err := inventory.New(inventory.Config{
-		Storage: "postgres", DB: db, Clock: dongHo,
+	clock := newBlockingClock()
+	mSlow, err := inventory.New(inventory.Config{
+		Storage: "postgres", DB: db, Clock: clock,
 	})
 	if err != nil {
 		t.Fatalf("dựng module thứ hai: %v", err)
@@ -265,7 +265,7 @@ func TestChotVaHetHanChongNhau_TaiHienXacDinh(t *testing.T) {
 	locID := newLocation(t, db)
 	skuID := ids.MustNew(ids.PrefixSKU)
 
-	item, err := mNhanh.Receive(ctx, inventory.ReceiveRequest{
+	item, err := mFast.Receive(ctx, inventory.ReceiveRequest{
 		SKUID: skuID.String(), LocationID: locID, Quantity: 10,
 		PerformedBy: "test",
 	})
@@ -273,51 +273,51 @@ func TestChotVaHetHanChongNhau_TaiHienXacDinh(t *testing.T) {
 		t.Fatalf("nhập kho: %v", err)
 	}
 
-	res, err := mNhanh.Reserve(ctx, inventory.ReserveRequest{
+	res, err := mFast.Reserve(ctx, inventory.ReserveRequest{
 		ItemID: item.ID, Quantity: 1, TTL: 15 * time.Minute,
 	})
 	if err != nil {
 		t.Fatalf("giữ hàng: %v", err)
 	}
-	if _, err := mNhanh.Reserve(ctx, inventory.ReserveRequest{
+	if _, err := mFast.Reserve(ctx, inventory.ReserveRequest{
 		ItemID: item.ID, Quantity: 5, TTL: 15 * time.Minute,
 	}); err != nil {
 		t.Fatalf("giữ hàng của người khác: %v", err)
 	}
 
 	// T2 — chốt đơn, dừng ngay sau khi đọc reservation.
-	loiT2 := make(chan error, 1)
+	errT2Ch := make(chan error, 1)
 	go func() {
-		loiT2 <- mCham.Commit(ctx, res.ID)
+		errT2Ch <- mSlow.Commit(ctx, res.ID)
 	}()
 
 	select {
-	case <-dongHo.toiRoi:
+	case <-clock.arrived:
 	case <-time.After(5 * time.Second):
 		t.Fatal("T2 không tới được chỗ chặn — đường code đã đổi?")
 	}
 
 	// T1 — job dọn hạn nhả chính reservation đó, và commit.
-	if err := mNhanh.ReleaseReservation(ctx, res.ID); err != nil {
+	if err := mFast.ReleaseReservation(ctx, res.ID); err != nil {
 		t.Fatalf("T1 nhả hàng: %v", err)
 	}
 
-	close(dongHo.diTiep)
+	close(clock.proceed)
 
 	var errT2 error
 	select {
-	case errT2 = <-loiT2:
+	case errT2 = <-errT2Ch:
 	case <-time.After(10 * time.Second):
 		t.Fatal("T2 không kết thúc")
 	}
 
-	sau := doTonKho(t, db, item.ID)
+	after := readStock(t, db, item.ID)
 
 	// Reservation của "người khác" giữ 5. Không gì được chốt.
-	if sau.khaDung != 5 || sau.dangGiu != 5 {
-		t.Errorf("tồn kho là %d/%d, cần 5/5", sau.khaDung, sau.dangGiu)
+	if after.available != 5 || after.reserved != 5 {
+		t.Errorf("tồn kho là %d/%d, cần 5/5", after.available, after.reserved)
 	}
-	if n := demChotCua(t, db, res.ID); n != 0 {
+	if n := countCommitsOf(t, db, res.ID); n != 0 {
 		t.Errorf("có %d biến động COMMIT cho reservation ĐÃ NHẢ, cần 0 — "+
 			"hàng vừa trả về kho lại bị bán", n)
 	}
@@ -328,7 +328,7 @@ func TestChotVaHetHanChongNhau_TaiHienXacDinh(t *testing.T) {
 	}
 }
 
-func demChotCua(t *testing.T, db *database.DB, reservationID string) int {
+func countCommitsOf(t *testing.T, db *database.DB, reservationID string) int {
 	t.Helper()
 	var n int
 	err := db.Pool().QueryRow(context.Background(),

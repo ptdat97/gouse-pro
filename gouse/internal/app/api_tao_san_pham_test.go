@@ -18,7 +18,7 @@ import (
 //
 //	thiếu category_id   500 "vui lòng thử lại" — miền ĐÒI danh mục, tầng
 //	                    HTTP coi nó là tùy chọn, và lệch ấy rơi xuống
-//	                    nhánh mặc định của `dichLoiGhi`
+//	                    nhánh mặc định của `translateWriteError`
 //	thiếu images        500 — cột `TEXT[] NOT NULL DEFAULT '{}'`, nhưng
 //	                    DEFAULT chỉ áp dụng khi cột VẮNG khỏi INSERT; một
 //	                    slice nil gửi NULL và bị từ chối
@@ -86,7 +86,7 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 	// Hai ca dưới đây nằm trong ĐIỂM MÙ của hàng rào 17/09: lỗi của chúng
 	// được tạo tại chỗ bằng `errors.New`, không có tên, nên bài quét `Err…`
 	// không thấy và tầng HTTP không nhận ra. Cả hai từng trả 500 trong lúc
-	// hàng rào báo xanh. Xem TestDomainKhongTaoLoiTaiCho.
+	// hàng rào báo xanh. Xem TestDomainCreatesNoAdHocErrors.
 	for _, ca := range []struct {
 		ten, truong, giaTri string
 	}{

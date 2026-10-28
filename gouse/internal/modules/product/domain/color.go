@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// NhomMau là nhóm màu dùng để LỌC.
+// ColorFamily là nhóm màu dùng để LỌC.
 //
 // # Vì sao lọc theo nhóm chứ không theo tên màu
 //
@@ -16,23 +16,23 @@ import (
 // kem", "Off-white" — và bộ lọc liệt kê từng cái là bộ lọc không ai dùng.
 //
 // Xem docs/02-domain/value-objects.md mục 3.2.
-type NhomMau string
+type ColorFamily string
 
 const (
-	MauTrang  NhomMau = "WHITE"
-	MauDen    NhomMau = "BLACK"
-	MauXam    NhomMau = "GREY"
-	MauDo     NhomMau = "RED"
-	MauHong   NhomMau = "PINK"
-	MauCam    NhomMau = "ORANGE"
-	MauVang   NhomMau = "YELLOW"
-	MauXanhLa NhomMau = "GREEN"
-	MauXanh   NhomMau = "BLUE"
-	MauTim    NhomMau = "PURPLE"
-	MauNau    NhomMau = "BROWN"
-	MauBe     NhomMau = "BEIGE"
-	MauBac    NhomMau = "SILVER"
-	MauKhac   NhomMau = "OTHER"
+	ColorWhite  ColorFamily = "WHITE"
+	ColorBlack  ColorFamily = "BLACK"
+	ColorGrey   ColorFamily = "GREY"
+	ColorRed    ColorFamily = "RED"
+	ColorPink   ColorFamily = "PINK"
+	ColorOrange ColorFamily = "ORANGE"
+	ColorYellow ColorFamily = "YELLOW"
+	ColorGreen  ColorFamily = "GREEN"
+	ColorBlue   ColorFamily = "BLUE"
+	ColorPurple ColorFamily = "PURPLE"
+	ColorBrown  ColorFamily = "BROWN"
+	ColorBeige  ColorFamily = "BEIGE"
+	ColorSilver ColorFamily = "SILVER"
+	ColorOther  ColorFamily = "OTHER"
 )
 
 // AttrColorFamily là khóa lưu NHÓM màu trong `attributes` của biến thể.
@@ -41,25 +41,25 @@ const (
 // thêm, và một trường phải khai thêm là một trường sẽ bị bỏ trống.
 const AttrColorFamily = "color_family"
 
-// tuKhoaNhomMau ánh xạ từ khóa trong TÊN MÀU sang nhóm.
-var tuKhoaNhomMau = map[string]NhomMau{
-	"trắng": MauTrang, "trang": MauTrang, "white": MauTrang, "ngà": MauTrang,
-	"đen": MauDen, "den": MauDen, "black": MauDen,
-	"xám": MauXam, "xam": MauXam, "grey": MauXam, "gray": MauXam, "ghi": MauXam,
-	"đỏ": MauDo, "do": MauDo, "red": MauDo, "đô": MauDo, "burgundy": MauDo,
-	"hồng": MauHong, "hong": MauHong, "pink": MauHong,
-	"cam": MauCam, "orange": MauCam,
-	"vàng": MauVang, "vang": MauVang, "yellow": MauVang, "gold": MauVang,
-	"xanh lá": MauXanhLa, "xanh la": MauXanhLa, "green": MauXanhLa,
-	"rêu": MauXanhLa, "reu": MauXanhLa, "olive": MauXanhLa,
-	"xanh": MauXanh, "blue": MauXanh, "navy": MauXanh, "denim": MauXanh,
-	"tím": MauTim, "tim": MauTim, "purple": MauTim, "violet": MauTim,
-	"nâu": MauNau, "nau": MauNau, "brown": MauNau,
-	"be": MauBe, "beige": MauBe, "kem": MauBe, "cream": MauBe,
-	"bạc": MauBac, "bac": MauBac, "silver": MauBac,
+// familyKeywords ánh xạ từ khóa trong TÊN MÀU sang nhóm.
+var familyKeywords = map[string]ColorFamily{
+	"trắng": ColorWhite, "trang": ColorWhite, "white": ColorWhite, "ngà": ColorWhite,
+	"đen": ColorBlack, "den": ColorBlack, "black": ColorBlack,
+	"xám": ColorGrey, "xam": ColorGrey, "grey": ColorGrey, "gray": ColorGrey, "ghi": ColorGrey,
+	"đỏ": ColorRed, "do": ColorRed, "red": ColorRed, "đô": ColorRed, "burgundy": ColorRed,
+	"hồng": ColorPink, "hong": ColorPink, "pink": ColorPink,
+	"cam": ColorOrange, "orange": ColorOrange,
+	"vàng": ColorYellow, "vang": ColorYellow, "yellow": ColorYellow, "gold": ColorYellow,
+	"xanh lá": ColorGreen, "xanh la": ColorGreen, "green": ColorGreen,
+	"rêu": ColorGreen, "reu": ColorGreen, "olive": ColorGreen,
+	"xanh": ColorBlue, "blue": ColorBlue, "navy": ColorBlue, "denim": ColorBlue,
+	"tím": ColorPurple, "tim": ColorPurple, "purple": ColorPurple, "violet": ColorPurple,
+	"nâu": ColorBrown, "nau": ColorBrown, "brown": ColorBrown,
+	"be": ColorBeige, "beige": ColorBeige, "kem": ColorBeige, "cream": ColorBeige,
+	"bạc": ColorSilver, "bac": ColorSilver, "silver": ColorSilver,
 }
 
-// tuKhoaTheoDoDai là các từ khóa xếp theo ĐỘ DÀI GIẢM DẦN.
+// keywordsByLength là các từ khóa xếp theo ĐỘ DÀI GIẢM DẦN.
 //
 // # Vì sao thứ tự là bắt buộc, không phải tối ưu
 //
@@ -73,9 +73,9 @@ var tuKhoaNhomMau = map[string]NhomMau{
 // thỉnh thoảng thiếu hàng" — thứ không ai truy ra nguyên nhân.
 //
 // Từ DÀI HƠN luôn cụ thể hơn, nên xét trước là đúng.
-var tuKhoaTheoDoDai = xepTheoDoDai(tuKhoaNhomMau)
+var keywordsByLength = sortByLength(familyKeywords)
 
-func xepTheoDoDai(m map[string]NhomMau) []string {
+func sortByLength(m map[string]ColorFamily) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
@@ -90,7 +90,7 @@ func xepTheoDoDai(m map[string]NhomMau) []string {
 	return out
 }
 
-// SuyRaNhomMau đoán nhóm màu từ TÊN màu.
+// InferColorFamily đoán nhóm màu từ TÊN màu.
 //
 // # Giới hạn, nói trước
 //
@@ -102,24 +102,24 @@ func xepTheoDoDai(m map[string]NhomMau) []string {
 // Cách đúng hơn là lưu `hex_code` rồi tính khoảng cách màu, nhưng nó cần
 // người bán nhập mã màu — thứ hôm nay chưa có ở đâu. Khi có, hàm này là
 // chỗ duy nhất phải đổi.
-func SuyRaNhomMau(tenMau string) NhomMau {
-	s := strings.ToLower(strings.TrimSpace(tenMau))
+func InferColorFamily(colorName string) ColorFamily {
+	s := strings.ToLower(strings.TrimSpace(colorName))
 	if s == "" {
-		return MauKhac
+		return ColorOther
 	}
-	for _, tu := range tuKhoaTheoDoDai {
-		if strings.Contains(s, tu) {
-			return tuKhoaNhomMau[tu]
+	for _, kw := range keywordsByLength {
+		if strings.Contains(s, kw) {
+			return familyKeywords[kw]
 		}
 	}
-	return MauKhac
+	return ColorOther
 }
 
 // AttrColorHex là MÃ MÀU của biến thể, dạng "#RRGGBB".
 //
 // # Vì sao nó phải do NGƯỜI BÁN NHẬP
 //
-// Khác `color_family`: nhóm màu suy được từ TÊN màu (`SuyRaNhomMau`), còn
+// Khác `color_family`: nhóm màu suy được từ TÊN màu (`InferColorFamily`), còn
 // mã màu thì không. "Xanh navy" ra được nhóm BLUE, nhưng ra #1B2A49 hay
 // #0A1F44 thì chỉ người cầm sản phẩm mới biết.
 //
@@ -132,30 +132,30 @@ func SuyRaNhomMau(tenMau string) NhomMau {
 // bán chưa kịp lấy mã màu. Thiếu hex thì giao diện hiện ô chữ như cũ.
 const AttrColorHex = "color_hex"
 
-// ErrMaMauKhongHopLe khi mã màu sai định dạng.
-var ErrMaMauKhongHopLe = errors.New(
+// ErrInvalidColorHex khi mã màu sai định dạng.
+var ErrInvalidColorHex = errors.New(
 	"product: mã màu phải có dạng #RRGGBB")
 
-// dangMaMau khớp ĐÚNG sáu chữ số hex sau dấu thăng.
+// colorHexPattern khớp ĐÚNG sáu chữ số hex sau dấu thăng.
 //
 // KHÔNG chấp nhận dạng rút gọn ba ký tự (#FFF): nó hợp lệ trong CSS nhưng
 // tạo ra hai cách viết cho cùng một màu, và phép so sánh chuỗi ở mọi nơi
 // khác sẽ coi chúng là hai màu khác nhau.
-var dangMaMau = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+var colorHexPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
-// ChuanHoaMaMau kiểm và chuẩn hóa mã màu về CHỮ HOA.
+// NormalizeColorHex kiểm và chuẩn hóa mã màu về CHỮ HOA.
 //
 // Chuỗi rỗng hợp lệ và trả về rỗng: mã màu là tùy chọn.
 //
 // Chuẩn hóa chữ hoa vì "#ff0000" và "#FF0000" là một màu, và để hai cách
 // viết cùng tồn tại nghĩa là lọc theo mã màu sẽ bỏ sót một nửa.
-func ChuanHoaMaMau(ma string) (string, error) {
-	ma = strings.TrimSpace(ma)
-	if ma == "" {
+func NormalizeColorHex(hex string) (string, error) {
+	hex = strings.TrimSpace(hex)
+	if hex == "" {
 		return "", nil
 	}
-	if !dangMaMau.MatchString(ma) {
-		return "", ErrMaMauKhongHopLe
+	if !colorHexPattern.MatchString(hex) {
+		return "", ErrInvalidColorHex
 	}
-	return strings.ToUpper(ma), nil
+	return strings.ToUpper(hex), nil
 }

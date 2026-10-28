@@ -61,8 +61,8 @@ type InventoryItem struct {
 	// Xem mục 5.2 của đặc tả và infrastructure/postgres/item.go.
 	version int64
 
-	// vuaHetHang là cờ NHẤT THỜI, không lưu xuống database. Xem VuaHetHang.
-	vuaHetHang bool
+	// justDepleted là cờ NHẤT THỜI, không lưu xuống database. Xem JustDepleted.
+	justDepleted bool
 
 	createdAt time.Time
 	updatedAt time.Time
@@ -171,7 +171,7 @@ func (i *InventoryItem) Available() int { return i.quantities.Available() }
 // DATABASE tăng lúc ghi, vì chỉ database mới biết thao tác có thắng cuộc
 // tranh chấp hay không.
 func (i *InventoryItem) apply(fn func(Quantities) (Quantities, error), now time.Time) error {
-	truoc := i.quantities.Available()
+	before := i.quantities.Available()
 	next, err := fn(i.quantities)
 	if err != nil {
 		return err
@@ -183,20 +183,20 @@ func (i *InventoryItem) apply(fn func(Quantities) (Quantities, error), now time.
 	// phép so ở đây là không đường nào quên. Đặt ở từng thao tác thì thêm
 	// một thao tác mới là quên một lần, và thứ bị quên là một tín hiệu
 	// KHÔNG tạo ngược được.
-	if truoc > 0 && next.Available() == 0 {
-		i.vuaHetHang = true
+	if before > 0 && next.Available() == 0 {
+		i.justDepleted = true
 	}
 	i.touch(now)
 	return nil
 }
 
-// VuaHetHang cho biết thao tác vừa rồi có làm SKU hết sạch hàng khả dụng.
+// JustDepleted cho biết thao tác vừa rồi có làm SKU hết sạch hàng khả dụng.
 //
 // Cờ NHẤT THỜI, chỉ đúng trong phạm vi một thao tác và KHÔNG được lưu:
 // "đang hết hàng" là trạng thái đọc từ số lượng, còn đây là SỰ KIỆN chuyển
 // từ còn sang hết. Lưu nó xuống database sẽ tạo ra một trường thứ hai nói
 // về cùng một sự thật, và hai nguồn sự thật sẽ lệch nhau.
-func (i *InventoryItem) VuaHetHang() bool { return i.vuaHetHang }
+func (i *InventoryItem) JustDepleted() bool { return i.justDepleted }
 
 func (i *InventoryItem) Reserve(qty int, now time.Time) error {
 	return i.apply(func(q Quantities) (Quantities, error) { return q.Reserve(qty) }, now)
@@ -246,18 +246,18 @@ func (i *InventoryItem) ArriveFromTransit(qty int, now time.Time) error {
 	return i.apply(func(q Quantities) (Quantities, error) { return q.ArriveFromTransit(qty) }, now)
 }
 
-func (i *InventoryItem) AdjustAvailable(delta, tranNghiepVu int, now time.Time) error {
+func (i *InventoryItem) AdjustAvailable(delta, businessCap int, now time.Time) error {
 	return i.apply(func(q Quantities) (Quantities, error) {
-		return q.AdjustAvailable(delta, tranNghiepVu)
+		return q.AdjustAvailable(delta, businessCap)
 	}, now)
 }
 
-// KiemKe đặt số khả dụng và số hỏng theo kết quả đếm. Xem Quantities.KiemKe.
-func (i *InventoryItem) KiemKe(
-	available, damaged *int, tranNghiepVu int, now time.Time,
+// Count đặt số khả dụng và số hỏng theo kết quả đếm. Xem Quantities.Count.
+func (i *InventoryItem) Count(
+	available, damaged *int, businessCap int, now time.Time,
 ) error {
 	return i.apply(func(q Quantities) (Quantities, error) {
-		return q.KiemKe(available, damaged, tranNghiepVu)
+		return q.Count(available, damaged, businessCap)
 	}, now)
 }
 

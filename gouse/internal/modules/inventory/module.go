@@ -75,7 +75,7 @@ func New(cfg Config) (*Module, error) {
 		Clock:      cfg.Clock,
 	}
 	if cfg.OpsConfig != nil {
-		deps.Tran = &tranAdapter{cfg: cfg.OpsConfig}
+		deps.Cap = &capAdapter{cfg: cfg.OpsConfig}
 	}
 	if cfg.Events != nil {
 		deps.Events = &eventPublisher{outbox: cfg.Events}
@@ -510,15 +510,15 @@ func (m *Module) ReleaseCommittedInEventTx(
 	}))
 }
 
-// tranAdapter dịch tham số vận hành sang từ vựng của inventory.
+// capAdapter dịch tham số vận hành sang từ vựng của inventory.
 //
 // Cổng do bên gọi khai, nên tầng application của inventory không biết tới
 // `opsconfig` — nó chỉ biết mình cần một con số.
-type tranAdapter struct{ cfg *opsconfig.Store }
+type capAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.TranPort = (*tranAdapter)(nil)
+var _ application.CapPort = (*capAdapter)(nil)
 
-func (a *tranAdapter) TranSoLuong() int {
+func (a *capAdapter) QuantityCap() int {
 	return a.cfg.DocSoNguyen(opsconfig.KeyTranSoLuongSKU)
 }
 

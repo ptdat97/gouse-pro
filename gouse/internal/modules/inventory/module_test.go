@@ -60,7 +60,7 @@ func newLocation(t *testing.T, db *database.DB) string {
 //
 // Đây là quyết định có chủ đích: khóa lạc quan không kiểm chứng được bằng
 // bộ nhớ, và một bản in-memory sẽ tạo cảm giác an toàn giả.
-func TestChiHoTroPostgres(t *testing.T) {
+func TestOnlyPostgresStorageSupported(t *testing.T) {
 	if _, err := inventory.New(inventory.Config{Storage: "memory"}); err == nil {
 		t.Error("mong lỗi khi yêu cầu kho in-memory")
 	}
@@ -72,7 +72,7 @@ func TestChiHoTroPostgres(t *testing.T) {
 // VÒNG ĐỜI ĐẦY ĐỦ: nhập → giữ → cam kết → xuất.
 //
 // Đây là đường đi của mọi đơn hàng thật.
-func TestVongDoiDayDuTuNhapDenXuat(t *testing.T) {
+func TestFullLifecycleFromReceiveToShip(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -142,7 +142,7 @@ func TestVongDoiDayDuTuNhapDenXuat(t *testing.T) {
 }
 
 // Hủy checkout thì hàng phải QUAY LẠI kệ ngay.
-func TestHuyCheckoutTraHangVeKe(t *testing.T) {
+func TestCheckoutCancelReturnsStockToShelf(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -183,7 +183,7 @@ func TestHuyCheckoutTraHangVeKe(t *testing.T) {
 //
 // Bên gọi cần phân biệt: hết hàng thì KHÔNG thử lại (hàng không tự xuất
 // hiện), còn xung đột thì NÊN thử lại.
-func TestHetHangTraLoiRieng(t *testing.T) {
+func TestOutOfStockReturnsOwnError(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -203,28 +203,28 @@ func TestHetHangTraLoiRieng(t *testing.T) {
 }
 
 // Kiểm tra cả giỏ: phải chỉ ra TỪNG món thiếu, không chỉ true/false.
-func TestKiemTraGioHangChiRaTungMonThieu(t *testing.T) {
+func TestCartCheckNamesEachMissingLine(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
 
-	duHang := ids.MustNew(ids.PrefixSKU).String()
-	thieuHang := ids.MustNew(ids.PrefixSKU).String()
+	stockedSKU := ids.MustNew(ids.PrefixSKU).String()
+	shortSKU := ids.MustNew(ids.PrefixSKU).String()
 
 	if _, err := m.Receive(ctx, inventory.ReceiveRequest{
-		SKUID: duHang, LocationID: locID, Quantity: 10,
+		SKUID: stockedSKU, LocationID: locID, Quantity: 10,
 	}); err != nil {
 		t.Fatalf("Receive: %v", err)
 	}
 	if _, err := m.Receive(ctx, inventory.ReceiveRequest{
-		SKUID: thieuHang, LocationID: locID, Quantity: 1,
+		SKUID: shortSKU, LocationID: locID, Quantity: 1,
 	}); err != nil {
 		t.Fatalf("Receive: %v", err)
 	}
 
 	got, err := m.CheckAvailability(ctx, []inventory.AvailabilityRequest{
-		{SKUID: duHang, Quantity: 2, LocationID: locID},
-		{SKUID: thieuHang, Quantity: 5, LocationID: locID},
+		{SKUID: stockedSKU, Quantity: 2, LocationID: locID},
+		{SKUID: shortSKU, Quantity: 5, LocationID: locID},
 	})
 	if err != nil {
 		t.Fatalf("CheckAvailability: %v", err)
@@ -243,7 +243,7 @@ func TestKiemTraGioHangChiRaTungMonThieu(t *testing.T) {
 }
 
 // QUY TẮC 3: hàng hoàn KHÔNG BAO GIỜ tự động vào Available.
-func TestHangHoanPhaiQuaKiemDinh(t *testing.T) {
+func TestReturnedStockMustPassInspection(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -297,7 +297,7 @@ func TestHangHoanPhaiQuaKiemDinh(t *testing.T) {
 //
 // Điều chỉnh không lý do là điểm mù trong kiểm toán — không phân biệt được
 // sai sót kiểm kê với thất thoát.
-func TestDieuChinhThuCongBatBuocCoLyDo(t *testing.T) {
+func TestManualAdjustmentRequiresReason(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -310,11 +310,11 @@ func TestDieuChinhThuCongBatBuocCoLyDo(t *testing.T) {
 		t.Fatalf("Receive: %v", err)
 	}
 
-	nguoiKiemKe := ids.MustNew(ids.PrefixUser).String()
+	countedBy := ids.MustNew(ids.PrefixUser).String()
 
 	// Thiếu lý do → bị chặn.
 	if err := m.Adjust(ctx, inventory.AdjustRequest{
-		ItemID: item.ID, Delta: -2, PerformedBy: nguoiKiemKe,
+		ItemID: item.ID, Delta: -2, PerformedBy: countedBy,
 	}); err == nil {
 		t.Error("điều chỉnh không lý do phải bị chặn")
 	}
@@ -329,7 +329,7 @@ func TestDieuChinhThuCongBatBuocCoLyDo(t *testing.T) {
 	// Đủ thông tin → chấp nhận.
 	if err := m.Adjust(ctx, inventory.AdjustRequest{
 		ItemID: item.ID, Delta: -2,
-		Reason: "Kiểm kê tháng 8: thiếu 2 sản phẩm", PerformedBy: nguoiKiemKe,
+		Reason: "Kiểm kê tháng 8: thiếu 2 sản phẩm", PerformedBy: countedBy,
 	}); err != nil {
 		t.Fatalf("Adjust: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestDieuChinhThuCongBatBuocCoLyDo(t *testing.T) {
 // QUY TẮC 4: mọi biến động phải ghi vào nhật ký.
 //
 // Nhật ký cho phép tái dựng trạng thái và điều tra sai lệch kiểm kê.
-func TestMoiBienDongDeuGhiNhatKy(t *testing.T) {
+func TestEveryChangeWritesAMovement(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -387,7 +387,7 @@ func TestMoiBienDongDeuGhiNhatKy(t *testing.T) {
 }
 
 // Nhật ký biến động BẤT BIẾN — database từ chối sửa/xóa.
-func TestNhatKyBienDongBatBien(t *testing.T) {
+func TestMovementLogIsImmutable(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -418,7 +418,7 @@ func TestNhatKyBienDongBatBien(t *testing.T) {
 
 // Cơ chế hết hạn phải ĐÁNG TIN CẬY: nếu ngừng chạy, hàng bị khóa dần và
 // cuối cùng không bán được gì (mục 6.3).
-func TestDonReservationQuaHan(t *testing.T) {
+func TestSweepExpiredReservations(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -451,12 +451,12 @@ func TestDonReservationQuaHan(t *testing.T) {
 		t.Errorf("số quá hạn chưa dọn = %d, mong 1", pending)
 	}
 
-	daDon, err := m.Service().ExpireReservations(ctx, 100)
+	cleaned, err := m.Service().ExpireReservations(ctx, 100)
 	if err != nil {
 		t.Fatalf("ExpireReservations: %v", err)
 	}
-	if daDon != 1 {
-		t.Errorf("đã dọn = %d, mong 1", daDon)
+	if cleaned != 1 {
+		t.Errorf("đã dọn = %d, mong 1", cleaned)
 	}
 
 	// Hàng phải quay lại kệ.
@@ -480,7 +480,7 @@ func TestDonReservationQuaHan(t *testing.T) {
 
 // Reservation hết hạn thì KHÔNG cam kết được: hàng có thể đã được giải
 // phóng và bán cho khách khác.
-func TestKhongCamKetDuocReservationDaHetHan(t *testing.T) {
+func TestCannotCommitExpiredReservation(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -507,7 +507,7 @@ func TestKhongCamKetDuocReservationDaHetHan(t *testing.T) {
 	}
 }
 
-func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
+func TestMalformedInventoryIDReturnsErrInvalidID(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -528,7 +528,7 @@ func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
 // Đó là cách người kiểm kê nghĩ: "đếm được 40 cái", không phải "thêm 15
 // cái". Bắt họ tự tính chênh lệch là mời gọi lỗi số học vào một con số
 // quyết định bán được bao nhiêu hàng.
-func TestKiemKeDatSoLuongTuyetDoi(t *testing.T) {
+func TestCountSetsAbsoluteQuantity(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -579,7 +579,7 @@ func TestKiemKeDatSoLuongTuyetDoi(t *testing.T) {
 //
 // Quy tắc 7 của inventory.md: tồn kho lệch mà không có lý do thì không ai
 // đối soát được, và MẤT MÁT trông giống hệt sai sót nhập liệu.
-func TestKiemKeGhiNhatKyKemLyDo(t *testing.T) {
+func TestCountWritesMovementWithReason(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -625,7 +625,7 @@ func TestKiemKeGhiNhatKyKemLyDo(t *testing.T) {
 //
 // Một dòng "điều chỉnh 0 đơn vị" làm loãng nhật ký mà không nói lên điều
 // gì — và nhật ký tồn kho là thứ người ta đọc khi đi tìm hàng thất lạc.
-func TestKiemKeKhongDoiThiKhongGhiNhatKy(t *testing.T) {
+func TestUnchangedCountWritesNoMovement(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -658,7 +658,7 @@ func TestKiemKeKhongDoiThiKhongGhiNhatKy(t *testing.T) {
 	}
 }
 
-// TestHetHangPhatTinHieu.
+// TestDepletionEmitsSignal.
 //
 // # Vì sao bài này tồn tại
 //
@@ -669,7 +669,7 @@ func TestKiemKeKhongDoiThiKhongGhiNhatKy(t *testing.T) {
 // STOCKOUT là loại quý thứ hai: mỗi lần hết hàng là một lần nhu cầu có
 // thật bị bỏ lỡ, và nó biến mất khỏi mọi báo cáo doanh số. Chú thích của
 // chính module supply-chain nói rõ dữ liệu này KHÔNG tạo ngược được.
-func TestHetHangPhatTinHieu(t *testing.T) {
+func TestDepletionEmitsSignal(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -683,7 +683,7 @@ func TestHetHangPhatTinHieu(t *testing.T) {
 		t.Fatalf("nhập hàng: %v", err)
 	}
 
-	demTinHieu := func() int {
+	countSignals := func() int {
 		t.Helper()
 		var n int
 		if err := db.Pool().QueryRow(ctx, `
@@ -695,7 +695,7 @@ func TestHetHangPhatTinHieu(t *testing.T) {
 		return n
 	}
 
-	if n := demTinHieu(); n != 0 {
+	if n := countSignals(); n != 0 {
 		t.Fatalf("chưa hết hàng mà đã có %d tín hiệu", n)
 	}
 
@@ -706,7 +706,7 @@ func TestHetHangPhatTinHieu(t *testing.T) {
 		t.Fatalf("giữ hàng: %v", err)
 	}
 
-	if n := demTinHieu(); n != 1 {
+	if n := countSignals(); n != 1 {
 		t.Fatalf("hết hàng mà phát %d tín hiệu, cần 1 — nhu cầu bị bỏ lỡ "+
 			"không được ghi lại, và dữ liệu này không tạo ngược được", n)
 	}

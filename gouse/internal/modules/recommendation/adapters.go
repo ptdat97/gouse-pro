@@ -21,19 +21,19 @@ func NewProductPort(api product.API) ProductPort { return &productAdapter{api: a
 
 type productAdapter struct{ api product.API }
 
-// ThuongHieuVaSize tìm biến thể CHỨA SKU này rồi trả size của nó.
+// BrandAndSize tìm biến thể CHỨA SKU này rồi trả size của nó.
 //
 // Một SKU thuộc đúng một biến thể, và biến thể mang thuộc tính size. Không
 // tìm thấy thì trả rỗng chứ không lỗi: sản phẩm không có thuộc tính size
 // (phụ kiện, nước hoa) là chuyện bình thường.
-func (a *productAdapter) ThuongHieuVaSize(
+func (a *productAdapter) BrandAndSize(
 	ctx context.Context, skuID string,
 ) (string, string, error) {
-	theoSKU, err := a.api.GetProductsBySKUIDs(ctx, []string{skuID})
+	bySKU, err := a.api.GetProductsBySKUIDs(ctx, []string{skuID})
 	if err != nil {
 		return "", "", err
 	}
-	p, ok := theoSKU[skuID]
+	p, ok := bySKU[skuID]
 	if !ok {
 		return "", "", nil
 	}

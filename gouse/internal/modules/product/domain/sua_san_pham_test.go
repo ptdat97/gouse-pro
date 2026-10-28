@@ -7,16 +7,16 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/product/domain"
 )
 
-func chuoi(s string) *string { return &s }
+func strPtr(s string) *string { return &s }
 
 // Sửa được ở DRAFT — kể cả nháp "bị trả về", vì Reject đưa về DRAFT.
-func TestSuaDoiDungTruongDuocGui(t *testing.T) {
+func TestEditChangesOnlyTheFieldsSent(t *testing.T) {
 	p := newTestProduct(t, nil)
-	tenCu := p.Name()
-	moTaCu := p.Description()
+	oldName := p.Name()
+	oldDescription := p.Description()
 
-	err := p.Sua(domain.SuaParams{
-		MaterialComposition: chuoi("100% lụa"),
+	err := p.Edit(domain.EditParams{
+		MaterialComposition: strPtr("100% lụa"),
 	}, testNow)
 	if err != nil {
 		t.Fatalf("sửa nháp: %v", err)
@@ -26,20 +26,20 @@ func TestSuaDoiDungTruongDuocGui(t *testing.T) {
 	}
 	// PATCH: trường KHÔNG gửi thì GIỮ NGUYÊN. Một phép sửa xóa mất mô tả
 	// chỉ vì người gọi không gửi lại nó là lỗi tệ nhất của PATCH.
-	if p.Name() != tenCu || p.Description() != moTaCu {
+	if p.Name() != oldName || p.Description() != oldDescription {
 		t.Errorf("trường không gửi bị đổi: tên %q→%q, mô tả %q→%q",
-			tenCu, p.Name(), moTaCu, p.Description())
+			oldName, p.Name(), oldDescription, p.Description())
 	}
 }
 
 // ẢNH thay THẾ cả danh sách — vì chỉ nối thêm thì ảnh sai không gỡ được.
-func TestSuaAnhThayCaDanhSach(t *testing.T) {
+func TestEditImagesReplacesTheWholeList(t *testing.T) {
 	p := newTestProduct(t, func(n *domain.NewProductParams) {
 		n.Images = []string{"https://x/sai.jpg", "https://x/dung.jpg"}
 	})
 
-	moi := []string{"https://x/dung.jpg", "https://x/them.jpg"}
-	if err := p.Sua(domain.SuaParams{Images: &moi}, testNow); err != nil {
+	updated := []string{"https://x/dung.jpg", "https://x/them.jpg"}
+	if err := p.Edit(domain.EditParams{Images: &updated}, testNow); err != nil {
 		t.Fatalf("sửa ảnh: %v", err)
 	}
 	got := p.Images()
@@ -54,39 +54,39 @@ func TestSuaAnhThayCaDanhSach(t *testing.T) {
 // Tên hợp lệ + loại sản phẩm hỏng trong CÙNG một lần sửa: không được đổi
 // tên rồi mới phát hiện loại hỏng. Sản phẩm sửa dở — nửa ý cũ, nửa ý mới —
 // là trạng thái không ai biết để sửa tiếp.
-func TestSuaHongMotTruongThiKhongDoiGiCa(t *testing.T) {
+func TestOneBadFieldLeavesEverythingUnchanged(t *testing.T) {
 	p := newTestProduct(t, nil)
-	tenCu := p.Name()
+	oldName := p.Name()
 
-	sai := domain.ProductType("KHONG_CO")
-	err := p.Sua(domain.SuaParams{
-		Name:        chuoi("Tên mới hoàn toàn hợp lệ"),
-		ProductType: &sai,
+	badType := domain.ProductType("KHONG_CO")
+	err := p.Edit(domain.EditParams{
+		Name:        strPtr("Tên mới hoàn toàn hợp lệ"),
+		ProductType: &badType,
 	}, testNow)
 	if !errors.Is(err, domain.ErrInvalidProductType) {
 		t.Fatalf("mong ErrInvalidProductType, nhận %v", err)
 	}
-	if p.Name() != tenCu {
+	if p.Name() != oldName {
 		t.Errorf("tên đã bị đổi thành %q dù cả lần sửa bị từ chối", p.Name())
 	}
 }
 
 // Gửi RỖNG khác với không gửi.
-func TestSuaGuiRongLaLoiKhongPhaiBoQua(t *testing.T) {
-	for _, ca := range []struct {
-		ten string
-		in  domain.SuaParams
-		loi error
+func TestEditWithEmptyPayloadIsAnErrorNotANoop(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		in      domain.EditParams
+		wantErr error
 	}{
-		{"tên rỗng", domain.SuaParams{Name: chuoi("   ")}, domain.ErrEmptyName},
-		{"slug rỗng", domain.SuaParams{Slug: chuoi("")}, domain.ErrEmptySlug},
-		{"ảnh rỗng trong danh sách", domain.SuaParams{
+		{"tên rỗng", domain.EditParams{Name: strPtr("   ")}, domain.ErrEmptyName},
+		{"slug rỗng", domain.EditParams{Slug: strPtr("")}, domain.ErrEmptySlug},
+		{"ảnh rỗng trong danh sách", domain.EditParams{
 			Images: &[]string{"https://x/a.jpg", " "}}, domain.ErrEmptyImageURL},
 	} {
-		t.Run(ca.ten, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			p := newTestProduct(t, nil)
-			if err := p.Sua(ca.in, testNow); !errors.Is(err, ca.loi) {
-				t.Errorf("mong %v, nhận %v", ca.loi, err)
+			if err := p.Edit(tc.in, testNow); !errors.Is(err, tc.wantErr) {
+				t.Errorf("mong %v, nhận %v", tc.wantErr, err)
 			}
 		})
 	}
@@ -97,25 +97,25 @@ func TestSuaGuiRongLaLoiKhongPhaiBoQua(t *testing.T) {
 // PENDING_REVIEW: người duyệt đang xem, sửa lúc này là đổi thứ họ đang
 // duyệt ngay dưới tay họ. INACTIVE: bật lại được mà không cần duyệt vì nội
 // dung không đổi — cho sửa ở đó sẽ phá đúng giả định ấy.
-func TestSuaOTrangThaiKhongChoPhepBiTuChoi(t *testing.T) {
+func TestEditIsRejectedInDisallowedStatuses(t *testing.T) {
 	t.Run("đang chờ duyệt", func(t *testing.T) {
 		p := newTestProduct(t, nil)
-		datDuDeGuiDuyet(t, p)
+		fillForSubmit(t, p)
 		if err := p.SubmitForReview(testNow); err != nil {
 			t.Fatalf("gửi duyệt: %v", err)
 		}
-		err := p.Sua(domain.SuaParams{Name: chuoi("Đổi sau khi gửi")}, testNow)
+		err := p.Edit(domain.EditParams{Name: strPtr("Đổi sau khi gửi")}, testNow)
 		if !errors.Is(err, domain.ErrInvalidStatus) {
 			t.Errorf("sửa được sản phẩm đang CHỜ DUYỆT: %v", err)
 		}
 	})
 
 	t.Run("tạm ngừng bán", func(t *testing.T) {
-		p := dungSanPhamDangBan(t)
+		p := buildPublishedProduct(t)
 		if err := p.Deactivate(testNow); err != nil {
 			t.Fatalf("tạm ngừng: %v", err)
 		}
-		err := p.Sua(domain.SuaParams{Name: chuoi("Đổi khi ngừng bán")}, testNow)
+		err := p.Edit(domain.EditParams{Name: strPtr("Đổi khi ngừng bán")}, testNow)
 		if !errors.Is(err, domain.ErrInvalidStatus) {
 			t.Errorf("sửa được sản phẩm TẠM NGỪNG BÁN: %v", err)
 		}
@@ -126,14 +126,14 @@ func TestSuaOTrangThaiKhongChoPhepBiTuChoi(t *testing.T) {
 //
 // Đây là quyết định 23/09/2026. Không có bước này thì nội dung mới ra tới
 // khách mà chưa ai duyệt — cửa sau để tráo ảnh sau khi đã được duyệt.
-func TestSuaHangDangBanPhaiDuyetLai(t *testing.T) {
-	p := dungSanPhamDangBan(t)
+func TestEditingAPublishedProductRequiresReapproval(t *testing.T) {
+	p := buildPublishedProduct(t)
 	if !p.IsVisibleToCustomer() {
 		t.Fatal("dựng sai: sản phẩm chưa ở trạng thái đang bán")
 	}
 
-	if err := p.Sua(domain.SuaParams{
-		Description: chuoi("Mô tả mới, thêm chi tiết chất liệu"),
+	if err := p.Edit(domain.EditParams{
+		Description: strPtr("Mô tả mới, thêm chi tiết chất liệu"),
 	}, testNow); err != nil {
 		t.Fatalf("sửa hàng đang bán: %v", err)
 	}
@@ -152,17 +152,17 @@ func TestSuaHangDangBanPhaiDuyetLai(t *testing.T) {
 // Để lại thì màn hình nhà bán hiện "Bị trả về" cho một sản phẩm vừa được
 // gửi đi vì lý do hoàn toàn khác — và lý do hiện ra là chuyện của lượt
 // duyệt trước, đã xử lý xong.
-func TestSuaHangDangBanXoaLyDoTuChoiCu(t *testing.T) {
+func TestEditingAPublishedProductClearsTheOldRejectReason(t *testing.T) {
 	p := newTestProduct(t, nil)
-	datDuDeGuiDuyet(t, p)
+	fillForSubmit(t, p)
 	if err := p.SubmitForReview(testNow); err != nil {
 		t.Fatalf("gửi duyệt: %v", err)
 	}
 	if err := p.Reject("Ảnh bìa mờ", testNow); err != nil {
 		t.Fatalf("từ chối: %v", err)
 	}
-	anh := []string{"https://x/bia-net.jpg"}
-	if err := p.Sua(domain.SuaParams{Images: &anh}, testNow); err != nil {
+	imageList := []string{"https://x/bia-net.jpg"}
+	if err := p.Edit(domain.EditParams{Images: &imageList}, testNow); err != nil {
 		t.Fatalf("sửa: %v", err)
 	}
 	if err := p.SubmitForReview(testNow); err != nil {
@@ -173,7 +173,7 @@ func TestSuaHangDangBanXoaLyDoTuChoiCu(t *testing.T) {
 	}
 
 	// Giờ sửa lại lần nữa khi đang bán.
-	if err := p.Sua(domain.SuaParams{Description: chuoi("Bổ sung")}, testNow); err != nil {
+	if err := p.Edit(domain.EditParams{Description: strPtr("Bổ sung")}, testNow); err != nil {
 		t.Fatalf("sửa hàng đang bán: %v", err)
 	}
 	if got := p.RejectionReason(); got != "" {
@@ -187,11 +187,11 @@ func TestSuaHangDangBanXoaLyDoTuChoiCu(t *testing.T) {
 // Không có chốt này, gỡ hết ảnh sẽ đẩy sản phẩm vào hàng chờ duyệt ở trạng
 // thái không bao giờ duyệt được: nhà bán mất hàng đang bán mà không hiểu
 // vì sao.
-func TestSuaHangDangBanLamThieuDieuKienThiTuChoi(t *testing.T) {
-	p := dungSanPhamDangBan(t)
+func TestEditIsRejectedIfItBreaksPublishPreconditions(t *testing.T) {
+	p := buildPublishedProduct(t)
 
-	trong := []string{}
-	err := p.Sua(domain.SuaParams{Images: &trong}, testNow)
+	emptyImages := []string{}
+	err := p.Edit(domain.EditParams{Images: &emptyImages}, testNow)
 	if !errors.Is(err, domain.ErrNoImages) {
 		t.Fatalf("mong ErrNoImages, nhận %v", err)
 	}
@@ -203,11 +203,11 @@ func TestSuaHangDangBanLamThieuDieuKienThiTuChoi(t *testing.T) {
 	}
 }
 
-// dungSanPhamDangBan đưa một sản phẩm đi hết đường tới ACTIVE.
-func dungSanPhamDangBan(t *testing.T) *domain.Product {
+// buildPublishedProduct đưa một sản phẩm đi hết đường tới ACTIVE.
+func buildPublishedProduct(t *testing.T) *domain.Product {
 	t.Helper()
 	p := newTestProduct(t, nil)
-	datDuDeGuiDuyet(t, p)
+	fillForSubmit(t, p)
 	if err := p.SubmitForReview(testNow); err != nil {
 		t.Fatalf("gửi duyệt: %v", err)
 	}
@@ -218,9 +218,9 @@ func dungSanPhamDangBan(t *testing.T) *domain.Product {
 }
 
 // Bị trả về → sửa theo lý do → gửi lại: đường đi tự nhiên phải đi được.
-func TestNhapBiTraVeSuaDuocRoiGuiLai(t *testing.T) {
+func TestRejectedDraftCanBeEditedAndResubmitted(t *testing.T) {
 	p := newTestProduct(t, nil)
-	datDuDeGuiDuyet(t, p)
+	fillForSubmit(t, p)
 	if err := p.SubmitForReview(testNow); err != nil {
 		t.Fatalf("gửi duyệt: %v", err)
 	}
@@ -228,8 +228,8 @@ func TestNhapBiTraVeSuaDuocRoiGuiLai(t *testing.T) {
 		t.Fatalf("từ chối: %v", err)
 	}
 
-	moi := []string{"https://x/bia-net.jpg"}
-	if err := p.Sua(domain.SuaParams{Images: &moi}, testNow); err != nil {
+	updated := []string{"https://x/bia-net.jpg"}
+	if err := p.Edit(domain.EditParams{Images: &updated}, testNow); err != nil {
 		t.Fatalf("sửa nháp bị trả về: %v", err)
 	}
 	if err := p.SubmitForReview(testNow); err != nil {
@@ -237,14 +237,14 @@ func TestNhapBiTraVeSuaDuocRoiGuiLai(t *testing.T) {
 	}
 }
 
-// datDuDeGuiDuyet bổ sung mọi thứ `CheckReadyForReview` đòi.
-func datDuDeGuiDuyet(t *testing.T, p *domain.Product) {
+// fillForSubmit bổ sung mọi thứ `CheckReadyForReview` đòi.
+func fillForSubmit(t *testing.T, p *domain.Product) {
 	t.Helper()
-	anh := []string{"https://x/a.jpg"}
-	if err := p.Sua(domain.SuaParams{
-		Description:         chuoi("Mô tả đủ dài"),
-		MaterialComposition: chuoi("100% cotton"),
-		Images:              &anh,
+	imageList := []string{"https://x/a.jpg"}
+	if err := p.Edit(domain.EditParams{
+		Description:         strPtr("Mô tả đủ dài"),
+		MaterialComposition: strPtr("100% cotton"),
+		Images:              &imageList,
 	}, testNow); err != nil {
 		t.Fatalf("bổ sung thông tin: %v", err)
 	}

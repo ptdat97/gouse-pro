@@ -21,7 +21,7 @@ import (
 //	500 INTERNAL_ERROR — "Đã có lỗi xảy ra, vui lòng thử lại"
 //
 // Lời khuyên ấy không bao giờ đúng: thử lại y hệt sẽ hỏng y hệt. Nguyên
-// nhân là `dichLoiGhi` thiếu một nhánh, nên lỗi rơi xuống nhánh mặc định.
+// nhân là `translateWriteError` thiếu một nhánh, nên lỗi rơi xuống nhánh mặc định.
 //
 // Rà cả bảng thì không phải một mà CHÍN trong hai mươi lỗi miền thiếu
 // nhánh — chín cách một nhà bán nhập sai và được báo rằng máy chủ hỏng.
@@ -30,43 +30,43 @@ import (
 //
 // # Vì sao đọc AST thay vì viết một danh sách
 //
-// Một danh sách tên lỗi chép tay ở đây sẽ lệch đúng theo cách `dichLoiGhi`
+// Một danh sách tên lỗi chép tay ở đây sẽ lệch đúng theo cách `translateWriteError`
 // đã lệch — đó là chính xác dạng lỗi bài test này sinh ra để chặn. Nên nó
 // ĐỌC thư mục domain và tự tìm mọi `Err…`.
 //
 // Cùng kỹ thuật `cmd/archcheck` và `cmd/apicheck` dùng, ở quy mô một module.
-func TestMoiLoiMienDeuCoDuongRaKhac500(t *testing.T) {
-	loi := docLoiMien(t, "../../domain")
-	if len(loi) < 10 {
+func TestEveryDomainErrorHasANon500Path(t *testing.T) {
+	wantErr := readDomainErrors(t, "../../domain")
+	if len(wantErr) < 10 {
 		t.Fatalf("chỉ đọc được %d lỗi miền — quá ít để kết luận, "+
-			"kiểm lại đường dẫn", len(loi))
+			"kiểm lại đường dẫn", len(wantErr))
 	}
 
-	than := docThanDichLoiGhi(t, "seller.go")
+	fnSrc := readTranslateWriteErrorBody(t, "seller.go")
 
 	var thieu []string
-	for _, ten := range loi {
-		if _, boQua := loiKhongQuaDichLoiGhi[ten]; boQua {
+	for _, name := range wantErr {
+		if _, skip := errorsWithoutBranch[name]; skip {
 			continue
 		}
-		if !strings.Contains(than, "domain."+ten) {
-			thieu = append(thieu, ten)
+		if !strings.Contains(fnSrc, "domain."+name) {
+			thieu = append(thieu, name)
 		}
 	}
 	sort.Strings(thieu)
 
-	for _, ten := range thieu {
-		t.Errorf("domain.%s không có nhánh trong `dichLoiGhi` — nó sẽ ra "+
+	for _, name := range thieu {
+		t.Errorf("domain.%s không có nhánh trong `translateWriteError` — nó sẽ ra "+
 			"500 \"vui lòng thử lại\", một lời khuyên không bao giờ đúng. "+
-			"Thêm nhánh, hoặc khai lý do vào `loiKhongQuaDichLoiGhi`.", ten)
+			"Thêm nhánh, hoặc khai lý do vào `errorsWithoutBranch`.", name)
 	}
 }
 
-// loiKhongQuaDichLoiGhi là những lỗi miền CỐ Ý không có nhánh, kèm lý do.
+// errorsWithoutBranch là những lỗi miền CỐ Ý không có nhánh, kèm lý do.
 //
 // Sổ này phải rỗng hoặc gần rỗng. Mỗi dòng ở đây là một lời hứa rằng lỗi
 // ấy không bao giờ đi qua tầng HTTP của nhà bán.
-var loiKhongQuaDichLoiGhi = map[string]string{
+var errorsWithoutBranch = map[string]string{
 	// Hai lỗi LẬP TRÌNH, không phải lỗi người dùng: chỉ xảy ra khi mã gọi
 	// truyền con trỏ nil. Không đầu vào HTTP nào sinh ra được chúng — tầng
 	// HTTP luôn dựng biến thể và SKU từ thân request trước khi gọi miền.
@@ -77,41 +77,41 @@ var loiKhongQuaDichLoiGhi = map[string]string{
 
 // Sổ miễn trừ CHẾT cũng phải bị bắt: một dòng cho một lỗi không còn tồn
 // tại làm người đọc tin rằng có người đã cân nhắc nó.
-func TestKhongConDongMienTruChet(t *testing.T) {
-	co := map[string]bool{}
-	for _, ten := range docLoiMien(t, "../../domain") {
-		co[ten] = true
+func TestNoDeadExemptionRowsLeft(t *testing.T) {
+	present := map[string]bool{}
+	for _, name := range readDomainErrors(t, "../../domain") {
+		present[name] = true
 	}
-	for ten := range loiKhongQuaDichLoiGhi {
-		if !co[ten] {
-			t.Errorf("`loiKhongQuaDichLoiGhi` còn dòng cho %q mà miền "+
-				"không còn lỗi ấy — xóa đi", ten)
+	for name := range errorsWithoutBranch {
+		if !present[name] {
+			t.Errorf("`errorsWithoutBranch` còn dòng cho %q mà miền "+
+				"không còn lỗi ấy — xóa đi", name)
 		}
 	}
 }
 
-// docLoiMien tìm mọi biến `Err…` khai ở tầng domain.
+// readDomainErrors tìm mọi biến `Err…` khai ở tầng domain.
 //
 // Bỏ file test: lỗi dựng riêng cho một bài test không đi qua HTTP bao giờ.
-func docLoiMien(t *testing.T, thuMuc string) []string {
+func readDomainErrors(t *testing.T, dir string) []string {
 	t.Helper()
 
-	vao, err := os.ReadDir(thuMuc)
+	input, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("đọc %s: %v", thuMuc, err)
+		t.Fatalf("đọc %s: %v", dir, err)
 	}
 
-	var ra []string
+	var names []string
 	fset := token.NewFileSet()
-	for _, e := range vao {
-		ten := e.Name()
-		if e.IsDir() || !strings.HasSuffix(ten, ".go") ||
-			strings.HasSuffix(ten, "_test.go") {
+	for _, e := range input {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(thuMuc, ten), nil, 0)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
 		if err != nil {
-			t.Fatalf("phân tích %s: %v", ten, err)
+			t.Fatalf("phân tích %s: %v", name, err)
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			vs, ok := n.(*ast.ValueSpec)
@@ -120,42 +120,42 @@ func docLoiMien(t *testing.T, thuMuc string) []string {
 			}
 			for _, nm := range vs.Names {
 				if strings.HasPrefix(nm.Name, "Err") && nm.IsExported() {
-					ra = append(ra, nm.Name)
+					names = append(names, nm.Name)
 				}
 			}
 			return true
 		})
 	}
-	sort.Strings(ra)
-	return ra
+	sort.Strings(names)
+	return names
 }
 
-// docThanDichLoiGhi trả về mã nguồn của riêng hàm `dichLoiGhi`.
+// readTranslateWriteErrorBody trả về mã nguồn của riêng hàm `translateWriteError`.
 //
 // Cắt đúng thân hàm chứ không đọc cả file: tên một lỗi xuất hiện ở chỗ
 // khác — một bình luận, một hàm khác — KHÔNG có nghĩa là nó được dịch.
-func docThanDichLoiGhi(t *testing.T, tenFile string) string {
+func readTranslateWriteErrorBody(t *testing.T, fileName string) string {
 	t.Helper()
 
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, tenFile, nil, 0)
+	f, err := parser.ParseFile(fset, fileName, nil, 0)
 	if err != nil {
-		t.Fatalf("phân tích %s: %v", tenFile, err)
+		t.Fatalf("phân tích %s: %v", fileName, err)
 	}
-	src, err := os.ReadFile(tenFile)
+	src, err := os.ReadFile(fileName)
 	if err != nil {
-		t.Fatalf("đọc %s: %v", tenFile, err)
+		t.Fatalf("đọc %s: %v", fileName, err)
 	}
 
 	for _, d := range f.Decls {
 		fn, ok := d.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "dichLoiGhi" || fn.Body == nil {
+		if !ok || fn.Name.Name != "translateWriteError" || fn.Body == nil {
 			continue
 		}
 		return string(src[fn.Body.Pos()-1 : fn.Body.End()])
 	}
-	t.Fatalf("%s không có hàm `dichLoiGhi` — đổi tên thì phải sửa cả bài "+
-		"test này", tenFile)
+	t.Fatalf("%s không có hàm `translateWriteError` — đổi tên thì phải sửa cả bài "+
+		"test này", fileName)
 	return ""
 }
 
@@ -163,7 +163,7 @@ func docThanDichLoiGhi(t *testing.T, tenFile string) string {
 //
 // # Điểm mù của bài test ở trên
 //
-// `TestMoiLoiMienDeuCoDuongRaKhac500` quét các biến `Err…` CÓ TÊN. Một lỗi
+// `TestEveryDomainErrorHasANon500Path` quét các biến `Err…` CÓ TÊN. Một lỗi
 // viết thẳng `return errors.New("...")` trong thân hàm không có tên, nên
 // nó không thấy — và tầng HTTP cũng không `errors.Is` được, nên lỗi ấy rơi
 // xuống 500.
@@ -181,24 +181,24 @@ func docThanDichLoiGhi(t *testing.T, tenFile string) string {
 //
 // `fmt.Errorf` KHÔNG có `%w` cũng bị cấm, cùng lý do: nó tạo lỗi mới không
 // ai nhận ra được.
-func TestDomainKhongTaoLoiTaiCho(t *testing.T) {
-	thuMuc := "../../domain"
-	vao, err := os.ReadDir(thuMuc)
+func TestDomainCreatesNoAdHocErrors(t *testing.T) {
+	dir := "../../domain"
+	input, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("đọc %s: %v", thuMuc, err)
+		t.Fatalf("đọc %s: %v", dir, err)
 	}
 
 	fset := token.NewFileSet()
-	var viPham []string
-	for _, e := range vao {
-		ten := e.Name()
-		if e.IsDir() || !strings.HasSuffix(ten, ".go") ||
-			strings.HasSuffix(ten, "_test.go") {
+	var violations []string
+	for _, e := range input {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
+			strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(thuMuc, ten), nil, 0)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
 		if err != nil {
-			t.Fatalf("phân tích %s: %v", ten, err)
+			t.Fatalf("phân tích %s: %v", name, err)
 		}
 
 		for _, d := range f.Decls {
@@ -215,33 +215,33 @@ func TestDomainKhongTaoLoiTaiCho(t *testing.T) {
 				if !ok {
 					return true
 				}
-				goi, ok := sel.X.(*ast.Ident)
+				pkgIdent, ok := sel.X.(*ast.Ident)
 				if !ok {
 					return true
 				}
 				vt := fset.Position(call.Pos())
 				switch {
-				case goi.Name == "errors" && sel.Sel.Name == "New":
-					viPham = append(viPham, fmt.Sprintf(
-						"%s:%d trong %s: `errors.New` tại chỗ", ten, vt.Line, fn.Name.Name))
-				case goi.Name == "fmt" && sel.Sel.Name == "Errorf" && !coBocLoi(call):
-					viPham = append(viPham, fmt.Sprintf(
-						"%s:%d trong %s: `fmt.Errorf` không có %%w", ten, vt.Line, fn.Name.Name))
+				case pkgIdent.Name == "errors" && sel.Sel.Name == "New":
+					violations = append(violations, fmt.Sprintf(
+						"%s:%d trong %s: `errors.New` tại chỗ", name, vt.Line, fn.Name.Name))
+				case pkgIdent.Name == "fmt" && sel.Sel.Name == "Errorf" && !wrapsError(call):
+					violations = append(violations, fmt.Sprintf(
+						"%s:%d trong %s: `fmt.Errorf` không có %%w", name, vt.Line, fn.Name.Name))
 				}
 				return true
 			})
 		}
 	}
 
-	for _, v := range viPham {
+	for _, v := range violations {
 		t.Errorf("%s — tầng HTTP không nhận ra được lỗi này, nên nó sẽ ra "+
 			"500. Khai một `var ErrX = errors.New(...)` cấp gói rồi trả "+
 			"ErrX, hoặc bọc bằng `fmt.Errorf(\"%%w: ...\", ErrX, ...)`.", v)
 	}
 }
 
-// coBocLoi cho biết chuỗi định dạng của `fmt.Errorf` có `%w` không.
-func coBocLoi(call *ast.CallExpr) bool {
+// wrapsError cho biết chuỗi định dạng của `fmt.Errorf` có `%w` không.
+func wrapsError(call *ast.CallExpr) bool {
 	if len(call.Args) == 0 {
 		return false
 	}

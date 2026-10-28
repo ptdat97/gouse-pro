@@ -54,7 +54,7 @@ func TestSaveAndReadBackPrice(t *testing.T) {
 	}
 }
 
-func TestNotFoundReturnsErrNotFound(t *testing.T) {
+func TestPricingNotFoundReturnsErrNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := inmemory.NewPriceStore().FindByID(ctx, ids.MustNew(ids.PrefixPrice)); !errors.Is(err, domain.ErrNotFound) {

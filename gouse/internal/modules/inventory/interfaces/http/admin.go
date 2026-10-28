@@ -14,12 +14,12 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
-// minLyDoKiemKe là độ dài tối thiểu của lý do điều chỉnh.
+// minCountReasonLen là độ dài tối thiểu của lý do điều chỉnh.
 //
 // Dài hơn phía nhà bán (5) vì quyền rộng hơn: quản trị viên sửa được tồn
 // kho của BẤT KỲ chủ sở hữu nào, kể cả hàng thuộc về seller. "sai" hay
 // "fix" không giải trình được điều gì khi cần đối soát sau ba tháng.
-const minLyDoKiemKe = 10
+const minCountReasonLen = 10
 
 // AdminHandler phục vụ điều chỉnh tồn kho thủ công của quản trị viên.
 type AdminHandler struct {
@@ -58,7 +58,7 @@ type adminAdjustRequest struct {
 	} `json:"adjustments"`
 }
 
-type soLuongJSON struct {
+type quantitiesJSON struct {
 	QuantityAvailable int `json:"quantity_available"`
 	QuantityReserved  int `json:"quantity_reserved"`
 	QuantityCommitted int `json:"quantity_committed"`
@@ -68,9 +68,9 @@ type soLuongJSON struct {
 }
 
 type adminAdjustResponse struct {
-	SKUID  string      `json:"sku_id"`
-	Before soLuongJSON `json:"before"`
-	After  soLuongJSON `json:"after"`
+	SKUID  string         `json:"sku_id"`
+	Before quantitiesJSON `json:"before"`
+	After  quantitiesJSON `json:"after"`
 }
 
 // adjust phục vụ POST /api/v1/admin/inventory/adjustments
@@ -108,8 +108,8 @@ func (h *AdminHandler) adjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lyDo := strings.TrimSpace(req.Reason)
-	if len(lyDo) < minLyDoKiemKe {
+	reason := strings.TrimSpace(req.Reason)
+	if len(reason) < minCountReasonLen {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"reason phải có ít nhất 10 ký tự — tồn kho lệch mà không có lý do "+
 				"thì không đối soát được, và mất mát trông giống hệt sai sót "+
@@ -117,14 +117,14 @@ func (h *AdminHandler) adjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kd, hong := req.Adjustments.QuantityAvailable, req.Adjustments.QuantityDamaged
-	if kd == nil && hong == nil {
+	availableQty, damagedQty := req.Adjustments.QuantityAvailable, req.Adjustments.QuantityDamaged
+	if availableQty == nil && damagedQty == nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"adjustments phải khai ít nhất một trong quantity_available "+
 				"hoặc quantity_damaged"))
 		return
 	}
-	if (kd != nil && *kd < 0) || (hong != nil && *hong < 0) {
+	if (availableQty != nil && *availableQty < 0) || (damagedQty != nil && *damagedQty < 0) {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"số lượng kiểm kê không được âm"))
 		return
@@ -138,34 +138,34 @@ func (h *AdminHandler) adjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := h.svc.TimItemKiemKe(r.Context(), skuID,
+	item, err := h.svc.FindItemForCount(r.Context(), skuID,
 		ids.ID(req.StockLocationID), ids.ID(req.InventoryOwnerID))
 	if err != nil {
-		h.fail(w, r, dichLoiKiemKe(err))
+		h.fail(w, r, translateCountError(err))
 		return
 	}
 
 	ra, err := h.svc.Count(r.Context(), application.CountInput{
 		ItemID:      item.ID(),
-		Available:   kd,
-		Damaged:     hong,
-		Reason:      lyDo,
+		Available:   availableQty,
+		Damaged:     damagedQty,
+		Reason:      reason,
 		PerformedBy: ids.ID(auth.UserID),
 	})
 	if err != nil {
-		h.fail(w, r, dichLoiKiemKe(err))
+		h.fail(w, r, translateCountError(err))
 		return
 	}
 
 	h.ok(w, r, adminAdjustResponse{
 		SKUID:  skuID.String(),
-		Before: doiSoLuong(ra.Before),
-		After:  doiSoLuong(ra.After),
+		Before: toQuantitiesJSON(ra.Before),
+		After:  toQuantitiesJSON(ra.After),
 	})
 }
 
-func doiSoLuong(q domain.Quantities) soLuongJSON {
-	return soLuongJSON{
+func toQuantitiesJSON(q domain.Quantities) quantitiesJSON {
+	return quantitiesJSON{
 		QuantityAvailable: q.Available(),
 		QuantityReserved:  q.Reserved(),
 		QuantityCommitted: q.Committed(),
@@ -175,15 +175,15 @@ func doiSoLuong(q domain.Quantities) soLuongJSON {
 	}
 }
 
-func dichLoiKiemKe(err error) error {
+func translateCountError(err error) error {
 	switch {
-	case errors.Is(err, application.ErrItemNhapNhang):
+	case errors.Is(err, application.ErrAmbiguousItem):
 		// 409 chứ không phải 400: request hợp lệ, nhưng TRẠNG THÁI dữ liệu
 		// khiến nó không đủ để chỉ đúng một bản ghi.
 		return apierror.New(apierror.CodeConflict,
 			"SKU này ở kho đó có tồn kho của nhiều chủ sở hữu — "+
 				"nêu rõ inventory_owner_id")
-	case errors.Is(err, domain.ErrQuaLon):
+	case errors.Is(err, domain.ErrTooLarge):
 		// 400 chứ không phải 500: số quá lớn là lỗi của người gõ, và họ
 		// sửa được. Trả 500 khiến họ đi báo sự cố thay vì sửa con số, và
 		// giám sát đếm nó vào tỷ lệ lỗi máy chủ.

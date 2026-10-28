@@ -114,7 +114,7 @@ func TestSlugTrungBiChanBoiDatabase(t *testing.T) {
 	}
 }
 
-func TestNotFoundReturnsErrNotFound(t *testing.T) {
+func TestCatalogNotFoundReturnsErrNotFound(t *testing.T) {
 	pool := newPool(t)
 	cleanCatalog(t, pool)
 	ctx := context.Background()

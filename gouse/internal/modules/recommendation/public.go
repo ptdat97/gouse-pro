@@ -35,7 +35,7 @@ type API interface {
 
 // RecommendSizeRequest là dữ kiện bên gọi đã biết.
 //
-// # Vì sao bên gọi truyền `CacSize` vào
+// # Vì sao bên gọi truyền `SizeScale` vào
 //
 // "Lên một size" chỉ có nghĩa khi biết scale size của sản phẩm đang xem, và
 // scale ấy khác nhau theo loại hàng: S/M/L, 38/39/40, hay Free.
@@ -46,11 +46,11 @@ type RecommendSizeRequest struct {
 	CustomerID string
 	BrandID    string
 
-	// CacSize theo ĐÚNG THỨ TỰ hiển thị, từ nhỏ tới lớn.
+	// SizeScale theo ĐÚNG THỨ TỰ hiển thị, từ nhỏ tới lớn.
 	//
 	// KHÔNG được sắp theo bảng chữ cái: "S, M, L" sắp chữ cái thành
 	// "L, M, S" và mọi phép "lên một size" đảo chiều.
-	CacSize []string
+	SizeScale []string
 }
 
 // RecommendSizeView khớp đúng lược đồ `size_recommendation` của đặc tả API.

@@ -9,7 +9,7 @@ import type { NhomMau } from "@fc/api-client";
  * hàng trăm tên màu do người bán tự đặt — "Trắng ngà", "Trắng kem",
  * "Off-white" — và bộ lọc liệt kê từng cái là bộ lọc không ai dùng.
  *
- * Máy chủ SUY RA nhóm từ tên màu (`domain.SuyRaNhomMau`), nên người bán
+ * Máy chủ SUY RA nhóm từ tên màu (`domain.InferColorFamily`), nên người bán
  * không phải khai thêm gì.
  *
  * # `Record<NhomMau, …>` là HÀNG RÀO, không phải trang trí

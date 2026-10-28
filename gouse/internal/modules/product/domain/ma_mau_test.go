@@ -13,7 +13,7 @@ import (
 // "#ff0000" và "#FF0000" là MỘT màu. Để hai cách viết cùng tồn tại nghĩa
 // là lọc theo mã màu bỏ sót một nửa, và hai biến thể cùng màu trông như
 // hai màu khác nhau trên trang.
-func TestMaMauChuanHoaVeChuHoa(t *testing.T) {
+func TestColorHexNormalizesToUppercase(t *testing.T) {
 	v, err := domain.NewVariant(domain.NewVariantParams{
 		Attributes: map[string]string{
 			domain.AttrColor:    "Đỏ",
@@ -36,7 +36,7 @@ func TestMaMauChuanHoaVeChuHoa(t *testing.T) {
 //
 // Dạng rút gọn ba ký tự (#FFF) cũng bị từ chối dù hợp lệ trong CSS: nó
 // tạo hai cách viết cho cùng một màu.
-func TestMaMauSaiDinhDangBiTuChoi(t *testing.T) {
+func TestMalformedColorHexIsRejected(t *testing.T) {
 	for _, ma := range []string{
 		"FF0000",   // thiếu dấu thăng
 		"#FFF",     // dạng rút gọn
@@ -51,8 +51,8 @@ func TestMaMauSaiDinhDangBiTuChoi(t *testing.T) {
 			},
 			Now: types.BayGio(),
 		})
-		if !errors.Is(err, domain.ErrMaMauKhongHopLe) {
-			t.Errorf("mã %q: lỗi = %v, mong ErrMaMauKhongHopLe", ma, err)
+		if !errors.Is(err, domain.ErrInvalidColorHex) {
+			t.Errorf("mã %q: lỗi = %v, mong ErrInvalidColorHex", ma, err)
 		}
 	}
 }
@@ -61,7 +61,7 @@ func TestMaMauSaiDinhDangBiTuChoi(t *testing.T) {
 //
 // Bắt buộc sẽ chặn mọi sản phẩm hiện có và mọi nhà bán chưa kịp lấy mã
 // màu. Thiếu hex thì giao diện hiện ô chữ như cũ.
-func TestMaMauLaTuyChon(t *testing.T) {
+func TestColorHexIsOptional(t *testing.T) {
 	v, err := domain.NewVariant(domain.NewVariantParams{
 		Attributes: map[string]string{domain.AttrColor: "Đỏ"},
 		Now:        types.BayGio(),
@@ -81,8 +81,8 @@ func TestMaMauLaTuyChon(t *testing.T) {
 // cùng tồn tại, và khách thấy hai ô "Đen" cạnh nhau.
 //
 // Cùng nguyên tắc với `color_family`, thứ đã bị loại khỏi khóa từ trước.
-func TestMaMauKhongVaoKhoaDinhDanh(t *testing.T) {
-	dung := func(hex string) *domain.Variant {
+func TestColorHexStaysOutOfTheIdentityKey(t *testing.T) {
+	makeVariant := func(hex string) *domain.Variant {
 		v, err := domain.NewVariant(domain.NewVariantParams{
 			Attributes: map[string]string{
 				domain.AttrColor:    "Đen",
@@ -97,7 +97,7 @@ func TestMaMauKhongVaoKhoaDinhDanh(t *testing.T) {
 		return v
 	}
 
-	a, b := dung("#000000"), dung("#111111")
+	a, b := makeVariant("#000000"), makeVariant("#111111")
 	if a.AttributeKey() != b.AttributeKey() {
 		t.Errorf("khóa khác nhau (%q vs %q) — mã màu đang được coi là "+
 			"thuộc tính phân biệt", a.AttributeKey(), b.AttributeKey())

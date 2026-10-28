@@ -388,7 +388,7 @@ func TestFiltersSensitiveData(t *testing.T) {
 }
 
 // KHÔNG LƯU IP NGUYÊN VĂN — yêu cầu quyền riêng tư, mục 8.
-func TestDoesNotStoreRawIP(t *testing.T) {
+func TestAnalyticsDoesNotStoreRawIP(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 

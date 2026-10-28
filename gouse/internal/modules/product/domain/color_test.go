@@ -6,38 +6,38 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/product/domain"
 )
 
-func TestSuyRaNhomMau(t *testing.T) {
-	cac := map[string]domain.NhomMau{
-		"Trắng":        domain.MauTrang,
-		"Trắng ngà":    domain.MauTrang,
-		"Đen":          domain.MauDen,
-		"Xanh navy":    domain.MauXanh,
-		"Xanh dương":   domain.MauXanh,
-		"Denim wash":   domain.MauXanh,
-		"Đỏ đô":        domain.MauDo,
-		"Hồng pastel":  domain.MauHong,
-		"Nâu bò":       domain.MauNau,
-		"Be":           domain.MauBe,
-		"":             domain.MauKhac,
-		"Họa tiết hoa": domain.MauKhac,
+func TestInferColorFamily(t *testing.T) {
+	byName := map[string]domain.ColorFamily{
+		"Trắng":        domain.ColorWhite,
+		"Trắng ngà":    domain.ColorWhite,
+		"Đen":          domain.ColorBlack,
+		"Xanh navy":    domain.ColorBlue,
+		"Xanh dương":   domain.ColorBlue,
+		"Denim wash":   domain.ColorBlue,
+		"Đỏ đô":        domain.ColorRed,
+		"Hồng pastel":  domain.ColorPink,
+		"Nâu bò":       domain.ColorBrown,
+		"Be":           domain.ColorBeige,
+		"":             domain.ColorOther,
+		"Họa tiết hoa": domain.ColorOther,
 	}
-	for ten, mong := range cac {
-		if got := domain.SuyRaNhomMau(ten); got != mong {
-			t.Errorf("SuyRaNhomMau(%q) = %q, mong %q", ten, got, mong)
+	for name, expected := range byName {
+		if got := domain.InferColorFamily(name); got != expected {
+			t.Errorf("InferColorFamily(%q) = %q, mong %q", name, got, expected)
 		}
 	}
 }
 
-// TestXanhLaKhongRoiVaoNhomXanhDuong — bẫy của phép so khớp chuỗi con.
+// TestGreenDoesNotFallIntoTheBlueFamily — bẫy của phép so khớp chuỗi con.
 //
 // "Xanh lá cây" chứa cả "xanh lá" lẫn "xanh". Không xét từ ghép trước thì
 // mọi màu xanh lá bị xếp vào nhóm xanh dương, và bộ lọc trả về sai hàng —
 // thứ khách nhận ra ngay còn hệ thống thì không.
-func TestXanhLaKhongRoiVaoNhomXanhDuong(t *testing.T) {
-	for _, ten := range []string{"Xanh lá", "Xanh lá cây", "Xanh la ma"} {
-		if got := domain.SuyRaNhomMau(ten); got != domain.MauXanhLa {
-			t.Errorf("SuyRaNhomMau(%q) = %q, mong %q — từ ghép phải xét trước",
-				ten, got, domain.MauXanhLa)
+func TestGreenDoesNotFallIntoTheBlueFamily(t *testing.T) {
+	for _, name := range []string{"Xanh lá", "Xanh lá cây", "Xanh la ma"} {
+		if got := domain.InferColorFamily(name); got != domain.ColorGreen {
+			t.Errorf("InferColorFamily(%q) = %q, mong %q — từ ghép phải xét trước",
+				name, got, domain.ColorGreen)
 		}
 	}
 }

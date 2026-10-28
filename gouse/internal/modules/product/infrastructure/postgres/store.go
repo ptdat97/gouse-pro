@@ -78,7 +78,7 @@ func (s *ProductStore) Save(ctx context.Context, p *domain.Product) error {
 		p.MaterialComposition(), p.OriginCountry(),
 		string(p.Type()), string(p.GenderTarget()), string(p.Status()),
 		p.RejectionReason(), p.CreatedBySellerID().String(),
-		mangRong(p.Images()), nullTime(p.PublishedAt()), p.CreatedAt(), p.UpdatedAt())
+		nonNil(p.Images()), nullTime(p.PublishedAt()), p.CreatedAt(), p.UpdatedAt())
 	if err != nil {
 		return translateSaveErr(err)
 	}
@@ -102,7 +102,7 @@ func (s *ProductStore) Save(ctx context.Context, p *domain.Product) error {
 				display_order, status, created_at, updated_at
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 			v.ID().String(), p.ID().String(), attrs, v.AttributeKey(),
-			mangRong(v.Images()), v.DisplayOrder(), string(v.Status()),
+			nonNil(v.Images()), v.DisplayOrder(), string(v.Status()),
 			v.CreatedAt(), v.UpdatedAt()); err != nil {
 			return translateSaveErr(err)
 		}
@@ -129,7 +129,7 @@ func (s *ProductStore) Save(ctx context.Context, p *domain.Product) error {
 	return nil
 }
 
-// mangRong đổi slice NIL thành slice RỖNG.
+// nonNil đổi slice NIL thành slice RỖNG.
 //
 // # Vì sao cần, dù cột đã có DEFAULT '{}'
 //
@@ -146,7 +146,7 @@ func (s *ProductStore) Save(ctx context.Context, p *domain.Product) error {
 // nghiệp vụ ("chưa có ảnh nào"), và chỗ duy nhất phân biệt chúng là
 // đường dây tới database. Bắt mọi bên gọi phải nhớ truyền `[]string{}`
 // là chuyển một chi tiết lưu trữ ra ngoài biên.
-func mangRong(xs []string) []string {
+func nonNil(xs []string) []string {
 	if xs == nil {
 		return []string{}
 	}
@@ -523,7 +523,7 @@ func (s *ProductStore) List(ctx context.Context, f domain.Filter) ([]*domain.Pro
 		// thường. Không xếp hạng liên quan, không xử lý dấu — chỉ mục tìm
 		// kiếm riêng là hạ tầng thêm KHI ĐO ĐƯỢC nhu cầu, không phải bây giờ.
 		f.Query,
-		f.SizeDaChuan(), f.NhomMauDaChuan(),
+		f.NormalizedSizes(), f.NormalizedColorFamilies(),
 	}
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT $%d", len(args)+1)

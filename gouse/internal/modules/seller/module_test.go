@@ -588,7 +588,7 @@ func TestSlugTrungBiChan(t *testing.T) {
 	}
 }
 
-func TestMalformedIDReturnsErrInvalidID(t *testing.T) {
+func TestMalformedSellerIDReturnsErrInvalidID(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -600,7 +600,7 @@ func TestMalformedIDReturnsErrInvalidID(t *testing.T) {
 	}
 }
 
-func TestChiHoTroPostgres(t *testing.T) {
+func TestSellerOnlyPostgresStorageSupported(t *testing.T) {
 	if _, err := seller.New(seller.Config{Storage: "memory"}); err == nil {
 		t.Error("mong lỗi với kho lưu trữ memory")
 	}

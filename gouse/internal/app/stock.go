@@ -95,7 +95,7 @@ func (s *sellerOwner) InventoryOwnerID(
 		// vẫn phải phân biệt được "phạm vi hỏng" với lỗi hạ tầng.
 		if errors.Is(err, seller.ErrInvalidID) || errors.Is(err, seller.ErrNotFound) {
 			return "", fmt.Errorf("%w: %v",
-				inventoryhttp.ErrPhamViNhaBanHong, err)
+				inventoryhttp.ErrBadSellerScope, err)
 		}
 		return "", err
 	}

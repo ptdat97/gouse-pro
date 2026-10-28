@@ -52,7 +52,7 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 		t.Helper()
 		v, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
 			CustomerID: maKhach, BrandID: maTH,
-			CacSize: []string{"S", "M", "L", "XL"},
+			SizeScale: []string{"S", "M", "L", "XL"},
 		})
 		if err != nil {
 			t.Fatalf("gợi ý size: %v", err)
@@ -87,7 +87,7 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 	// không bằng nhau.
 	khac, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
 		CustomerID: maKhach, BrandID: "brd_01J9XKHACKHACKHACKHACKHAC",
-		CacSize: []string{"S", "M", "L"},
+		SizeScale: []string{"S", "M", "L"},
 	})
 	if err != nil {
 		t.Fatalf("gợi ý thương hiệu khác: %v", err)

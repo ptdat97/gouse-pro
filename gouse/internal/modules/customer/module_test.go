@@ -124,7 +124,7 @@ func TestCreateProfile(t *testing.T) {
 //
 // Hai module lưu email khác định dạng thì không bao giờ gộp được danh tính
 // khách vãng lai với tài khoản đăng ký sau đó.
-func TestEmailIsNormalized(t *testing.T) {
+func TestCustomerEmailIsNormalized(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 
@@ -608,7 +608,7 @@ func TestConsentNeedsASource(t *testing.T) {
 }
 
 // KHÔNG LƯU IP NGUYÊN VĂN trong nhật ký đồng ý.
-func TestDoesNotStoreRawIP(t *testing.T) {
+func TestCustomerDoesNotStoreRawIP(t *testing.T) {
 	m, pool := newModule(t, newClock())
 	ctx := context.Background()
 

@@ -48,16 +48,16 @@ func NewSellerHandler(svc *application.Service, log *slog.Logger) *SellerHandler
 // Mux truyền vào PHẢI đã bọc Auth và RequireRole("SELLER_OWNER",
 // "SELLER_STAFF") — cùng ràng buộc với đơn thực hiện phía nhà bán.
 func (h *SellerHandler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/seller/products", http.HandlerFunc(h.danhSach))
-	mux.Handle("POST /api/v1/seller/products", http.HandlerFunc(h.tao))
+	mux.Handle("GET /api/v1/seller/products", http.HandlerFunc(h.listOwn))
+	mux.Handle("POST /api/v1/seller/products", http.HandlerFunc(h.create))
 	mux.Handle("POST /api/v1/seller/products/{product_id}/variants",
-		http.HandlerFunc(h.themBienThe))
-	mux.Handle("PATCH /api/v1/seller/products/{product_id}", http.HandlerFunc(h.suaNhap))
+		http.HandlerFunc(h.addVariant))
+	mux.Handle("PATCH /api/v1/seller/products/{product_id}", http.HandlerFunc(h.editDraft))
 	mux.Handle("POST /api/v1/seller/products/{product_id}/submit",
-		http.HandlerFunc(h.guiDuyet))
+		http.HandlerFunc(h.submitForReview))
 }
 
-type taoSanPhamBody struct {
+type createProductBody struct {
 	BrandID      string `json:"brand_id"`
 	CollectionID string `json:"collection_id"`
 	CategoryID   string `json:"category_id"`
@@ -77,12 +77,12 @@ type taoSanPhamBody struct {
 	Images []string `json:"images"`
 }
 
-// tao phục vụ POST /api/v1/seller/products.
+// create phục vụ POST /api/v1/seller/products.
 //
 // Sản phẩm sinh ra ở DRAFT, chưa ai thấy. Nó chỉ ra cửa hàng sau khi qua
 // duyệt — xem docs/07-workflows/product-publishing.md mục 4.
-func (h *SellerHandler) tao(w http.ResponseWriter, r *http.Request) {
-	var body taoSanPhamBody
+func (h *SellerHandler) create(w http.ResponseWriter, r *http.Request) {
+	var body createProductBody
 	if err := decodeJSON(r, &body); err != nil {
 		h.fail(w, r, err)
 		return
@@ -106,20 +106,20 @@ func (h *SellerHandler) tao(w http.ResponseWriter, r *http.Request) {
 		GenderTarget:        domain.GenderTarget(body.GenderTarget),
 		Images:              body.Images,
 	}
-	if err := docDinhDanh(&in, body); err != nil {
+	if err := readRefIDs(&in, body); err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
 	p, err := h.svc.CreateProduct(r.Context(), in)
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
-	h.ok(w, r, http.StatusCreated, toSanPhamNhaBan(p))
+	h.ok(w, r, http.StatusCreated, toSellerProduct(p))
 }
 
-type themBienTheBody struct {
+type addVariantBody struct {
 	Attributes map[string]string `json:"attributes"`
 	Images     []string          `json:"images"`
 	SKUs       []struct {
@@ -132,8 +132,8 @@ type themBienTheBody struct {
 	} `json:"skus"`
 }
 
-func (h *SellerHandler) themBienThe(w http.ResponseWriter, r *http.Request) {
-	var body themBienTheBody
+func (h *SellerHandler) addVariant(w http.ResponseWriter, r *http.Request) {
+	var body addVariantBody
 	if err := decodeJSON(r, &body); err != nil {
 		h.fail(w, r, err)
 		return
@@ -172,19 +172,19 @@ func (h *SellerHandler) themBienThe(w http.ResponseWriter, r *http.Request) {
 		SKUs:       skus,
 	})
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSanPhamNhaBan(p))
+	h.ok(w, r, http.StatusOK, toSellerProduct(p))
 }
 
-// suaNhapBody: mọi trường là CON TRỎ.
+// editDraftBody: mọi trường là CON TRỎ.
 //
 // JSON vắng trường → nil → GIỮ NGUYÊN. JSON có trường, kể cả `""` → con
 // trỏ tới giá trị ấy → ĐỔI (và `""` với tên hay slug là lỗi, không phải
 // "bỏ qua"). Dùng kiểu giá trị thay vì con trỏ thì hai trường hợp này
 // trông giống hệt nhau, và một PATCH chỉ đổi chất liệu sẽ xóa mất mô tả.
-type suaNhapBody struct {
+type editDraftBody struct {
 	Name                *string   `json:"name"`
 	Slug                *string   `json:"slug"`
 	Description         *string   `json:"description"`
@@ -201,11 +201,11 @@ type suaNhapBody struct {
 	//
 	// Bỏ hẳn nó thì `DisallowUnknownFields` vẫn chặn, nhưng bằng câu chung
 	// chung "Dữ liệu gửi lên không hợp lệ" — nhà bán không biết vì sao. Xem
-	// `domain.SuaParams` cho lý do thương hiệu không sửa được.
+	// `domain.EditParams` cho lý do thương hiệu không sửa được.
 	BrandID *string `json:"brand_id"`
 }
 
-// suaNhap phục vụ PATCH /api/v1/seller/products/{product_id}
+// editDraft phục vụ PATCH /api/v1/seller/products/{product_id}
 // (operationId: updateMyProduct).
 //
 // # Vì sao endpoint này tồn tại
@@ -221,8 +221,8 @@ type suaNhapBody struct {
 // Từ 23/09/2026 sản phẩm `ACTIVE` sửa được, và lượt sửa đưa nó về
 // `PENDING_REVIEW` — tức tạm ẩn khỏi cửa hàng. Response trả `status` mới,
 // nên giao diện thấy ngay hậu quả thay vì phải đoán.
-func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
-	var body suaNhapBody
+func (h *SellerHandler) editDraft(w http.ResponseWriter, r *http.Request) {
+	var body editDraftBody
 	if err := decodeJSON(r, &body); err != nil {
 		h.fail(w, r, err)
 		return
@@ -247,7 +247,7 @@ func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	in := domain.SuaParams{
+	in := domain.EditParams{
 		Name:                body.Name,
 		Slug:                body.Slug,
 		Description:         body.Description,
@@ -267,7 +267,7 @@ func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
 	for _, t := range []struct {
 		raw    *string
 		prefix ids.Prefix
-		ten    string
+		name   string
 		dich   **ids.ID
 	}{
 		{body.CategoryID, ids.PrefixCategory, "category_id", &in.CategoryID},
@@ -283,27 +283,27 @@ func (h *SellerHandler) suaNhap(w http.ResponseWriter, r *http.Request) {
 			id, err = ids.Parse(*t.raw, t.prefix)
 			if err != nil {
 				h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
-					t.ten+" không đúng định dạng"))
+					t.name+" không đúng định dạng"))
 				return
 			}
 		}
 		*t.dich = &id
 	}
 
-	p, err := h.svc.SuaCuaNhaBan(r.Context(), sellerID, pid, in)
+	p, err := h.svc.EditForSeller(r.Context(), sellerID, pid, in)
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSanPhamNhaBan(p))
+	h.ok(w, r, http.StatusOK, toSellerProduct(p))
 }
 
-// guiDuyet phục vụ POST /api/v1/seller/products/{product_id}/submit.
+// submitForReview phục vụ POST /api/v1/seller/products/{product_id}/submit.
 //
 // Thiếu điều kiện thì trả lỗi NÓI RÕ thiếu gì (thiếu ảnh, thiếu chất
 // liệu…). Một thông báo chung chung ở đây làm nhà bán bỏ dở việc đăng bán
 // vì không biết sửa chỗ nào.
-func (h *SellerHandler) guiDuyet(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) submitForReview(w http.ResponseWriter, r *http.Request) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
@@ -319,13 +319,13 @@ func (h *SellerHandler) guiDuyet(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.svc.SubmitForReviewOwned(r.Context(), sellerID, pid)
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSanPhamNhaBan(p))
+	h.ok(w, r, http.StatusOK, toSellerProduct(p))
 }
 
-func (h *SellerHandler) danhSach(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) listOwn(w http.ResponseWriter, r *http.Request) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
@@ -335,16 +335,16 @@ func (h *SellerHandler) danhSach(w http.ResponseWriter, r *http.Request) {
 	// Bộ lọc trạng thái nhận từ query, KHÁC endpoint công khai: ở đây nhà
 	// bán ĐƯỢC xem hàng nháp của chính mình, và câu truy vấn luôn kẹp
 	// seller_id nên không lộ hàng của gian khác.
-	ds, err := h.svc.ListSellerProducts(r.Context(), sellerID,
+	items, err := h.svc.ListSellerProducts(r.Context(), sellerID,
 		domain.Status(strings.TrimSpace(r.URL.Query().Get("status"))))
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
 
-	out := make([]sanPhamNhaBan, 0, len(ds))
-	for _, p := range ds {
-		out = append(out, toSanPhamNhaBan(p))
+	out := make([]sellerProduct, 0, len(items))
+	for _, p := range items {
+		out = append(out, toSellerProduct(p))
 	}
 	h.ok(w, r, http.StatusOK, map[string]any{"data": out})
 }
@@ -374,11 +374,11 @@ func (h *SellerHandler) fail(w http.ResponseWriter, r *http.Request, err error) 
 	apierror.Write(w, r, err, logger.RequestIDFromContext(r.Context()), h.log)
 }
 
-// sanPhamNhaBan là sản phẩm nhìn từ phía gian hàng.
+// sellerProduct là sản phẩm nhìn từ phía gian hàng.
 //
 // KHÁC `productDetail` của cửa hàng: có `status` và `rejection_reason` —
 // hai thứ khách KHÔNG được thấy, và là hai thứ nhà bán cần nhất.
-type sanPhamNhaBan struct {
+type sellerProduct struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Slug   string `json:"slug,omitempty"`
@@ -423,16 +423,16 @@ type sanPhamNhaBan struct {
 	// hình dạng với `shipping_groups` ở P3-50, và hệ quả cũng cùng một
 	// kiểu: nhà bán thêm biến thể xong không có cách nào thấy mình đã thêm
 	// gì, nên hoặc thêm trùng hoặc bỏ dở.
-	Variants []bienTheNhaBan `json:"variants"`
+	Variants []sellerVariant `json:"variants"`
 }
 
-// bienTheNhaBan là một biến thể nhìn từ phía gian hàng.
+// sellerVariant là một biến thể nhìn từ phía gian hàng.
 //
 // Chỉ những trường nhà bán cần để biết mình ĐÃ THÊM GÌ và CÒN THIẾU GÌ.
 // Không trả giá và tồn kho: cả hai thuộc module khác (`pricing`,
 // `inventory`) và nhét chúng vào đây sẽ biến một lượt đọc sản phẩm thành
 // ba lượt gọi liên module.
-type bienTheNhaBan struct {
+type sellerVariant struct {
 	ID string `json:"id"`
 
 	// Attributes là tổ hợp làm nên biến thể: màu, size…
@@ -441,22 +441,22 @@ type bienTheNhaBan struct {
 	Images []string `json:"images"`
 
 	// SKUs: mỗi biến thể có ít nhất một mã bán hàng.
-	SKUs []skuNhaBan `json:"skus"`
+	SKUs []sellerSKU `json:"skus"`
 }
 
-type skuNhaBan struct {
+type sellerSKU struct {
 	ID   string `json:"id"`
 	Code string `json:"sku_code"`
 }
 
-func toBienTheNhaBan(vs []*domain.Variant) []bienTheNhaBan {
-	out := make([]bienTheNhaBan, 0, len(vs))
+func toSellerVariants(vs []*domain.Variant) []sellerVariant {
+	out := make([]sellerVariant, 0, len(vs))
 	for _, v := range vs {
-		skus := make([]skuNhaBan, 0, len(v.SKUs()))
+		skus := make([]sellerSKU, 0, len(v.SKUs()))
 		for _, s := range v.SKUs() {
-			skus = append(skus, skuNhaBan{ID: s.ID().String(), Code: s.Code()})
+			skus = append(skus, sellerSKU{ID: s.ID().String(), Code: s.Code()})
 		}
-		out = append(out, bienTheNhaBan{
+		out = append(out, sellerVariant{
 			ID:         v.ID().String(),
 			Attributes: v.Attributes(),
 			Images:     v.Images(),
@@ -466,8 +466,8 @@ func toBienTheNhaBan(vs []*domain.Variant) []bienTheNhaBan {
 	return out
 }
 
-func toSanPhamNhaBan(p *domain.Product) sanPhamNhaBan {
-	return sanPhamNhaBan{
+func toSellerProduct(p *domain.Product) sellerProduct {
+	return sellerProduct{
 		ID:                p.ID().String(),
 		Name:              p.Name(),
 		Slug:              p.Slug(),
@@ -477,7 +477,7 @@ func toSanPhamNhaBan(p *domain.Product) sanPhamNhaBan {
 		ProductType:       string(p.Type()),
 		CreatedAt:         p.CreatedAt().UTC().Format(time.RFC3339),
 		CreatedBySellerID: p.CreatedBySellerID().String(),
-		Variants:          toBienTheNhaBan(p.Variants()),
+		Variants:          toSellerVariants(p.Variants()),
 
 		Description:         p.Description(),
 		CareInstructions:    p.CareInstructions(),
@@ -485,15 +485,15 @@ func toSanPhamNhaBan(p *domain.Product) sanPhamNhaBan {
 		OriginCountry:       p.OriginCountry(),
 		CategoryID:          p.CategoryID().String(),
 		GenderTarget:        string(p.GenderTarget()),
-		Images:              mangRong(p.Images()),
+		Images:              nonNil(p.Images()),
 	}
 }
 
-// docDinhDanh đọc bốn mã tham chiếu từ thân request.
+// readRefIDs đọc bốn mã tham chiếu từ thân request.
 //
 // Sai định dạng thì TỪ CHỐI chứ không âm thầm bỏ qua: bỏ qua nghĩa là sản
 // phẩm gắn nhầm danh mục mà người tạo tưởng đã gắn đúng.
-func docDinhDanh(in *application.CreateProductInput, body taoSanPhamBody) error {
+func readRefIDs(in *application.CreateProductInput, body createProductBody) error {
 	brandID, err := ids.Parse(body.BrandID, ids.PrefixBrand)
 	if err != nil {
 		return apierror.New(apierror.CodeValidationFailed,
@@ -504,7 +504,7 @@ func docDinhDanh(in *application.CreateProductInput, body taoSanPhamBody) error 
 	for _, t := range []struct {
 		raw    string
 		prefix ids.Prefix
-		ten    string
+		name   string
 		dich   *ids.ID
 	}{
 		{body.CollectionID, ids.PrefixCollection, "collection_id", &in.CollectionID},
@@ -517,7 +517,7 @@ func docDinhDanh(in *application.CreateProductInput, body taoSanPhamBody) error 
 		id, err := ids.Parse(t.raw, t.prefix)
 		if err != nil {
 			return apierror.New(apierror.CodeValidationFailed,
-				t.ten+" không đúng định dạng")
+				t.name+" không đúng định dạng")
 		}
 		*t.dich = id
 	}
@@ -542,31 +542,31 @@ func decodeJSON(r *http.Request, dst any) error {
 // gian hàng nào.
 const maxLimit = 100
 
-// gioiHanTu đọc `limit` từ query, kẹp giữa 1 và `tran`.
+// limitFrom đọc `limit` từ query, kẹp giữa 1 và `tran`.
 //
 // `tran` truyền vào chứ không lấy từ hằng số bên trong: chỗ gọi phải NHÌN
 // THẤY cận trên. Giấu nó trong helper nghĩa là người đọc endpoint không
 // biết có trần, và bài test phủ `TestMoiChoDocLimitDeuCoTran` quét đúng
 // điều đó — nó đọc 25 dòng quanh chỗ đọc limit.
-func gioiHanTu(q string, macDinh, tran int) int {
+func limitFrom(q string, fallback, ceiling int) int {
 	n, err := strconv.Atoi(strings.TrimSpace(q))
 	if err != nil || n <= 0 {
-		return macDinh
+		return fallback
 	}
-	if n > tran {
-		return tran
+	if n > ceiling {
+		return ceiling
 	}
 	return n
 }
 
-// dichLoiGhi chuyển lỗi của mặt GHI thành lỗi API.
+// translateWriteError chuyển lỗi của mặt GHI thành lỗi API.
 //
 // # Vì sao mỗi điều kiện thiếu có thông báo RIÊNG
 //
 // `CheckReadyForReview` kiểm năm thứ. Gộp tất cả vào "dữ liệu không hợp
 // lệ" là bắt nhà bán đoán xem thiếu gì, và đoán sai vài lần thì họ bỏ dở
 // việc đăng bán — chú thích của chính hàm đó đã nói ra điều này.
-func dichLoiGhi(err error) error {
+func translateWriteError(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		// Sản phẩm không tồn tại HOẶC của gian hàng khác — cùng một mã.
@@ -631,7 +631,7 @@ func dichLoiGhi(err error) error {
 			"Sản phẩm đã có biến thể với đúng tổ hợp thuộc tính này")
 	case errors.Is(err, domain.ErrEmptySKUCode):
 		return apierror.New(apierror.CodeValidationFailed, "Mã SKU không được rỗng")
-	case errors.Is(err, domain.ErrMaMauKhongHopLe):
+	case errors.Is(err, domain.ErrInvalidColorHex):
 		return apierror.New(apierror.CodeValidationFailed,
 			"Mã màu không hợp lệ — cần dạng #RRGGBB")
 	case errors.Is(err, domain.ErrNegativeWeight):
@@ -667,12 +667,12 @@ func dichLoiGhi(err error) error {
 	return err
 }
 
-// mangRong: `[]` thay vì `null` cho danh sách rỗng.
+// nonNil: `[]` thay vì `null` cho danh sách rỗng.
 //
 // Giao diện đọc `images.length`; `null` làm nó nổ. Và `[]` với thiếu trường
 // nói hai chuyện khác nhau — đây là "chưa có ảnh nào", không phải "không
 // biết".
-func mangRong(xs []string) []string {
+func nonNil(xs []string) []string {
 	if xs == nil {
 		return []string{}
 	}

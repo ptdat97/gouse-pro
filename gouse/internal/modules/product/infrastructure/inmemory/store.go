@@ -315,7 +315,7 @@ func matches(p domain.RestoreProductParams, f domain.Filter) bool {
 
 	// Lọc theo thuộc tính BIẾN THỂ — size và nhóm màu.
 	//
-	// Gọi `domain.Filter.KhopBienThe` chứ không tự viết vòng lặp: bản
+	// Gọi `domain.Filter.MatchesVariants` chứ không tự viết vòng lặp: bản
 	// PostgreSQL làm việc này bằng hai mệnh đề EXISTS, và hai cài đặt song
 	// song của cùng một quy tắc là hai cài đặt sẽ lệch nhau.
 	//
@@ -323,7 +323,7 @@ func matches(p domain.RestoreProductParams, f domain.Filter) bool {
 	// mặc định là `memory`, nên bộ lọc màu ở cửa hàng trả về toàn bộ danh
 	// mục — không lỗi, không log, không ai biết. Mặc định nay là
 	// `postgres` (P3-74), nhưng kho này vẫn phải khớp bản SQL.
-	return f.KhopBienThe(p.Variants)
+	return f.MatchesVariants(p.Variants)
 }
 
 // sortProducts sắp xếp theo id để kết quả ỔN ĐỊNH.

@@ -1390,7 +1390,7 @@ quản trị viên kiểm kê, nhà bán kiểm kê, và đường thêm sau —
 **Cập nhật 04/09:** đã tách thành HAI trần theo quyết định của người dùng.
 
 ```text
-MaxLuuTru       2.147.483.647   sự thật về cột INT, không sửa được
+MaxStorable       2.147.483.647   sự thật về cột INT, không sửa được
 trần nghiệp vụ     10.000.000   mặc định, SỬA ĐƯỢC từ giao diện quản trị
 ```
 
@@ -3317,7 +3317,7 @@ lỗi mà mục 8 vừa liệt kê: một trường không ai điền được. 
 
 ```text
 AttrColorHex       "color_hex" trong attributes, như color_family
-ChuanHoaMaMau      kiểm ^#[0-9A-Fa-f]{6}$, chuẩn hóa CHỮ HOA
+NormalizeColorHex      kiểm ^#[0-9A-Fa-f]{6}$, chuẩn hóa CHỮ HOA
 khóa định danh     LOẠI hex ra, cùng lý do với color_family
 Variant.color_hex  trả ra cửa hàng, omitempty
 ```
@@ -4496,7 +4496,7 @@ mọi đường đều đi qua một hàm, nên đặt phép so ở đó là kh�
 Đặt ở từng thao tác thì thêm một thao tác mới là quên một lần, và thứ bị
 quên là dữ liệu không tạo ngược được.
 
-**Cờ `vuaHetHang` KHÔNG lưu xuống database.** "Đang hết hàng" là trạng thái
+**Cờ `justDepleted` KHÔNG lưu xuống database.** "Đang hết hàng" là trạng thái
 đọc từ số lượng; đây là SỰ KIỆN chuyển từ còn sang hết. Lưu nó sẽ tạo một
 trường thứ hai nói về cùng một sự thật, và hai nguồn sẽ lệch nhau.
 
@@ -4752,7 +4752,7 @@ về. Cả năm đều KHÔNG phải khoảng hở — ghi ra để lần sau kh
 | `ErrBrandNotAuthorized` | hàng rào chống hàng giả dùng **struct kết quả** `SellPermission{Allowed, Reason, RequiredAction}` chứ không dùng lỗi — thiết kế TỐT HƠN, vì nó nói được cả "phải làm gì tiếp" |
 | `ErrAuthorizationExpired` | như trên (`Reason = AUTHORIZATION_EXPIRED`) |
 | `ErrCategoryCycle` | `parentID` chỉ đặt LÚC TẠO và không có thao tác đổi cha, nên vòng không hình thành được |
-| `ErrInvariantBroken` | mọi phép biến đổi CHUYỂN số lượng giữa các trạng thái nên tổng bảo toàn theo cấu trúc — và `TestChuyenTrangThaiBaoToanTong` chứng minh điều đó |
+| `ErrInvariantBroken` | mọi phép biến đổi CHUYỂN số lượng giữa các trạng thái nên tổng bảo toàn theo cấu trúc — và `TestTransitionsPreserveTotal` chứng minh điều đó |
 | `ErrTotalMismatch` | `Order.Total()` TÍNH TỪ dòng hàng, không lưu riêng, nên không có hai con số để lệch |
 
 Đã xóa cả năm. Một lỗi khai mà không ai trả về mời người sau viết nhánh xử
@@ -6028,7 +6028,7 @@ Cả ba nói với người dùng rằng máy chủ hỏng và nên thử lại.
 hỏng y hệt.
 
 **Thiếu danh mục** — miền ĐÒI `category_id`, tầng HTTP coi nó là tùy chọn.
-Lệch ấy rơi xuống nhánh mặc định của `dichLoiGhi`.
+Lệch ấy rơi xuống nhánh mặc định của `translateWriteError`.
 
 **Thiếu ảnh** — cột `images TEXT[] NOT NULL DEFAULT '{}'`, nhưng DEFAULT
 chỉ áp dụng khi cột VẮNG khỏi câu INSERT; một slice nil gửi NULL và bị từ
@@ -6039,15 +6039,15 @@ phép: điều kiện "phải có ảnh" chỉ bật lúc GỬI DUYỆT.
 
 #### Không phải một lỗi, mà CHÍN
 
-Rà cả bảng `dichLoiGhi`: **9 trong 20 lỗi miền** không có nhánh, tức chín
+Rà cả bảng `translateWriteError`: **9 trong 20 lỗi miền** không có nhánh, tức chín
 cách một nhà bán nhập sai và được báo rằng máy chủ hỏng. Trong đó có
 `ErrSlugTaken` và `ErrSKUCodeTaken` — hai lỗi người dùng gặp hằng ngày.
 
-Hàng rào: `TestMoiLoiMienDeuCoDuongRaKhac500` ĐỌC AST của `product/domain`,
-tìm mọi `Err…`, rồi đòi mỗi cái có nhánh trong thân hàm `dichLoiGhi`. Cắt
+Hàng rào: `TestEveryDomainErrorHasANon500Path` ĐỌC AST của `product/domain`,
+tìm mọi `Err…`, rồi đòi mỗi cái có nhánh trong thân hàm `translateWriteError`. Cắt
 đúng thân hàm chứ không đọc cả file — tên một lỗi nằm trong bình luận không
 có nghĩa là nó được dịch. Một danh sách chép tay ở đây sẽ lệch đúng theo
-cách `dichLoiGhi` đã lệch.
+cách `translateWriteError` đã lệch.
 
 Phá thử: bỏ nhánh `ErrSlugTaken` → đỏ kèm tên lỗi và việc cần làm.
 
@@ -6113,7 +6113,7 @@ Endpoint `addMyProductVariant` đã có từ lâu; không có màn hình.
 #### Biến thể được nạp sẵn rồi bị vứt ở tầng DTO
 
 `queryMany` gọi `loadVariants` cho MỌI truy vấn danh sách sản phẩm — dữ
-liệu đã ở trong tay. `toSanPhamNhaBan` không trả nó.
+liệu đã ở trong tay. `toSellerProduct` không trả nó.
 
 Hệ quả: nhà bán thêm biến thể xong không có cách nào thấy mình đã thêm gì,
 nên hoặc thêm trùng hoặc bỏ dở. Cùng hình dạng với `shipping_groups`
@@ -6262,7 +6262,7 @@ bài quét không thấy và `errors.Is` không nhận ra. Rà cả thư mục: 
 ĐÃ COMMIT: cả hai ca nhận 500.
 
 Một hàng rào có điểm mù đúng hình dạng lỗi nó canh là hàng rào tạo cảm giác
-an toàn giả. `TestDomainKhongTaoLoiTaiCho` nay đọc AST và cấm `errors.New`
+an toàn giả. `TestDomainCreatesNoAdHocErrors` nay đọc AST và cấm `errors.New`
 trong thân hàm của domain, cùng `fmt.Errorf` không có `%w`.
 
 #### Lỗ hổng 2 — danh mục rác ghi được, cả lúc TẠO
@@ -6346,13 +6346,13 @@ nhà bán mất hàng đang bán mà không hiểu vì sao. Cả lượt sửa b
 #### Test của chính tôi bắt lỗi của chính tôi
 
 Bản đầu kiểm điều kiện **sau** khi áp dụng, với lập luận "bên gọi không lưu
-thì không sao". Bài `TestSuaHangDangBanLamThieuDieuKienThiTuChoi` đỏ ở dòng
+thì không sao". Bài `TestEditIsRejectedIfItBreaksPublishPreconditions` đỏ ở dòng
 cuối: trạng thái giữ đúng `ACTIVE`, nhưng **ảnh đã bị gỡ trong bộ nhớ**.
 
 Lập luận ấy đúng về database và sai về đối tượng: "tất cả hoặc không gì"
 nói về con trỏ mà bên gọi đang cầm, không chỉ về hàng trong bảng.
 
-Sửa bằng cách tách luật thành `kiemDuDieuKien(dieuKienDuyet)` — nhận GIÁ
+Sửa bằng cách tách luật thành `checkPreconditions(reviewPreconditions)` — nhận GIÁ
 TRỊ thay vì đọc `p` — để kiểm được trạng thái **sắp có** trước khi chạm vào
 sản phẩm. `CheckReadyForReview` gọi cùng hàm ấy, nên luật vẫn ở một chỗ.
 
@@ -6872,7 +6872,7 @@ chỗ nó bị vi phạm.
 #### Sửa: một phép so khớp, hai kho dùng chung
 
 Chuẩn hóa hoa-thường và phép "tồn tại một biến thể khớp" chuyển về
-`domain.Filter` (`SizeDaChuan`, `NhomMauDaChuan`, `KhopBienThe`). Bản SQL
+`domain.Filter` (`NormalizedSizes`, `NormalizedColorFamilies`, `MatchesVariants`). Bản SQL
 dùng chung phép chuẩn hóa; bản in-memory dùng chung cả hai.
 
 Đó là QUY TẮC của bộ lọc, không phải chi tiết của PostgreSQL. Mỗi kho tự
@@ -6882,7 +6882,7 @@ Ba hàm `chuanHoa*` bên postgres thành không ai gọi, nên xóa hẳn.
 
 #### Hàng rào: bắt HAI KHO trả lời giống nhau
 
-`TestHaiKhoLocBienTheGiongNhau` nạp cùng một danh mục vào cả hai kho rồi
+`TestBothStoresFilterVariantsAlike` nạp cùng một danh mục vào cả hai kho rồi
 so 12 bộ lọc. Hai bài test riêng cho hai kho vẫn xanh khi một kho quên mất
 một bộ lọc — bài của nó chỉ đơn giản là không có. Bài này hỏi câu khác:
 hai cài đặt có trả lời GIỐNG NHAU không.

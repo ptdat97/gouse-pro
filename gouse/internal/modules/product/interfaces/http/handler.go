@@ -24,12 +24,12 @@ import (
 
 // Handler phục vụ các endpoint product công khai.
 type Handler struct {
-	svc  *application.Service
-	goiY GoiYSizePort
-	log  *slog.Logger
+	svc     *application.Service
+	suggest SizeSuggestionPort
+	log     *slog.Logger
 }
 
-// GoiYSizePort là cổng HẸP tới module gợi ý.
+// SizeSuggestionPort là cổng HẸP tới module gợi ý.
 //
 // # Vì sao cổng nằm Ở ĐÂY chứ không import thẳng
 //
@@ -41,8 +41,8 @@ type Handler struct {
 // thuộc vì thế chỉ có MỘT: `recommendation → product`. Xem ADR-0019.
 //
 // Nil là hợp lệ: trang sản phẩm chạy bình thường, chỉ không có gợi ý.
-type GoiYSizePort interface {
-	GoiYSize(ctx context.Context, customerID, brandID string, cacSize []string) (
+type SizeSuggestionPort interface {
+	SuggestSize(ctx context.Context, customerID, brandID string, sizes []string) (
 		suggestedSize, reason string, err error)
 }
 
@@ -51,15 +51,15 @@ func NewHandler(svc *application.Service, log *slog.Logger) *Handler {
 	return &Handler{svc: svc, log: log}
 }
 
-// NewHandlerKemGoiY tạo handler CÓ gợi ý size.
+// NewHandlerWithSizeSuggestion tạo handler CÓ gợi ý size.
 //
 // Tách thành hàm riêng thay vì thêm tham số vào `NewHandler`: mọi bên gọi
 // hiện có không cần gợi ý, và bắt chúng truyền `nil` sẽ làm điểm gọi khó
 // đọc mà không đổi lại được gì.
-func NewHandlerKemGoiY(
-	svc *application.Service, goiY GoiYSizePort, log *slog.Logger,
+func NewHandlerWithSizeSuggestion(
+	svc *application.Service, suggest SizeSuggestionPort, log *slog.Logger,
 ) *Handler {
-	return &Handler{svc: svc, goiY: goiY, log: log}
+	return &Handler{svc: svc, suggest: suggest, log: log}
 }
 
 // Register gắn route vào mux.
@@ -158,7 +158,7 @@ func (h *Handler) getProduct(w http.ResponseWriter, r *http.Request) {
 		chart = nil
 	}
 
-	h.ok(w, r, toProductDetail(p, chart, h.goiYSizeCho(r, p)))
+	h.ok(w, r, toProductDetail(p, chart, h.suggestSizeFor(r, p)))
 }
 
 // listProducts phục vụ GET /api/v1/products.
@@ -224,8 +224,8 @@ func (h *Handler) listProducts(w http.ResponseWriter, r *http.Request) {
 	// Đây là cách người ta mua quần áo: lọc size mình mặc vừa và màu mình
 	// thích, rồi mới nhìn. Danh mục không có hai bộ lọc này bắt khách mở
 	// từng sản phẩm để biết có mua được không.
-	f.Sizes = tachDanhSach(q.Get("size"))
-	f.ColorFamilies = tachDanhSach(q.Get("color"))
+	f.Sizes = splitList(q.Get("size"))
+	f.ColorFamilies = splitList(q.Get("color"))
 
 	if raw := strings.TrimSpace(q.Get("gender_target")); raw != "" {
 		f.Gender = domain.GenderTarget(strings.ToUpper(raw))
@@ -305,7 +305,7 @@ func (h *Handler) listByIDs(w http.ResponseWriter, r *http.Request, raw string) 
 
 // ---------------------------------------------------------------- Chuyển đổi
 
-func toProductDetail(p *domain.Product, chart *application.SizeChartInfo, goiY *sizeRecommendation) productDetail {
+func toProductDetail(p *domain.Product, chart *application.SizeChartInfo, suggest *sizeRecommendation) productDetail {
 	out := productDetail{
 		ID:                  p.ID().String(),
 		Name:                p.Name(),
@@ -325,7 +325,7 @@ func toProductDetail(p *domain.Product, chart *application.SizeChartInfo, goiY *
 		// Trước 16/09 tham số `goiY` được truyền vào hàm này rồi KHÔNG
 		// dùng — Go không báo tham số thừa, nên cả chuỗi từ event tới
 		// quy tắc suy luận chạy đúng và kết quả bị vứt ở dòng cuối cùng.
-		SizeRecommendation: goiY,
+		SizeRecommendation: suggest,
 	}
 
 	// Tên thương hiệu và bộ sưu tập thuộc module catalog. Ở đây chỉ trả
@@ -470,16 +470,16 @@ func translate(err error, notFoundMsg string) error {
 	return apierror.From(err)
 }
 
-// maxGiaTriLoc chặn một bộ lọc kéo cả bảng.
+// maxFilterValues chặn một bộ lọc kéo cả bảng.
 //
 // 20 rộng hơn nhiều so với nhu cầu thật: không ai lọc cùng lúc 20 size.
-const maxGiaTriLoc = 20
+const maxFilterValues = 20
 
-// tachDanhSach tách chuỗi "M,L,XL" thành danh sách.
+// splitList tách chuỗi "M,L,XL" thành danh sách.
 //
-// Cắt ở maxGiaTriLoc thay vì báo lỗi: bộ lọc quá dài là lỗi của giao diện,
+// Cắt ở maxFilterValues thay vì báo lỗi: bộ lọc quá dài là lỗi của giao diện,
 // không phải của khách, và trả lỗi cho họ không giúp được gì.
-func tachDanhSach(raw string) []string {
+func splitList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil
@@ -492,14 +492,14 @@ func tachDanhSach(raw string) []string {
 			continue
 		}
 		out = append(out, p)
-		if len(out) == maxGiaTriLoc {
+		if len(out) == maxFilterValues {
 			break
 		}
 	}
 	return out
 }
 
-// goiYSizeCho lấy gợi ý size cho khách đang xem, hoặc nil.
+// suggestSizeFor lấy gợi ý size cho khách đang xem, hoặc nil.
 //
 // # Hỏng gợi ý KHÔNG được làm hỏng trang sản phẩm
 //
@@ -507,10 +507,10 @@ func tachDanhSach(raw string) []string {
 // khách chưa đăng nhập, sản phẩm không bán theo size, hay module gợi ý lỗi.
 // Đặc tả mục 5 đặt điều này thành yêu cầu bắt buộc — gợi ý là tính năng
 // TĂNG CƯỜNG.
-func (h *Handler) goiYSizeCho(
+func (h *Handler) suggestSizeFor(
 	r *http.Request, p *domain.Product,
 ) *sizeRecommendation {
-	if h.goiY == nil {
+	if h.suggest == nil {
 		return nil
 	}
 	// Mã KHÁCH, không phải mã người dùng.
@@ -532,18 +532,18 @@ func (h *Handler) goiYSizeCho(
 	// Đó là thứ tự người dựng danh mục đã đặt, và nó là thứ tự duy nhất có
 	// nghĩa: sắp lại theo bảng chữ cái sẽ biến "S, M, L" thành "L, M, S"
 	// và mọi phép "lên một size" đảo chiều.
-	cacSize := make([]string, 0, len(p.Variants()))
+	sizes := make([]string, 0, len(p.Variants()))
 	for _, v := range p.Variants() {
 		if s := v.Size(); s != "" {
-			cacSize = append(cacSize, s)
+			sizes = append(sizes, s)
 		}
 	}
-	if len(cacSize) == 0 {
+	if len(sizes) == 0 {
 		return nil
 	}
 
-	size, lyDo, err := h.goiY.GoiYSize(
-		r.Context(), sh.CustomerID, p.BrandID().String(), cacSize)
+	size, reason, err := h.suggest.SuggestSize(
+		r.Context(), sh.CustomerID, p.BrandID().String(), sizes)
 	if err != nil {
 		h.log.WarnContext(r.Context(), "không lấy được gợi ý size",
 			"error", err, "product_id", p.ID().String())
@@ -552,5 +552,5 @@ func (h *Handler) goiYSizeCho(
 	if size == "" {
 		return nil
 	}
-	return &sizeRecommendation{SuggestedSize: size, Reason: lyDo}
+	return &sizeRecommendation{SuggestedSize: size, Reason: reason}
 }

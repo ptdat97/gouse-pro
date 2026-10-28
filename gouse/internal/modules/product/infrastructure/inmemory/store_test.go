@@ -88,7 +88,7 @@ func buildProduct(t *testing.T, o buildOpts) *domain.Product {
 	return p
 }
 
-func TestLuuVaDocLai(t *testing.T) {
+func TestSaveAndReadBack(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 	p := buildProduct(t, buildOpts{})
@@ -109,7 +109,7 @@ func TestLuuVaDocLai(t *testing.T) {
 	}
 }
 
-func TestKhongTimThayTraErrNotFound(t *testing.T) {
+func TestProductNotFoundReturnsErrNotFound(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
@@ -126,7 +126,7 @@ func TestKhongTimThayTraErrNotFound(t *testing.T) {
 
 // Kho phải hành xử GIỐNG database: sửa aggregate sau khi Save không được
 // làm đổi dữ liệu đã lưu. Nếu lưu con trỏ, test này sẽ trượt.
-func TestSuaSauKhiLuuKhongAnhHuongDuLieuDaLuu(t *testing.T) {
+func TestEditingAfterSaveDoesNotTouchSavedData(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 	p := buildProduct(t, buildOpts{})
@@ -157,7 +157,7 @@ func TestSuaSauKhiLuuKhongAnhHuongDuLieuDaLuu(t *testing.T) {
 
 // Bản chụp phải đi SÂU: sửa Variant/SKU sau khi Save cũng không được ảnh
 // hưởng kho. Chụp nông sẽ bỏ lọt đúng loại lỗi này.
-func TestSuaVariantVaSKUSauKhiLuuKhongAnhHuongKho(t *testing.T) {
+func TestEditingVariantAndSKUAfterSaveDoesNotTouchTheStore(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 	p := buildProduct(t, buildOpts{})
@@ -191,7 +191,7 @@ func TestSuaVariantVaSKUSauKhiLuuKhongAnhHuongKho(t *testing.T) {
 }
 
 // Sửa aggregate vừa ĐỌC RA cũng không được làm hỏng dữ liệu trong kho.
-func TestSuaBanDocRaKhongAnhHuongKho(t *testing.T) {
+func TestEditingAReadCopyDoesNotTouchTheStore(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 	p := buildProduct(t, buildOpts{})
@@ -221,7 +221,7 @@ func TestSuaBanDocRaKhongAnhHuongKho(t *testing.T) {
 }
 
 // Quy tắc 1: mã SKU duy nhất TOÀN HỆ THỐNG, không chỉ trong một sản phẩm.
-func TestMaSKUDuyNhatToanHeThong(t *testing.T) {
+func TestSKUCodeIsUniqueSystemWide(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
@@ -242,7 +242,7 @@ func TestMaSKUDuyNhatToanHeThong(t *testing.T) {
 	}
 }
 
-func TestSlugDuyNhat(t *testing.T) {
+func TestSlugIsUnique(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
@@ -257,7 +257,7 @@ func TestSlugDuyNhat(t *testing.T) {
 	}
 }
 
-func TestTraNguocTuMaSKU(t *testing.T) {
+func TestReverseLookupFromSKUCode(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 	p := buildProduct(t, buildOpts{skuCode: "QUET-MA-VACH"})
@@ -278,7 +278,7 @@ func TestTraNguocTuMaSKU(t *testing.T) {
 	}
 }
 
-func TestTraNguocTuDanhSachSKUID(t *testing.T) {
+func TestReverseLookupFromSKUIDList(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
@@ -292,9 +292,9 @@ func TestTraNguocTuDanhSachSKUID(t *testing.T) {
 
 	skuID1 := p1.SKUs()[0].ID()
 	skuID2 := p2.SKUs()[0].ID()
-	khongCo := ids.MustNew(ids.PrefixSKU)
+	absentID := ids.MustNew(ids.PrefixSKU)
 
-	got, err := s.FindBySKUIDs(ctx, []ids.ID{skuID1, skuID2, khongCo})
+	got, err := s.FindBySKUIDs(ctx, []ids.ID{skuID1, skuID2, absentID})
 	if err != nil {
 		t.Fatalf("FindBySKUIDs: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestTraNguocTuDanhSachSKUID(t *testing.T) {
 
 // Khi cập nhật sản phẩm, ánh xạ SKU cũ phải được dọn — nếu không, mã của
 // SKU đã bị gỡ sẽ bị chiếm mãi mãi.
-func TestCapNhatDonAnhXaSKUCu(t *testing.T) {
+func TestUpdateDropsStaleSKUMapping(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
@@ -318,7 +318,7 @@ func TestCapNhatDonAnhXaSKUCu(t *testing.T) {
 	}
 
 	// Dựng lại sản phẩm CÙNG id nhưng không còn SKU cũ.
-	thayThe := domain.RestoreProduct(domain.RestoreProductParams{
+	replacement := domain.RestoreProduct(domain.RestoreProductParams{
 		ID:         p.ID(),
 		BrandID:    p.BrandID(),
 		CategoryID: p.CategoryID(),
@@ -328,7 +328,7 @@ func TestCapNhatDonAnhXaSKUCu(t *testing.T) {
 		CreatedAt:  p.CreatedAt(),
 		UpdatedAt:  testNow,
 	})
-	if err := s.Save(ctx, thayThe); err != nil {
+	if err := s.Save(ctx, replacement); err != nil {
 		t.Fatalf("Save bản thay thế: %v", err)
 	}
 
@@ -338,15 +338,15 @@ func TestCapNhatDonAnhXaSKUCu(t *testing.T) {
 	}
 
 	// Và sản phẩm khác phải dùng lại được mã đó.
-	khac := buildProduct(t, buildOpts{slug: "sp-khac", skuCode: "MA-CU"})
-	if err := s.Save(ctx, khac); err != nil {
+	otherProduct := buildProduct(t, buildOpts{slug: "sp-khac", skuCode: "MA-CU"})
+	if err := s.Save(ctx, otherProduct); err != nil {
 		t.Errorf("sản phẩm khác không dùng lại được mã đã giải phóng: %v", err)
 	}
 }
 
 // Lọc theo seller phải nằm trong TRUY VẤN. Đây là hàng rào chống rò rỉ dữ
 // liệu giữa các seller (rủi ro #5 trong deliverables.md).
-func TestLocTheoSellerKhongLoDuLieuSellerKhac(t *testing.T) {
+func TestSellerFilterLeaksNoOtherSellerData(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
@@ -355,8 +355,8 @@ func TestLocTheoSellerKhongLoDuLieuSellerKhac(t *testing.T) {
 
 	pA := buildProduct(t, buildOpts{slug: "cua-a", skuCode: "MA-A", sellerID: sellerA})
 	pB := buildProduct(t, buildOpts{slug: "cua-b", skuCode: "MA-B", sellerID: sellerB})
-	nenTang := buildProduct(t, buildOpts{slug: "cua-nen-tang", skuCode: "MA-NT"})
-	for _, p := range []*domain.Product{pA, pB, nenTang} {
+	platformProduct := buildProduct(t, buildOpts{slug: "cua-nen-tang", skuCode: "MA-NT"})
+	for _, p := range []*domain.Product{pA, pB, platformProduct} {
 		if err := s.Save(ctx, p); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
@@ -374,24 +374,24 @@ func TestLocTheoSellerKhongLoDuLieuSellerKhac(t *testing.T) {
 	}
 }
 
-func TestLocTheoNhieuTieuChi(t *testing.T) {
+func TestFilterByManyCriteria(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
 	brand := ids.MustNew(ids.PrefixBrand)
 	coll := ids.MustNew(ids.PrefixCollection)
 
-	hienThi := buildProduct(t, buildOpts{
+	visible := buildProduct(t, buildOpts{
 		slug: "hien-thi", skuCode: "MA-1",
 		brandID: brand, collID: coll, status: domain.StatusActive,
 	})
-	nhap := buildProduct(t, buildOpts{
+	draftProduct := buildProduct(t, buildOpts{
 		slug: "con-nhap", skuCode: "MA-2", brandID: brand, collID: coll,
 	})
-	brandKhac := buildProduct(t, buildOpts{
+	otherBrandProduct := buildProduct(t, buildOpts{
 		slug: "brand-khac", skuCode: "MA-3", status: domain.StatusActive,
 	})
-	for _, p := range []*domain.Product{hienThi, nhap, brandKhac} {
+	for _, p := range []*domain.Product{visible, draftProduct, otherBrandProduct} {
 		if err := s.Save(ctx, p); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
@@ -403,7 +403,7 @@ func TestLocTheoNhieuTieuChi(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(got) != 1 || got[0].ID() != hienThi.ID() {
+	if len(got) != 1 || got[0].ID() != visible.ID() {
 		t.Errorf("lọc OnlyVisible sai: được %d kết quả", len(got))
 	}
 
@@ -419,7 +419,7 @@ func TestLocTheoNhieuTieuChi(t *testing.T) {
 
 // Duyệt map trong Go có thứ tự ngẫu nhiên. Không sắp xếp thì phân trang
 // sẽ trả kết quả khác nhau mỗi lần và khách thấy sản phẩm nhảy giữa các trang.
-func TestKetQuaOnDinhQuaNhieuLanGoi(t *testing.T) {
+func TestResultIsStableAcrossCalls(t *testing.T) {
 	ctx := context.Background()
 	s := inmemory.NewProductStore()
 
@@ -452,12 +452,12 @@ func TestKetQuaOnDinhQuaNhieuLanGoi(t *testing.T) {
 	}
 
 	// Phân trang không được trùng lặp giữa các trang.
-	trang2, err := s.List(ctx, domain.Filter{Limit: 3, Offset: 3})
+	page2, err := s.List(ctx, domain.Filter{Limit: 3, Offset: 3})
 	if err != nil {
 		t.Fatalf("List trang 2: %v", err)
 	}
 	for _, a := range first {
-		for _, b := range trang2 {
+		for _, b := range page2 {
 			if a.ID() == b.ID() {
 				t.Errorf("sản phẩm %q xuất hiện ở cả hai trang", a.Slug())
 			}

@@ -42,14 +42,14 @@ func TestSoLuongVuotSucChuaTra400(t *testing.T) {
 	}
 
 	// ĐÚNG trần: phải nhận.
-	if got := dat(domain.TranMacDinh); got.code != http.StatusOK {
+	if got := dat(domain.DefaultCap); got.code != http.StatusOK {
 		t.Errorf("đúng trần (%d) bị từ chối: HTTP %d — %s",
-			domain.TranMacDinh, got.code, got.raw)
+			domain.DefaultCap, got.code, got.raw)
 	}
 
 	// Trần CỘNG MỘT: phải từ chối, và phải là 400.
 	for _, q := range []int64{
-		int64(domain.TranMacDinh) + 1,
+		int64(domain.DefaultCap) + 1,
 		3_000_000_000,
 		9_000_000_000_000,
 	} {

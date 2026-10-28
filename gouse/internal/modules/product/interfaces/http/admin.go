@@ -34,32 +34,32 @@ func NewAdminHandler(svc *application.Service, log *slog.Logger) *AdminHandler {
 // "OPS_MERCHANDISING") — duyệt hàng hóa là việc của bộ phận hàng hóa.
 func (h *AdminHandler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/products/pending",
-		http.HandlerFunc(h.choDuyet))
+		http.HandlerFunc(h.approve))
 	mux.Handle("POST /api/v1/admin/products/{product_id}/approve",
-		http.HandlerFunc(h.duyet))
+		http.HandlerFunc(h.approvedAt))
 	mux.Handle("POST /api/v1/admin/products/{product_id}/reject",
-		http.HandlerFunc(h.tuChoi))
+		http.HandlerFunc(h.reject))
 }
 
-// choDuyet trả hàng đang chờ duyệt của MỌI gian hàng.
-func (h *AdminHandler) choDuyet(w http.ResponseWriter, r *http.Request) {
-	ds, err := h.svc.ListProducts(r.Context(), domain.Filter{
+// approve trả hàng đang chờ duyệt của MỌI gian hàng.
+func (h *AdminHandler) approve(w http.ResponseWriter, r *http.Request) {
+	items, err := h.svc.ListProducts(r.Context(), domain.Filter{
 		Status: domain.StatusPendingReview,
-		Limit:  gioiHanTu(r.URL.Query().Get("limit"), 50, maxLimit),
+		Limit:  limitFrom(r.URL.Query().Get("limit"), 50, maxLimit),
 	})
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
 
-	out := make([]sanPhamNhaBan, 0, len(ds))
-	for _, p := range ds {
-		out = append(out, toSanPhamNhaBan(p))
+	out := make([]sellerProduct, 0, len(items))
+	for _, p := range items {
+		out = append(out, toSellerProduct(p))
 	}
 	h.ok(w, r, http.StatusOK, map[string]any{"data": out})
 }
 
-func (h *AdminHandler) duyet(w http.ResponseWriter, r *http.Request) {
+func (h *AdminHandler) approvedAt(w http.ResponseWriter, r *http.Request) {
 	pid, err := ids.Parse(r.PathValue("product_id"), ids.PrefixProduct)
 	if err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
@@ -69,13 +69,13 @@ func (h *AdminHandler) duyet(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.svc.Approve(r.Context(), pid)
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSanPhamNhaBan(p))
+	h.ok(w, r, http.StatusOK, toSellerProduct(p))
 }
 
-type tuChoiBody struct {
+type rejectBody struct {
 	Reason string `json:"reason"`
 }
 
@@ -84,8 +84,8 @@ type tuChoiBody struct {
 // Lý do BẮT BUỘC: nhà bán phải biết sửa gì. Một lần từ chối không nói lý
 // do là một gian hàng đứng im không hiểu vì sao, và họ sẽ gửi lại đúng
 // sản phẩm đó — tốn công cả hai bên.
-func (h *AdminHandler) tuChoi(w http.ResponseWriter, r *http.Request) {
-	var body tuChoiBody
+func (h *AdminHandler) reject(w http.ResponseWriter, r *http.Request) {
+	var body rejectBody
 	if err := decodeJSON(r, &body); err != nil {
 		h.fail(w, r, err)
 		return
@@ -105,10 +105,10 @@ func (h *AdminHandler) tuChoi(w http.ResponseWriter, r *http.Request) {
 
 	p, err := h.svc.Reject(r.Context(), pid, strings.TrimSpace(body.Reason))
 	if err != nil {
-		h.fail(w, r, dichLoiGhi(err))
+		h.fail(w, r, translateWriteError(err))
 		return
 	}
-	h.ok(w, r, http.StatusOK, toSanPhamNhaBan(p))
+	h.ok(w, r, http.StatusOK, toSellerProduct(p))
 }
 
 func (h *AdminHandler) ok(w http.ResponseWriter, r *http.Request, status int, body any) {

@@ -31,12 +31,12 @@ var (
 	// Chúng không có tên, nên:
 	//
 	//	- tầng HTTP không `errors.Is` được → rơi xuống nhánh mặc định → 500
-	//	- `TestMoiLoiMienDeuCoDuongRaKhac500` quét biến `Err…` có tên, nên
+	//	- `TestEveryDomainErrorHasANon500Path` quét biến `Err…` có tên, nên
 	//	  KHÔNG thấy chúng — hàng rào có một điểm mù đúng hình dạng lỗi
 	//
 	// Gửi `product_type: "XYZ"` từng trả 500 "vui lòng thử lại" dù hàng rào
 	// báo xanh. Sửa 19/09/2026; hàng rào nay cấm `errors.New` trong thân
-	// hàm của domain — xem `TestDomainKhongTaoLoiTaiCho`.
+	// hàm của domain — xem `TestDomainCreatesNoAdHocErrors`.
 	ErrInvalidProductType = errors.New("product: loại sản phẩm không hợp lệ")
 	ErrInvalidGender      = errors.New("product: đối tượng khách không hợp lệ")
 	ErrNilVariant         = errors.New("product: biến thể rỗng")
@@ -448,50 +448,50 @@ func (p *Product) SubmitForReview(now time.Time) error {
 // "còn thiếu gì" TRƯỚC khi người dùng bấm gửi — báo lỗi sau khi bấm là
 // trải nghiệm tệ và làm seller bỏ dở việc đăng bán.
 func (p *Product) CheckReadyForReview() error {
-	return kiemDuDieuKien(dieuKienDuyet{
-		moTa:      p.description,
-		anh:       p.images,
-		soBienThe: len(p.variants),
-		bangSize:  p.sizeChartID,
-		loai:      p.productType,
-		chatLieu:  p.materialComposition,
+	return checkPreconditions(reviewPreconditions{
+		descriptionText: p.description,
+		imageList:       p.images,
+		variantCount:    len(p.variants),
+		sizeChartRef:    p.sizeChartID,
+		productKind:     p.productType,
+		material:        p.materialComposition,
 	})
 }
 
-// dieuKienDuyet là ảnh chụp những trường mà điều kiện gửi duyệt nhìn vào.
-type dieuKienDuyet struct {
-	moTa      string
-	anh       []string
-	soBienThe int
-	bangSize  ids.ID
-	loai      ProductType
-	chatLieu  string
+// reviewPreconditions là ảnh chụp những trường mà điều kiện gửi duyệt nhìn vào.
+type reviewPreconditions struct {
+	descriptionText string
+	imageList       []string
+	variantCount    int
+	sizeChartRef    ids.ID
+	productKind     ProductType
+	material        string
 }
 
-// kiemDuDieuKien giữ LUẬT ở một chỗ duy nhất.
+// checkPreconditions giữ LUẬT ở một chỗ duy nhất.
 //
-// Nhận giá trị thay vì đọc `p`, để `Sua` kiểm được trạng thái SẮP CÓ trước
+// Nhận giá trị thay vì đọc `p`, để `Edit` kiểm được trạng thái SẮP CÓ trước
 // khi chạm vào sản phẩm. Bản trước kiểm sau khi đổi: trạng thái giữ đúng
 // nhưng các trường đã bị ghi đè trong bộ nhớ, và một bài test của chính
 // luật "tất cả hoặc không gì" bắt được — ảnh bị gỡ dù lượt sửa bị từ chối.
-func kiemDuDieuKien(d dieuKienDuyet) error {
-	if d.moTa == "" {
+func checkPreconditions(d reviewPreconditions) error {
+	if d.descriptionText == "" {
 		return ErrMissingDescription
 	}
-	if len(d.anh) == 0 {
+	if len(d.imageList) == 0 {
 		return ErrNoImages
 	}
-	if d.soBienThe == 0 {
+	if d.variantCount == 0 {
 		return ErrNoVariants
 	}
 	// Quy tắc 4: sản phẩm thời trang phải có bảng size — nhưng túi và phụ
 	// kiện không có size.
-	if d.loai.NeedsSizeChart() && d.bangSize.IsZero() {
+	if d.productKind.NeedsSizeChart() && d.sizeChartRef.IsZero() {
 		return ErrMissingSizeChart
 	}
 	// Chất liệu ảnh hưởng trực tiếp tỷ lệ hoàn hàng, nên là điều kiện bắt
 	// buộc chứ không phải khuyến nghị.
-	if d.chatLieu == "" {
+	if d.material == "" {
 		return ErrMissingMaterial
 	}
 	return nil
@@ -554,7 +554,7 @@ func (p *Product) transition(next Status, now time.Time) error {
 	return nil
 }
 
-// SuaParams là những gì nhà bán SỬA ĐƯỢC trên một sản phẩm nháp.
+// EditParams là những gì nhà bán SỬA ĐƯỢC trên một sản phẩm nháp.
 //
 // Con trỏ nil = GIỮ NGUYÊN. Đó là ngữ nghĩa của PATCH: gửi một trường thì
 // chỉ đổi trường đó, không phải gửi lại toàn bộ sản phẩm.
@@ -568,7 +568,7 @@ func (p *Product) transition(next Status, now time.Time) error {
 //
 // Nhầm thương hiệu thì tạo sản phẩm mới. Đắt hơn một chút cho nhà bán, rẻ
 // hơn rất nhiều so với việc hàng rào có một cửa sau.
-type SuaParams struct {
+type EditParams struct {
 	Name                *string
 	Slug                *string
 	Description         *string
@@ -618,16 +618,16 @@ type SuaParams struct {
 // Kiểm MỌI trường trước, rồi mới đổi. Kiểm tới đâu đổi tới đó thì một
 // trường hỏng ở giữa để lại sản phẩm sửa dở — một nửa theo ý cũ, một nửa
 // theo ý mới, và không ai biết nửa nào.
-func (p *Product) Sua(in SuaParams, now time.Time) error {
+func (p *Product) Edit(in EditParams, now time.Time) error {
 	if p.status != StatusDraft && p.status != StatusActive {
 		return ErrInvalidStatus
 	}
-	dangBan := p.status == StatusActive
+	published := p.status == StatusActive
 
 	// ---- Kiểm, chưa đổi gì.
-	var ten, slug string
+	var name, slug string
 	if in.Name != nil {
-		if ten = strings.TrimSpace(*in.Name); ten == "" {
+		if name = strings.TrimSpace(*in.Name); name == "" {
 			return ErrEmptyName
 		}
 	}
@@ -647,15 +647,15 @@ func (p *Product) Sua(in SuaParams, now time.Time) error {
 	if in.GenderTarget != nil && !in.GenderTarget.valid() {
 		return fmt.Errorf("%w: %s", ErrInvalidGender, *in.GenderTarget)
 	}
-	var anh []string
+	var imageList []string
 	if in.Images != nil {
-		anh = make([]string, 0, len(*in.Images))
+		imageList = make([]string, 0, len(*in.Images))
 		for _, u := range *in.Images {
 			u = strings.TrimSpace(u)
 			if u == "" {
 				return ErrEmptyImageURL
 			}
-			anh = append(anh, u)
+			imageList = append(imageList, u)
 		}
 	}
 
@@ -664,38 +664,38 @@ func (p *Product) Sua(in SuaParams, now time.Time) error {
 	// Một sản phẩm ACTIVE đã từng đủ điều kiện. Nhưng lượt sửa có thể gỡ
 	// hết ảnh, và khi ấy nó rơi vào hàng chờ duyệt ở trạng thái KHÔNG BAO
 	// GIỜ duyệt được — nhà bán mất hàng đang bán mà không hiểu vì sao.
-	if dangBan {
-		sapCo := dieuKienDuyet{
-			moTa:      p.description,
-			anh:       p.images,
-			soBienThe: len(p.variants),
-			bangSize:  p.sizeChartID,
-			loai:      p.productType,
-			chatLieu:  p.materialComposition,
+	if published {
+		upcoming := reviewPreconditions{
+			descriptionText: p.description,
+			imageList:       p.images,
+			variantCount:    len(p.variants),
+			sizeChartRef:    p.sizeChartID,
+			productKind:     p.productType,
+			material:        p.materialComposition,
 		}
 		if in.Description != nil {
-			sapCo.moTa = strings.TrimSpace(*in.Description)
+			upcoming.descriptionText = strings.TrimSpace(*in.Description)
 		}
 		if in.Images != nil {
-			sapCo.anh = anh
+			upcoming.imageList = imageList
 		}
 		if in.SizeChartID != nil {
-			sapCo.bangSize = *in.SizeChartID
+			upcoming.sizeChartRef = *in.SizeChartID
 		}
 		if in.ProductType != nil {
-			sapCo.loai = *in.ProductType
+			upcoming.productKind = *in.ProductType
 		}
 		if in.MaterialComposition != nil {
-			sapCo.chatLieu = strings.TrimSpace(*in.MaterialComposition)
+			upcoming.material = strings.TrimSpace(*in.MaterialComposition)
 		}
-		if err := kiemDuDieuKien(sapCo); err != nil {
+		if err := checkPreconditions(upcoming); err != nil {
 			return err
 		}
 	}
 
 	// ---- Mọi thứ hợp lệ: áp dụng.
 	if in.Name != nil {
-		p.name = ten
+		p.name = name
 	}
 	if in.Slug != nil {
 		p.slug = slug
@@ -725,10 +725,10 @@ func (p *Product) Sua(in SuaParams, now time.Time) error {
 		p.genderTarget = *in.GenderTarget
 	}
 	if in.Images != nil {
-		p.images = anh
+		p.images = imageList
 	}
 
-	if dangBan {
+	if published {
 		if err := p.transition(StatusPendingReview, now); err != nil {
 			return err
 		}

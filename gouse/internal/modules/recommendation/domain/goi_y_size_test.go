@@ -18,7 +18,7 @@ var scaleSML = []string{"S", "M", "L", "XL"}
 // sai theo hướng nào. Một lần mua rồi im lặng thì mơ hồ: có thể vừa, có
 // thể họ ngại trả. Nên phàn nàn phải thắng.
 func TestReturnOutweighsEarlierPurchase(t *testing.T) {
-	got, ok := domain.SuyLuanSize([]domain.Observation{
+	got, ok := domain.InferSize([]domain.Observation{
 		qs("M", domain.OutcomePurchased, 1),
 		qs("M", domain.OutcomeTight, 2),
 	}, scaleSML)
@@ -28,13 +28,13 @@ func TestReturnOutweighsEarlierPurchase(t *testing.T) {
 	if got.Size != "L" {
 		t.Errorf("gợi ý %q, cần L — chật thì phải LÊN một size", got.Size)
 	}
-	if got.LyDo != domain.ReasonReturned {
-		t.Errorf("lý do %q, cần RETURN_HISTORY", got.LyDo)
+	if got.ReasonCode != domain.ReasonReturned {
+		t.Errorf("lý do %q, cần RETURN_HISTORY", got.ReasonCode)
 	}
 }
 
 func TestLooseStepsDownOneSize(t *testing.T) {
-	got, ok := domain.SuyLuanSize([]domain.Observation{
+	got, ok := domain.InferSize([]domain.Observation{
 		qs("L", domain.OutcomeLoose, 1),
 	}, scaleSML)
 	if !ok || got.Size != "M" {
@@ -45,18 +45,18 @@ func TestLooseStepsDownOneSize(t *testing.T) {
 
 // TestKeepsPurchasedSizeWithoutComplaints — đường yếu hơn, vẫn có ích.
 func TestKeepsPurchasedSizeWithoutComplaints(t *testing.T) {
-	got, ok := domain.SuyLuanSize([]domain.Observation{
+	got, ok := domain.InferSize([]domain.Observation{
 		qs("M", domain.OutcomePurchased, 1),
 	}, scaleSML)
-	if !ok || got.Size != "M" || got.LyDo != domain.ReasonPurchased {
+	if !ok || got.Size != "M" || got.ReasonCode != domain.ReasonPurchased {
 		t.Errorf("gợi ý %q lý do %q (ok=%v), cần M / PREVIOUS_PURCHASE",
-			got.Size, got.LyDo, ok)
+			got.Size, got.ReasonCode, ok)
 	}
 }
 
 // TestLatestComplaintWins: khách đổi dáng người theo thời gian.
 func TestLatestComplaintWins(t *testing.T) {
-	got, ok := domain.SuyLuanSize([]domain.Observation{
+	got, ok := domain.InferSize([]domain.Observation{
 		qs("M", domain.OutcomeTight, 1), // cũ: chật → L
 		qs("L", domain.OutcomeLoose, 5), // mới: rộng → M
 	}, scaleSML)
@@ -73,7 +73,7 @@ func TestLatestComplaintWins(t *testing.T) {
 // Và tuyệt đối KHÔNG được rơi xuống "size đã mua": khách vừa nói size ấy
 // sai, gợi ý lại chính nó là phớt lờ điều họ nói, rồi họ trả hàng lần nữa.
 func TestNoAdviceWhenTightAtLargestSize(t *testing.T) {
-	got, ok := domain.SuyLuanSize([]domain.Observation{
+	got, ok := domain.InferSize([]domain.Observation{
 		qs("XL", domain.OutcomePurchased, 1),
 		qs("XL", domain.OutcomeTight, 2),
 	}, scaleSML)
@@ -88,7 +88,7 @@ func TestNoAdviceWhenTightAtLargestSize(t *testing.T) {
 // Khách từng mua size 38 của một mã giày; sản phẩm đang xem là áo bán theo
 // S/M/L. Không có phép quy đổi nào giữa hai scale, nên không gợi ý.
 func TestNoAdviceForSizeOutsideScale(t *testing.T) {
-	if got, ok := domain.SuyLuanSize([]domain.Observation{
+	if got, ok := domain.InferSize([]domain.Observation{
 		qs("38", domain.OutcomePurchased, 1),
 	}, scaleSML); ok {
 		t.Errorf("gợi ý %q cho size nằm ngoài scale đang bán", got.Size)
@@ -96,13 +96,13 @@ func TestNoAdviceForSizeOutsideScale(t *testing.T) {
 }
 
 func TestNoAdviceWithoutObservations(t *testing.T) {
-	if _, ok := domain.SuyLuanSize(nil, scaleSML); ok {
+	if _, ok := domain.InferSize(nil, scaleSML); ok {
 		t.Error("gợi ý dù không có quan sát nào")
 	}
 }
 
 func TestNoAdviceWithEmptyScale(t *testing.T) {
-	if _, ok := domain.SuyLuanSize([]domain.Observation{
+	if _, ok := domain.InferSize([]domain.Observation{
 		qs("M", domain.OutcomePurchased, 1),
 	}, nil); ok {
 		t.Error("gợi ý dù sản phẩm không bán size nào")
@@ -115,7 +115,7 @@ func TestNoAdviceWithEmptyScale(t *testing.T) {
 // "L, M, S" và mọi phép "lên một size" đảo chiều. Bài này dùng một scale
 // mà thứ tự chữ cái NGƯỢC hẳn thứ tự thật.
 func TestPreservesCallerScaleOrder(t *testing.T) {
-	got, ok := domain.SuyLuanSize([]domain.Observation{
+	got, ok := domain.InferSize([]domain.Observation{
 		qs("S", domain.OutcomeTight, 1),
 	}, []string{"S", "M", "L"})
 	if !ok || got.Size != "M" {
@@ -126,7 +126,7 @@ func TestPreservesCallerScaleOrder(t *testing.T) {
 
 // TestSizeMatchIgnoresCaseAndSpaces.
 func TestSizeMatchIgnoresCaseAndSpaces(t *testing.T) {
-	got, ok := domain.SuyLuanSize([]domain.Observation{
+	got, ok := domain.InferSize([]domain.Observation{
 		qs(" m ", domain.OutcomeTight, 1),
 	}, []string{"s", "m", "l"})
 	if !ok || got.Size != "L" {

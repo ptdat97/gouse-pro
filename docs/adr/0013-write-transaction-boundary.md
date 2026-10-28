@@ -259,8 +259,8 @@ Kiểm chứng bằng cách phá — gỡ ràng buộc `WHERE reservation.versio
 
 | Bài | Khi phá |
 |-----|---------|
-| `TestNhaGiuHangHaiLan_TaiHienXacDinh` | 2 biến động RELEASE · khả dụng 6 thay vì 5 · T2 báo thành công |
-| `TestChotVaHetHanChongNhau_TaiHienXacDinh` | 1 biến động COMMIT trên reservation ĐÃ NHẢ — hàng vừa trả về kho lại bị bán |
+| `TestDoubleReleaseRaceDeterministic` | 2 biến động RELEASE · khả dụng 6 thay vì 5 · T2 báo thành công |
+| `TestCommitAndExpiryRaceDeterministic` | 1 biến động COMMIT trên reservation ĐÃ NHẢ — hàng vừa trả về kho lại bị bán |
 
 Bài thứ hai tồn tại vì `commitWith` có cùng hình dạng với `releaseWith`.
 Sửa một chỗ mà không kiểm chỗ có cùng hình dạng thì mới chỉ sửa triệu chứng.

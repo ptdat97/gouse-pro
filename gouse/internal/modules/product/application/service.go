@@ -121,7 +121,7 @@ type SearchSignalPublisher interface {
 	//
 	// Số kết quả đi cùng từ khóa vì một lượt tìm ra 2 kết quả và một lượt
 	// ra 200 nói hai chuyện khác nhau về độ phủ của danh mục.
-	PublishSearchPerformed(ctx context.Context, query string, soKetQua int) error
+	PublishSearchPerformed(ctx context.Context, query string, resultCount int) error
 }
 
 type Deps struct {
@@ -193,11 +193,11 @@ func (s *Service) CreateProduct(ctx context.Context, in CreateProductInput) (*do
 	// Danh mục RỖNG để miền báo ErrMissingCategory — đó là lỗi "thiếu",
 	// khác lỗi "không tồn tại" ở đây.
 	if !in.CategoryID.IsZero() {
-		coDM, err := s.catalog.CategoryExists(ctx, in.CategoryID)
+		categoryOK, err := s.catalog.CategoryExists(ctx, in.CategoryID)
 		if err != nil {
 			return nil, fmt.Errorf("kiểm tra danh mục: %w", err)
 		}
-		if !coDM {
+		if !categoryOK {
 			return nil, ErrCategoryNotFound
 		}
 	}
@@ -286,7 +286,7 @@ func (s *Service) AddVariant(ctx context.Context, in AddVariantInput) (*domain.P
 	if err != nil {
 		return nil, err
 	}
-	if err := kiemChuSoHuu(p, in.SellerID); err != nil {
+	if err := checkOwnership(p, in.SellerID); err != nil {
 		return nil, err
 	}
 
@@ -351,30 +351,30 @@ func (s *Service) SubmitForReviewOwned(
 	if err != nil {
 		return nil, err
 	}
-	if err := kiemChuSoHuu(p, sellerID); err != nil {
+	if err := checkOwnership(p, sellerID); err != nil {
 		return nil, err
 	}
 	return s.SubmitForReview(ctx, productID)
 }
 
-// SuaCuaNhaBan sửa một sản phẩm của gian hàng.
+// EditForSeller sửa một sản phẩm của gian hàng.
 //
 // Kiểm chủ sở hữu TRƯỚC khi áp dụng, và trả ErrNotFound khi khác chủ —
-// cùng lý do `kiemChuSoHuu` ghi: một lỗi riêng cho "có nhưng không phải của
+// cùng lý do `checkOwnership` ghi: một lỗi riêng cho "có nhưng không phải của
 // bạn" là đủ để dò mã sản phẩm chưa phát hành của đối thủ.
 //
 // Quy tắc "trạng thái nào sửa được", "sửa hàng đang bán thì phải duyệt
 // lại" và "tất cả hoặc không gì" nằm ở MIỀN
 // (`Product.Sua`), không ở đây: đặt chúng ở tầng này nghĩa là một bên
 // gọi khác của miền — một lệnh vận hành, một job — đi vòng qua được.
-func (s *Service) SuaCuaNhaBan(
-	ctx context.Context, sellerID, productID ids.ID, in domain.SuaParams,
+func (s *Service) EditForSeller(
+	ctx context.Context, sellerID, productID ids.ID, in domain.EditParams,
 ) (*domain.Product, error) {
 	p, err := s.products.FindByID(ctx, productID)
 	if err != nil {
 		return nil, err
 	}
-	if err := kiemChuSoHuu(p, sellerID); err != nil {
+	if err := checkOwnership(p, sellerID); err != nil {
 		return nil, err
 	}
 
@@ -390,7 +390,7 @@ func (s *Service) SuaCuaNhaBan(
 		}
 	}
 
-	if err := p.Sua(in, s.clock.Now()); err != nil {
+	if err := p.Edit(in, s.clock.Now()); err != nil {
 		return nil, err
 	}
 	if err := s.products.Save(ctx, p); err != nil {
@@ -399,7 +399,7 @@ func (s *Service) SuaCuaNhaBan(
 	return p, nil
 }
 
-// kiemChuSoHuu khẳng định sản phẩm thuộc về gian hàng này.
+// checkOwnership khẳng định sản phẩm thuộc về gian hàng này.
 //
 // Trả ErrNotFound chứ KHÔNG phải lỗi "không có quyền" khi khác chủ: một
 // mã lỗi riêng xác nhận sản phẩm tồn tại, và đó là đủ để dò mã sản phẩm
@@ -407,7 +407,7 @@ func (s *Service) SuaCuaNhaBan(
 // phẩm chưa duyệt.
 //
 // sellerID rỗng = nền tảng tự thao tác, bỏ qua kiểm tra.
-func kiemChuSoHuu(p *domain.Product, sellerID ids.ID) error {
+func checkOwnership(p *domain.Product, sellerID ids.ID) error {
 	if sellerID.IsZero() {
 		return nil
 	}

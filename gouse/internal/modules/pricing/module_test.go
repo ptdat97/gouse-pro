@@ -84,7 +84,7 @@ func TestClearancePriceBeatsBaseViaPublicAPI(t *testing.T) {
 	}
 }
 
-func TestMalformedIDReturnsErrInvalidID(t *testing.T) {
+func TestMalformedPricingIDReturnsErrInvalidID(t *testing.T) {
 	ctx := context.Background()
 	m := newModule(t)
 

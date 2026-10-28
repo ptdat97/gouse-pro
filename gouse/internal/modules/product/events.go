@@ -69,10 +69,10 @@ func (p *searchSignalPublisher) PublishSearchNoResult(
 // từ khóa có cùng định danh nguồn — nhờ vậy Phase 3 xếp hạng nhu cầu theo
 // từ khóa mà không phải ghép hai không gian mã.
 func (p *searchSignalPublisher) PublishSearchPerformed(
-	ctx context.Context, query string, soKetQua int,
+	ctx context.Context, query string, resultCount int,
 ) error {
 	query = strings.TrimSpace(query)
-	if query == "" || soKetQua <= 0 {
+	if query == "" || resultCount <= 0 {
 		return nil
 	}
 
@@ -81,9 +81,9 @@ func (p *searchSignalPublisher) PublishSearchPerformed(
 		eventbus.AggregateSearch,
 		searchID(query),
 		struct {
-			Query    string `json:"query"`
-			SoKetQua int    `json:"so_ket_qua"`
-		}{Query: query, SoKetQua: soKetQua},
+			Query       string `json:"query"`
+			ResultCount int    `json:"so_ket_qua"`
+		}{Query: query, ResultCount: resultCount},
 	)
 	if err != nil {
 		return err

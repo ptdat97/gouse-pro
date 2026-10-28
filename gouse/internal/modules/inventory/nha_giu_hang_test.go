@@ -10,7 +10,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 )
 
-// TestNhaGiuHangHaiLanKhongSinhHangTuKhongKhi — lỗi tồn kho nghiêm trọng.
+// TestDoubleReleaseCreatesNoStockFromNothing — lỗi tồn kho nghiêm trọng.
 //
 // # Triệu chứng thật, tìm được nhờ chỉ số mới (26/08)
 //
@@ -46,7 +46,7 @@ import (
 //
 // Hai đường nhả CÓ THẬT chạy song song trong hệ thống: `releaseAll` khi
 // phiên thanh toán thất bại, và job dọn giữ hàng quá hạn.
-func TestNhaGiuHangHaiLanKhongSinhHangTuKhongKhi(t *testing.T) {
+func TestDoubleReleaseCreatesNoStockFromNothing(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 	locID := newLocation(t, db)
@@ -69,10 +69,10 @@ func TestNhaGiuHangHaiLanKhongSinhHangTuKhongKhi(t *testing.T) {
 		t.Fatalf("giữ hàng: %v", err)
 	}
 
-	truoc := doc(t, m, skuID)
-	if truoc.Available != 7 || truoc.Reserved != 3 {
+	before := readItem(t, m, skuID)
+	if before.Available != 7 || before.Reserved != 3 {
 		t.Fatalf("dựng sai: %d khả dụng / %d giữ chỗ, cần 7/3",
-			truoc.Available, truoc.Reserved)
+			before.Available, before.Reserved)
 	}
 
 	// Tám lượt nhả SONG SONG cho CÙNG một reservation.
@@ -103,23 +103,23 @@ func TestNhaGiuHangHaiLanKhongSinhHangTuKhongKhi(t *testing.T) {
 	}
 
 	// Con số phải TRỞ VỀ ĐÚNG trạng thái trước khi giữ, không hơn.
-	sau := doc(t, m, skuID)
-	if sau.Available != 10 {
+	after := readItem(t, m, skuID)
+	if after.Available != 10 {
 		t.Errorf("còn %d khả dụng, cần 10 — nhả nhiều lần đã SINH RA hàng",
-			sau.Available)
+			after.Available)
 	}
-	if sau.Reserved != 0 {
-		t.Errorf("còn %d giữ chỗ, cần 0", sau.Reserved)
+	if after.Reserved != 0 {
+		t.Errorf("còn %d giữ chỗ, cần 0", after.Reserved)
 	}
 
 	// Tổng số lượng vật lý không được đổi vì nhả hàng.
-	if sau.Total != truoc.Total {
+	if after.Total != before.Total {
 		t.Errorf("tổng số lượng đổi %d → %d — nhả hàng không được tạo hay hủy hàng",
-			truoc.Total, sau.Total)
+			before.Total, after.Total)
 	}
 }
 
-func doc(t *testing.T, m *inventory.Module, skuID ids.ID) inventory.ItemView {
+func readItem(t *testing.T, m *inventory.Module, skuID ids.ID) inventory.ItemView {
 	t.Helper()
 	found, err := m.GetItemsBySKUs(context.Background(),
 		[]string{skuID.String()}, "")

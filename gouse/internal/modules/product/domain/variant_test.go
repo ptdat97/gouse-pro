@@ -10,7 +10,7 @@ import (
 
 // Không chuẩn hóa khóa thuộc tính thì "Color" và "color" thành hai thuộc
 // tính khác nhau, và bộ lọc theo màu sẽ bỏ sót hàng.
-func TestThuocTinhDuocChuanHoa(t *testing.T) {
+func TestAttributesAreNormalized(t *testing.T) {
 	v := newTestVariant(t, map[string]string{
 		"  COLOR  ": "  Trắng  ",
 		"Size":      "M",
@@ -29,7 +29,7 @@ func TestThuocTinhDuocChuanHoa(t *testing.T) {
 	}
 }
 
-func TestNewVariantTuChoiDuLieuSai(t *testing.T) {
+func TestNewVariantRejectsBadData(t *testing.T) {
 	if _, err := domain.NewVariant(domain.NewVariantParams{Now: testNow}); !errors.Is(err, domain.ErrNoAttributes) {
 		t.Errorf("lỗi = %v, mong ErrNoAttributes", err)
 	}
@@ -45,7 +45,7 @@ func TestNewVariantTuChoiDuLieuSai(t *testing.T) {
 
 // AttributeKey phải ỔN ĐỊNH: map trong Go duyệt theo thứ tự ngẫu nhiên,
 // nếu không sắp xếp khóa thì việc phát hiện trùng lặp sẽ chập chờn.
-func TestAttributeKeyOnDinhQuaNhieuLanGoi(t *testing.T) {
+func TestAttributeKeyIsStableAcrossCalls(t *testing.T) {
 	v := newTestVariant(t, map[string]string{
 		"color":    "Trắng",
 		"size":     "M",
@@ -54,15 +54,15 @@ func TestAttributeKeyOnDinhQuaNhieuLanGoi(t *testing.T) {
 		"fit":      "Suông",
 	})
 
-	dau := v.AttributeKey()
+	firstKey := v.AttributeKey()
 	for i := 0; i < 100; i++ {
-		if got := v.AttributeKey(); got != dau {
-			t.Fatalf("AttributeKey đổi giữa các lần gọi: %q rồi %q", dau, got)
+		if got := v.AttributeKey(); got != firstKey {
+			t.Fatalf("AttributeKey đổi giữa các lần gọi: %q rồi %q", firstKey, got)
 		}
 	}
 }
 
-func TestSameAttributesAsKhongPhuThuocThuTuVaKieuChu(t *testing.T) {
+func TestSameAttributesAsIgnoresOrderAndCase(t *testing.T) {
 	v1 := newTestVariant(t, map[string]string{"color": "Trắng", "size": "M"})
 	v2 := newTestVariant(t, map[string]string{"size": "M", "COLOR": "trắng"})
 	v3 := newTestVariant(t, map[string]string{"color": "Trắng", "size": "L"})
@@ -79,7 +79,7 @@ func TestSameAttributesAsKhongPhuThuocThuTuVaKieuChu(t *testing.T) {
 }
 
 // Map là kiểu tham chiếu — trả thẳng sẽ cho bên ngoài sửa trạng thái nội bộ.
-func TestAttributesTraVeBanSao(t *testing.T) {
+func TestAttributesReturnsACopy(t *testing.T) {
 	v := newTestVariant(t, map[string]string{"color": "Trắng", "size": "M"})
 
 	attrs := v.Attributes()
@@ -94,7 +94,7 @@ func TestAttributesTraVeBanSao(t *testing.T) {
 	}
 }
 
-func TestAddVariantGanVaoSanPham(t *testing.T) {
+func TestAddVariantAttachesToProduct(t *testing.T) {
 	p := newTestProduct(t, nil)
 	v := newTestVariant(t, map[string]string{"color": "Xanh", "size": "S"})
 
@@ -111,7 +111,7 @@ func TestAddVariantGanVaoSanPham(t *testing.T) {
 	}
 }
 
-func TestSanPhamGomSKUCuaMoiBienThe(t *testing.T) {
+func TestProductCollectsSKUsOfEveryVariant(t *testing.T) {
 	p := newTestProduct(t, nil)
 
 	v1 := newTestVariant(t, map[string]string{"color": "Trắng", "size": "M"})
@@ -134,14 +134,14 @@ func TestSanPhamGomSKUCuaMoiBienThe(t *testing.T) {
 	}
 }
 
-func TestVariantCoTienToDung(t *testing.T) {
+func TestVariantHasTheRightIDPrefix(t *testing.T) {
 	v := newTestVariant(t, map[string]string{"color": "Đỏ"})
 	if v.ID().Prefix() != ids.PrefixVariant {
 		t.Errorf("tiền tố = %q, mong %q", v.ID().Prefix(), ids.PrefixVariant)
 	}
 }
 
-func TestTamNgungBienThe(t *testing.T) {
+func TestDeactivateVariant(t *testing.T) {
 	v := newTestVariant(t, map[string]string{"color": "Đỏ", "size": "M"})
 	if v.Status() != domain.StatusActive {
 		t.Fatalf("trạng thái = %q, mong ACTIVE", v.Status())

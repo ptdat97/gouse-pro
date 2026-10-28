@@ -24,8 +24,8 @@ var _ API = (*Module)(nil)
 // request: trang chi tiết sản phẩm chỉ đọc read model của module này, nên
 // gợi ý không bao giờ làm chậm trang (đặc tả mục 5).
 type ProductPort interface {
-	// ThuongHieuVaSize trả mã thương hiệu và nhãn size của một SKU.
-	ThuongHieuVaSize(ctx context.Context, skuID string) (brandID, size string, err error)
+	// BrandAndSize trả mã thương hiệu và nhãn size của một SKU.
+	BrandAndSize(ctx context.Context, skuID string) (brandID, size string, err error)
 }
 
 type Config struct {
@@ -62,7 +62,7 @@ func New(cfg Config) (*Module, error) {
 func (m *Module) RecommendSize(
 	ctx context.Context, req RecommendSizeRequest) (*RecommendSizeView, error) {
 	if strings.TrimSpace(req.CustomerID) == "" ||
-		strings.TrimSpace(req.BrandID) == "" || len(req.CacSize) == 0 {
+		strings.TrimSpace(req.BrandID) == "" || len(req.SizeScale) == 0 {
 		return nil, nil
 	}
 
@@ -71,13 +71,13 @@ func (m *Module) RecommendSize(
 		return nil, err
 	}
 
-	goiY, ok := domain.SuyLuanSize(observation, req.CacSize)
+	suggestion, ok := domain.InferSize(observation, req.SizeScale)
 	if !ok {
 		return nil, nil
 	}
 	return &RecommendSizeView{
-		SuggestedSize: goiY.Size,
-		Reason:        string(goiY.LyDo),
+		SuggestedSize: suggestion.Size,
+		Reason:        string(suggestion.ReasonCode),
 	}, nil
 }
 
@@ -89,7 +89,7 @@ func (m *Module) RecommendSize(
 func (m *Module) recordObservation(
 	ctx context.Context, q domain.NewObservation, skuID string,
 ) error {
-	brandID, size, err := m.product.ThuongHieuVaSize(ctx, skuID)
+	brandID, size, err := m.product.BrandAndSize(ctx, skuID)
 	if err != nil {
 		return err
 	}

@@ -2531,7 +2531,7 @@ export interface components {
         /**
          * @description Nhóm màu để LỌC. Khách lọc "màu xanh", không lọc "Xanh navy đậm".
          *
-         *     Máy chủ SUY RA nhóm này từ tên màu nhà bán nhập (`SuyRaNhomMau`), nên
+         *     Máy chủ SUY RA nhóm này từ tên màu nhà bán nhập (`InferColorFamily`), nên
          *     đây là tập ĐÓNG — client dựng bộ lọc từ đúng danh sách này.
          *
          *     # Vì sao là một schema có TÊN

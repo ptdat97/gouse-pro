@@ -864,7 +864,8 @@ func RegisterRoutes(
 	// Bản CHỈ ĐỌC: trang xem hàng không được đặt cookie phiên vãng lai
 	// vào trình duyệt của người mới lướt.
 	productMux := http.NewServeMux()
-	productModule.RegisterRoutesKemGoiY(productMux, goiYSizeTu(m.recommendation), log)
+	productModule.RegisterRoutesWithSizeSuggestion(
+		productMux, sizeSuggestionFrom(m.recommendation), log)
 	{
 		chain := []httpserver.Middleware{
 			httpserver.ResolveShopperChiDoc(khachTu(m.customer)),
@@ -1364,30 +1365,27 @@ func RegisterRoutes(
 	})
 }
 
-// goiYSizeTu dịch API của module gợi ý sang cổng hẹp mà `product` khai.
+// sizeSuggestionFrom dịch API của module gợi ý sang cổng hẹp mà `product`
+// khai.
 //
 // Đây là chỗ hai chiều gặp nhau mà không tạo vòng: `product` chỉ biết một
 // interface do chính nó định nghĩa, còn `recommendation` không biết ai gọi
 // mình. Tầng composition nối hai đầu.
-func goiYSizeTu(m *recommendation.Module) producthttp.GoiYSizePort {
+func sizeSuggestionFrom(m *recommendation.Module) producthttp.SizeSuggestionPort {
 	if m == nil {
 		return nil
 	}
-	return goiYSizeAdapter{m: m}
+	return sizeSuggestionAdapter{m: m}
 }
 
-type goiYSizeAdapter struct{ m *recommendation.Module }
+type sizeSuggestionAdapter struct{ m *recommendation.Module }
 
-// GoiYSize cài cổng `producthttp.GoiYSizePort`.
-//
-// Tên method GIỮ tiếng Việt vì nó thuộc hợp đồng của module `product`, module
-// chưa được đổi tên. Đổi ở đây mà không đổi bên khai cổng sẽ làm adapter
-// không còn cài interface — xem docs/03-architecture/quy-uoc-dat-ten.md.
-func (a goiYSizeAdapter) GoiYSize(
-	ctx context.Context, customerID, brandID string, cacSize []string,
+// SuggestSize cài cổng `producthttp.SizeSuggestionPort`.
+func (a sizeSuggestionAdapter) SuggestSize(
+	ctx context.Context, customerID, brandID string, sizeScale []string,
 ) (string, string, error) {
 	v, err := a.m.RecommendSize(ctx, recommendation.RecommendSizeRequest{
-		CustomerID: customerID, BrandID: brandID, CacSize: cacSize,
+		CustomerID: customerID, BrandID: brandID, SizeScale: sizeScale,
 	})
 	if err != nil || v == nil {
 		return "", "", err

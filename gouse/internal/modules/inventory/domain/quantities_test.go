@@ -18,9 +18,9 @@ func mustQty(t *testing.T, available, reserved, committed, inTransit, damaged, r
 }
 
 // Quy tắc 2 (mục 12): không trạng thái nào được âm.
-func TestKhongChoSoLuongAm(t *testing.T) {
+func TestNegativeQuantityRejected(t *testing.T) {
 	cases := []struct {
-		ten  string
+		name string
 		args [6]int
 	}{
 		{"available âm", [6]int{-1, 0, 0, 0, 0, 0}},
@@ -31,7 +31,7 @@ func TestKhongChoSoLuongAm(t *testing.T) {
 		{"returned âm", [6]int{0, 0, 0, 0, 0, -1}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.ten, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			a := tc.args
 			_, err := domain.NewQuantities(a[0], a[1], a[2], a[3], a[4], a[5])
 			if !errors.Is(err, domain.ErrNegativeQuantity) {
@@ -45,13 +45,13 @@ func TestKhongChoSoLuongAm(t *testing.T) {
 //
 // Mọi phép CHUYỂN trạng thái phải bảo toàn tổng. Chỉ Receive và Ship được
 // làm đổi tổng — vì hàng thật sự vào hoặc ra khỏi kho.
-func TestChuyenTrangThaiBaoToanTong(t *testing.T) {
+func TestTransitionsPreserveTotal(t *testing.T) {
 	q := mustQty(t, 100, 20, 30, 10, 5, 8)
-	tongBanDau := q.Total()
+	initialTotal := q.Total()
 
-	chuyen := []struct {
-		ten string
-		fn  func(domain.Quantities) (domain.Quantities, error)
+	transitions := []struct {
+		name string
+		fn   func(domain.Quantities) (domain.Quantities, error)
 	}{
 		{"Reserve", func(x domain.Quantities) (domain.Quantities, error) { return x.Reserve(10) }},
 		{"Release", func(x domain.Quantities) (domain.Quantities, error) { return x.Release(5) }},
@@ -64,46 +64,46 @@ func TestChuyenTrangThaiBaoToanTong(t *testing.T) {
 		{"InspectionFailed", func(x domain.Quantities) (domain.Quantities, error) { return x.InspectionFailed(2) }},
 	}
 
-	for _, c := range chuyen {
+	for _, c := range transitions {
 		got, err := c.fn(q)
 		if err != nil {
-			t.Fatalf("%s: %v", c.ten, err)
+			t.Fatalf("%s: %v", c.name, err)
 		}
-		if got.Total() != tongBanDau {
-			t.Errorf("%s làm đổi tổng: %d → %d", c.ten, tongBanDau, got.Total())
+		if got.Total() != initialTotal {
+			t.Errorf("%s làm đổi tổng: %d → %d", c.name, initialTotal, got.Total())
 		}
 		q = got
 	}
 }
 
 // Chỉ Receive và Ship được làm đổi tổng số lượng vật lý.
-func TestChiNhapVaXuatLamDoiTong(t *testing.T) {
+func TestOnlyReceiveAndShipChangeTotal(t *testing.T) {
 	q := mustQty(t, 50, 0, 20, 0, 0, 0)
 
-	nhap, err := q.Receive(30)
+	received, err := q.Receive(30)
 	if err != nil {
 		t.Fatalf("Receive: %v", err)
 	}
-	if nhap.Total() != q.Total()+30 {
-		t.Errorf("Receive: tổng = %d, mong %d", nhap.Total(), q.Total()+30)
+	if received.Total() != q.Total()+30 {
+		t.Errorf("Receive: tổng = %d, mong %d", received.Total(), q.Total()+30)
 	}
 
-	xuat, err := q.Ship(15)
+	shipped, err := q.Ship(15)
 	if err != nil {
 		t.Fatalf("Ship: %v", err)
 	}
 	// Hàng đã xuất RỜI KHỎI tồn kho.
-	if xuat.Total() != q.Total()-15 {
-		t.Errorf("Ship: tổng = %d, mong %d", xuat.Total(), q.Total()-15)
+	if shipped.Total() != q.Total()-15 {
+		t.Errorf("Ship: tổng = %d, mong %d", shipped.Total(), q.Total()-15)
 	}
 
 	// Hàng hoàn về làm TĂNG tổng — nó quay lại kho.
-	hoan, err := q.ReceiveReturn(5)
+	returnedQty, err := q.ReceiveReturn(5)
 	if err != nil {
 		t.Fatalf("ReceiveReturn: %v", err)
 	}
-	if hoan.Total() != q.Total()+5 {
-		t.Errorf("ReceiveReturn: tổng = %d, mong %d", hoan.Total(), q.Total()+5)
+	if returnedQty.Total() != q.Total()+5 {
+		t.Errorf("ReceiveReturn: tổng = %d, mong %d", returnedQty.Total(), q.Total()+5)
 	}
 }
 
@@ -111,7 +111,7 @@ func TestChiNhapVaXuatLamDoiTong(t *testing.T) {
 //
 // Đây là lý do Quantities là value object bất biến: nếu thao tác trực tiếp
 // trên bản gốc, một lỗi giữa chừng sẽ làm hỏng bất biến vĩnh viễn.
-func TestChuyenThatBaiKhongDeLaiTrangThaiDoDang(t *testing.T) {
+func TestFailedTransitionLeavesNoPartialState(t *testing.T) {
 	q := mustQty(t, 5, 0, 0, 0, 0, 0)
 
 	got, err := q.Reserve(10) // chỉ có 5
@@ -128,12 +128,12 @@ func TestChuyenThatBaiKhongDeLaiTrangThaiDoDang(t *testing.T) {
 	}
 }
 
-func TestKhongChuyenDuocQuaSoLuongDangCo(t *testing.T) {
+func TestCannotTransitionMoreThanHeld(t *testing.T) {
 	q := mustQty(t, 10, 3, 2, 1, 0, 4)
 
 	cases := []struct {
-		ten string
-		fn  func() (domain.Quantities, error)
+		name string
+		fn   func() (domain.Quantities, error)
 	}{
 		{"Reserve quá available", func() (domain.Quantities, error) { return q.Reserve(11) }},
 		{"Release quá reserved", func() (domain.Quantities, error) { return q.Release(4) }},
@@ -144,7 +144,7 @@ func TestKhongChuyenDuocQuaSoLuongDangCo(t *testing.T) {
 		{"ArriveFromTransit quá in_transit", func() (domain.Quantities, error) { return q.ArriveFromTransit(2) }},
 	}
 	for _, c := range cases {
-		t.Run(c.ten, func(t *testing.T) {
+		t.Run(c.name, func(t *testing.T) {
 			if _, err := c.fn(); !errors.Is(err, domain.ErrInsufficientStock) {
 				t.Errorf("lỗi = %v, mong ErrInsufficientStock", err)
 			}
@@ -152,7 +152,7 @@ func TestKhongChuyenDuocQuaSoLuongDangCo(t *testing.T) {
 	}
 }
 
-func TestSoLuongChuyenPhaiDuong(t *testing.T) {
+func TestTransitionQuantityMustBePositive(t *testing.T) {
 	q := mustQty(t, 10, 10, 10, 10, 10, 10)
 	for _, qty := range []int{0, -1, -100} {
 		if _, err := q.Reserve(qty); err == nil {
@@ -171,46 +171,46 @@ func TestSoLuongChuyenPhaiDuong(t *testing.T) {
 //
 // Vi phạm dẫn tới bán lại hàng hỏng cho khách khác — thiệt hại uy tín lớn
 // hơn nhiều so với giá trị món hàng.
-func TestHangHoanPhaiQuaKiemDinh(t *testing.T) {
+func TestReturnedQuantityMustPassInspection(t *testing.T) {
 	q := mustQty(t, 0, 0, 0, 0, 0, 0)
 
-	sauHoan, err := q.ReceiveReturn(10)
+	afterReturn, err := q.ReceiveReturn(10)
 	if err != nil {
 		t.Fatalf("ReceiveReturn: %v", err)
 	}
 	// Hàng hoàn KHÔNG được cộng thẳng vào available.
-	if sauHoan.Available() != 0 {
+	if afterReturn.Available() != 0 {
 		t.Errorf("available = %d sau khi nhận hàng hoàn, mong 0 — hàng hoàn phải qua kiểm định",
-			sauHoan.Available())
+			afterReturn.Available())
 	}
-	if sauHoan.Returned() != 10 {
-		t.Errorf("returned = %d, mong 10", sauHoan.Returned())
+	if afterReturn.Returned() != 10 {
+		t.Errorf("returned = %d, mong 10", afterReturn.Returned())
 	}
 
 	// Đạt kiểm định → mới vào available.
-	dat, err := sauHoan.InspectionPassed(6)
+	inspectPassed, err := afterReturn.InspectionPassed(6)
 	if err != nil {
 		t.Fatalf("InspectionPassed: %v", err)
 	}
-	if dat.Available() != 6 || dat.Returned() != 4 {
+	if inspectPassed.Available() != 6 || inspectPassed.Returned() != 4 {
 		t.Errorf("sau kiểm định đạt: available=%d returned=%d, mong 6 và 4",
-			dat.Available(), dat.Returned())
+			inspectPassed.Available(), inspectPassed.Returned())
 	}
 
 	// Không đạt → vào damaged, KHÔNG vào available.
-	khongDat, err := dat.InspectionFailed(4)
+	inspectFailed, err := inspectPassed.InspectionFailed(4)
 	if err != nil {
 		t.Fatalf("InspectionFailed: %v", err)
 	}
-	if khongDat.Damaged() != 4 {
-		t.Errorf("damaged = %d, mong 4", khongDat.Damaged())
+	if inspectFailed.Damaged() != 4 {
+		t.Errorf("damaged = %d, mong 4", inspectFailed.Damaged())
 	}
-	if khongDat.Available() != 6 {
-		t.Errorf("available = %d, hàng hỏng đã lọt vào available", khongDat.Available())
+	if inspectFailed.Available() != 6 {
+		t.Errorf("available = %d, hàng hỏng đã lọt vào available", inspectFailed.Available())
 	}
 }
 
-func TestHetHangVaSapHetHang(t *testing.T) {
+func TestDepletedAndLowStock(t *testing.T) {
 	// Chỉ xét available: hàng đang giữ cho checkout khác không bán được
 	// cho khách mới.
 	q := mustQty(t, 0, 50, 30, 20, 10, 5)
@@ -232,23 +232,23 @@ func TestHetHangVaSapHetHang(t *testing.T) {
 
 // Quy tắc 7: điều chỉnh thủ công (kiểm kê) có thể âm, nhưng không được
 // làm số lượng thành âm.
-func TestDieuChinhThuCong(t *testing.T) {
+func TestManualAdjustment(t *testing.T) {
 	q := mustQty(t, 10, 0, 0, 0, 0, 0)
 
-	tang, err := q.AdjustAvailable(5, 0)
+	increased, err := q.AdjustAvailable(5, 0)
 	if err != nil {
 		t.Fatalf("AdjustAvailable(+5): %v", err)
 	}
-	if tang.Available() != 15 {
-		t.Errorf("available = %d, mong 15", tang.Available())
+	if increased.Available() != 15 {
+		t.Errorf("available = %d, mong 15", increased.Available())
 	}
 
-	giam, err := q.AdjustAvailable(-4, 0)
+	decreased, err := q.AdjustAvailable(-4, 0)
 	if err != nil {
 		t.Fatalf("AdjustAvailable(-4): %v", err)
 	}
-	if giam.Available() != 6 {
-		t.Errorf("available = %d, mong 6", giam.Available())
+	if decreased.Available() != 6 {
+		t.Errorf("available = %d, mong 6", decreased.Available())
 	}
 
 	// Không được làm thành âm.
@@ -265,14 +265,14 @@ func TestDieuChinhThuCong(t *testing.T) {
 //
 // Test theo tính chất bắt được tổ hợp mà test theo kịch bản bỏ sót: không
 // ai nghĩ ra được đủ mọi thứ tự thao tác có thể xảy ra trong thực tế.
-func TestBatBienGiuVungQuaChuoiThaoTacNgauNhien(t *testing.T) {
+func TestInvariantsHoldAcrossRandomOperationSequences(t *testing.T) {
 	rng := rand.New(rand.NewSource(20260813))
 
-	for lan := 0; lan < 200; lan++ {
+	for round := 0; round < 200; round++ {
 		q := mustQty(t, 100, 0, 0, 0, 0, 0)
-		tongVatLy := q.Total()
+		physicalTotal := q.Total()
 
-		for buoc := 0; buoc < 40; buoc++ {
+		for step := 0; step < 40; step++ {
 			qty := 1 + rng.Intn(10)
 
 			var (
@@ -309,23 +309,23 @@ func TestBatBienGiuVungQuaChuoiThaoTacNgauNhien(t *testing.T) {
 			if err != nil {
 				// Thất bại: trạng thái phải KHÔNG đổi.
 				if got.Total() != q.Total() {
-					t.Fatalf("lần %d bước %d: thao tác thất bại nhưng đổi tổng", lan, buoc)
+					t.Fatalf("lần %d bước %d: thao tác thất bại nhưng đổi tổng", round, step)
 				}
 				continue
 			}
 
-			tongVatLy += doiTong
-			if got.Total() != tongVatLy {
-				t.Fatalf("lần %d bước %d: tổng = %d, mong %d", lan, buoc, got.Total(), tongVatLy)
+			physicalTotal += doiTong
+			if got.Total() != physicalTotal {
+				t.Fatalf("lần %d bước %d: tổng = %d, mong %d", round, step, got.Total(), physicalTotal)
 			}
 			// Không thành phần nào được âm.
-			for ten, v := range map[string]int{
+			for name, v := range map[string]int{
 				"available": got.Available(), "reserved": got.Reserved(),
 				"committed": got.Committed(), "in_transit": got.InTransit(),
 				"damaged": got.Damaged(), "returned": got.Returned(),
 			} {
 				if v < 0 {
-					t.Fatalf("lần %d bước %d: %s = %d (âm)", lan, buoc, ten, v)
+					t.Fatalf("lần %d bước %d: %s = %d (âm)", round, step, name, v)
 				}
 			}
 			q = got

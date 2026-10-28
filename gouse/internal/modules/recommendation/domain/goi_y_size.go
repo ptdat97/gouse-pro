@@ -44,21 +44,21 @@ type Observation struct {
 	Seq int64
 }
 
-// LyDo là căn cứ của một gợi ý, theo đúng enum của đặc tả API.
-type LyDo string
+// ReasonCode là căn cứ của một gợi ý, theo đúng enum của đặc tả API.
+type ReasonCode string
 
 const (
-	ReasonPurchased LyDo = "PREVIOUS_PURCHASE"
-	ReasonReturned  LyDo = "RETURN_HISTORY"
+	ReasonPurchased ReasonCode = "PREVIOUS_PURCHASE"
+	ReasonReturned  ReasonCode = "RETURN_HISTORY"
 )
 
-// GoiY là kết quả gợi ý size.
-type GoiY struct {
-	Size string
-	LyDo LyDo
+// Suggestion là kết quả gợi ý size.
+type Suggestion struct {
+	Size       string
+	ReasonCode ReasonCode
 }
 
-// SuyLuanSize chọn size nên gợi ý, hoặc trả false nếu không đủ căn cứ.
+// InferSize chọn size nên gợi ý, hoặc trả false nếu không đủ căn cứ.
 //
 // # Thứ tự ưu tiên, và vì sao TRẢ HÀNG thắng
 //
@@ -69,7 +69,7 @@ type GoiY struct {
 // Nên quan sát TRẢ HÀNG mới nhất thắng mọi lần mua. Chỉ khi chưa từng có
 // phàn nàn nào về size thì mới dùng size đã mua.
 //
-// # Vì sao cần `cacSize` theo THỨ TỰ
+// # Vì sao cần `sizes` theo THỨ TỰ
 //
 // "Lên một size" chỉ có nghĩa khi biết scale size của sản phẩm đang xem.
 // Thang ấy khác nhau theo loại hàng: S/M/L, 38/39/40, hay Free. Bên gọi —
@@ -81,53 +81,53 @@ type GoiY struct {
 // KHÔNG gợi ý. Đặc tả khai trường này nullable đúng vì thế: một gợi ý sai
 // còn tệ hơn không gợi ý, vì nó làm khách chọn nhầm rồi đổ lỗi cho nền
 // tảng — và làm tăng đúng tỷ lệ hoàn hàng mà nó sinh ra để giảm.
-func SuyLuanSize(observation []Observation, cacSize []string) (GoiY, bool) {
-	scale := normalizeScale(cacSize)
+func InferSize(observation []Observation, sizeScale []string) (Suggestion, bool) {
+	scale := normalizeScale(sizeScale)
 	if len(scale) == 0 {
-		return GoiY{}, false
+		return Suggestion{}, false
 	}
 
-	var traMoiNhat *Observation
-	var muaMoiNhat *Observation
+	var latestReturn *Observation
+	var latestPurchase *Observation
 	for i := range observation {
 		q := &observation[i]
 		switch q.Outcome {
 		case OutcomeTight, OutcomeLoose:
-			if traMoiNhat == nil || q.Seq > traMoiNhat.Seq {
-				traMoiNhat = q
+			if latestReturn == nil || q.Seq > latestReturn.Seq {
+				latestReturn = q
 			}
 		case OutcomePurchased:
-			if muaMoiNhat == nil || q.Seq > muaMoiNhat.Seq {
-				muaMoiNhat = q
+			if latestPurchase == nil || q.Seq > latestPurchase.Seq {
+				latestPurchase = q
 			}
 		}
 	}
 
-	if traMoiNhat != nil {
+	if latestReturn != nil {
 		step := 1
-		if traMoiNhat.Outcome == OutcomeLoose {
+		if latestReturn.Outcome == OutcomeLoose {
 			step = -1
 		}
-		if s, ok := dichSize(scale, traMoiNhat.Size, step); ok {
-			return GoiY{Size: s, LyDo: ReasonReturned}, true
+		if s, ok := shiftSize(scale, latestReturn.Size, step); ok {
+			return Suggestion{Size: s, ReasonCode: ReasonReturned}, true
 		}
 		// Đã phàn nàn nhưng không dịch được — ví dụ size đó đã là lớn nhất
 		// scale. KHÔNG rơi xuống "size đã mua": khách vừa nói size ấy sai,
 		// gợi ý lại chính nó là phớt lờ điều họ nói.
-		return GoiY{}, false
+		return Suggestion{}, false
 	}
 
-	if muaMoiNhat != nil {
-		if _, ok := position(scale, muaMoiNhat.Size); ok {
-			return GoiY{Size: normalize(muaMoiNhat.Size), LyDo: ReasonPurchased}, true
+	if latestPurchase != nil {
+		if _, ok := position(scale, latestPurchase.Size); ok {
+			return Suggestion{Size: normalize(latestPurchase.Size), ReasonCode: ReasonPurchased}, true
 		}
 	}
 
-	return GoiY{}, false
+	return Suggestion{}, false
 }
 
-// dichSize trả size cách `step` bậc trong scale, nếu còn trong scale.
-func dichSize(scale []string, size string, step int) (string, bool) {
+// shiftSize trả size cách `step` bậc trong scale, nếu còn trong scale.
+func shiftSize(scale []string, size string, step int) (string, bool) {
 	i, ok := position(scale, size)
 	if !ok {
 		return "", false
@@ -154,15 +154,15 @@ func position(scale []string, size string) (int, bool) {
 // Thứ tự là thông tin của bên gọi, không phải thứ tự chữ cái: "S, M, L"
 // sắp theo bảng chữ cái sẽ thành "L, M, S" và mọi phép "lên một size" đảo
 // chiều.
-func normalizeScale(cacSize []string) []string {
-	out := make([]string, 0, len(cacSize))
-	daCo := make(map[string]bool, len(cacSize))
-	for _, s := range cacSize {
+func normalizeScale(sizeScale []string) []string {
+	out := make([]string, 0, len(sizeScale))
+	seen := make(map[string]bool, len(sizeScale))
+	for _, s := range sizeScale {
 		v := normalize(s)
-		if v == "" || daCo[v] {
+		if v == "" || seen[v] {
 			continue
 		}
-		daCo[v] = true
+		seen[v] = true
 		out = append(out, v)
 	}
 	return out
