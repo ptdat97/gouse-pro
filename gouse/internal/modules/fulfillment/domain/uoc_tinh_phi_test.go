@@ -8,10 +8,10 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 )
 
-func nguon(sellerIDs ...string) []domain.NguonHang {
-	out := make([]domain.NguonHang, 0, len(sellerIDs))
+func sources(sellerIDs ...string) []domain.Source {
+	out := make([]domain.Source, 0, len(sellerIDs))
 	for _, id := range sellerIDs {
-		out = append(out, domain.NguonHang{SellerID: id})
+		out = append(out, domain.Source{SellerID: id})
 	}
 	return out
 }
@@ -27,85 +27,85 @@ func nguon(sellerIDs ...string) []domain.NguonHang {
 // Nghĩa là nền tảng bù phần chênh trên mọi đơn nhiều nguồn — và bù nhiều
 // nhất đúng ở loại đơn mà cái chợ tồn tại để tạo ra. Không lỗi nào báo,
 // không con số nào âm; nó chỉ hiện ra ở bảng lãi lỗ.
-func TestPhiTinhTheoTungNguon(t *testing.T) {
+func TestTheFeeIsChargedPerSource(t *testing.T) {
 	for _, tt := range []struct {
 		ten      string
-		nguon    []domain.NguonHang
+		sources  []domain.Source
 		mongTong int64
 	}{
-		{"một nhà bán", nguon("sel_a"), 30_000},
-		{"hai nhà bán", nguon("sel_a", "sel_b"), 60_000},
-		{"ba nhà bán", nguon("sel_a", "sel_b", "sel_c"), 90_000},
+		{"một nhà bán", sources("sel_a"), 30_000},
+		{"hai nhà bán", sources("sel_a", "sel_b"), 60_000},
+		{"ba nhà bán", sources("sel_a", "sel_b", "sel_c"), 90_000},
 	} {
 		t.Run(tt.ten, func(t *testing.T) {
-			got, err := domain.UocTinhPhiGiao(
-				domain.GiaoTieuChuan, tt.nguon, money.VND, domain.BieuPhiMacDinh)
+			got, err := domain.EstimateShippingFees(
+				domain.ShipStandard, tt.sources, money.VND, domain.DefaultFeeSchedule)
 			if err != nil {
-				t.Fatalf("UocTinhPhiGiao: %v", err)
+				t.Fatalf("EstimateShippingFees: %v", err)
 			}
 			if got.Tong.Amount() != tt.mongTong {
 				t.Errorf("tổng phí = %d, mong %d — phí KHÔNG theo số nguồn "+
 					"nghĩa là nền tảng bù phần chênh trên mọi đơn nhiều nhà bán",
 					got.Tong.Amount(), tt.mongTong)
 			}
-			if len(got.TheoNguon) != len(tt.nguon) {
+			if len(got.PerSource) != len(tt.sources) {
 				t.Errorf("chi tiết có %d dòng, mong %d",
-					len(got.TheoNguon), len(tt.nguon))
+					len(got.PerSource), len(tt.sources))
 			}
 		})
 	}
 }
 
-// TestChiTietTheoNguonMangThoiGianGiao — mục 7 của đặc tả yêu cầu hiển thị
+// TestPerSourceDetailCarriesTheDeliveryTime — mục 7 của đặc tả yêu cầu hiển thị
 // thời gian giao RIÊNG cho từng nhóm hàng, không gộp thành một con số.
 //
 // "Khách cần biết món nào đến trước." Gộp lại là bỏ mất thông tin đó, và
 // không lấy lại được ở tầng trên.
-func TestChiTietTheoNguonMangThoiGianGiao(t *testing.T) {
-	got, err := domain.UocTinhPhiGiao(
-		domain.GiaoNhanh, nguon("sel_a", "sel_b"), money.VND, domain.BieuPhiMacDinh)
+func TestPerSourceDetailCarriesTheDeliveryTime(t *testing.T) {
+	got, err := domain.EstimateShippingFees(
+		domain.ShipExpress, sources("sel_a", "sel_b"), money.VND, domain.DefaultFeeSchedule)
 	if err != nil {
-		t.Fatalf("UocTinhPhiGiao: %v", err)
+		t.Fatalf("EstimateShippingFees: %v", err)
 	}
 
-	for i, p := range got.TheoNguon {
+	for i, p := range got.PerSource {
 		if p.SellerID == "" {
 			t.Errorf("dòng %d không có mã nhà bán — trang không ghép được "+
 				"phí với nhóm hàng nào", i)
 		}
-		if p.SoNgayDuKien <= 0 {
-			t.Errorf("dòng %d có số ngày = %d, phải > 0", i, p.SoNgayDuKien)
+		if p.EstimatedDays <= 0 {
+			t.Errorf("dòng %d có số ngày = %d, phải > 0", i, p.EstimatedDays)
 		}
 	}
 }
 
-// TestGiaoNhanhDatHonVaNhanhHon — nếu hai phương thức cho cùng phí và cùng
+// TestExpressCostsMoreAndArrivesSooner — nếu hai phương thức cho cùng phí và cùng
 // thời gian thì việc cho khách chọn là vô nghĩa.
-func TestGiaoNhanhDatHonVaNhanhHon(t *testing.T) {
-	tc, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nguon("sel_a"), money.VND, domain.BieuPhiMacDinh)
+func TestExpressCostsMoreAndArrivesSooner(t *testing.T) {
+	tc, err := domain.EstimateShippingFees(domain.ShipStandard, sources("sel_a"), money.VND, domain.DefaultFeeSchedule)
 	if err != nil {
 		t.Fatalf("tiêu chuẩn: %v", err)
 	}
-	nhanh, err := domain.UocTinhPhiGiao(domain.GiaoNhanh, nguon("sel_a"), money.VND, domain.BieuPhiMacDinh)
+	express, err := domain.EstimateShippingFees(domain.ShipExpress, sources("sel_a"), money.VND, domain.DefaultFeeSchedule)
 	if err != nil {
 		t.Fatalf("nhanh: %v", err)
 	}
 
-	if nhanh.Tong.Amount() <= tc.Tong.Amount() {
+	if express.Tong.Amount() <= tc.Tong.Amount() {
 		t.Errorf("giao nhanh %d không đắt hơn tiêu chuẩn %d",
-			nhanh.Tong.Amount(), tc.Tong.Amount())
+			express.Tong.Amount(), tc.Tong.Amount())
 	}
-	if nhanh.TheoNguon[0].SoNgayDuKien >= tc.TheoNguon[0].SoNgayDuKien {
+	if express.PerSource[0].EstimatedDays >= tc.PerSource[0].EstimatedDays {
 		t.Errorf("giao nhanh %d ngày không nhanh hơn tiêu chuẩn %d ngày",
-			nhanh.TheoNguon[0].SoNgayDuKien, tc.TheoNguon[0].SoNgayDuKien)
+			express.PerSource[0].EstimatedDays, tc.PerSource[0].EstimatedDays)
 	}
 }
 
-// TestKhongCoNguonThiPhiBangKhong — không có gì để giao thì không thu.
-func TestKhongCoNguonThiPhiBangKhong(t *testing.T) {
-	got, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nil, money.VND, domain.BieuPhiMacDinh)
+// TestNoSourcesMeansZeroFee — không có gì để giao thì không thu.
+func TestNoSourcesMeansZeroFee(t *testing.T) {
+	got, err := domain.EstimateShippingFees(domain.ShipStandard, nil, money.VND, domain.DefaultFeeSchedule)
 	if err != nil {
-		t.Fatalf("UocTinhPhiGiao: %v", err)
+		t.Fatalf("EstimateShippingFees: %v", err)
 	}
 	if got.Tong.Amount() != 0 {
 		t.Errorf("tổng phí = %d cho đơn không có nguồn nào, mong 0",
@@ -113,14 +113,14 @@ func TestKhongCoNguonThiPhiBangKhong(t *testing.T) {
 	}
 }
 
-// TestPhuongThucLaThiTuChoi — tập ĐÓNG.
+// TestAnUnknownShipMethodIsRejected — tập ĐÓNG.
 //
 // Rơi về một mức mặc định là đoán tiền khách phải trả.
-func TestPhuongThucLaThiTuChoi(t *testing.T) {
-	_, err := domain.UocTinhPhiGiao(
-		domain.PhuongThucGiao("TAU_VU_TRU"), nguon("sel_a"), money.VND, domain.BieuPhiMacDinh)
-	if !errors.Is(err, domain.ErrPhuongThucKhongHopLe) {
-		t.Fatalf("lỗi = %v, mong ErrPhuongThucKhongHopLe", err)
+func TestAnUnknownShipMethodIsRejected(t *testing.T) {
+	_, err := domain.EstimateShippingFees(
+		domain.ShipMethod("TAU_VU_TRU"), sources("sel_a"), money.VND, domain.DefaultFeeSchedule)
+	if !errors.Is(err, domain.ErrInvalidShipMethod) {
+		t.Fatalf("lỗi = %v, mong ErrInvalidShipMethod", err)
 	}
 }
 
@@ -128,10 +128,10 @@ func TestPhuongThucLaThiTuChoi(t *testing.T) {
 //
 // Trả phí bằng VND cho một đơn tính bằng USD thì phép cộng vào tổng đơn
 // hoặc lỗi, hoặc tệ hơn: cộng hai con số khác đơn vị thành một số vô nghĩa.
-func TestPhiGiuNguyenDonViTienTe(t *testing.T) {
-	got, err := domain.UocTinhPhiGiao(domain.GiaoTieuChuan, nguon("sel_a"), money.USD, domain.BieuPhiMacDinh)
+func TestTheFeeKeepsTheCurrency(t *testing.T) {
+	got, err := domain.EstimateShippingFees(domain.ShipStandard, sources("sel_a"), money.USD, domain.DefaultFeeSchedule)
 	if err != nil {
-		t.Fatalf("UocTinhPhiGiao: %v", err)
+		t.Fatalf("EstimateShippingFees: %v", err)
 	}
 	if got.Tong.Currency() != money.USD {
 		t.Errorf("đơn vị = %s, mong USD", got.Tong.Currency())

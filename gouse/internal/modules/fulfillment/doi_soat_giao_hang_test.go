@@ -13,12 +13,12 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
-// TestDoiSoatGiaoHangTimDuocGoiMatTin — bài chính của yêu cầu 5.
+// TestReconcileDeliveriesFindsLostContactParcels — bài chính của yêu cầu 5.
 //
 // Chạy trên DATABASE THẬT vì thứ đang kiểm là câu SQL: bộ lọc trạng thái
 // và mốc `shipped_at` nằm trong đó, và một bản giả bằng Go sẽ kiểm chính
 // vòng lặp mà production không chạy.
-func TestDoiSoatGiaoHangTimDuocGoiMatTin(t *testing.T) {
+func TestReconcileDeliveriesFindsLostContactParcels(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	store := fulfillmentpg.NewFulfillmentStore(h.pool)
@@ -27,7 +27,7 @@ func TestDoiSoatGiaoHangTimDuocGoiMatTin(t *testing.T) {
 	fos := h.placeOrder(t, sellerA.String())
 	fo := fos[0]
 
-	h.banGiao(t, sellerA.String(), fo.ID)
+	h.handOver(t, sellerA.String(), fo.ID)
 
 	// Đẩy mốc bàn giao lùi 10 ngày — quá ngưỡng mặc định 168 giờ.
 	if _, err := h.pool.Exec(ctx,
@@ -37,37 +37,37 @@ func TestDoiSoatGiaoHangTimDuocGoiMatTin(t *testing.T) {
 		t.Fatalf("lùi mốc bàn giao: %v", err)
 	}
 
-	batTin, err := store.ListDangGiaoTruoc(ctx, time.Now().Add(-168*time.Hour), 100)
+	lostContact, err := store.ListInTransitBefore(ctx, time.Now().Add(-168*time.Hour), 100)
 	if err != nil {
-		t.Fatalf("ListDangGiaoTruoc: %v", err)
+		t.Fatalf("ListInTransitBefore: %v", err)
 	}
-	if len(batTin) != 1 {
-		t.Fatalf("tìm được %d gói mất tin, mong 1", len(batTin))
+	if len(lostContact) != 1 {
+		t.Fatalf("tìm được %d gói mất tin, mong 1", len(lostContact))
 	}
-	if got := batTin[0].ID().String(); got != fo.ID {
+	if got := lostContact[0].ID().String(); got != fo.ID {
 		t.Errorf("gói = %s, mong %s", got, fo.ID)
 	}
 }
 
-// TestGoiVuaBanGiaoKhongVaoDanhSach — ngưỡng phải thật sự lọc.
+// TestAJustHandedOverParcelStaysOffTheList — ngưỡng phải thật sự lọc.
 //
 // Không có bài này thì một câu SQL quên mệnh đề `shipped_at < $1` vẫn
 // xanh ở bài trên, và job sẽ gọi tên MỌI gói đang đi đường.
-func TestGoiVuaBanGiaoKhongVaoDanhSach(t *testing.T) {
+func TestAJustHandedOverParcelStaysOffTheList(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	store := fulfillmentpg.NewFulfillmentStore(h.pool)
 
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	fos := h.placeOrder(t, sellerA.String())
-	h.banGiao(t, sellerA.String(), fos[0].ID)
+	h.handOver(t, sellerA.String(), fos[0].ID)
 
-	batTin, err := store.ListDangGiaoTruoc(ctx, time.Now().Add(-168*time.Hour), 100)
+	lostContact, err := store.ListInTransitBefore(ctx, time.Now().Add(-168*time.Hour), 100)
 	if err != nil {
-		t.Fatalf("ListDangGiaoTruoc: %v", err)
+		t.Fatalf("ListInTransitBefore: %v", err)
 	}
-	if len(batTin) != 0 {
-		t.Errorf("gói VỪA bàn giao đã bị coi là mất tin (%d gói)", len(batTin))
+	if len(lostContact) != 0 {
+		t.Errorf("gói VỪA bàn giao đã bị coi là mất tin (%d gói)", len(lostContact))
 	}
 }
 
@@ -75,7 +75,7 @@ func TestGoiVuaBanGiaoKhongVaoDanhSach(t *testing.T) {
 //
 // Bài domain đã khóa quy tắc; bài này khóa mệnh đề `status IN (...)`.
 // Thiếu nó thì một gói đã giao xong vẫn nằm trong cảnh báo mãi mãi.
-func TestDaGiaoThiRaKhoiDanhSachSQL(t *testing.T) {
+func TestOnceDeliveredItLeavesTheSQLList(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	store := fulfillmentpg.NewFulfillmentStore(h.pool)
@@ -83,7 +83,7 @@ func TestDaGiaoThiRaKhoiDanhSachSQL(t *testing.T) {
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	fos := h.placeOrder(t, sellerA.String())
 	fo := fos[0]
-	h.banGiao(t, sellerA.String(), fo.ID)
+	h.handOver(t, sellerA.String(), fo.ID)
 
 	if _, err := h.pool.Exec(ctx,
 		`UPDATE fulfillment_order SET shipped_at = now() - interval '10 days'
@@ -96,12 +96,12 @@ func TestDaGiaoThiRaKhoiDanhSachSQL(t *testing.T) {
 		t.Fatalf("MarkDelivered: %v", err)
 	}
 
-	batTin, err := store.ListDangGiaoTruoc(ctx, time.Now().Add(-168*time.Hour), 100)
+	lostContact, err := store.ListInTransitBefore(ctx, time.Now().Add(-168*time.Hour), 100)
 	if err != nil {
-		t.Fatalf("ListDangGiaoTruoc: %v", err)
+		t.Fatalf("ListInTransitBefore: %v", err)
 	}
-	if len(batTin) != 0 {
-		t.Errorf("gói ĐÃ GIAO vẫn nằm trong danh sách mất tin (%d gói)", len(batTin))
+	if len(lostContact) != 0 {
+		t.Errorf("gói ĐÃ GIAO vẫn nằm trong danh sách mất tin (%d gói)", len(lostContact))
 	}
 }
 
@@ -109,21 +109,21 @@ func TestDaGiaoThiRaKhoiDanhSachSQL(t *testing.T) {
 //
 // Một job đối chiếu không bao giờ tìm thấy gì trông hệt một hệ thống khỏe
 // mạnh — và đó đúng là dạng hỏng mà công việc này sinh ra để bắt.
-func TestThieuCauHinhThiBaoLoi(t *testing.T) {
+func TestMissingConfigReportsAnError(t *testing.T) {
 	h := newHarness(t) // dựng KHÔNG có OpsConfig
 
-	_, err := h.ful.DoiSoatGiaoHang(context.Background(), 100)
-	if !errors.Is(err, fulfillment.ErrChuaNoiCauHinh) {
-		t.Errorf("lỗi = %v, mong ErrChuaNoiCauHinh", err)
+	_, err := h.ful.ReconcileDeliveries(context.Background(), 100)
+	if !errors.Is(err, fulfillment.ErrConfigNotWired) {
+		t.Errorf("lỗi = %v, mong ErrConfigNotWired", err)
 	}
 }
 
-// TestNguongDocTuCauHinhVanHanh — đổi tham số phải có tác dụng NGAY.
+// TestThresholdsComeFromOperationalConfig — đổi tham số phải có tác dụng NGAY.
 //
 // Ngưỡng đọc mỗi lượt chạy chứ không chụp lúc khởi động: nếu chụp thì
 // người vận hành đổi con số rồi ngồi chờ mà không hiểu vì sao không đổi
 // gì, cho tới lần khởi động lại kế tiếp.
-func TestNguongDocTuCauHinhVanHanh(t *testing.T) {
+func TestThresholdsComeFromOperationalConfig(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -140,7 +140,7 @@ func TestNguongDocTuCauHinhVanHanh(t *testing.T) {
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	fos := h.placeOrder(t, sellerA.String())
 	fo := fos[0]
-	h.banGiao(t, sellerA.String(), fo.ID)
+	h.handOver(t, sellerA.String(), fo.ID)
 
 	// Im lặng 48 giờ: dưới ngưỡng mặc định 168 giờ.
 	if _, err := h.pool.Exec(ctx,
@@ -150,12 +150,12 @@ func TestNguongDocTuCauHinhVanHanh(t *testing.T) {
 		t.Fatalf("lùi mốc: %v", err)
 	}
 
-	goi, err := ful.DoiSoatGiaoHang(ctx, 100)
+	parcels, err := ful.ReconcileDeliveries(ctx, 100)
 	if err != nil {
-		t.Fatalf("DoiSoatGiaoHang: %v", err)
+		t.Fatalf("ReconcileDeliveries: %v", err)
 	}
-	if len(goi) != 0 {
-		t.Fatalf("với ngưỡng mặc định 168h, gói im 48h không được tính (%d gói)", len(goi))
+	if len(parcels) != 0 {
+		t.Fatalf("với ngưỡng mặc định 168h, gói im 48h không được tính (%d gói)", len(parcels))
 	}
 
 	// Hạ ngưỡng xuống 24 giờ — cùng gói đó nay là mất tin.
@@ -166,20 +166,20 @@ func TestNguongDocTuCauHinhVanHanh(t *testing.T) {
 		t.Fatalf("đặt cấu hình: %v", err)
 	}
 
-	goi, err = ful.DoiSoatGiaoHang(ctx, 100)
+	parcels, err = ful.ReconcileDeliveries(ctx, 100)
 	if err != nil {
-		t.Fatalf("DoiSoatGiaoHang sau khi hạ ngưỡng: %v", err)
+		t.Fatalf("ReconcileDeliveries sau khi hạ ngưỡng: %v", err)
 	}
-	if len(goi) != 1 {
-		t.Errorf("hạ ngưỡng xuống 24h mà vẫn tìm được %d gói, mong 1", len(goi))
+	if len(parcels) != 1 {
+		t.Errorf("hạ ngưỡng xuống 24h mà vẫn tìm được %d gói, mong 1", len(parcels))
 	}
 }
 
 // banGiao đưa một đơn thực hiện đi hết tới lúc bàn giao vận chuyển.
-func (h *harness) banGiao(t *testing.T, sellerID, foID string) {
+func (h *harness) handOver(t *testing.T, sellerID, foID string) {
 	t.Helper()
 	ctx := context.Background()
-	for _, buoc := range []struct {
+	for _, step := range []struct {
 		ten string
 		lam func() error
 	}{
@@ -192,8 +192,8 @@ func (h *harness) banGiao(t *testing.T, sellerID, foID string) {
 			})
 		}},
 	} {
-		if err := buoc.lam(); err != nil {
-			t.Fatalf("%s: %v", buoc.ten, err)
+		if err := step.lam(); err != nil {
+			t.Fatalf("%s: %v", step.ten, err)
 		}
 	}
 }
@@ -211,7 +211,7 @@ func (h *harness) banGiao(t *testing.T, sellerID, foID string) {
 //
 // Bài này được viết SAU khi một lần phá thật lọt qua toàn bộ các bài trên:
 // thêm hai dòng `Deliver` + `Update` vào vòng lặp mà mọi test vẫn xanh.
-func TestDoiSoatKhongDuocTuDanhDauDaGiao(t *testing.T) {
+func TestReconciliationMustNotMarkDeliveredByItself(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -227,7 +227,7 @@ func TestDoiSoatKhongDuocTuDanhDauDaGiao(t *testing.T) {
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	fos := h.placeOrder(t, sellerA.String())
 	fo := fos[0]
-	h.banGiao(t, sellerA.String(), fo.ID)
+	h.handOver(t, sellerA.String(), fo.ID)
 
 	if _, err := h.pool.Exec(ctx,
 		`UPDATE fulfillment_order SET shipped_at = now() - interval '30 days',
@@ -236,26 +236,26 @@ func TestDoiSoatKhongDuocTuDanhDauDaGiao(t *testing.T) {
 		t.Fatalf("lùi mốc: %v", err)
 	}
 
-	goi, err := ful.DoiSoatGiaoHang(ctx, 100)
+	parcels, err := ful.ReconcileDeliveries(ctx, 100)
 	if err != nil {
-		t.Fatalf("DoiSoatGiaoHang: %v", err)
+		t.Fatalf("ReconcileDeliveries: %v", err)
 	}
-	if len(goi) != 1 {
-		t.Fatalf("mong tìm được 1 gói mất tin, được %d", len(goi))
+	if len(parcels) != 1 {
+		t.Fatalf("mong tìm được 1 gói mất tin, được %d", len(parcels))
 	}
 
 	// Trạng thái phải KHÔNG đổi — đọc thẳng từ database, không qua cache.
-	var trangThai string
+	var status string
 	var deliveredAt *time.Time
 	if err := h.pool.QueryRow(ctx,
 		`SELECT status, delivered_at FROM fulfillment_order WHERE id = $1`,
-		fo.ID).Scan(&trangThai, &deliveredAt); err != nil {
+		fo.ID).Scan(&status, &deliveredAt); err != nil {
 		t.Fatalf("đọc lại trạng thái: %v", err)
 	}
 
-	if trangThai != "HANDED_OVER" {
+	if status != "HANDED_OVER" {
 		t.Errorf("trạng thái = %q sau khi đối soát, mong HANDED_OVER "+
-			"— job đối soát KHÔNG được đổi trạng thái", trangThai)
+			"— job đối soát KHÔNG được đổi trạng thái", status)
 	}
 	if deliveredAt != nil {
 		t.Errorf("delivered_at = %v — job đã bịa ra một lần giao hàng "+

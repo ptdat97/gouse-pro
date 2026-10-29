@@ -209,6 +209,36 @@ Thước đo đúng không phải ĐỘ DÀI mà là: tên cũ có phải một 
 hợp lệ không. Danh sách phải loại tay: `ghi doc tra lai moc sau truoc den
 cho khong gia tien ky phan nhan dau bao cong dao don goc lech dong huy buoc`.
 
+### Lượt quét chú thích cũng đụng MÃ của gói khác
+
+Nó là `sed` văn bản trên CẢ tệp, nên nó không phân biệt chú thích với mã.
+`GiaTri -> Value` làm vỡ `opsconfig.DatInput{GiaTri: 24}` — một trường của
+gói KHÁC mà `gofmt -r` đã bỏ qua đúng. Hai lần, vì lần đầu tôi chỉ sửa chỗ
+vỡ chứ không sửa BẢNG.
+
+Mục "Loại trước những tên CÒN khai ở module khác" áp cho CẢ lượt quét chú
+thích, không chỉ lượt `gofmt -r`:
+
+```bash
+go run ident/main.go internal/platform > /tmp/ngoai.txt
+go run ident/main.go internal/kernel  >> /tmp/ngoai.txt
+comm -12 <(cut -f1 map.tsv | sort -u) <(awk '{print $1}' /tmp/ngoai.txt | sort -u)
+```
+
+Ra `DaNhanTruocDo DaXuLyXong DanhDauXong GiaTri` — bốn tên `platform/webhook`
+và `opsconfig` cũng dùng.
+
+### Đích đổi tên phải tránh cả TÊN METHOD của cùng kiểu
+
+```go
+type Service struct{ han HanDoiTraPort }        // han          -> returnWindow
+func (s *Service) hanDoiTra() time.Duration     // hanDoiTra    -> returnWindow
+```
+
+`field and method with the same name returnWindow`. Hai luật khác nhau trỏ
+về CÙNG một đích trên CÙNG một kiểu. Kiểm trước bằng cách soi các cặp
+old→new có đích trùng nhau, không chỉ đích trùng tên đã có.
+
 ### Cổng ngược: module KHÁC khai, `payment` cài
 
 `checkout.PaymentAPI` khai `TaoIntent`, `payment.Module` cài. Đổi tên ở
@@ -463,7 +493,8 @@ XONG   lượt DỌN SÓT                     140   ở 13 module đã ghi XONG
 XONG   modules/cart                     52   (kernel)
 XONG   modules/order                    91   (kernel) + 2 method của customer
 XONG   modules/payment                 216   (kernel) + 1 method của checkout
-CÒN    fulfillment 228 · checkout 153
+XONG   modules/fulfillment             248   (kernel)
+CÒN    checkout 152 — rồi `internal/platform`, `internal/app`, `cmd`
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

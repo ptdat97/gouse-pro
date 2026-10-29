@@ -7,8 +7,8 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 )
 
-// ErrPhuongThucGiaoKhongHopLe: phương thức vận chuyển không có trong biểu phí.
-var ErrPhuongThucGiaoKhongHopLe = domain.ErrPhuongThucKhongHopLe
+// ErrInvalidShipMethod: phương thức vận chuyển không có trong biểu phí.
+var ErrInvalidShipMethod = domain.ErrInvalidShipMethod
 
 // EstimateShipping ước tính phí vận chuyển cho một đơn nhiều nguồn hàng.
 //
@@ -16,24 +16,24 @@ var ErrPhuongThucGiaoKhongHopLe = domain.ErrPhuongThucKhongHopLe
 // chú thích `shippingRates` trong checkout đã trỏ tới suốt từ MVP.
 //
 // MỖI NGUỒN LÀ MỘT KIỆN: hàng của ba nhà bán đi thành ba kiện và tốn ba
-// lần phí. Xem `domain.UocTinhPhiGiao`.
+// lần phí. Xem `domain.EstimateShippingFees`.
 func (m *Module) EstimateShipping(
 	ctx context.Context, req ShippingEstimateRequest,
 ) (*ShippingEstimateView, error) {
-	donVi := money.Currency(req.Currency)
-	if donVi == "" {
-		donVi = money.VND
+	unit := money.Currency(req.Currency)
+	if unit == "" {
+		unit = money.VND
 	}
 
-	nguon := make([]domain.NguonHang, 0, len(req.Sources))
+	sources := make([]domain.Source, 0, len(req.Sources))
 	for _, s := range req.Sources {
-		nguon = append(nguon, domain.NguonHang{SellerID: s.SellerID})
+		sources = append(sources, domain.Source{SellerID: s.SellerID})
 	}
 
 	// Biểu phí đọc MỖI LẦN báo giá: đổi phí vận chuyển phải có tác dụng
 	// ở lượt thanh toán kế tiếp, không phải ở lần triển khai kế tiếp.
-	res, err := domain.UocTinhPhiGiao(
-		domain.PhuongThucGiao(req.Method), nguon, donVi, m.bieuPhi())
+	res, err := domain.EstimateShippingFees(
+		domain.ShipMethod(req.Method), sources, unit, m.feeSchedule())
 	if err != nil {
 		return nil, err
 	}
@@ -41,13 +41,13 @@ func (m *Module) EstimateShipping(
 	out := &ShippingEstimateView{
 		Total:     res.Tong.Amount(),
 		Currency:  string(res.Tong.Currency()),
-		PerSource: make([]PhiTheoNguonView, 0, len(res.TheoNguon)),
+		PerSource: make([]SourceFeeView, 0, len(res.PerSource)),
 	}
-	for _, p := range res.TheoNguon {
-		out.PerSource = append(out.PerSource, PhiTheoNguonView{
+	for _, p := range res.PerSource {
+		out.PerSource = append(out.PerSource, SourceFeeView{
 			SellerID:      p.SellerID,
 			Amount:        p.Phi.Amount(),
-			EstimatedDays: p.SoNgayDuKien,
+			EstimatedDays: p.EstimatedDays,
 		})
 	}
 	return out, nil

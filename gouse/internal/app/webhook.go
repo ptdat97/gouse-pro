@@ -16,20 +16,20 @@ import (
 // Đổi lại là mười dòng chuyển kiểu ở đây, tại điểm khởi chạy.
 type ghiSuKien struct{ r *webhook.Recorder }
 
-var _ fulfillmenthttp.GhiSuKien = (*ghiSuKien)(nil)
+var _ fulfillmenthttp.WebhookLog = (*ghiSuKien)(nil)
 
-func (g *ghiSuKien) Ghi(
+func (g *ghiSuKien) Log(
 	ctx context.Context, nhaCungCap, maSuKien, loaiSuKien string, than []byte,
-) (fulfillmenthttp.SuKienDaGhi, error) {
+) (fulfillmenthttp.LoggedEvent, error) {
 	su, err := g.r.Ghi(ctx, nhaCungCap, maSuKien, loaiSuKien, than)
-	return fulfillmenthttp.SuKienDaGhi{
-		ID:            su.ID,
-		DaNhanTruocDo: su.DaNhanTruocDo,
-		DaXuLyXong:    su.DaXuLyXong,
+	return fulfillmenthttp.LoggedEvent{
+		ID:              su.ID,
+		AlreadyReceived: su.DaNhanTruocDo,
+		AlreadyDone:     su.DaXuLyXong,
 	}, err
 }
 
-func (g *ghiSuKien) DanhDauXong(ctx context.Context, id string, loi error) error {
+func (g *ghiSuKien) MarkDone(ctx context.Context, id string, loi error) error {
 	return g.r.DanhDauXong(ctx, id, loi)
 }
 
@@ -38,7 +38,7 @@ func (g *ghiSuKien) DanhDauXong(ctx context.Context, id string, loi error) error
 // Nhà cung cấp không có trong cấu hình trả chuỗi RỖNG, và
 // httpserver.KiemChuKyHMAC coi khóa rỗng là chữ ký không hợp lệ. Mặc định
 // là ĐÓNG: hãng chưa cấu hình thì không gửi được gì vào hệ thống.
-func biMatWebhook(bang map[string]string) fulfillmenthttp.BiMatNhaCungCap {
+func biMatWebhook(bang map[string]string) fulfillmenthttp.ProviderSecret {
 	return func(nhaCungCap string) string { return bang[nhaCungCap] }
 }
 

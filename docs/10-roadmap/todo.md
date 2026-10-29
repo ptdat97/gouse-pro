@@ -1096,8 +1096,8 @@ có code VÀ test chứng minh.
 | Nền móng Demand Signal | bảng `demand_signal` · `supplychain` 9 test · kiểm chứng 3 loại tín hiệu |
 | Hợp đồng OpenAPI ⇄ cài đặt | `cmd/apicheck` BA tầng: tuyến · header CORS · enum ⇄ hằng Go. `types:check` KHÔNG đủ — nó chỉ so đặc tả với TypeScript sinh ra từ chính nó (P3-56 · P3-58 · P3-70) |
 | Outbox + Event Dispatcher | `platform/eventbus` · rollback không phát · dead letter sau 5 lần |
-| Tách đơn nhiều nhà bán | `TestTachDonBaNguonHangQuaEvent` · hậu tố cơ số 26 |
-| Cô lập fulfillment giữa nhà bán | `TestSellerKhongThayDuocPhanCuaSellerKhac` · phòng vệ hai lớp |
+| Tách đơn nhiều nhà bán | `TestSplittingThreeSourcesViaEvent` · hậu tố cơ số 26 |
+| Cô lập fulfillment giữa nhà bán | `TestASellerCannotSeeAnotherSellersPart` · phòng vệ hai lớp |
 | **Phân giải chủ sở hữu tồn kho** | P3-18 · 3 test hồi quy, mỗi test xác nhận đỏ khi phá |
 | E2E thương mại trên PostgreSQL | `internal/e2e` · 14 test, 12/12 kịch bản |
 | Own Brand + Marketplace trong CÙNG một đơn | cùng test trên: 2 đơn thực hiện, tiền và tồn kho đúng từng bên |

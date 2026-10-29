@@ -45,21 +45,21 @@ var ErrForbidden = errors.New("fulfillment: đơn thực hiện không thuộc v
 // rút tiền.
 const ReturnWindow = 7 * 24 * time.Hour
 
-// HanDoiTraPort cấp thời hạn đổi trả từ cấu hình vận hành.
-type HanDoiTraPort interface {
-	HanDoiTra() time.Duration
+// ReturnWindowPort cấp thời hạn đổi trả từ cấu hình vận hành.
+type ReturnWindowPort interface {
+	ReturnWindow() time.Duration
 }
 
-// hanDoiTra trả hạn đang áp dụng, rơi về `ReturnWindow` khi chưa nối.
+// returnWindow trả hạn đang áp dụng, rơi về `ReturnWindow` khi chưa nối.
 //
 // Rơi về mặc định chứ không lỗi: thiếu cấu hình thì hành vi giống hệt
 // trước khi có tham số này, và job nền vẫn chạy. Nhưng khi ĐÃ nối thì hai
 // module đọc cùng một con số.
-func (s *Service) hanDoiTra() time.Duration {
-	if s.han == nil {
+func (s *Service) returnWindow() time.Duration {
+	if s.returnWindowPort == nil {
 		return ReturnWindow
 	}
-	if d := s.han.HanDoiTra(); d > 0 {
+	if d := s.returnWindowPort.ReturnWindow(); d > 0 {
 		return d
 	}
 	return ReturnWindow
@@ -177,39 +177,39 @@ type LineProgress struct {
 
 // Service là tầng application của module fulfillment.
 type Service struct {
-	repo   domain.Repository
-	clock  Clock
-	events EventPublisher
-	nguong NguongPort
-	han    HanDoiTraPort
-	bieu   BieuPhiPort
+	repo             domain.Repository
+	clock            Clock
+	events           EventPublisher
+	thresholds       ThresholdsPort
+	returnWindowPort ReturnWindowPort
+	schedule         FeeSchedulePort
 }
 
-// BieuPhiPort cấp bảng phí và thời gian vận chuyển, đọc LÚC CHẠY.
+// FeeSchedulePort cấp bảng phí và thời gian vận chuyển, đọc LÚC CHẠY.
 //
 // Hai con số tiền là giá hiện trên màn hình thanh toán; hai con số ngày là
 // lời hứa giao hàng. Chúng là chính sách kinh doanh, không phải hằng số kỹ
 // thuật — xem docs/09-operations/cau-hinh-nghiep-vu.md.
-type BieuPhiPort interface {
-	BieuPhi() domain.BieuPhiGiao
+type FeeSchedulePort interface {
+	FeeSchedule() domain.FeeSchedule
 }
 
 type Deps struct {
 	Repo  domain.Repository
 	Clock Clock
 
-	// Nguong có thể nil: khi đó dùng ngưỡng mặc định đã biên dịch.
-	Nguong NguongPort
+	// Thresholds có thể nil: khi đó dùng ngưỡng mặc định đã biên dịch.
+	Thresholds ThresholdsPort
 
-	// BieuPhi có thể nil: khi đó dùng `domain.BieuPhiMacDinh`.
-	BieuPhi BieuPhiPort
+	// FeeSchedule có thể nil: khi đó dùng `domain.DefaultFeeSchedule`.
+	FeeSchedule FeeSchedulePort
 
 	// Events có thể nil: khi đó module vẫn hoạt động nhưng KHÔNG phát
 	// event, và trạng thái tổng hợp của đơn hàng sẽ không được cập nhật.
 	Events EventPublisher
 
 	// Han cấp hạn đổi trả. Nil thì rơi về `ReturnWindow` mặc định.
-	Han HanDoiTraPort
+	ReturnWindow ReturnWindowPort
 }
 
 func NewService(d Deps) *Service {
@@ -218,7 +218,7 @@ func NewService(d Deps) *Service {
 		clock = SystemClock
 	}
 	return &Service{repo: d.Repo, clock: clock, events: d.Events,
-		nguong: d.Nguong, han: d.Han, bieu: d.BieuPhi}
+		thresholds: d.Thresholds, returnWindowPort: d.ReturnWindow, schedule: d.FeeSchedule}
 }
 
 func (s *Service) Now() time.Time { return s.clock.Now() }
@@ -319,7 +319,7 @@ func (s *Service) HandOver(
 	ctx context.Context, sellerID, foID ids.ID, provider, trackingNumber string,
 ) error {
 	return s.advance(ctx, sellerID, foID, func(fo *domain.FulfillmentOrder, now time.Time) error {
-		return fo.HandOver(provider, trackingNumber, s.bieuPhi(), now)
+		return fo.HandOver(provider, trackingNumber, s.feeSchedule(), now)
 	})
 }
 
@@ -364,7 +364,7 @@ func (s *Service) RecordHandOver(
 		}
 		// Mọi trạng thái khác đi thẳng vào HandOver, và máy trạng thái tự
 		// từ chối nếu không hợp lệ (đã giao, đã hủy).
-		return fo.HandOver(provider, trackingNumber, s.bieuPhi(), now)
+		return fo.HandOver(provider, trackingNumber, s.feeSchedule(), now)
 	})
 }
 
@@ -402,7 +402,7 @@ func (s *Service) Cancel(ctx context.Context, sellerID, foID ids.ID, reason stri
 		return err
 	}
 
-	conHangTrongKho := fo.Status().StockStillInWarehouse()
+	stockStillInWarehouse := fo.Status().StockStillInWarehouse()
 
 	now := s.clock.Now()
 	if err := fo.Cancel(reason, now); err != nil {
@@ -417,14 +417,14 @@ func (s *Service) Cancel(ctx context.Context, sellerID, foID ids.ID, reason stri
 	// Thứ tự này quan trọng khi có sự cố giữa chừng: thà tồn kho đúng mà
 	// trạng thái đơn hiển thị chậm, còn hơn đơn hiển thị "đã hủy" trong
 	// khi hàng vẫn bị khóa. Hàng bị khóa không bán được cho ai.
-	if err := s.publishCancelled(ctx, fo, conHangTrongKho); err != nil {
+	if err := s.emitCancelled(ctx, fo, stockStillInWarehouse); err != nil {
 		return err
 	}
 	return s.publishProgress(ctx, fo)
 }
 
-// publishCancelled phát event hủy kèm dòng hàng để inventory trả về kho.
-func (s *Service) publishCancelled(
+// emitCancelled phát event hủy kèm dòng hàng để inventory trả về kho.
+func (s *Service) emitCancelled(
 	ctx context.Context, fo *domain.FulfillmentOrder, releaseStock bool,
 ) error {
 	if s.events == nil {
@@ -458,7 +458,7 @@ func (s *Service) publishCancelled(
 func (s *Service) advance(
 	ctx context.Context, sellerID, foID ids.ID,
 	step func(*domain.FulfillmentOrder, time.Time) error,
-) (ketQua error) {
+) (result error) {
 	// Đếm ở advance chứ không ở từng bước: mọi chuyển trạng thái của đơn
 	// thực hiện đều đi qua đây, nên một chỗ là đủ và không bước nào mới
 	// thêm bị bỏ sót.
@@ -467,8 +467,8 @@ func (s *Service) advance(
 	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
 	// bị sót thường là nhánh hiếm, tức nhánh đáng quan tâm nhất.
 	defer func() {
-		if ketQua != nil {
-			metrics.RecordFailure(metrics.StageFulfillment, lyDoThatBai(ketQua))
+		if result != nil {
+			metrics.RecordFailure(metrics.StageFulfillment, failureReason(result))
 		}
 	}()
 
@@ -559,7 +559,7 @@ func (s *Service) loadOwned(
 // Trả về số đơn đã chuyển.
 func (s *Service) CompleteDelivered(ctx context.Context, limit int) (int, error) {
 	now := s.clock.Now()
-	cutoff := now.Add(-s.hanDoiTra())
+	cutoff := now.Add(-s.returnWindow())
 
 	due, err := s.repo.ListDeliveredBefore(ctx, cutoff, limit)
 	if err != nil {
@@ -600,25 +600,25 @@ func (s *Service) CompleteDelivered(ctx context.Context, limit int) (int, error)
 
 // ---------------------------------------------- Cập nhật từ hãng vận chuyển
 
-// CapNhatTuHangVanChuyenInput là một sự kiện vận chuyển đã xác minh chữ ký.
-type CapNhatTuHangVanChuyenInput struct {
-	NhaVanChuyen string
-	MaVanDon     string
+// CarrierUpdateInput là một sự kiện vận chuyển đã xác minh chữ ký.
+type CarrierUpdateInput struct {
+	Carrier        string
+	TrackingNumber string
 
-	// TrangThai theo bảng của đặc tả: PICKED_UP, IN_TRANSIT,
+	// Status theo bảng của đặc tả: PICKED_UP, IN_TRANSIT,
 	// OUT_FOR_DELIVERY, DELIVERED, DELIVERY_FAILED, RETURNED_TO_SENDER.
-	TrangThai string
+	Status string
 
-	LyDoThatBai string
+	FailureReason string
 }
 
-// ErrTrangThaiKhongDoi báo trạng thái này không kéo theo thay đổi nào.
+// ErrStatusUnchanged báo trạng thái này không kéo theo thay đổi nào.
 //
 // KHÔNG phải lỗi: hãng vận chuyển gửi nhiều mốc hơn số mốc hệ thống theo
 // dõi, và đó là chuyện bình thường. Bên gọi ghi nhật ký rồi trả 200.
-var ErrTrangThaiKhongDoi = errors.New("fulfillment: trạng thái không kéo theo thay đổi")
+var ErrStatusUnchanged = errors.New("fulfillment: trạng thái không kéo theo thay đổi")
 
-// CapNhatTuHangVanChuyen áp một mốc vận chuyển lên đơn thực hiện.
+// ApplyCarrierUpdate áp một mốc vận chuyển lên đơn thực hiện.
 //
 // # Vì sao không kiểm chủ sở hữu
 //
@@ -630,23 +630,23 @@ var ErrTrangThaiKhongDoi = errors.New("fulfillment: trạng thái không kéo th
 // Hãng vận chuyển gửi trùng là chuyện thường, và cả hai cơ chế — webhook
 // lẫn hỏi định kỳ — đều có thể mang cùng một mốc tới. Báo lỗi ở đây khiến
 // họ gửi lại mãi cho một việc đã xong.
-func (s *Service) CapNhatTuHangVanChuyen(
-	ctx context.Context, in CapNhatTuHangVanChuyenInput,
+func (s *Service) ApplyCarrierUpdate(
+	ctx context.Context, in CarrierUpdateInput,
 ) error {
-	fo, err := s.repo.FindByTracking(ctx, in.NhaVanChuyen, in.MaVanDon)
+	fo, err := s.repo.FindByTracking(ctx, in.Carrier, in.TrackingNumber)
 	if err != nil {
 		return err
 	}
 
 	now := s.clock.Now()
-	var buoc func(*domain.FulfillmentOrder, time.Time) error
+	var step func(*domain.FulfillmentOrder, time.Time) error
 
-	switch in.TrangThai {
+	switch in.Status {
 	case "IN_TRANSIT", "OUT_FOR_DELIVERY":
 		if fo.Status() == domain.FOInTransit {
 			return nil
 		}
-		buoc = func(f *domain.FulfillmentOrder, t time.Time) error {
+		step = func(f *domain.FulfillmentOrder, t time.Time) error {
 			return f.MarkInTransit(t)
 		}
 
@@ -654,26 +654,26 @@ func (s *Service) CapNhatTuHangVanChuyen(
 		if fo.Status() == domain.FODelivered {
 			return nil
 		}
-		buoc = func(f *domain.FulfillmentOrder, t time.Time) error {
+		step = func(f *domain.FulfillmentOrder, t time.Time) error {
 			return f.Deliver(t)
 		}
 
 	case "DELIVERY_FAILED", "RETURNED_TO_SENDER":
-		lyDo := strings.TrimSpace(in.LyDoThatBai)
-		if lyDo == "" {
-			lyDo = "hãng vận chuyển báo giao không thành công"
+		reason := strings.TrimSpace(in.FailureReason)
+		if reason == "" {
+			reason = "hãng vận chuyển báo giao không thành công"
 		}
-		buoc = func(f *domain.FulfillmentOrder, t time.Time) error {
-			return f.MarkDeliveryFailed(lyDo, t)
+		step = func(f *domain.FulfillmentOrder, t time.Time) error {
+			return f.MarkDeliveryFailed(reason, t)
 		}
 
 	default:
 		// PICKED_UP và mọi mốc khác: hệ thống không theo dõi, nhưng webhook
 		// VẪN được ghi nhật ký ở tầng trên.
-		return ErrTrangThaiKhongDoi
+		return ErrStatusUnchanged
 	}
 
-	if err := buoc(fo, now); err != nil {
+	if err := step(fo, now); err != nil {
 		return err
 	}
 	if err := s.repo.Update(ctx, fo); err != nil {
@@ -682,12 +682,12 @@ func (s *Service) CapNhatTuHangVanChuyen(
 	return s.publishProgress(ctx, fo)
 }
 
-// lyDoThatBai phân loại lỗi thành nhãn Prometheus.
+// failureReason phân loại lỗi thành nhãn Prometheus.
 //
 // Tập giá trị phải ĐÓNG và nhỏ: mỗi giá trị nhãn khác nhau là một chuỗi
 // thời gian riêng, nên truyền thẳng thông điệp lỗi vào đây — thứ thường
 // chứa mã đơn — sẽ làm nổ số chuỗi thời gian.
-func lyDoThatBai(err error) string {
+func failureReason(err error) string {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		return "not_found"
@@ -704,132 +704,130 @@ func lyDoThatBai(err error) string {
 }
 
 // Ky là khoảng thời gian tính hiệu suất.
-type Ky string
+type Period string
 
 const (
-	Ky7Ngay  Ky = "LAST_7_DAYS"
-	Ky30Ngay Ky = domain.KyMacDinh
-	Ky90Ngay Ky = "LAST_90_DAYS"
+	PeriodLast7Days  Period = "LAST_7_DAYS"
+	PeriodLast30Days Period = domain.DefaultPeriod
+	PeriodLast90Days Period = "LAST_90_DAYS"
 )
 
-// KyHopLe kiểm kỳ và trả về độ dài.
+// ValidPeriod kiểm kỳ và trả về độ dài.
 //
 // Tập ĐÓNG, đúng enum của đặc tả: cho phép kỳ tùy ý nghĩa là mở cửa cho
 // một truy vấn quét toàn bộ bảng, và nhà bán không cần điều đó.
-func KyHopLe(k Ky) (time.Duration, bool) {
+func ValidPeriod(k Period) (time.Duration, bool) {
 	switch k {
-	case Ky7Ngay:
+	case PeriodLast7Days:
 		return 7 * 24 * time.Hour, true
-	case Ky30Ngay:
+	case PeriodLast30Days:
 		return 30 * 24 * time.Hour, true
-	case Ky90Ngay:
+	case PeriodLast90Days:
 		return 90 * 24 * time.Hour, true
 	default:
 		return 0, false
 	}
 }
 
-// NguongPort đọc bộ ngưỡng đang áp dụng.
+// ThresholdsPort đọc bộ ngưỡng đang áp dụng.
 //
 // Cổng do BÊN GỌI khai: module fulfillment nói nó cần biết ngưỡng, không
 // nói ngưỡng đến từ đâu. Nil thì dùng mặc định đã biên dịch — hệ thống
 // phải chạy đúng kể cả khi chưa nối dây phần cấu hình.
-type NguongPort interface {
-	Nguong() domain.Nguong
+type ThresholdsPort interface {
+	Thresholds() domain.Thresholds
 }
 
-// HieuSuat là kết quả chấm hiệu suất của một nhà bán.
-type HieuSuat struct {
-	Ky        Ky
-	SLAGio    float64
-	SoLieu    domain.SoLieuHieuSuat
-	ChiSo     []domain.ChiSoHieuSuat
-	ChuaDo    []domain.ChuaDo
-	ThongDiep string
+// Performance là kết quả chấm hiệu suất của một nhà bán.
+type Performance struct {
+	Period     Period
+	SLAHours   float64
+	Stats      domain.PerformanceStats
+	Metrics    []domain.PerformanceMetric
+	Unmeasured []domain.Unmeasured
+	Message    string
 }
 
-// TinhHieuSuat chấm hiệu suất của MỘT nhà bán trong một kỳ.
+// ComputePerformance chấm hiệu suất của MỘT nhà bán trong một kỳ.
 //
 // sellerID lấy từ phạm vi trong token, không phải từ tham số của người
 // gọi: nhà bán không được xem hiệu suất của nhà bán khác.
-func (s *Service) TinhHieuSuat(
-	ctx context.Context, sellerID ids.ID, k Ky,
-) (*HieuSuat, error) {
-	doDai, ok := KyHopLe(k)
+func (s *Service) ComputePerformance(
+	ctx context.Context, sellerID ids.ID, k Period) (*Performance, error) {
+	length, ok := ValidPeriod(k)
 	if !ok {
-		return nil, ErrKyKhongHopLe
+		return nil, ErrInvalidPeriod
 	}
 
-	den := s.clock.Now()
-	tu := den.Add(-doDai)
+	until := s.clock.Now()
+	from := until.Add(-length)
 
-	ng := s.SLAHienTai()
+	ng := s.CurrentSLA()
 
-	so, err := s.repo.DemHieuSuat(ctx, sellerID, tu, den, ng.SLAGiaoHang)
+	stats, err := s.repo.CountForPerformance(ctx, sellerID, from, until, ng.DeliverySLA)
 	if err != nil {
 		return nil, err
 	}
 
-	chiSo := domain.TinhChiSo(so, ng)
-	return &HieuSuat{
-		Ky:        k,
-		SLAGio:    ng.SLAGiaoHang.Hours(),
-		SoLieu:    so,
-		ChiSo:     chiSo,
-		ChuaDo:    domain.ChiSoChuaDo(so, ng),
-		ThongDiep: thongDiep(so, chiSo, ng),
+	metrics := domain.ComputeMetrics(stats, ng)
+	return &Performance{
+		Period:     k,
+		SLAHours:   ng.DeliverySLA.Hours(),
+		Stats:      stats,
+		Metrics:    metrics,
+		Unmeasured: domain.UnmeasuredMetrics(stats, ng),
+		Message:    message(stats, metrics, ng),
 	}, nil
 }
 
-// ErrKyKhongHopLe khi tham số `period` nằm ngoài tập cho phép.
-var ErrKyKhongHopLe = errors.New("fulfillment: kỳ tính hiệu suất không hợp lệ")
+// ErrInvalidPeriod khi tham số `period` nằm ngoài tập cho phép.
+var ErrInvalidPeriod = errors.New("fulfillment: kỳ tính hiệu suất không hợp lệ")
 
 // thongDiep nói cho nhà bán biết NÊN LÀM GÌ, không chỉ họ đang ở đâu.
 //
 // Đặc tả: "Seller cần hiểu vì sao mình không thắng buy box và cần làm gì
 // để cải thiện." Một danh sách con số không trả lời vế thứ hai.
-func thongDiep(
-	so domain.SoLieuHieuSuat, chiSo []domain.ChiSoHieuSuat, ng domain.Nguong,
-) string {
-	if len(chiSo) == 0 {
+func message(
+	stats domain.PerformanceStats, metrics []domain.PerformanceMetric, ng domain.Thresholds) string {
+	if len(metrics) == 0 {
 		return fmt.Sprintf(
 			"Chưa đủ dữ liệu để chấm: cần ít nhất %d đơn trong kỳ, hiện có %d.",
-			ng.MauToiThieu, so.TongDon)
+			ng.MinSample, stats.TotalOrders)
 	}
 
 	// Nêu chỉ số TỆ NHẤT, không nêu tất cả: một danh sách việc cần làm dài
 	// thì không ai bắt đầu từ đâu.
-	var tệ *domain.ChiSoHieuSuat
-	for i := range chiSo {
-		c := chiSo[i]
-		if c.TrangThai == domain.ChiSoTot {
+	var worst *domain.PerformanceMetric
+	for i := range metrics {
+		c := metrics[i]
+		if c.Status == domain.MetricGood {
 			continue
 		}
-		if tệ == nil || c.TrangThai == domain.ChiSoNghiemTrong {
-			tệ = &chiSo[i]
+		if worst == nil || c.Status == domain.MetricCritical {
+			worst = &metrics[i]
 		}
 	}
-	if tệ == nil {
+	if worst == nil {
 		return "Mọi chỉ số đều đạt ngưỡng."
 	}
 
-	switch tệ.Ten {
+	switch worst.Ten {
 	case "on_time_shipping_rate":
 		return fmt.Sprintf(
 			"Giao đúng hạn đang ở %.0f%%, dưới ngưỡng %.0f%%. "+
 				"Hạn bàn giao là %.0f giờ kể từ khi đơn được tạo.",
-			tệ.GiaTri*100, tệ.Nguong*100, ng.SLAGiaoHang.Hours())
+			worst.Value*100, worst.Thresholds*100, ng.DeliverySLA.Hours())
 	case "cancellation_rate":
 		return fmt.Sprintf(
 			"Tỷ lệ hủy đang ở %.1f%%, trên ngưỡng %.1f%%. "+
 				"Mỗi đơn hủy là một khách đã đặt rồi không nhận được hàng.",
-			tệ.GiaTri*100, tệ.Nguong*100)
+			worst.Value*100, worst.Thresholds*100)
 	default:
 		return "Có chỉ số chưa đạt ngưỡng."
 	}
 }
 
-// MoKhoaTheoDon mở khóa mọi đơn thực hiện của một đơn hàng.
+// UnlockByOrder mở khóa mọi đơn thực hiện của một đơn hàng.
 //
 // Đầu kia của cửa chặn thanh toán (ADR-0018 phần A2): đơn TRẢ TRƯỚC sinh
 // ra bị khóa, và đây là đường duy nhất mở. Thiếu nó thì hàng kẹt vĩnh viễn.
@@ -837,7 +835,7 @@ func thongDiep(
 // Bỏ qua đơn đã mở sẵn thay vì ghi lại: ghi lại sẽ đẩy `version` và
 // `updated_at` tới trước mỗi lần event được phát lại, làm mọi báo cáo
 // "đơn này đổi lúc nào" nói sai — và event phát lại là chuyện bình thường.
-func (s *Service) MoKhoaTheoDon(ctx context.Context, orderID ids.ID) (int, error) {
+func (s *Service) UnlockByOrder(ctx context.Context, orderID ids.ID) (int, error) {
 	fos, err := s.repo.ListByOrder(ctx, orderID)
 	if err != nil {
 		return 0, err
@@ -845,10 +843,10 @@ func (s *Service) MoKhoaTheoDon(ctx context.Context, orderID ids.ID) (int, error
 
 	var n int
 	for _, fo := range fos {
-		if !fo.ChoThanhToan() {
+		if !fo.AwaitingPayment() {
 			continue
 		}
-		fo.MoKhoaThanhToan()
+		fo.UnlockPayment()
 		if err := s.repo.Update(ctx, fo); err != nil {
 			return n, fmt.Errorf(
 				"fulfillment: mở khóa đơn %s: %w", fo.FONumber(), err)
@@ -858,7 +856,7 @@ func (s *Service) MoKhoaTheoDon(ctx context.Context, orderID ids.ID) (int, error
 	return n, nil
 }
 
-// HuyTheoDon hủy MỌI đơn thực hiện của một đơn hàng đã bị hủy.
+// CancelByOrder hủy MỌI đơn thực hiện của một đơn hàng đã bị hủy.
 //
 // # Vì sao nó là đầu kia của `order.cancelled`
 //
@@ -877,8 +875,8 @@ func (s *Service) MoKhoaTheoDon(ctx context.Context, orderID ids.ID) (int, error
 // làm event kẹt trong hàng đợi và những gói CÒN hủy được cũng không hủy.
 //
 // Trả về SỐ đơn thực hiện đã hủy.
-func (s *Service) HuyTheoDon(
-	ctx context.Context, orderID ids.ID, lyDo string,
+func (s *Service) CancelByOrder(
+	ctx context.Context, orderID ids.ID, reason string,
 ) (int, error) {
 	fos, err := s.repo.ListByOrder(ctx, orderID)
 	if err != nil {
@@ -886,40 +884,40 @@ func (s *Service) HuyTheoDon(
 	}
 
 	now := s.clock.Now()
-	var daHuy int
+	var cancelledAlready int
 	for _, fo := range fos {
-		conHangTrongKho := fo.Status().StockStillInWarehouse()
+		stockStillInWarehouse := fo.Status().StockStillInWarehouse()
 
-		if err := fo.Cancel(lyDo, now); err != nil {
+		if err := fo.Cancel(reason, now); err != nil {
 			// Không hủy được: đã bàn giao hoặc đã hủy từ trước.
 			continue
 		}
 		if err := s.repo.Update(ctx, fo); err != nil {
-			return daHuy, fmt.Errorf(
+			return cancelledAlready, fmt.Errorf(
 				"fulfillment: hủy đơn thực hiện %s: %w", fo.FONumber(), err)
 		}
 
 		// Thứ tự GIỐNG `Cancel`: event hủy trước, tiến độ sau. Thà tồn
 		// kho đúng mà trạng thái hiển thị chậm, còn hơn đơn hiển thị "đã
 		// hủy" trong khi hàng vẫn bị khóa.
-		if err := s.publishCancelled(ctx, fo, conHangTrongKho); err != nil {
-			return daHuy, err
+		if err := s.emitCancelled(ctx, fo, stockStillInWarehouse); err != nil {
+			return cancelledAlready, err
 		}
 		if err := s.publishProgress(ctx, fo); err != nil {
-			return daHuy, err
+			return cancelledAlready, err
 		}
-		daHuy++
+		cancelledAlready++
 	}
-	return daHuy, nil
+	return cancelledAlready, nil
 }
 
-// bieuPhi đọc bảng phí vận chuyển, MỖI LẦN dùng.
+// feeSchedule đọc bảng phí vận chuyển, MỖI LẦN dùng.
 //
 // Rơi về mặc định của domain khi chưa nối cấu hình — đúng bằng hành vi
 // trước khi có tham số vận hành.
-func (s *Service) bieuPhi() domain.BieuPhiGiao {
-	if s.bieu == nil {
-		return domain.BieuPhiMacDinh
+func (s *Service) feeSchedule() domain.FeeSchedule {
+	if s.schedule == nil {
+		return domain.DefaultFeeSchedule
 	}
-	return s.bieu.BieuPhi()
+	return s.schedule.FeeSchedule()
 }

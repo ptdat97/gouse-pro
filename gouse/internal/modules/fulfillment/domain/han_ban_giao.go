@@ -2,11 +2,11 @@ package domain
 
 import "time"
 
-// HanBanGiao là thời điểm nhà bán PHẢI bàn giao cho đơn vị vận chuyển.
+// HandoverDeadline là thời điểm nhà bán PHẢI bàn giao cho đơn vị vận chuyển.
 //
 // # Vì sao TÍNH RA chứ không lưu thành cột
 //
-// Chú thích của `SLAGiaoHang` đã quyết điều này: đặc tả yêu cầu "chỉ số,
+// Chú thích của `DeliverySLA` đã quyết điều này: đặc tả yêu cầu "chỉ số,
 // ngưỡng, và tác động đều công khai và tường minh", vì mô hình chấm điểm
 // hộp đen tạo tranh chấp không giải quyết được. Một thời hạn riêng cho
 // từng đơn, lưu ở đâu đó mà không ai nhìn thấy, chính là hộp đen.
@@ -33,32 +33,32 @@ import "time"
 // là đúng, và cắt cả hai bên xuống giây sẽ làm phép chấm điểm bớt chính
 // xác để chiều một trường hợp không ai gặp — nhà bán phải bàn giao trong
 // đúng giây thứ 172.800 thì mới chạm tới nó.
-func (f *FulfillmentOrder) HanBanGiao(sla time.Duration) time.Time {
+func (f *FulfillmentOrder) HandoverDeadline(sla time.Duration) time.Time {
 	return f.createdAt.Add(sla)
 }
 
-// BanGiaoDungHan cho biết đơn ĐÃ bàn giao có kịp hạn không.
+// HandedOverOnTime cho biết đơn ĐÃ bàn giao có kịp hạn không.
 //
 // Chỉ có nghĩa khi đã bàn giao: chưa bàn giao thì câu hỏi đúng là "còn bao
 // lâu", không phải "có kịp không". Trả false khi chưa bàn giao — và bên
 // gọi phải kiểm `ShippedAt` trước, đúng như truy vấn chấm điểm làm
 // (`shipped_at IS NOT NULL AND ...`).
-func (f *FulfillmentOrder) BanGiaoDungHan(sla time.Duration) bool {
+func (f *FulfillmentOrder) HandedOverOnTime(sla time.Duration) bool {
 	if f.shippedAt.IsZero() {
 		return false
 	}
-	return !f.shippedAt.After(f.HanBanGiao(sla))
+	return !f.shippedAt.After(f.HandoverDeadline(sla))
 }
 
-// TreHan cho biết đơn CHƯA bàn giao đã quá hạn chưa.
+// PastDeadline cho biết đơn CHƯA bàn giao đã quá hạn chưa.
 //
-// Khác `BanGiaoDungHan`: hàm kia nhìn lại quá khứ, hàm này nhìn hiện tại.
+// Khác `HandedOverOnTime`: hàm kia nhìn lại quá khứ, hàm này nhìn hiện tại.
 // Đơn đã bàn giao KHÔNG còn trễ được nữa, dù bàn giao muộn — việc đó đã
 // tính vào điểm hiệu suất rồi, và hiện lại nhãn "trễ" trên một đơn đang đi
 // đường chỉ làm nhà bán tưởng còn việc phải làm.
-func (f *FulfillmentOrder) TreHan(sla time.Duration, now time.Time) bool {
+func (f *FulfillmentOrder) PastDeadline(sla time.Duration, now time.Time) bool {
 	if !f.shippedAt.IsZero() || f.status == FOCancelled {
 		return false
 	}
-	return now.After(f.HanBanGiao(sla))
+	return now.After(f.HandoverDeadline(sla))
 }

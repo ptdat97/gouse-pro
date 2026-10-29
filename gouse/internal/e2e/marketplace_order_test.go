@@ -126,8 +126,8 @@ func newWorld(t *testing.T) *world {
 
 	// Mở khóa giao hàng khi tiền về — cùng bộ bên nhận mà worker đăng ký.
 	// Thiếu nó thì đơn trả trước bị khóa vĩnh viễn (ADR-0018 phần A2).
-	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulModule, log))
-	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(fulModule, log))
+	bus.Subscribe(fulfillment.NewUnlockHandler(fulModule, log))
+	bus.Subscribe(fulfillment.NewCancelByOrderHandler(fulModule, log))
 	bus.Subscribe(payment.NewPaymentHandler(payModule, log))
 
 	// Ghi doanh thu: KHOẢN PHẢI THU lúc đặt đơn, tiền mặt khi thu được.
@@ -728,9 +728,9 @@ type shippingPort struct{ api *fulfillment.Module }
 func (p *shippingPort) EstimateShipping(
 	ctx context.Context, method string, sellerIDs []string, currency string,
 ) (checkoutapp.UocTinhPhiGiao, error) {
-	sources := make([]fulfillment.NguonHangInput, 0, len(sellerIDs))
+	sources := make([]fulfillment.SourceInput, 0, len(sellerIDs))
 	for _, id := range sellerIDs {
-		sources = append(sources, fulfillment.NguonHangInput{SellerID: id})
+		sources = append(sources, fulfillment.SourceInput{SellerID: id})
 	}
 	res, err := p.api.EstimateShipping(ctx, fulfillment.ShippingEstimateRequest{
 		Method: method, Sources: sources, Currency: currency,

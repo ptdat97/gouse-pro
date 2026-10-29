@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// DangTrenDuong cho biết gói hàng đang nằm trong tay đơn vị vận chuyển.
+// InTransit cho biết gói hàng đang nằm trong tay đơn vị vận chuyển.
 //
 // Hai trạng thái này là nơi DUY NHẤT hệ thống phụ thuộc vào tin từ bên
 // ngoài để đi tiếp: mọi trạng thái trước đó do nhà bán tự bấm, mọi trạng
@@ -10,11 +10,11 @@ import "time"
 //
 // DELIVERY_FAILED KHÔNG tính là đang trên đường: đó là tin ĐÃ VỀ, chỉ là
 // tin xấu. Đơn cần người xử lý, nhưng không phải vì mất liên lạc.
-func (f *FulfillmentOrder) DangTrenDuong() bool {
+func (f *FulfillmentOrder) InTransit() bool {
 	return f.status == FOHandedOver || f.status == FOInTransit
 }
 
-// BatTinGiaoHang cho biết gói hàng đã bàn giao quá lâu mà KHÔNG có tin gì.
+// LostContact cho biết gói hàng đã bàn giao quá lâu mà KHÔNG có tin gì.
 //
 // # Đây là yêu cầu 5 của api/paths/webhooks.yaml
 //
@@ -31,20 +31,20 @@ func (f *FulfillmentOrder) DangTrenDuong() bool {
 // # `nguong` là ngưỡng NGHI NGỜ, không phải hạn giao hàng
 //
 // Nó không nói "gói này giao trễ" — chuyện đó là việc của đơn vị vận
-// chuyển và đã có `HanBanGiao` cho phần trách nhiệm của nhà bán. Nó nói
+// chuyển và đã có `HandoverDeadline` cho phần trách nhiệm của nhà bán. Nó nói
 // "đã lâu bất thường mà không có cập nhật NÀO, hãy đi hỏi". Vì vậy ngưỡng
 // phải rộng hơn thời gian giao hàng thông thường, không bằng.
 //
 // Trả false khi chưa bàn giao: `shippedAt` rỗng nghĩa là gói chưa rời tay
-// nhà bán, và việc đó do `TreHan` trông.
-func (f *FulfillmentOrder) BatTinGiaoHang(nguong time.Duration, now time.Time) bool {
-	if !f.DangTrenDuong() || f.shippedAt.IsZero() {
+// nhà bán, và việc đó do `PastDeadline` trông.
+func (f *FulfillmentOrder) LostContact(thresholds time.Duration, now time.Time) bool {
+	if !f.InTransit() || f.shippedAt.IsZero() {
 		return false
 	}
-	return now.After(f.shippedAt.Add(nguong))
+	return now.After(f.shippedAt.Add(thresholds))
 }
 
-// ImLangBaoLau trả về thời gian kể từ lần cuối có tin về gói hàng.
+// SilentFor trả về thời gian kể từ lần cuối có tin về gói hàng.
 //
 // Dùng để xếp thứ tự xử lý và để ghi vào cảnh báo — người trực cần biết
 // "8 ngày" chứ không chỉ "quá ngưỡng".
@@ -52,13 +52,13 @@ func (f *FulfillmentOrder) BatTinGiaoHang(nguong time.Duration, now time.Time) b
 // Mốc là `updatedAt` chứ không phải `shippedAt`: một gói đã đi qua
 // IN_TRANSIT hôm qua thì có tin mới hơn lúc bàn giao, và tính từ lúc bàn
 // giao sẽ làm nó trông đáng ngờ hơn thực tế.
-func (f *FulfillmentOrder) ImLangBaoLau(now time.Time) time.Duration {
-	moc := f.updatedAt
-	if moc.IsZero() {
-		moc = f.shippedAt
+func (f *FulfillmentOrder) SilentFor(now time.Time) time.Duration {
+	lastNews := f.updatedAt
+	if lastNews.IsZero() {
+		lastNews = f.shippedAt
 	}
-	if moc.IsZero() {
+	if lastNews.IsZero() {
 		return 0
 	}
-	return now.Sub(moc)
+	return now.Sub(lastNews)
 }

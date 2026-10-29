@@ -40,7 +40,7 @@ func newPool(t *testing.T) *pgxpool.Pool {
 // tay bỏ sót một trường**, và trường đó bị xóa trắng hoặc không bao giờ
 // được ghi.
 //
-//	withLineIDs quên ChoThanhToan      cờ khóa giao hàng bị xóa khi đọc
+//	withLineIDs quên AwaitingPayment      cờ khóa giao hàng bị xóa khi đọc
 //	withLines   quên BenChiuGiamGia    bên chịu giảm giá bị xóa khi đọc
 //	INSERT      quên shipping_method   rỗng trên CẢ 3.207 đơn thực hiện
 //
@@ -54,7 +54,7 @@ func newPool(t *testing.T) *pgxpool.Pool {
 // Nó KHÔNG liệt kê trường bằng tay để so sánh. Nó dựng một bộ tham số với
 // MỌI trường khác giá trị rỗng — và dùng reflect để BẮT BUỘC điều đó: thêm
 // một trường mới mà quên điền thì bài dừng ngay, kèm tên trường.
-// rongLucTao là những trường một đơn thực hiện VỪA SINH RA chưa thể có.
+// emptyAtCreate là những trường một đơn thực hiện VỪA SINH RA chưa thể có.
 //
 // Danh sách này là nghiệp vụ, không phải kỹ thuật: chưa xác nhận thì chưa
 // có `ConfirmedAt`, chưa bàn giao thì chưa có mã vận đơn. Mọi trường KHÔNG
@@ -62,7 +62,7 @@ func newPool(t *testing.T) *pgxpool.Pool {
 //
 // Hướng của danh sách này là điều quan trọng: mặc định của một trường MỚI
 // là "phải khứ hồi được". Quên xử lý nó thì bài test ĐỎ — không phải xanh.
-var rongLucTao = map[string]bool{
+var emptyAtCreate = map[string]bool{
 	"Status":            true, // luôn về PENDING lúc tạo
 	"CancelReason":      true,
 	"FailureReason":     true,
@@ -79,99 +79,99 @@ var rongLucTao = map[string]bool{
 	"Version":           true, // database đặt, không phải bộ nhớ
 }
 
-// TestDuongTaoKhongMatTruongNao canh câu INSERT.
+// TestTheCreatePathLosesNoField canh câu INSERT.
 //
 // Đây là đường đã bỏ sót `shipping_method`: `Update` CÓ ghi cột đó nên câu
 // lệnh nhìn đúng, chỉ đường TẠO là thiếu — và không test nào đi qua đường
 // tạo rồi đọc lại để so.
-func TestDuongTaoKhongMatTruongNao(t *testing.T) {
+func TestTheCreatePathLosesNoField(t *testing.T) {
 	pool := newPool(t)
 	ctx := context.Background()
 	store := postgres.NewFulfillmentStore(pool)
 
-	goc := thamSoDayDu(t)
-	fo := domain.RestoreFulfillmentOrder(goc)
+	original := fullParams(t)
+	fo := domain.RestoreFulfillmentOrder(original)
 
 	if err := store.SaveBatch(ctx, []*domain.FulfillmentOrder{fo}); err != nil {
 		t.Fatalf("lưu đơn thực hiện: %v", err)
 	}
 
-	docLai, err := store.FindByID(ctx, fo.ID(), fo.SellerID())
+	reread, err := store.FindByID(ctx, fo.ID(), fo.SellerID())
 	if err != nil {
 		t.Fatalf("đọc lại: %v", err)
 	}
 
-	soSanh(t, goc, rutRa(docLai), rongLucTao)
+	compare(t, original, rutRa(reread), emptyAtCreate)
 }
 
-// TestDuongCapNhatKhongMatTruongNao canh câu UPDATE.
+// TestTheUpdatePathLosesNoField canh câu UPDATE.
 //
 // Sau khi cập nhật, MỌI trường phải khứ hồi được — không có trường nào
 // "chưa tới lúc" nữa.
-func TestDuongCapNhatKhongMatTruongNao(t *testing.T) {
+func TestTheUpdatePathLosesNoField(t *testing.T) {
 	pool := newPool(t)
 	ctx := context.Background()
 	store := postgres.NewFulfillmentStore(pool)
 
-	goc := thamSoDayDu(t)
+	original := fullParams(t)
 
 	// Tạo trước với version 0 — đúng thứ database đặt cho dòng mới.
-	tao := goc
-	tao.Version = 0
+	fresh := original
+	fresh.Version = 0
 	if err := store.SaveBatch(ctx, []*domain.FulfillmentOrder{
-		domain.RestoreFulfillmentOrder(tao),
+		domain.RestoreFulfillmentOrder(fresh),
 	}); err != nil {
 		t.Fatalf("lưu đơn thực hiện: %v", err)
 	}
 
-	if err := store.Update(ctx, domain.RestoreFulfillmentOrder(tao)); err != nil {
+	if err := store.Update(ctx, domain.RestoreFulfillmentOrder(fresh)); err != nil {
 		t.Fatalf("cập nhật: %v", err)
 	}
 
-	docLai, err := store.FindByID(ctx, tao.ID, tao.SellerID)
+	reread, err := store.FindByID(ctx, fresh.ID, fresh.SellerID)
 	if err != nil {
 		t.Fatalf("đọc lại: %v", err)
 	}
 
 	// Update tăng version, nên so với 1 chứ không phải 0.
-	mong := tao
+	mong := fresh
 	mong.Version = 1
-	soSanh(t, mong, rutRa(docLai), nil)
+	compare(t, mong, rutRa(reread), nil)
 }
 
-// thamSoDayDu dựng tham số với MỌI trường khác rỗng.
+// fullParams dựng tham số với MỌI trường khác rỗng.
 //
 // Reflect ở cuối là phần quan trọng nhất: nó biến "quên điền trường mới"
 // từ một bài test xanh giả thành một lỗi có tên.
-func thamSoDayDu(t *testing.T) domain.RestoreFOParams {
+func fullParams(t *testing.T) domain.RestoreFOParams {
 	t.Helper()
 
-	tien, err := money.New(500_000, money.VND)
+	amount, err := money.New(500_000, money.VND)
 	if err != nil {
 		t.Fatalf("tiền: %v", err)
 	}
-	hoaHong, err := money.New(50_000, money.VND)
+	commission, err := money.New(50_000, money.VND)
 	if err != nil {
 		t.Fatalf("hoa hồng: %v", err)
 	}
-	donGia, err := money.New(250_000, money.VND)
+	unitPrice, err := money.New(250_000, money.VND)
 	if err != nil {
 		t.Fatalf("đơn giá: %v", err)
 	}
 
 	lineID := ids.MustNew(ids.PrefixOrderLine)
 	p := domain.RestoreFOParams{
-		ID:           ids.MustNew(ids.PrefixFulfillmentOrder),
-		ChoThanhToan: true,
-		OrderID:      ids.MustNew(ids.PrefixOrder),
+		ID:              ids.MustNew(ids.PrefixFulfillmentOrder),
+		AwaitingPayment: true,
+		OrderID:         ids.MustNew(ids.PrefixOrder),
 		// FONumber DUY NHẤT mỗi lần gọi: cột này có ràng buộc UNIQUE và
 		// cả gói test dùng chung một database.
 		FONumber:         "FC-2026-09-" + string(ids.MustNew(ids.PrefixOrder))[4:14] + "-A",
 		SellerID:         ids.MustNew(ids.PrefixSeller),
 		LineIDs:          []ids.ID{lineID},
 		Status:           domain.FOHandedOver,
-		Subtotal:         tien,
-		CommissionAmount: hoaHong,
+		Subtotal:         amount,
+		CommissionAmount: commission,
 		CancelReason:     "khách đổi ý",
 		FailureReason:    "không liên lạc được",
 		CustomerID:       ids.MustNew(ids.PrefixCustomer),
@@ -206,8 +206,8 @@ func thamSoDayDu(t *testing.T) domain.RestoreFOParams {
 			ProductName:        "Áo thun basic",
 			VariantDescription: "Đen / M",
 			Quantity:           2,
-			UnitPrice:          donGia,
-			LineTotal:          tien,
+			UnitPrice:          unitPrice,
+			LineTotal:          amount,
 		}},
 	}
 
@@ -236,7 +236,7 @@ func thamSoDayDu(t *testing.T) domain.RestoreFOParams {
 func rutRa(f *domain.FulfillmentOrder) domain.RestoreFOParams {
 	return domain.RestoreFOParams{
 		ID:                f.ID(),
-		ChoThanhToan:      f.ChoThanhToan(),
+		AwaitingPayment:   f.AwaitingPayment(),
 		OrderID:           f.OrderID(),
 		FONumber:          f.FONumber(),
 		SellerID:          f.SellerID(),
@@ -269,23 +269,23 @@ func rutRa(f *domain.FulfillmentOrder) domain.RestoreFOParams {
 	}
 }
 
-// theoNgay là những trường lưu ở cột kiểu DATE.
+// byDay là những trường lưu ở cột kiểu DATE.
 //
 // Chúng chỉ mang ngày lịch, nên so theo thời điểm là so sai đơn vị.
-var theoNgay = map[string]bool{"EstimatedDelivery": true}
+var byDay = map[string]bool{"EstimatedDelivery": true}
 
-// soSanh đối chiếu TỪNG trường và gọi tên trường lệch.
+// compare đối chiếu TỪNG trường và gọi tên trường lệch.
 //
 // `reflect.DeepEqual` trên cả struct chỉ nói "khác nhau" — với ba mươi
 // trường thì đó là thông điệp gần như vô dụng.
-func soSanh(t *testing.T, goc, sau domain.RestoreFOParams, boQua map[string]bool) {
+func compare(t *testing.T, original, after domain.RestoreFOParams, skip map[string]bool) {
 	t.Helper()
 
-	a := reflect.ValueOf(goc)
-	b := reflect.ValueOf(sau)
+	a := reflect.ValueOf(original)
+	b := reflect.ValueOf(after)
 	for i := 0; i < a.NumField(); i++ {
 		ten := a.Type().Field(i).Name
-		if boQua[ten] {
+		if skip[ten] {
 			continue
 		}
 		x, y := a.Field(i).Interface(), b.Field(i).Interface()
@@ -297,7 +297,7 @@ func soSanh(t *testing.T, goc, sau domain.RestoreFOParams, boQua map[string]bool
 			// theo mốc tuyệt đối thì nửa đêm giờ Việt Nam và nửa đêm UTC
 			// là hai thời điểm cách nhau 7 tiếng — khác nhau, dù cùng một
 			// ngày và cùng một ý nghĩa.
-			if theoNgay[ten] {
+			if byDay[ten] {
 				if types.DauNgay(tx) != types.DauNgay(ty) {
 					t.Errorf("trường %s lệch NGÀY sau khi lưu rồi đọc lại: "+
 						"%s → %s", ten,
@@ -322,7 +322,7 @@ func soSanh(t *testing.T, goc, sau domain.RestoreFOParams, boQua map[string]bool
 	}
 }
 
-// TestNgayGiaoDuKienKhongLechMotNgay.
+// TestTheEstimatedDeliveryDayIsNotOffByOne.
 //
 // # Vùng nguy hiểm
 //
@@ -333,59 +333,59 @@ func soSanh(t *testing.T, goc, sau domain.RestoreFOParams, boQua map[string]bool
 //
 // Cột lưu có kiểu DATE, nên sai một ngày ở đây là sai một ngày trong lời
 // hứa giao hàng — và nó im lặng.
-func TestNgayGiaoDuKienKhongLechMotNgay(t *testing.T) {
+func TestTheEstimatedDeliveryDayIsNotOffByOne(t *testing.T) {
 	pool := newPool(t)
 	ctx := context.Background()
 	store := postgres.NewFulfillmentStore(pool)
 
 	for _, tc := range []struct {
 		ten      string
-		banGiao  time.Time
-		mongNgay string
+		handOver time.Time
+		wantDay  string
 	}{
 		{
 			// 02:00 ngày 12/09 giờ VN = 19:00 ngày 11/09 UTC.
 			ten:      "rạng sáng — lệch ngày so với UTC",
-			banGiao:  time.Date(2026, 9, 11, 19, 0, 0, 0, time.UTC),
-			mongNgay: "2026-09-15", // 12/09 + 3 ngày
+			handOver: time.Date(2026, 9, 11, 19, 0, 0, 0, time.UTC),
+			wantDay:  "2026-09-15", // 12/09 + 3 ngày
 		},
 		{
 			// 21:00 ngày 11/09 giờ VN = 14:00 cùng ngày UTC.
 			ten:      "tối muộn — cùng ngày với UTC",
-			banGiao:  time.Date(2026, 9, 11, 14, 0, 0, 0, time.UTC),
-			mongNgay: "2026-09-14",
+			handOver: time.Date(2026, 9, 11, 14, 0, 0, 0, time.UTC),
+			wantDay:  "2026-09-14",
 		},
 	} {
 		t.Run(tc.ten, func(t *testing.T) {
-			goc := thamSoDayDu(t)
-			goc.Version = 0
-			goc.Status = domain.FOPacked
+			original := fullParams(t)
+			original.Version = 0
+			original.Status = domain.FOPacked
 			// Cổng thanh toán của ADR-0018 chặn mọi chuyển trạng thái
 			// khác HỦY khi đơn chưa thu được tiền — đúng như thiết kế.
-			goc.ChoThanhToan = false
-			goc.ShippingMethod = string(domain.GiaoTieuChuan)
+			original.AwaitingPayment = false
+			original.ShippingMethod = string(domain.ShipStandard)
 
-			fo := domain.RestoreFulfillmentOrder(goc)
+			fo := domain.RestoreFulfillmentOrder(original)
 			if err := store.SaveBatch(ctx, []*domain.FulfillmentOrder{fo}); err != nil {
 				t.Fatalf("lưu: %v", err)
 			}
-			if err := fo.HandOver("GHN", "GHN-"+string(fo.ID())[4:14], domain.BieuPhiMacDinh, tc.banGiao); err != nil {
+			if err := fo.HandOver("GHN", "GHN-"+string(fo.ID())[4:14], domain.DefaultFeeSchedule, tc.handOver); err != nil {
 				t.Fatalf("bàn giao: %v", err)
 			}
 			if err := store.Update(ctx, fo); err != nil {
 				t.Fatalf("cập nhật: %v", err)
 			}
 
-			docLai, err := store.FindByID(ctx, fo.ID(), fo.SellerID())
+			reread, err := store.FindByID(ctx, fo.ID(), fo.SellerID())
 			if err != nil {
 				t.Fatalf("đọc lại: %v", err)
 			}
 
-			got := docLai.EstimatedDelivery().
+			got := reread.EstimatedDelivery().
 				In(types.MuiGioNghiepVu).Format("2006-01-02")
-			if got != tc.mongNgay {
+			if got != tc.wantDay {
 				t.Errorf("ngày giao dự kiến = %s, cần %s — khách đọc ngày "+
-					"theo lịch Việt Nam, không theo UTC", got, tc.mongNgay)
+					"theo lịch Việt Nam, không theo UTC", got, tc.wantDay)
 			}
 		})
 	}

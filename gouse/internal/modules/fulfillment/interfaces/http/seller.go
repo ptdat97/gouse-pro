@@ -36,8 +36,8 @@ import (
 // Mã đơn tổng, tổng tiền cả đơn, các lô khác trong cùng đơn, tên seller
 // khác, email khách, lịch sử mua hàng. Xem `SellerFulfillmentOrder` trong
 // đặc tả.
-// maxTrangGiaoHang khớp `maximum: 100` của tham số Limit dùng chung.
-const maxTrangGiaoHang = 100
+// maxShippingPage khớp `maximum: 100` của tham số Limit dùng chung.
+const maxShippingPage = 100
 
 type SellerHandler struct {
 	svc *application.Service
@@ -96,7 +96,7 @@ type shipToJSON struct {
 	CountryCode   string `json:"country_code"`
 }
 
-type sellerFOJSON struct {
+type sellerFulfillmentJSON struct {
 	ID                string `json:"id"`
 	FulfillmentNumber string `json:"fulfillment_number"`
 	Status            string `json:"status"`
@@ -139,7 +139,7 @@ type sellerFOJSON struct {
 }
 
 type listFOResponse struct {
-	Data []sellerFOJSON `json:"data"`
+	Data []sellerFulfillmentJSON `json:"data"`
 }
 
 // list phục vụ GET /api/v1/seller/fulfillment-orders
@@ -165,10 +165,10 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 		// hơn hợp đồng, và kiểu lệch đó không ai thấy cho tới khi một
 		// client sinh từ đặc tả từ chối gửi giá trị mà server vẫn nhận.
 		n, convErr := strconv.Atoi(v)
-		if convErr != nil || n < 1 || n > maxTrangGiaoHang {
+		if convErr != nil || n < 1 || n > maxShippingPage {
 			h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 				fmt.Sprintf("limit phải là số nguyên từ 1 đến %d",
-					maxTrangGiaoHang)))
+					maxShippingPage)))
 			return
 		}
 		limit = n
@@ -180,7 +180,7 @@ func (h *SellerHandler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := make([]sellerFOJSON, 0, len(list))
+	data := make([]sellerFulfillmentJSON, 0, len(list))
 	for _, fo := range list {
 		data = append(data, h.toSellerFO(fo))
 	}
@@ -342,8 +342,8 @@ func toMoney(m money.Money) moneyJSON {
 //
 // Đọc từ CÙNG nguồn với phép chấm điểm hiệu suất: hai nơi đọc hai con số
 // khác nhau nghĩa là màn hình nói "còn 3 giờ" trong khi báo cáo ghi trễ.
-func (h *SellerHandler) toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
-	sla := h.svc.SLAHienTai().SLAGiaoHang
+func (h *SellerHandler) toSellerFO(fo *domain.FulfillmentOrder) sellerFulfillmentJSON {
+	sla := h.svc.CurrentSLA().DeliverySLA
 	now := h.svc.Now()
 	lines := fo.Lines()
 	items := make([]foItemJSON, 0, len(lines))
@@ -372,7 +372,7 @@ func (h *SellerHandler) toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
 		}
 	}
 
-	return sellerFOJSON{
+	return sellerFulfillmentJSON{
 		ID:                fo.ID().String(),
 		FulfillmentNumber: fo.FONumber(),
 		Status:            string(fo.Status()),
@@ -384,8 +384,8 @@ func (h *SellerHandler) toSellerFO(fo *domain.FulfillmentOrder) sellerFOJSON {
 		ShippingProvider:  fo.ShippingProvider(),
 		TrackingNumber:    fo.TrackingNumber(),
 		CreatedAt:         formatTime(fo.CreatedAt()),
-		SLADeadline:       formatTime(fo.HanBanGiao(sla)),
-		SLABreached:       fo.TreHan(sla, now),
+		SLADeadline:       formatTime(fo.HandoverDeadline(sla)),
+		SLABreached:       fo.PastDeadline(sla, now),
 		ConfirmedAt:       formatTime(fo.ConfirmedAt()),
 		PackedAt:          formatTime(fo.PackedAt()),
 		ShippedAt:         formatTime(fo.ShippedAt()),
@@ -431,21 +431,21 @@ func (h *SellerHandler) deliver(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, http.StatusOK, h.toSellerFO(fo))
 }
 
-type chiSoJSON struct {
+type metricJSON struct {
 	Name      string  `json:"name"`
 	Value     float64 `json:"value"`
 	Threshold float64 `json:"threshold"`
 	Status    string  `json:"status"`
 }
 
-type chuaDoJSON struct {
+type unmeasuredJSON struct {
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
 }
 
-type hieuSuatJSON struct {
-	Period  string      `json:"period"`
-	Metrics []chiSoJSON `json:"metrics"`
+type performanceJSON struct {
+	Period  string       `json:"period"`
+	Metrics []metricJSON `json:"metrics"`
 
 	// SampleSize để nhà bán tự kiểm chứng con số.
 	//
@@ -460,7 +460,7 @@ type hieuSuatJSON struct {
 	//
 	// Trả một phần rồi im lặng về phần còn lại tạo ra đúng thứ hộp đen mà
 	// đặc tả sinh ra để tránh — chỉ khác là ở phía người viết API.
-	NotMeasured []chuaDoJSON `json:"not_measured"`
+	NotMeasured []unmeasuredJSON `json:"not_measured"`
 
 	Impact struct {
 		Message string `json:"message"`
@@ -485,41 +485,41 @@ func (h *SellerHandler) performance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ky := application.Ky30Ngay
+	period := application.PeriodLast30Days
 	if v := r.URL.Query().Get("period"); v != "" {
-		ky = application.Ky(v)
+		period = application.Period(v)
 	}
-	if _, ok := application.KyHopLe(ky); !ok {
+	if _, ok := application.ValidPeriod(period); !ok {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"period phải là LAST_7_DAYS, LAST_30_DAYS hoặc LAST_90_DAYS"))
 		return
 	}
 
-	hs, err := h.svc.TinhHieuSuat(r.Context(), sellerID, ky)
+	hs, err := h.svc.ComputePerformance(r.Context(), sellerID, period)
 	if err != nil {
 		h.fail(w, r, translateSeller(err))
 		return
 	}
 
-	ra := hieuSuatJSON{
-		Period:           string(hs.Ky),
-		Metrics:          make([]chiSoJSON, 0, len(hs.ChiSo)),
-		SampleSize:       hs.SoLieu.TongDon,
-		ShippingSLAHours: hs.SLAGio,
-		NotMeasured:      make([]chuaDoJSON, 0, len(hs.ChuaDo)),
+	ra := performanceJSON{
+		Period:           string(hs.Period),
+		Metrics:          make([]metricJSON, 0, len(hs.Metrics)),
+		SampleSize:       hs.Stats.TotalOrders,
+		ShippingSLAHours: hs.SLAHours,
+		NotMeasured:      make([]unmeasuredJSON, 0, len(hs.Unmeasured)),
 	}
-	for _, c := range hs.ChiSo {
-		ra.Metrics = append(ra.Metrics, chiSoJSON{
-			Name: c.Ten, Value: c.GiaTri,
-			Threshold: c.Nguong, Status: string(c.TrangThai),
+	for _, c := range hs.Metrics {
+		ra.Metrics = append(ra.Metrics, metricJSON{
+			Name: c.Ten, Value: c.Value,
+			Threshold: c.Thresholds, Status: string(c.Status),
 		})
 	}
-	for _, c := range hs.ChuaDo {
-		ra.NotMeasured = append(ra.NotMeasured, chuaDoJSON{
+	for _, c := range hs.Unmeasured {
+		ra.NotMeasured = append(ra.NotMeasured, unmeasuredJSON{
 			Name: c.Ten, Reason: c.LyDo,
 		})
 	}
-	ra.Impact.Message = hs.ThongDiep
+	ra.Impact.Message = hs.Message
 
 	h.ok(w, r, http.StatusOK, ra)
 }

@@ -20,7 +20,7 @@ type PhiTheoNguon struct {
 	Phi money.Money
 
 	// SoNgay là thời gian VẬN CHUYỂN, KHÔNG gồm thời gian nhà bán chuẩn
-	// bị hàng — xem `fulfillment/domain.MucPhi`.
+	// bị hàng — xem `fulfillment/domain.FeeTier`.
 	SoNgay int
 }
 

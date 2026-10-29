@@ -80,8 +80,8 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	// Hai bên nhận của `order.paid` — ADR-0018. Thiếu chúng thì đơn trả
 	// trước bị khóa vĩnh viễn và tiền mặt không bao giờ được ghi nhận.
 	bus.Subscribe(payment.NewPaymentHandler(a.mods.payment, log))
-	bus.Subscribe(fulfillment.NewMoKhoaHandler(a.mods.fulfillment, log))
-	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(a.mods.fulfillment, log))
+	bus.Subscribe(fulfillment.NewUnlockHandler(a.mods.fulfillment, log))
+	bus.Subscribe(fulfillment.NewCancelByOrderHandler(a.mods.fulfillment, log))
 
 	// Lượt dùng mã giảm giá: ghi khi phiên hoàn tất, trả lại khi đơn hủy.
 	// Read model gợi ý size — dựng từ mua hàng và trả hàng.

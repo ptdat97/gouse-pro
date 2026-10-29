@@ -297,7 +297,7 @@ func run() error {
 	//
 	// Không có nó thì job đối chiếu giao hàng báo lỗi "chưa nối cấu hình
 	// vận hành" mỗi lượt — và nó BÁO thay vì lặng lẽ trả rỗng, đúng như
-	// `fulfillment.ErrChuaNoiCauHinh` mô tả.
+	// `fulfillment.ErrConfigNotWired` mô tả.
 	opsConfigStore := opsconfig.NewStore(ctx, db.Pool())
 
 	// checkout cần bốn module để khởi tạo. Worker dựng chúng chỉ để có
@@ -522,14 +522,14 @@ func run() error {
 	//
 	// Không có bên nhận này thì mọi đơn TRẢ TRƯỚC bị khóa vĩnh viễn —
 	// `SplitOnCheckoutCompleted` khóa chúng và không gì mở ra.
-	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulfillmentModule, log))
+	bus.Subscribe(fulfillment.NewUnlockHandler(fulfillmentModule, log))
 
 	// Hủy đơn → hủy đơn thực hiện → NHẢ KHO.
 	//
 	// Mắt xích cuối của đường ra kho. Thiếu nó thì hủy cả đơn để lại hàng
 	// ở trạng thái cam kết vĩnh viễn — đường nhả chỉ mở khi đơn THỰC HIỆN
 	// bị hủy, và trước đây không gì hủy chúng theo đơn hàng.
-	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(fulfillmentModule, log))
+	bus.Subscribe(fulfillment.NewCancelByOrderHandler(fulfillmentModule, log))
 
 	// Thu được tiền: khoản phải thu chuyển thành tiền mặt (ADR-0018 B1).
 	bus.Subscribe(payment.NewPaymentHandler(paymentModule, log))
@@ -1227,7 +1227,7 @@ func doiSoatGiaoHang(
 			return nil
 		}
 
-		goi, err := ful.DoiSoatGiaoHang(ctx, doiSoatGiaoHangBatch)
+		goi, err := ful.ReconcileDeliveries(ctx, doiSoatGiaoHangBatch)
 		if err != nil {
 			return fmt.Errorf("đối soát giao hàng: %w", err)
 		}
@@ -1245,10 +1245,10 @@ func doiSoatGiaoHang(
 			log.Warn("gói hàng MẤT TIN vận chuyển — cần đi hỏi đơn vị vận chuyển",
 				"fulfillment_id", g.FulfillmentID, "fo_number", g.FONumber,
 				"order_id", g.OrderID, "seller_id", g.SellerID,
-				"nha_van_chuyen", g.NhaVanChuyen, "ma_van_don", g.MaVanDon,
-				"trang_thai", g.TrangThai,
+				"nha_van_chuyen", g.Carrier, "ma_van_don", g.TrackingNumber,
+				"trang_thai", g.Status,
 				"ban_giao_luc", g.ShippedAt.Format(time.RFC3339),
-				"im_lang_gio", int(g.ImLang.Hours()),
+				"im_lang_gio", int(g.Silent.Hours()),
 				"goi_y", "tra mã vận đơn trên hệ thống hãng vận chuyển rồi "+
 					"cập nhật tay; KHÔNG tự đánh dấu đã giao")
 		}

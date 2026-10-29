@@ -7,25 +7,25 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
-// GoiBatTin là một gói hàng đã bàn giao lâu bất thường mà không có tin.
+// LostContactParcel là một gói hàng đã bàn giao lâu bất thường mà không có tin.
 //
 // Mang sẵn mọi thứ người trực cần để đi hỏi đơn vị vận chuyển, để họ không
 // phải tra ngược từ id qua bốn bảng lúc 3 giờ sáng.
-type GoiBatTin struct {
+type LostContactParcel struct {
 	FulfillmentID ids.ID
 	FONumber      string
 	OrderID       ids.ID
 	SellerID      ids.ID
 
-	NhaVanChuyen string
-	MaVanDon     string
+	Carrier        string
+	TrackingNumber string
 
-	TrangThai string
+	Status    string
 	ShippedAt time.Time
-	ImLang    time.Duration
+	Silent    time.Duration
 }
 
-// DoiSoatGiaoHang tìm các gói hàng MẤT TIN từ đơn vị vận chuyển.
+// ReconcileDeliveries tìm các gói hàng MẤT TIN từ đơn vị vận chuyển.
 //
 // # Đây là nửa NỘI BỘ của yêu cầu 5
 //
@@ -49,34 +49,34 @@ type GoiBatTin struct {
 //
 // Gói im lặng lâu nhất đứng đầu danh sách; `limit` chặn để một sự cố kéo
 // dài không tạo ra hàng nghìn dòng log trong một vòng chạy.
-func (s *Service) DoiSoatGiaoHang(
-	ctx context.Context, nguong time.Duration, limit int,
-) ([]GoiBatTin, error) {
+func (s *Service) ReconcileDeliveries(
+	ctx context.Context, thresholds time.Duration, limit int,
+) ([]LostContactParcel, error) {
 	now := s.clock.Now()
 
-	dangGiao, err := s.repo.ListDangGiaoTruoc(ctx, now.Add(-nguong), limit)
+	inTransitList, err := s.repo.ListInTransitBefore(ctx, now.Add(-thresholds), limit)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]GoiBatTin, 0, len(dangGiao))
-	for _, fo := range dangGiao {
+	out := make([]LostContactParcel, 0, len(inTransitList))
+	for _, fo := range inTransitList {
 		// Hỏi lại domain dù SQL đã lọc: câu truy vấn và quy tắc là hai
 		// chỗ, và chỗ quyết định phải là domain. Nếu hai bên lệch nhau
 		// thì cái sai lọt ra ngoài là dòng này, không phải cảnh báo.
-		if !fo.BatTinGiaoHang(nguong, now) {
+		if !fo.LostContact(thresholds, now) {
 			continue
 		}
-		out = append(out, GoiBatTin{
-			FulfillmentID: fo.ID(),
-			FONumber:      fo.FONumber(),
-			OrderID:       fo.OrderID(),
-			SellerID:      fo.SellerID(),
-			NhaVanChuyen:  fo.ShippingProvider(),
-			MaVanDon:      fo.TrackingNumber(),
-			TrangThai:     string(fo.Status()),
-			ShippedAt:     fo.ShippedAt(),
-			ImLang:        fo.ImLangBaoLau(now),
+		out = append(out, LostContactParcel{
+			FulfillmentID:  fo.ID(),
+			FONumber:       fo.FONumber(),
+			OrderID:        fo.OrderID(),
+			SellerID:       fo.SellerID(),
+			Carrier:        fo.ShippingProvider(),
+			TrackingNumber: fo.TrackingNumber(),
+			Status:         string(fo.Status()),
+			ShippedAt:      fo.ShippedAt(),
+			Silent:         fo.SilentFor(now),
 		})
 	}
 	return out, nil

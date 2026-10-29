@@ -16,7 +16,7 @@ import (
 //
 // "Đơn này có đúng hạn không" nay có HAI cài đặt:
 //
-//	Go   `FulfillmentOrder.BanGiaoDungHan` — con số nhà bán thấy trên màn hình
+//	Go   `FulfillmentOrder.HandedOverOnTime` — con số nhà bán thấy trên màn hình
 //	SQL  `shipped_at <= created_at + $4::interval` — con số vào điểm hiệu suất
 //
 // Hai cài đặt cho cùng một câu hỏi là cách chắc chắn để chúng lệch nhau,
@@ -25,7 +25,7 @@ import (
 // bên đều đọc đúng thứ hệ thống nói với họ.
 //
 // Bài này bắt cả hai trả lời trên CÙNG dữ liệu và so kết quả.
-func TestHanTrenManHinhKhopVoiPhepChamDiem(t *testing.T) {
+func TestTheDeadlineOnScreenMatchesTheGrading(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	sla := 48 * time.Hour
@@ -57,9 +57,9 @@ func TestHanTrenManHinhKhopVoiPhepChamDiem(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		ten         string
-		treBaoNhieu time.Duration
-		mongDungHan bool
+		ten        string
+		lateBy     time.Duration
+		wantOnTime bool
 	}{
 		{"bàn giao ĐÚNG mốc hạn", 0, true},
 		{"trễ một giây", time.Second, false},
@@ -76,43 +76,43 @@ func TestHanTrenManHinhKhopVoiPhepChamDiem(t *testing.T) {
 			//
 			// Chênh lệch đó có thật nhưng dưới một giây, và một hạn hiển
 			// thị cho người đọc thì tính bằng giây là đúng. Xem ghi chú ở
-			// `HanBanGiao`.
-			tao := types.BayGio().Truncate(time.Second).Add(-72 * time.Hour)
-			giao := tao.Add(sla + tt.treBaoNhieu)
+			// `HandoverDeadline`.
+			createdAt := types.BayGio().Truncate(time.Second).Add(-72 * time.Hour)
+			deliveredAt := createdAt.Add(sla + tt.lateBy)
 			if _, err := h.pool.Exec(ctx, `
 				UPDATE fulfillment_order
 				   SET created_at = $2, shipped_at = $3, status = 'HANDED_OVER'
-				 WHERE id = $1`, foID, tao, giao); err != nil {
+				 WHERE id = $1`, foID, createdAt, deliveredAt); err != nil {
 				t.Fatalf("đặt mốc thời gian: %v", err)
 			}
 
 			// Câu trả lời của SQL — thứ đi vào điểm hiệu suất.
 			store := fulfillmentpg.NewFulfillmentStore(h.pool)
-			so, err := store.DemHieuSuat(ctx, sellerA,
-				tao.Add(-time.Hour), types.BayGio(), sla)
+			stats, err := store.CountForPerformance(ctx, sellerA,
+				createdAt.Add(-time.Hour), types.BayGio(), sla)
 			if err != nil {
-				t.Fatalf("DemHieuSuat: %v", err)
+				t.Fatalf("CountForPerformance: %v", err)
 			}
-			sqlDungHan := so.DonGiaoDungHan == 1
+			sqlOnTime := stats.OnTimeOrders == 1
 
 			// Câu trả lời của Go — thứ nhà bán thấy trên màn hình.
 			fo, err := h.ful.GetSellerFulfillment(ctx, sellerA.String(), foID)
 			if err != nil {
 				t.Fatalf("GetSellerFulfillment: %v", err)
 			}
-			hanTrenManHinh, err := time.Parse(time.RFC3339, fo.SLADeadline)
+			deadlineOnScreen, err := time.Parse(time.RFC3339, fo.SLADeadline)
 			if err != nil {
 				t.Fatalf("đọc hạn trên màn hình %q: %v", fo.SLADeadline, err)
 			}
-			goDungHan := !giao.After(hanTrenManHinh)
+			shippedOnTime := !deliveredAt.After(deadlineOnScreen)
 
-			if goDungHan != sqlDungHan {
+			if shippedOnTime != sqlOnTime {
 				t.Errorf("MÀN HÌNH nói đúng hạn=%v, ĐIỂM HIỆU SUẤT nói %v — "+
 					"hai câu trả lời cho cùng một câu hỏi. Hạn hiển thị %v, "+
-					"bàn giao %v", goDungHan, sqlDungHan, hanTrenManHinh, giao)
+					"bàn giao %v", shippedOnTime, sqlOnTime, deadlineOnScreen, deliveredAt)
 			}
-			if goDungHan != tt.mongDungHan {
-				t.Errorf("đúng hạn = %v, mong %v", goDungHan, tt.mongDungHan)
+			if shippedOnTime != tt.wantOnTime {
+				t.Errorf("đúng hạn = %v, mong %v", shippedOnTime, tt.wantOnTime)
 			}
 		})
 	}

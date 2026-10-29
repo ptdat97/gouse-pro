@@ -42,7 +42,7 @@ func splitInput(lines ...domain.SplitLine) domain.SplitInput {
 //	└── Túi Seller B   (kho seller B, Đà Nẵng)
 //
 //	Ba món KHÔNG THỂ đóng chung một gói.
-func TestTachDonThanhBaFulfillmentOrder(t *testing.T) {
+func TestSplittingIntoThreeFulfillmentOrders(t *testing.T) {
 	ownBrand := ids.MustNew(ids.PrefixSeller)
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	sellerB := ids.MustNew(ids.PrefixSeller)
@@ -88,7 +88,7 @@ func TestTachDonThanhBaFulfillmentOrder(t *testing.T) {
 //
 // Hai món của cùng một seller đóng chung một gói được — tách ra là tăng
 // chi phí vận chuyển vô ích.
-func TestNhieuDongCungSellerGopMotDon(t *testing.T) {
+func TestManyLinesOfOneSellerMergeIntoOneOrder(t *testing.T) {
 	sellerA := ids.MustNew(ids.PrefixSeller)
 
 	fos, err := domain.SplitIntoFulfillmentOrders(splitInput(
@@ -114,7 +114,7 @@ func TestNhieuDongCungSellerGopMotDon(t *testing.T) {
 //
 // Nếu phụ thuộc thứ tự duyệt map, mã FO sẽ đổi giữa các lần chạy — và mọi
 // thông báo đã gửi cho seller sẽ trỏ sai chỗ.
-func TestKetQuaTachDonOnDinh(t *testing.T) {
+func TestTheSplitResultIsStable(t *testing.T) {
 	a := ids.MustNew(ids.PrefixSeller)
 	b := ids.MustNew(ids.PrefixSeller)
 	c := ids.MustNew(ids.PrefixSeller)
@@ -143,7 +143,7 @@ func TestKetQuaTachDonOnDinh(t *testing.T) {
 }
 
 // SELLER CHỈ THẤY PHẦN CỦA MÌNH — hàng rào cuối ở tầng domain.
-func TestSellerChiThayPhanCuaMinh(t *testing.T) {
+func TestASellerOnlySeesItsOwnPart(t *testing.T) {
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	sellerB := ids.MustNew(ids.PrefixSeller)
 
@@ -170,7 +170,7 @@ func TestSellerChiThayPhanCuaMinh(t *testing.T) {
 }
 
 // VÒNG ĐỜI ĐẦY ĐỦ: từ chờ xử lý tới hoàn tất.
-func TestVongDoiDayDu(t *testing.T) {
+func TestTheFullFulfillmentLifecycle(t *testing.T) {
 	fos, _ := domain.SplitIntoFulfillmentOrders(
 		splitInput(line(ids.MustNew(ids.PrefixSeller), 300000, 0)), testNow)
 	fo := fos[0]
@@ -187,7 +187,7 @@ func TestVongDoiDayDu(t *testing.T) {
 		{"lấy hàng", func() error { return fo.Pick(testNow) }, domain.FOPicking},
 		{"đóng gói", func() error { return fo.Pack(testNow) }, domain.FOPacked},
 		{"bàn giao", func() error {
-			return fo.HandOver("GHN", "GHN123456", domain.BieuPhiMacDinh, testNow)
+			return fo.HandOver("GHN", "GHN123456", domain.DefaultFeeSchedule, testNow)
 		}, domain.FOHandedOver},
 		{"đang giao", func() error { return fo.MarkInTransit(testNow) }, domain.FOInTransit},
 		{"đã giao", func() error { return fo.Deliver(testNow) }, domain.FODelivered},
@@ -212,7 +212,7 @@ func TestVongDoiDayDu(t *testing.T) {
 //
 // Từ đây hàng ra khỏi tầm kiểm soát của seller. Không có mã thì không ai
 // trả lời được "hàng của tôi đang ở đâu".
-func TestBanGiaoBatBuocCoMaVanDon(t *testing.T) {
+func TestHandoverRequiresATrackingNumber(t *testing.T) {
 	fos, _ := domain.SplitIntoFulfillmentOrders(
 		splitInput(line(ids.MustNew(ids.PrefixSeller), 300000, 0)), testNow)
 	fo := fos[0]
@@ -220,7 +220,7 @@ func TestBanGiaoBatBuocCoMaVanDon(t *testing.T) {
 	_ = fo.Confirm(testNow)
 	_ = fo.Pack(testNow)
 
-	if err := fo.HandOver("GHN", "", domain.BieuPhiMacDinh, testNow); err == nil {
+	if err := fo.HandOver("GHN", "", domain.DefaultFeeSchedule, testNow); err == nil {
 		t.Error("bàn giao không có mã vận đơn phải bị chặn")
 	}
 	if fo.Status() != domain.FOPacked {
@@ -229,14 +229,14 @@ func TestBanGiaoBatBuocCoMaVanDon(t *testing.T) {
 }
 
 // GIAO THẤT BẠI thì giao lại được, hoặc trả về người gửi.
-func TestGiaoThatBaiThiGiaoLaiDuoc(t *testing.T) {
+func TestAfterADeliveryFailureItCanBeRedelivered(t *testing.T) {
 	fos, _ := domain.SplitIntoFulfillmentOrders(
 		splitInput(line(ids.MustNew(ids.PrefixSeller), 300000, 0)), testNow)
 	fo := fos[0]
 
 	_ = fo.Confirm(testNow)
 	_ = fo.Pack(testNow)
-	_ = fo.HandOver("GHN", "GHN1", domain.BieuPhiMacDinh, testNow)
+	_ = fo.HandOver("GHN", "GHN1", domain.DefaultFeeSchedule, testNow)
 	_ = fo.MarkInTransit(testNow)
 
 	// Lý do BẮT BUỘC: khách cần biết vì sao chưa nhận được hàng.
@@ -263,14 +263,14 @@ func TestGiaoThatBaiThiGiaoLaiDuoc(t *testing.T) {
 //	COMPLETED  → số dư chuyển Available, seller được chi trả
 //
 // Đây là cơ chế bảo vệ nền tảng khỏi rủi ro hoàn hàng sau khi đã trả tiền.
-func TestPhanBietDeliveredVaCompleted(t *testing.T) {
+func TestDeliveredAndCompletedAreDistinct(t *testing.T) {
 	fos, _ := domain.SplitIntoFulfillmentOrders(
 		splitInput(line(ids.MustNew(ids.PrefixSeller), 300000, 0)), testNow)
 	fo := fos[0]
 
 	_ = fo.Confirm(testNow)
 	_ = fo.Pack(testNow)
-	_ = fo.HandOver("GHN", "GHN1", domain.BieuPhiMacDinh, testNow)
+	_ = fo.HandOver("GHN", "GHN1", domain.DefaultFeeSchedule, testNow)
 	_ = fo.Deliver(testNow)
 
 	if fo.Status().IsFinal() {
@@ -290,7 +290,7 @@ func TestPhanBietDeliveredVaCompleted(t *testing.T) {
 }
 
 // TỪ PICKING TRỞ ĐI thì hủy cần quy trình riêng (quy tắc 8).
-func TestDaLayHangThiKhongHuyThongThuong(t *testing.T) {
+func TestOncePickedUpAnOrdinaryCancelIsRefused(t *testing.T) {
 	fos, _ := domain.SplitIntoFulfillmentOrders(
 		splitInput(line(ids.MustNew(ids.PrefixSeller), 300000, 0)), testNow)
 	fo := fos[0]
@@ -316,7 +316,7 @@ func TestDaLayHangThiKhongHuyThongThuong(t *testing.T) {
 }
 
 // HỦY BẮT BUỘC CÓ LÝ DO: seller cần biết vì sao, khách cần lời giải thích.
-func TestHuyBatBuocCoLyDo(t *testing.T) {
+func TestCancelRequiresAReason(t *testing.T) {
 	fos, _ := domain.SplitIntoFulfillmentOrders(
 		splitInput(line(ids.MustNew(ids.PrefixSeller), 300000, 0)), testNow)
 	fo := fos[0]
@@ -333,7 +333,7 @@ func TestHuyBatBuocCoLyDo(t *testing.T) {
 }
 
 // TÁCH ĐƠN KHÔNG CÓ DÒNG HÀNG bị chặn.
-func TestTachDonRongBiChan(t *testing.T) {
+func TestAnEmptySplitIsBlocked(t *testing.T) {
 	_, err := domain.SplitIntoFulfillmentOrders(splitInput(), testNow)
 	if !errors.Is(err, domain.ErrNoLines) {
 		t.Errorf("lỗi = %v, mong ErrNoLines", err)
@@ -343,7 +343,7 @@ func TestTachDonRongBiChan(t *testing.T) {
 // IsShipped ĐÚNG cho mọi trạng thái sau khi hàng rời kho.
 //
 // Dùng để tính trạng thái tổng hợp của đơn: đã giao thì cũng đã xuất.
-func TestIsShippedDungChoMoiTrangThaiSauKhiRoiKho(t *testing.T) {
+func TestIsShippedHoldsForEveryStatusAfterLeavingTheWarehouse(t *testing.T) {
 	for _, tc := range []struct {
 		status domain.FOStatus
 		mong   bool
@@ -366,12 +366,12 @@ func TestIsShippedDungChoMoiTrangThaiSauKhiRoiKho(t *testing.T) {
 	}
 }
 
-// TestHauToDonThucHienKhongTranKyTu khóa việc đánh hậu tố cho đơn tách.
+// TestTheFulfillmentIDPrefixDoesNotOverflow khóa việc đánh hậu tố cho đơn tách.
 //
 // Cách cũ — string(rune('A'+i)) — đúng tới nhà bán thứ 26 rồi lặng lẽ
 // tràn: đơn thứ 27 nhận "[", thứ 28 nhận "\". Mã đơn có ký tự thoát đi
 // thẳng vào URL, log và mã vạch mà không lỗi ở đâu cả.
-func TestHauToDonThucHienKhongTranKyTu(t *testing.T) {
+func TestTheFulfillmentIDPrefixDoesNotOverflow(t *testing.T) {
 	tests := []struct {
 		i    int
 		want string

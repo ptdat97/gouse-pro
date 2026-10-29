@@ -9,7 +9,7 @@ package main
 //
 //	BrandRef  ↔ thuongHieuChoBanJSON   khớp 4 trường, hai thứ khác nhau
 //	Cart      ↔ checkoutJSON           khớp 5, giỏ hàng ≠ phiên thanh toán
-//	Shipment  ↔ sellerFOJSON           khớp 6, lô hàng ≠ đơn thực hiện
+//	Shipment  ↔ sellerFulfillmentJSON           khớp 6, lô hàng ≠ đơn thực hiện
 //
 // Cảnh báo giả là thứ làm người ta tắt hẳn phép kiểm. Nên cặp phải tường
 // minh, và mỗi cặp được kiểm bằng mắt trước khi ghi vào đây — cùng lý do

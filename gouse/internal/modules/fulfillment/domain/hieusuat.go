@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// SLAGiaoHang là thời hạn nhà bán phải bàn giao cho đơn vị vận chuyển,
+// DeliverySLA là thời hạn nhà bán phải bàn giao cho đơn vị vận chuyển,
 // tính từ lúc đơn thực hiện được tạo.
 //
 // # Vì sao là một HẰNG SỐ CÔNG KHAI, không phải cột trong bảng
@@ -17,79 +17,79 @@ import (
 //
 // Con số này đi thẳng vào response, nên nhà bán luôn đọc được thước đo
 // đang dùng để chấm mình.
-const SLAGiaoHang = 48 * time.Hour
+const DeliverySLA = 48 * time.Hour
 
 // Ngưỡng đạt của từng chỉ số.
 //
 // Lấy từ ví dụ trong đặc tả (api/paths/seller.yaml#/performance) chứ không
 // tự đặt: đó là con số đã được thống nhất khi viết hợp đồng API.
 const (
-	NguongHuyDon      = 0.03 // tỷ lệ hủy TỐI ĐA
-	NguongGiaoDungHan = 0.95 // tỷ lệ giao đúng hạn TỐI THIỂU
+	CancelRateThreshold = 0.03 // tỷ lệ hủy TỐI ĐA
+	OnTimeThreshold     = 0.95 // tỷ lệ giao đúng hạn TỐI THIỂU
 )
 
-// Nguong là bộ ngưỡng đang áp dụng.
+// Thresholds là bộ ngưỡng đang áp dụng.
 //
 // Gom thành MỘT kiểu thay vì ba tham số rời: ba con số float truyền liền
-// nhau là chỗ dễ đảo thứ tự nhất, và đảo `HuyDon` với `GiaoDungHan` cho ra
+// nhau là chỗ dễ đảo thứ tự nhất, và đảo `CancelRate` với `OnTimeRate` cho ra
 // kết luận ngược hẳn mà trình biên dịch không nói gì.
-type Nguong struct {
-	SLAGiaoHang time.Duration
-	HuyDon      float64
-	GiaoDungHan float64
-	MauToiThieu int
+type Thresholds struct {
+	DeliverySLA time.Duration
+	CancelRate  float64
+	OnTimeRate  float64
+	MinSample   int
 }
 
-// NguongMacDinh là bộ ngưỡng dùng khi chưa ai đặt.
+// DefaultThresholds là bộ ngưỡng dùng khi chưa ai đặt.
 //
 // Vẫn nằm ở đây, không chuyển hết sang cấu hình: hệ thống phải chạy đúng
 // khi database không đọc được, và "chạy đúng" nghĩa là dùng đúng con số đã
 // thống nhất khi viết hợp đồng API.
-func NguongMacDinh() Nguong {
-	return Nguong{
-		SLAGiaoHang: SLAGiaoHang,
-		HuyDon:      NguongHuyDon,
-		GiaoDungHan: NguongGiaoDungHan,
-		MauToiThieu: MauToiThieu,
+func DefaultThresholds() Thresholds {
+	return Thresholds{
+		DeliverySLA: DeliverySLA,
+		CancelRate:  CancelRateThreshold,
+		OnTimeRate:  OnTimeThreshold,
+		MinSample:   MinSample,
 	}
 }
 
-// TrangThaiChiSo là kết luận về một chỉ số.
-type TrangThaiChiSo string
+// MetricStatus là kết luận về một chỉ số.
+type MetricStatus string
 
 const (
-	ChiSoTot         TrangThaiChiSo = "GOOD"
-	ChiSoCanhBao     TrangThaiChiSo = "WARNING"
-	ChiSoNghiemTrong TrangThaiChiSo = "CRITICAL"
+	MetricGood     MetricStatus = "GOOD"
+	MetricWarning  MetricStatus = "WARNING"
+	MetricCritical MetricStatus = "CRITICAL"
 )
 
-// ChiSoHieuSuat là một phép đo kèm ngưỡng và kết luận.
-type ChiSoHieuSuat struct {
-	Ten       string
-	GiaTri    float64
-	Nguong    float64
-	TrangThai TrangThaiChiSo
+// PerformanceMetric là một phép đo kèm ngưỡng và kết luận.
+type PerformanceMetric struct {
+	Ten        string
+	Value      float64
+	Thresholds float64
+	Status     MetricStatus
 }
 
-// SoLieuHieuSuat là số đếm thô lấy từ kho lưu trữ.
+// PerformanceStats là số đếm thô lấy từ kho lưu trữ.
 //
 // Tách khỏi phần tính toán để việc phân loại ngưỡng kiểm được mà không cần
 // database — đó là chỗ dễ sai nhất và cũng là chỗ rẻ nhất để kiểm.
-type SoLieuHieuSuat struct {
-	// TongDon là số đơn thực hiện tạo ra trong kỳ.
-	TongDon int
+type PerformanceStats struct {
+	// TotalOrders là số đơn thực hiện tạo ra trong kỳ.
+	TotalOrders int
 
-	// DonHuy là số đơn đã hủy trong kỳ.
-	DonHuy int
+	// CancelledOrders là số đơn đã hủy trong kỳ.
+	CancelledOrders int
 
-	// DonDaGiao là số đơn đã bàn giao cho vận chuyển (có shipped_at).
-	DonDaGiao int
+	// DeliveredOrders là số đơn đã bàn giao cho vận chuyển (có shipped_at).
+	DeliveredOrders int
 
-	// DonGiaoDungHan là số đơn bàn giao trong hạn SLA.
-	DonGiaoDungHan int
+	// OnTimeOrders là số đơn bàn giao trong hạn SLA.
+	OnTimeOrders int
 }
 
-// TinhChiSo đổi số đếm thô thành danh sách chỉ số kèm kết luận.
+// ComputeMetrics đổi số đếm thô thành danh sách chỉ số kèm kết luận.
 //
 // # Vì sao KHÔNG trả chỉ số khi mẫu quá nhỏ
 //
@@ -104,72 +104,72 @@ type SoLieuHieuSuat struct {
 // (xem platform/opsconfig). Domain không đọc cấu hình — nó nhận vào và
 // tính, nên vẫn kiểm được mà không cần database, và vẫn đúng với bất kỳ
 // bộ ngưỡng nào.
-func TinhChiSo(s SoLieuHieuSuat, ng Nguong) []ChiSoHieuSuat {
-	var ra []ChiSoHieuSuat
+func ComputeMetrics(s PerformanceStats, ng Thresholds) []PerformanceMetric {
+	var ra []PerformanceMetric
 
-	if s.TongDon >= ng.MauToiThieu {
-		tyLeHuy := float64(s.DonHuy) / float64(s.TongDon)
-		ra = append(ra, ChiSoHieuSuat{
-			Ten:    "cancellation_rate",
-			GiaTri: tyLeHuy,
-			Nguong: ng.HuyDon,
+	if s.TotalOrders >= ng.MinSample {
+		cancelRate := float64(s.CancelledOrders) / float64(s.TotalOrders)
+		ra = append(ra, PerformanceMetric{
+			Ten:        "cancellation_rate",
+			Value:      cancelRate,
+			Thresholds: ng.CancelRate,
 			// Vượt ngưỡng là NGHIÊM TRỌNG, không phải cảnh báo: mỗi đơn
 			// hủy là một khách đã trả tiền rồi không nhận được hàng.
-			TrangThai: xepHangNguocNguong(tyLeHuy, ng.HuyDon),
+			Status: gradeInverseThreshold(cancelRate, ng.CancelRate),
 		})
 	}
 
-	if s.DonDaGiao >= ng.MauToiThieu {
-		tyLeDungHan := float64(s.DonGiaoDungHan) / float64(s.DonDaGiao)
-		ra = append(ra, ChiSoHieuSuat{
-			Ten:       "on_time_shipping_rate",
-			GiaTri:    tyLeDungHan,
-			Nguong:    ng.GiaoDungHan,
-			TrangThai: xepHangTheoNguong(tyLeDungHan, ng.GiaoDungHan),
+	if s.DeliveredOrders >= ng.MinSample {
+		onTimeRate := float64(s.OnTimeOrders) / float64(s.DeliveredOrders)
+		ra = append(ra, PerformanceMetric{
+			Ten:        "on_time_shipping_rate",
+			Value:      onTimeRate,
+			Thresholds: ng.OnTimeRate,
+			Status:     gradeAgainstThreshold(onTimeRate, ng.OnTimeRate),
 		})
 	}
 
 	return ra
 }
 
-// KyMacDinh là kỳ dùng khi người gọi không nêu.
+// DefaultPeriod là kỳ dùng khi người gọi không nêu.
 //
 // Khai ở domain để test và handler cùng đọc một nguồn: chép tay chuỗi
 // "LAST_30_DAYS" ở hai nơi thì một ngày nào đó chúng lệch nhau.
-const KyMacDinh = "LAST_30_DAYS"
+const DefaultPeriod = "LAST_30_DAYS"
 
-// MauToiThieu là số đơn tối thiểu để một chỉ số có nghĩa.
-const MauToiThieu = 10
+// MinSample là số đơn tối thiểu để một chỉ số có nghĩa.
+const MinSample = 10
 
-// xepHangTheoNguong dùng cho chỉ số CÀNG CAO CÀNG TỐT.
+// gradeAgainstThreshold dùng cho chỉ số CÀNG CAO CÀNG TỐT.
 //
 // Vùng cảnh báo là 90% ngưỡng: rơi xuống dưới ngưỡng một chút là dấu hiệu
 // cần chú ý, rơi sâu là vấn đề thật. Không có vùng đệm thì chỉ số nhảy
 // giữa TỐT và NGHIÊM TRỌNG chỉ vì một đơn.
-func xepHangTheoNguong(giaTri, nguong float64) TrangThaiChiSo {
+func gradeAgainstThreshold(value, thresholds float64) MetricStatus {
 	switch {
-	case giaTri >= nguong:
-		return ChiSoTot
-	case giaTri >= nguong*0.9:
-		return ChiSoCanhBao
+	case value >= thresholds:
+		return MetricGood
+	case value >= thresholds*0.9:
+		return MetricWarning
 	default:
-		return ChiSoNghiemTrong
+		return MetricCritical
 	}
 }
 
-// xepHangNguocNguong dùng cho chỉ số CÀNG THẤP CÀNG TỐT.
-func xepHangNguocNguong(giaTri, nguong float64) TrangThaiChiSo {
+// gradeInverseThreshold dùng cho chỉ số CÀNG THẤP CÀNG TỐT.
+func gradeInverseThreshold(value, thresholds float64) MetricStatus {
 	switch {
-	case giaTri <= nguong:
-		return ChiSoTot
-	case giaTri <= nguong*1.5:
-		return ChiSoCanhBao
+	case value <= thresholds:
+		return MetricGood
+	case value <= thresholds*1.5:
+		return MetricWarning
 	default:
-		return ChiSoNghiemTrong
+		return MetricCritical
 	}
 }
 
-// ChuaDo là một chỉ số đặc tả có khai nhưng hệ thống CHƯA đo được.
+// Unmeasured là một chỉ số đặc tả có khai nhưng hệ thống CHƯA đo được.
 //
 // # Vì sao trả ra thay vì im lặng bỏ qua
 //
@@ -179,12 +179,12 @@ func xepHangNguocNguong(giaTri, nguong float64) TrangThaiChiSo {
 // những gì.
 //
 // Nói thẳng "chưa đo, vì lý do này" trung thực hơn hẳn một con số bịa.
-type ChuaDo struct {
+type Unmeasured struct {
 	Ten  string
 	LyDo string
 }
 
-// ChiSoChuaDo liệt kê mọi chỉ số KHÔNG có trong `metrics`, kèm lý do.
+// UnmeasuredMetrics liệt kê mọi chỉ số KHÔNG có trong `metrics`, kèm lý do.
 //
 // # Hai lý do khác nhau, và trước đây chỉ một cái được nói ra
 //
@@ -202,28 +202,28 @@ type ChuaDo struct {
 //
 // Nói "chưa đủ mẫu, cần N đơn, hiện có M" thì nhà bán biết phải làm gì và
 // biết khi nào chỉ số sẽ xuất hiện.
-func ChiSoChuaDo(s SoLieuHieuSuat, ng Nguong) []ChuaDo {
-	ra := []ChuaDo{}
+func UnmeasuredMetrics(s PerformanceStats, ng Thresholds) []Unmeasured {
+	ra := []Unmeasured{}
 
 	// Hai chỉ số ĐO ĐƯỢC, vắng mặt vì mẫu. Điều kiện ở đây phải là PHỦ
-	// ĐỊNH của điều kiện trong `TinhChiSo` — lệch nhau thì sẽ có chỉ số
+	// ĐỊNH của điều kiện trong `ComputeMetrics` — lệch nhau thì sẽ có chỉ số
 	// vừa nằm trong `metrics` vừa nằm ở đây, hoặc tệ hơn: vắng ở cả hai.
-	if s.TongDon < ng.MauToiThieu {
-		ra = append(ra, ChuaDo{
+	if s.TotalOrders < ng.MinSample {
+		ra = append(ra, Unmeasured{
 			Ten: "cancellation_rate",
 			LyDo: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn trong kỳ, "+
-				"hiện có %d", ng.MauToiThieu, s.TongDon),
+				"hiện có %d", ng.MinSample, s.TotalOrders),
 		})
 	}
-	if s.DonDaGiao < ng.MauToiThieu {
-		ra = append(ra, ChuaDo{
+	if s.DeliveredOrders < ng.MinSample {
+		ra = append(ra, Unmeasured{
 			Ten: "on_time_shipping_rate",
 			LyDo: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn ĐÃ BÀN GIAO "+
-				"trong kỳ, hiện có %d", ng.MauToiThieu, s.DonDaGiao),
+				"trong kỳ, hiện có %d", ng.MinSample, s.DeliveredOrders),
 		})
 	}
 
-	return append(ra, []ChuaDo{
+	return append(ra, []Unmeasured{
 		{
 			Ten: "return_rate_description",
 			LyDo: "cần dữ liệu của module returns; đó là module ở tầng khác " +

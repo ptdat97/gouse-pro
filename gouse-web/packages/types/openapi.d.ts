@@ -7702,7 +7702,7 @@ export interface operations {
                          *
                          *     Bất biến: mỗi chỉ số đo được nằm ở ĐÚNG MỘT trong hai
                          *     danh sách, không bao giờ cả hai và không bao giờ không
-                         *     danh sách nào (`TestKhongChiSoNaoVuaDoVuaChuaDo`).
+                         *     danh sách nào (`TestNoMetricIsBothMeasuredAndUnmeasured`).
                          */
                         not_measured?: {
                             name?: string;

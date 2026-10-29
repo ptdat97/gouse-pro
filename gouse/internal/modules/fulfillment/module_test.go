@@ -163,7 +163,7 @@ func (h *harness) orderStatus(t *testing.T) string {
 }
 
 // TÁCH ĐƠN BA NGUỒN HÀNG qua event — ví dụ ở mục 3.2 của ADR-0007.
-func TestTachDonBaNguonHangQuaEvent(t *testing.T) {
+func TestSplittingThreeSourcesViaEvent(t *testing.T) {
 	h := newHarness(t)
 
 	a := ids.MustNew(ids.PrefixSeller).String()
@@ -189,7 +189,7 @@ func TestTachDonBaNguonHangQuaEvent(t *testing.T) {
 //
 // Tách hai lần nghĩa là seller thấy việc trùng — có thể giao hàng hai lần
 // cho một đơn.
-func TestTachDonHaiLanKhongTaoThemDon(t *testing.T) {
+func TestSplittingTwiceCreatesNoExtraOrders(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -254,7 +254,7 @@ func TestTachDonHaiLanKhongTaoThemDon(t *testing.T) {
 //
 // Đây là kiểm chứng quan trọng nhất của module: nếu nó hỏng thì seller đọc
 // được dữ liệu đối thủ, và không có cách nào phát hiện từ phía nạn nhân.
-func TestSellerKhongThayDuocPhanCuaSellerKhac(t *testing.T) {
+func TestASellerCannotSeeAnotherSellersPart(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -295,7 +295,7 @@ func TestSellerKhongThayDuocPhanCuaSellerKhac(t *testing.T) {
 //
 // Module order KHÔNG hỏi ngược fulfillment — nó lắng nghe và tự tính. Đây
 // là kiểm chứng rằng đường event đó thật sự hoạt động.
-func TestTrangThaiDonSuyRaTuTienDoQuaEvent(t *testing.T) {
+func TestOrderStatusIsDerivedFromProgressViaEvent(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -376,7 +376,7 @@ func TestTrangThaiDonSuyRaTuTienDoQuaEvent(t *testing.T) {
 }
 
 // SELLER HỦY PHẦN CỦA MÌNH: đơn chuyển PARTIALLY_CANCELLED.
-func TestSellerHuyPhanCuaMinh(t *testing.T) {
+func TestASellerCancelsItsOwnPart(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -414,7 +414,7 @@ func TestSellerHuyPhanCuaMinh(t *testing.T) {
 }
 
 // BÀN GIAO VẬN CHUYỂN lưu mã vận đơn qua vòng ghi–đọc.
-func TestBanGiaoLuuMaVanDon(t *testing.T) {
+func TestHandoverStoresTheTrackingNumber(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -463,7 +463,7 @@ func TestBanGiaoLuuMaVanDon(t *testing.T) {
 //
 // Chạy sớm nghĩa là trả tiền cho seller trước khi biết khách có hoàn hàng
 // không.
-func TestHoanTatDonQuaHanDoiTra(t *testing.T) {
+func TestCompleteOrdersPastTheReturnWindow(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -535,7 +535,7 @@ func TestHoanTatDonQuaHanDoiTra(t *testing.T) {
 //
 // Test đọc qua kho lưu trữ (GetSellerFulfillment) để kiểm chứng ảnh chụp
 // thật sự được GHI XUỐNG, không phải chỉ nằm trong bộ nhớ lúc tách.
-func TestSellerThayDuocThongTinNhatHang(t *testing.T) {
+func TestASellerSeesThePackingInfo(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -577,7 +577,7 @@ func TestSellerThayDuocThongTinNhatHang(t *testing.T) {
 // Đây là ranh giới bảo mật quan trọng nhất của module. Nó phải nằm trong
 // TRUY VẤN, không phải ở tầng hiển thị — lọc khi hiển thị nghĩa là dữ liệu
 // seller khác đã rời khỏi database và chỉ cần một lỗi nhỏ là rò rỉ.
-func TestSellerKhongDocDuocDonSellerKhac(t *testing.T) {
+func TestASellerCannotReadAnotherSellersOrder(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -627,7 +627,7 @@ func TestSellerKhongDocDuocDonSellerKhac(t *testing.T) {
 // Máy trạng thái vẫn nguyên vẹn: hàm đi đúng đường hợp lệ ngắn nhất thay vì
 // nhảy thẳng — nhảy thẳng sẽ phải nới đồ thị chuyển trạng thái, và khi đó
 // "đã đóng gói thì không hủy được" cũng lỏng theo.
-func TestBanGiaoVanChuyenTuTrangThaiChoXuLy(t *testing.T) {
+func TestHandoverIsAllowedFromTheProcessingStatus(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -666,7 +666,7 @@ func TestBanGiaoVanChuyenTuTrangThaiChoXuLy(t *testing.T) {
 //
 // Từ lúc bàn giao, hàng ra khỏi tầm kiểm soát của seller. Không có mã thì
 // không ai — kể cả bộ phận hỗ trợ — trả lời được "hàng đang ở đâu".
-func TestBanGiaoThieuMaVanDonBiTuChoi(t *testing.T) {
+func TestHandoverWithoutATrackingNumberIsRejected(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -700,7 +700,7 @@ func TestBanGiaoThieuMaVanDonBiTuChoi(t *testing.T) {
 // của seller khác, email khách và tổng tiền đơn.
 //
 // Test đọc qua kho lưu trữ để kiểm chứng địa chỉ thật sự được GHI XUỐNG.
-func TestSellerThayDuocDiaChiGiao(t *testing.T) {
+func TestASellerSeesTheShippingAddress(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -733,7 +733,7 @@ func TestSellerThayDuocDiaChiGiao(t *testing.T) {
 // Một đơn có hàng từ hai nguồn thì CẢ HAI seller cùng giao tới một nơi, và
 // mỗi người cần phiếu giao riêng. Chỉ lưu ở một chỗ nghĩa là người kia phải
 // hỏi ngược — mà không có đường nào để hỏi.
-func TestDiaChiSaoChepXuongMoiDonThucHien(t *testing.T) {
+func TestTheAddressIsCopiedIntoEveryFulfillmentOrder(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 

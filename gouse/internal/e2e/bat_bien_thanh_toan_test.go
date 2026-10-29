@@ -142,7 +142,7 @@ func TestBB4_MoKhoaLaMotChieu(t *testing.T) {
 	w.drain()
 
 	// Phát lại: gọi thẳng đường mở khóa lần nữa, đúng như một event trùng.
-	if _, err := w.ful.MoKhoaTheoDon(ctx, w.orderIDCuoi.String()); err != nil {
+	if _, err := w.ful.UnlockByOrder(ctx, w.orderIDCuoi.String()); err != nil {
 		t.Fatalf("BB4 vỡ: mở khóa lần hai báo lỗi — %v", err)
 	}
 

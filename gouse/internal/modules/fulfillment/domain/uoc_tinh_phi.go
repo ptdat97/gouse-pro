@@ -6,31 +6,31 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 )
 
-// ErrPhuongThucKhongHopLe: phương thức vận chuyển không nằm trong biểu phí.
-var ErrPhuongThucKhongHopLe = errors.New(
+// ErrInvalidShipMethod: phương thức vận chuyển không nằm trong biểu phí.
+var ErrInvalidShipMethod = errors.New(
 	"fulfillment: phương thức vận chuyển không hợp lệ")
 
-// PhuongThucGiao là cách hàng được chuyển tới khách.
-type PhuongThucGiao string
+// ShipMethod là cách hàng được chuyển tới khách.
+type ShipMethod string
 
 const (
-	GiaoTieuChuan PhuongThucGiao = "STANDARD"
-	GiaoNhanh     PhuongThucGiao = "EXPRESS"
+	ShipStandard ShipMethod = "STANDARD"
+	ShipExpress  ShipMethod = "EXPRESS"
 )
 
-// MucPhi là phí và thời gian dự kiến của MỘT kiện hàng.
-type MucPhi struct {
-	// PhiMotNguon là phí cho MỘT nguồn hàng, không phải cho cả đơn.
-	PhiMotNguon int64
+// FeeTier là phí và thời gian dự kiến của MỘT kiện hàng.
+type FeeTier struct {
+	// FeePerSource là phí cho MỘT nguồn hàng, không phải cho cả đơn.
+	FeePerSource int64
 
-	// SoNgayDuKien là thời gian vận chuyển, KHÔNG gồm thời gian nhà bán
+	// EstimatedDays là thời gian vận chuyển, KHÔNG gồm thời gian nhà bán
 	// chuẩn bị hàng. Hai con số đó thuộc hai bên khác nhau: hãng vận
 	// chuyển chịu trách nhiệm phần này, nhà bán chịu phần kia
 	// (`handling_time_hours` của offer).
-	SoNgayDuKien int
+	EstimatedDays int
 }
 
-// bieuPhi là biểu phí theo phương thức.
+// feeSchedule là biểu phí theo phương thức.
 //
 // # Vì sao nó nằm ở fulfillment chứ không ở checkout
 //
@@ -51,10 +51,10 @@ type MucPhi struct {
 //
 // Cả hai đều cần thêm dữ liệu chứ không chỉ thêm phép tính, nên chúng nằm
 // ngoài P3-8. Xem ghi chú P3-8 trong backlog.
-// BieuPhiGiao là bảng phí và thời gian theo phương thức vận chuyển.
-type BieuPhiGiao map[PhuongThucGiao]MucPhi
+// FeeSchedule là bảng phí và thời gian theo phương thức vận chuyển.
+type FeeSchedule map[ShipMethod]FeeTier
 
-// BieuPhiMacDinh dùng khi chưa nối cấu hình vận hành.
+// DefaultFeeSchedule dùng khi chưa nối cấu hình vận hành.
 //
 // # Vì sao nó là THAM SỐ chứ không còn là hằng số của gói
 //
@@ -65,30 +65,30 @@ type BieuPhiGiao map[PhuongThucGiao]MucPhi
 //
 // Bảng này ở lại làm LƯỚI CUỐI: domain phải đúng với mọi đầu vào, kể cả
 // khi nối dây sai hoặc có bên gọi thứ hai không đi qua cấu hình.
-var BieuPhiMacDinh = BieuPhiGiao{
-	GiaoTieuChuan: {PhiMotNguon: 30_000, SoNgayDuKien: 3},
-	GiaoNhanh:     {PhiMotNguon: 60_000, SoNgayDuKien: 1},
+var DefaultFeeSchedule = FeeSchedule{
+	ShipStandard: {FeePerSource: 30_000, EstimatedDays: 3},
+	ShipExpress:  {FeePerSource: 60_000, EstimatedDays: 1},
 }
 
-// NguonHang là một điểm xuất hàng — thực tế là MỘT KIỆN.
-type NguonHang struct {
+// Source là một điểm xuất hàng — thực tế là MỘT KIỆN.
+type Source struct {
 	SellerID string
 }
 
-// PhiTheoNguon là phí ước tính của một nguồn.
-type PhiTheoNguon struct {
-	SellerID     string
-	Phi          money.Money
-	SoNgayDuKien int
+// SourceFee là phí ước tính của một nguồn.
+type SourceFee struct {
+	SellerID      string
+	Phi           money.Money
+	EstimatedDays int
 }
 
-// UocTinhPhi là kết quả ước tính cho cả đơn.
-type UocTinhPhi struct {
+// FeeEstimate là kết quả ước tính cho cả đơn.
+type FeeEstimate struct {
 	Tong      money.Money
-	TheoNguon []PhiTheoNguon
+	PerSource []SourceFee
 }
 
-// UocTinhPhiGiao tính phí vận chuyển cho một đơn nhiều nguồn hàng.
+// EstimateShippingFees tính phí vận chuyển cho một đơn nhiều nguồn hàng.
 //
 // # MỖI NGUỒN LÀ MỘT KIỆN, và đó là toàn bộ điểm của hàm này
 //
@@ -101,36 +101,36 @@ type UocTinhPhi struct {
 // chợ tồn tại để tạo ra.
 //
 // Đơn KHÔNG có nguồn nào trả phí 0 — không có gì để giao.
-func UocTinhPhiGiao(
-	phuongThuc PhuongThucGiao, nguon []NguonHang, donVi money.Currency,
-	bieu BieuPhiGiao,
-) (UocTinhPhi, error) {
-	if bieu == nil {
-		bieu = BieuPhiMacDinh
+func EstimateShippingFees(
+	shipMethod ShipMethod, sources []Source, unit money.Currency,
+	schedule FeeSchedule,
+) (FeeEstimate, error) {
+	if schedule == nil {
+		schedule = DefaultFeeSchedule
 	}
-	muc, ok := bieu[phuongThuc]
+	tier, ok := schedule[shipMethod]
 	if !ok {
-		return UocTinhPhi{}, ErrPhuongThucKhongHopLe
+		return FeeEstimate{}, ErrInvalidShipMethod
 	}
 
-	tong := money.Zero(donVi)
-	theoNguon := make([]PhiTheoNguon, 0, len(nguon))
+	tong := money.Zero(unit)
+	perSource := make([]SourceFee, 0, len(sources))
 
-	for _, n := range nguon {
-		phi, err := money.New(muc.PhiMotNguon, donVi)
+	for _, n := range sources {
+		phi, err := money.New(tier.FeePerSource, unit)
 		if err != nil {
-			return UocTinhPhi{}, err
+			return FeeEstimate{}, err
 		}
 		tong, err = tong.Add(phi)
 		if err != nil {
-			return UocTinhPhi{}, err
+			return FeeEstimate{}, err
 		}
-		theoNguon = append(theoNguon, PhiTheoNguon{
-			SellerID:     n.SellerID,
-			Phi:          phi,
-			SoNgayDuKien: muc.SoNgayDuKien,
+		perSource = append(perSource, SourceFee{
+			SellerID:      n.SellerID,
+			Phi:           phi,
+			EstimatedDays: tier.EstimatedDays,
 		})
 	}
 
-	return UocTinhPhi{Tong: tong, TheoNguon: theoNguon}, nil
+	return FeeEstimate{Tong: tong, PerSource: perSource}, nil
 }

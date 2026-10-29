@@ -23,19 +23,19 @@ import (
 type Module struct {
 	svc *application.Service
 
-	// nguongBatTin đọc ngưỡng "im lặng bao lâu thì coi là mất tin".
+	// lostContactThreshold đọc ngưỡng "im lặng bao lâu thì coi là mất tin".
 	//
-	// Giữ ở Module chứ không nhét vào `domain.Nguong`: bộ ngưỡng đó là
+	// Giữ ở Module chứ không nhét vào `domain.Thresholds`: bộ ngưỡng đó là
 	// của phép CHẤM ĐIỂM nhà bán, còn con số này là của phép đối chiếu
 	// vận hành. Trộn hai thứ lại sẽ có một trường mà phép chấm điểm không
 	// bao giờ dùng tới.
-	nguongBatTin func() time.Duration
+	lostContactThreshold func() time.Duration
 
-	// bieuPhiPort cấp phí vận chuyển cho đường BÁO GIÁ của tầng module.
+	// feeSchedulePort cấp phí vận chuyển cho đường BÁO GIÁ của tầng module.
 	//
 	// Tầng application có bản của riêng nó cho đường bàn giao; đây là cùng
 	// một cổng, giữ ở hai nơi vì `EstimateShipping` không đi qua service.
-	bieuPhiPort application.BieuPhiPort
+	feeSchedulePort application.FeeSchedulePort
 }
 
 var _ API = (*Module)(nil)
@@ -85,17 +85,17 @@ func New(cfg Config) (*Module, error) {
 		deps.Events = &eventPublisher{outbox: cfg.Events}
 	}
 	if cfg.OpsConfig != nil {
-		deps.BieuPhi = &bieuPhiAdapter{cfg: cfg.OpsConfig}
-		deps.Nguong = &nguongAdapter{cfg: cfg.OpsConfig}
+		deps.FeeSchedule = &feeScheduleAdapter{cfg: cfg.OpsConfig}
+		deps.Thresholds = &thresholdsAdapter{cfg: cfg.OpsConfig}
 		// Hạn đổi trả: CÙNG tham số mà `returns` dùng để từ chối yêu cầu
 		// quá hạn. Một nguồn cho hai module.
-		deps.Han = &hanDoiTraAdapter{cfg: cfg.OpsConfig}
+		deps.ReturnWindow = &returnWindowAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{
-		svc:          application.NewService(deps),
-		nguongBatTin: nguongBatTinTu(cfg.OpsConfig),
-		bieuPhiPort:  deps.BieuPhi,
+		svc:                  application.NewService(deps),
+		lostContactThreshold: lostContactThresholdFrom(cfg.OpsConfig),
+		feeSchedulePort:      deps.FeeSchedule,
 	}, nil
 }
 
@@ -135,7 +135,7 @@ func (m *Module) ListSellerFulfillments(
 	if err != nil {
 		return nil, translateErr(err)
 	}
-	return m.ganHanBanGiao(toViews(fos), fos), nil
+	return m.attachHandoverDeadline(toViews(fos), fos), nil
 }
 
 func (m *Module) GetSellerFulfillment(
@@ -149,7 +149,7 @@ func (m *Module) GetSellerFulfillment(
 	if err != nil {
 		return nil, translateErr(err)
 	}
-	v := m.ganHanBanGiao([]FulfillmentView{toView(fo)},
+	v := m.attachHandoverDeadline([]FulfillmentView{toView(fo)},
 		[]*domain.FulfillmentOrder{fo})[0]
 	return &v, nil
 }
@@ -228,60 +228,60 @@ func (m *Module) CompleteDelivered(ctx context.Context, limit int) (int, error) 
 	return n, translateErr(err)
 }
 
-// MoKhoaTheoDon mở khóa giao hàng cho mọi đơn thực hiện của một đơn hàng.
+// UnlockByOrder mở khóa giao hàng cho mọi đơn thực hiện của một đơn hàng.
 //
 // Gọi bởi bên nhận event `order.paid` — xem ADR-0018 phần A2. Trả về SỐ
 // đơn thực hiện đã đổi (0 nghĩa là không có gì bị khóa, ví dụ đơn COD).
-func (m *Module) MoKhoaTheoDon(ctx context.Context, orderID string) (int, error) {
+func (m *Module) UnlockByOrder(ctx context.Context, orderID string) (int, error) {
 	id, err := ids.Parse(orderID, ids.PrefixOrder)
 	if err != nil {
 		return 0, ErrInvalidID
 	}
-	n, err := m.svc.MoKhoaTheoDon(ctx, id)
+	n, err := m.svc.UnlockByOrder(ctx, id)
 	return n, translateErr(err)
 }
 
-// HuyTheoDon hủy mọi đơn thực hiện của một đơn hàng đã bị hủy.
+// CancelByOrder hủy mọi đơn thực hiện của một đơn hàng đã bị hủy.
 //
-// Gọi bởi bên nhận `order.cancelled` — xem `application.HuyTheoDon` về
+// Gọi bởi bên nhận `order.cancelled` — xem `application.CancelByOrder` về
 // việc vì sao nó không kiểm chủ sở hữu và vì sao không được nối ra HTTP.
-func (m *Module) HuyTheoDon(ctx context.Context, orderID, lyDo string) (int, error) {
+func (m *Module) CancelByOrder(ctx context.Context, orderID, reason string) (int, error) {
 	id, err := ids.Parse(orderID, ids.PrefixOrder)
 	if err != nil {
 		return 0, ErrInvalidID
 	}
-	n, err := m.svc.HuyTheoDon(ctx, id, lyDo)
+	n, err := m.svc.CancelByOrder(ctx, id, reason)
 	return n, translateErr(err)
 }
 
-// DoiSoatGiaoHang trả danh sách gói hàng MẤT TIN từ đơn vị vận chuyển.
+// ReconcileDeliveries trả danh sách gói hàng MẤT TIN từ đơn vị vận chuyển.
 //
 // Yêu cầu 5 của `api/paths/webhooks.yaml` — xem
-// `application.DoiSoatGiaoHang` về việc vì sao nó chỉ đọc.
+// `application.ReconcileDeliveries` về việc vì sao nó chỉ đọc.
 //
 // Ngưỡng đọc từ cấu hình vận hành tại MỖI lần chạy, không chụp lại lúc
 // khởi động: đổi tham số phải có tác dụng ở vòng chạy kế tiếp, không phải
 // sau lần khởi động lại kế tiếp.
-func (m *Module) DoiSoatGiaoHang(ctx context.Context, limit int) ([]GoiBatTinView, error) {
-	if m.nguongBatTin == nil {
-		return nil, ErrChuaNoiCauHinh
+func (m *Module) ReconcileDeliveries(ctx context.Context, limit int) ([]LostContactParcelView, error) {
+	if m.lostContactThreshold == nil {
+		return nil, ErrConfigNotWired
 	}
-	goi, err := m.svc.DoiSoatGiaoHang(ctx, m.nguongBatTin(), limit)
+	parcels, err := m.svc.ReconcileDeliveries(ctx, m.lostContactThreshold(), limit)
 	if err != nil {
 		return nil, translateErr(err)
 	}
-	out := make([]GoiBatTinView, 0, len(goi))
-	for _, g := range goi {
-		out = append(out, GoiBatTinView{
-			FulfillmentID: g.FulfillmentID.String(),
-			FONumber:      g.FONumber,
-			OrderID:       g.OrderID.String(),
-			SellerID:      g.SellerID.String(),
-			NhaVanChuyen:  g.NhaVanChuyen,
-			MaVanDon:      g.MaVanDon,
-			TrangThai:     g.TrangThai,
-			ShippedAt:     g.ShippedAt,
-			ImLang:        g.ImLang,
+	out := make([]LostContactParcelView, 0, len(parcels))
+	for _, g := range parcels {
+		out = append(out, LostContactParcelView{
+			FulfillmentID:  g.FulfillmentID.String(),
+			FONumber:       g.FONumber,
+			OrderID:        g.OrderID.String(),
+			SellerID:       g.SellerID.String(),
+			Carrier:        g.Carrier,
+			TrackingNumber: g.TrackingNumber,
+			Status:         g.Status,
+			ShippedAt:      g.ShippedAt,
+			Silent:         g.Silent,
 		})
 	}
 	return out, nil
@@ -324,17 +324,17 @@ func toViews(fos []*domain.FulfillmentOrder) []FulfillmentView {
 	return out
 }
 
-// ganHanBanGiao điền hạn bàn giao và cờ trễ hạn vào các view.
+// attachHandoverDeadline điền hạn bàn giao và cờ trễ hạn vào các view.
 //
 // Tách khỏi `toView` vì nó cần SLA đang áp dụng — thứ chỉ tầng application
 // đọc được. `toView` là hàm thuần, và giữ nó thuần thì mọi bên gọi khác
 // không phải kéo theo một phụ thuộc cấu hình.
-func (m *Module) ganHanBanGiao(views []FulfillmentView, fos []*domain.FulfillmentOrder) []FulfillmentView {
-	sla := m.svc.SLAHienTai().SLAGiaoHang
+func (m *Module) attachHandoverDeadline(views []FulfillmentView, fos []*domain.FulfillmentOrder) []FulfillmentView {
+	sla := m.svc.CurrentSLA().DeliverySLA
 	now := m.svc.Now()
 	for i := range views {
-		views[i].SLADeadline = formatTime(fos[i].HanBanGiao(sla))
-		views[i].SLABreached = fos[i].TreHan(sla, now)
+		views[i].SLADeadline = formatTime(fos[i].HandoverDeadline(sla))
+		views[i].SLABreached = fos[i].PastDeadline(sla, now)
 	}
 	return views
 }
@@ -428,26 +428,26 @@ func (m *Module) RegisterCustomerRoutes(
 // idempotency ở đây dựa vào `event_id` của chính họ.
 func (m *Module) RegisterWebhookRoutes(
 	mux *http.ServeMux,
-	nhatKy fulfillmenthttp.GhiSuKien,
-	biMat fulfillmenthttp.BiMatNhaCungCap,
+	webhookLog fulfillmenthttp.WebhookLog,
+	biMat fulfillmenthttp.ProviderSecret,
 	log *slog.Logger,
 ) {
-	fulfillmenthttp.NewWebhookHandler(m.svc, nhatKy, biMat, log).Register(mux)
+	fulfillmenthttp.NewWebhookHandler(m.svc, webhookLog, biMat, log).Register(mux)
 }
 
 func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
 	fulfillmenthttp.NewSellerHandler(m.svc, log).Register(mux)
 }
 
-// nguongAdapter dịch tham số vận hành sang từ vựng của fulfillment.
+// thresholdsAdapter dịch tham số vận hành sang từ vựng của fulfillment.
 //
 // Cổng do bên gọi khai, nên tầng application của fulfillment không biết
 // tới `opsconfig` — nó chỉ biết mình cần một bộ ngưỡng.
-type nguongAdapter struct{ cfg *opsconfig.Store }
+type thresholdsAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.NguongPort = (*nguongAdapter)(nil)
+var _ application.ThresholdsPort = (*thresholdsAdapter)(nil)
 
-func nguongBatTinTu(cfg *opsconfig.Store) func() time.Duration {
+func lostContactThresholdFrom(cfg *opsconfig.Store) func() time.Duration {
 	if cfg == nil {
 		return nil
 	}
@@ -456,52 +456,52 @@ func nguongBatTinTu(cfg *opsconfig.Store) func() time.Duration {
 	}
 }
 
-func (a *nguongAdapter) Nguong() domain.Nguong {
-	return domain.Nguong{
-		SLAGiaoHang: a.cfg.DocThoiLuong(opsconfig.KeySLAGiaoHang),
-		HuyDon:      a.cfg.Doc(opsconfig.KeyNguongHuyDon),
-		GiaoDungHan: a.cfg.Doc(opsconfig.KeyNguongGiaoDungHan),
-		MauToiThieu: a.cfg.DocSoNguyen(opsconfig.KeyMauToiThieu),
+func (a *thresholdsAdapter) Thresholds() domain.Thresholds {
+	return domain.Thresholds{
+		DeliverySLA: a.cfg.DocThoiLuong(opsconfig.KeySLAGiaoHang),
+		CancelRate:  a.cfg.Doc(opsconfig.KeyNguongHuyDon),
+		OnTimeRate:  a.cfg.Doc(opsconfig.KeyNguongGiaoDungHan),
+		MinSample:   a.cfg.DocSoNguyen(opsconfig.KeyMauToiThieu),
 	}
 }
 
-// hanDoiTraAdapter đọc hạn đổi trả từ cấu hình vận hành.
+// returnWindowAdapter đọc hạn đổi trả từ cấu hình vận hành.
 //
 // Đọc MỖI lần chứ không chụp lúc khởi động: đổi tham số phải có tác dụng
 // ở lượt chạy kế tiếp của job hoàn tất đơn.
-type hanDoiTraAdapter struct{ cfg *opsconfig.Store }
+type returnWindowAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.HanDoiTraPort = (*hanDoiTraAdapter)(nil)
+var _ application.ReturnWindowPort = (*returnWindowAdapter)(nil)
 
-func (a *hanDoiTraAdapter) HanDoiTra() time.Duration {
+func (a *returnWindowAdapter) ReturnWindow() time.Duration {
 	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
 }
 
-// bieuPhiAdapter đọc biểu phí vận chuyển từ cấu hình vận hành.
+// feeScheduleAdapter đọc biểu phí vận chuyển từ cấu hình vận hành.
 //
 // ĐỌC MỖI LẦN: phí là giá hiện trên màn hình thanh toán, và số ngày là lời
 // hứa giao hàng. Chụp lúc khởi động nghĩa là đổi giá phải chờ triển khai.
-type bieuPhiAdapter struct{ cfg *opsconfig.Store }
+type feeScheduleAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.BieuPhiPort = (*bieuPhiAdapter)(nil)
+var _ application.FeeSchedulePort = (*feeScheduleAdapter)(nil)
 
-func (a *bieuPhiAdapter) BieuPhi() domain.BieuPhiGiao {
-	return domain.BieuPhiGiao{
-		domain.GiaoTieuChuan: {
-			PhiMotNguon:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoTieuChuan)),
-			SoNgayDuKien: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoTieuChuan),
+func (a *feeScheduleAdapter) FeeSchedule() domain.FeeSchedule {
+	return domain.FeeSchedule{
+		domain.ShipStandard: {
+			FeePerSource:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoTieuChuan)),
+			EstimatedDays: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoTieuChuan),
 		},
-		domain.GiaoNhanh: {
-			PhiMotNguon:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoNhanh)),
-			SoNgayDuKien: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoNhanh),
+		domain.ShipExpress: {
+			FeePerSource:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoNhanh)),
+			EstimatedDays: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoNhanh),
 		},
 	}
 }
 
-// bieuPhi trả biểu phí đang hiệu lực cho tầng module.
-func (m *Module) bieuPhi() domain.BieuPhiGiao {
-	if m.bieuPhiPort == nil {
-		return domain.BieuPhiMacDinh
+// feeSchedule trả biểu phí đang hiệu lực cho tầng module.
+func (m *Module) feeSchedule() domain.FeeSchedule {
+	if m.feeSchedulePort == nil {
+		return domain.DefaultFeeSchedule
 	}
-	return m.bieuPhiPort.BieuPhi()
+	return m.feeSchedulePort.FeeSchedule()
 }

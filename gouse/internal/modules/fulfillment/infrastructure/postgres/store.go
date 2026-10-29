@@ -93,7 +93,7 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 		fo.NotifyEmail(), fo.NotifyPhone(),
 		addr.RecipientName, addr.Phone, addr.StreetAddress,
 		addr.Ward, addr.District, addr.Province, defaultCountry(addr.CountryCode),
-		fo.CreatedAt(), fo.UpdatedAt(), fo.ChoThanhToan(),
+		fo.CreatedAt(), fo.UpdatedAt(), fo.AwaitingPayment(),
 		// shipping_method phải có Ở ĐÂY, không chỉ ở Update: đơn thực hiện
 		// được TẠO ra đã mang phương thức giao, và `payment` tra giá trả
 		// hãng theo nó ngay ở bước bàn giao. Bỏ sót thì trường này rỗng
@@ -175,8 +175,8 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		// email "đơn đã gửi".
 		fo.Version(),
 		// cho_thanh_toan ghi được ở đây vì đó là đường MỞ KHÓA: event
-		// `order.paid` đọc đơn, gọi MoKhoaThanhToan, rồi ghi lại.
-		fo.ChoThanhToan(),
+		// `order.paid` đọc đơn, gọi UnlockPayment, rồi ghi lại.
+		fo.AwaitingPayment(),
 		// estimated_delivery_date: gán lúc BÀN GIAO, nên chỉ đường cập
 		// nhật ghi được nó. Thiếu ở đây thì cột rỗng vĩnh viễn — và trang
 		// theo dõi đơn trả cho KHÁCH một `estimated_arrival` trống.
@@ -188,14 +188,14 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		// KHÔNG phân biệt được "không tồn tại" với "đã bị sửa" chỉ từ số
 		// dòng. Hỏi lại database để trả đúng lỗi: bên gọi xử lý hai
 		// trường hợp này khác nhau — một cái là thử lại, một cái là dừng.
-		var ton bool
+		var stillInStock bool
 		if err := s.pool.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM fulfillment_order
 			                WHERE id = $1 AND seller_id = $2)`,
-			fo.ID().String(), fo.SellerID().String()).Scan(&ton); err != nil {
+			fo.ID().String(), fo.SellerID().String()).Scan(&stillInStock); err != nil {
 			return fmt.Errorf("order: kiểm tra đơn thực hiện: %w", err)
 		}
-		if ton {
+		if stillInStock {
 			return domain.ErrVersionConflict
 		}
 		return domain.ErrNotFound
@@ -226,14 +226,14 @@ const foCols = `
 // PHẠM VI một hãng. Hai hãng hoàn toàn có thể cấp cùng một dãy số, và khi
 // đó webhook của hãng A sẽ cập nhật nhầm lô hàng của hãng B.
 func (s *FulfillmentStore) FindByTracking(
-	ctx context.Context, nhaVanChuyen, maVanDon string,
+	ctx context.Context, carrier, trackingNumber string,
 ) (*domain.FulfillmentOrder, error) {
 	row := s.pool.QueryRow(ctx, `SELECT`+foCols+`
 		  FROM fulfillment_order
 		 WHERE shipping_provider = $1 AND tracking_number = $2
 		 ORDER BY shipped_at DESC NULLS LAST
 		 LIMIT 1`,
-		nhaVanChuyen, maVanDon)
+		carrier, trackingNumber)
 
 	fo, err := scanFO(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -300,15 +300,15 @@ func (s *FulfillmentStore) ListDeliveredBefore(
 		 LIMIT $2`, before, limitOr(limit, 100))
 }
 
-// ListDangGiaoTruoc lấy gói ĐANG TRÊN ĐƯỜNG bàn giao trước một mốc.
+// ListInTransitBefore lấy gói ĐANG TRÊN ĐƯỜNG bàn giao trước một mốc.
 //
-// Hai trạng thái phải khớp `domain.DangTrenDuong`. Chúng được viết thẳng
+// Hai trạng thái phải khớp `domain.InTransit`. Chúng được viết thẳng
 // vào SQL vì bộ lọc phải chạy trong database — kéo cả bảng về rồi lọc
 // bằng Go sẽ đọc hàng nghìn dòng để lấy vài chục.
 //
 // DELIVERY_FAILED KHÔNG nằm trong danh sách: đó là tin đã về, không phải
-// mất tin. Xem `domain.BatTinGiaoHang`.
-func (s *FulfillmentStore) ListDangGiaoTruoc(
+// mất tin. Xem `domain.LostContact`.
+func (s *FulfillmentStore) ListInTransitBefore(
 	ctx context.Context, before time.Time, limit int,
 ) ([]*domain.FulfillmentOrder, error) {
 	return s.queryFOs(ctx, `SELECT`+foCols+`
@@ -408,7 +408,7 @@ func (s *FulfillmentStore) withLineIDs(
 	// đọc lại sau khi ghi, không lộ ra lúc ghi.
 	return domain.RestoreFulfillmentOrder(domain.RestoreFOParams{
 		ID:                fo.ID(),
-		ChoThanhToan:      fo.ChoThanhToan(),
+		AwaitingPayment:   fo.AwaitingPayment(),
 		OrderID:           fo.OrderID(),
 		FONumber:          fo.FONumber(),
 		SellerID:          fo.SellerID(),
@@ -465,7 +465,7 @@ func scanFO(row scanner) (*domain.FulfillmentOrder, error) {
 		&addr.Ward, &addr.District, &addr.Province, &addr.CountryCode,
 		&locationID, &foType, &method, &provider, &tracking, &estimatedDelivery,
 		&confirmed, &packed, &shipped, &delivered, &cancelled,
-		&completed, &p.CreatedAt, &p.UpdatedAt, &p.Version, &p.ChoThanhToan,
+		&completed, &p.CreatedAt, &p.UpdatedAt, &p.Version, &p.AwaitingPayment,
 	); err != nil {
 		return nil, err
 	}
@@ -556,7 +556,7 @@ func defaultCountry(code string) string {
 	return code
 }
 
-// DemHieuSuat đếm số liệu hiệu suất của một nhà bán.
+// CountForPerformance đếm số liệu hiệu suất của một nhà bán.
 //
 // MỘT câu truy vấn thay vì bốn: bốn lần quét cùng một bảng với cùng bộ lọc
 // tốn gấp bốn, và tệ hơn là bốn ảnh chụp ở bốn thời điểm khác nhau — số
@@ -564,10 +564,10 @@ func defaultCountry(code string) string {
 //
 // `seller_id = $1` nằm NGAY trong câu SQL, đúng quy tắc của bảng này: bộ
 // lọc ở tầng dữ liệu thì một lần quên ở tầng trên vẫn không lộ được gì.
-func (s *FulfillmentStore) DemHieuSuat(
-	ctx context.Context, sellerID ids.ID, tu, den time.Time, sla time.Duration,
-) (domain.SoLieuHieuSuat, error) {
-	var ra domain.SoLieuHieuSuat
+func (s *FulfillmentStore) CountForPerformance(
+	ctx context.Context, sellerID ids.ID, from, until time.Time, sla time.Duration,
+) (domain.PerformanceStats, error) {
+	var ra domain.PerformanceStats
 
 	err := s.pool.QueryRow(ctx, `
 		SELECT
@@ -580,10 +580,10 @@ func (s *FulfillmentStore) DemHieuSuat(
 		 WHERE seller_id = $1
 		   AND created_at >= $2
 		   AND created_at < $3`,
-		sellerID.String(), tu, den, sla.String()).
-		Scan(&ra.TongDon, &ra.DonHuy, &ra.DonDaGiao, &ra.DonGiaoDungHan)
+		sellerID.String(), from, until, sla.String()).
+		Scan(&ra.TotalOrders, &ra.CancelledOrders, &ra.DeliveredOrders, &ra.OnTimeOrders)
 	if err != nil {
-		return domain.SoLieuHieuSuat{}, fmt.Errorf(
+		return domain.PerformanceStats{}, fmt.Errorf(
 			"fulfillment: đếm hiệu suất nhà bán: %w", err)
 	}
 	return ra, nil

@@ -7,46 +7,46 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 )
 
-func timChiSo(ds []domain.ChiSoHieuSuat, ten string) (domain.ChiSoHieuSuat, bool) {
+func findMetric(ds []domain.PerformanceMetric, ten string) (domain.PerformanceMetric, bool) {
 	for _, c := range ds {
 		if c.Ten == ten {
 			return c, true
 		}
 	}
-	return domain.ChiSoHieuSuat{}, false
+	return domain.PerformanceMetric{}, false
 }
 
-// TestMauQuaNhoThiKhongCham là hàng rào chống bất công.
+// TestTooSmallASampleIsNotGraded là hàng rào chống bất công.
 //
 // Một gian hàng mới có 3 đơn, hủy 1, ra tỷ lệ 33% và bị chấm CRITICAL. Con
 // số đó không nói gì về chất lượng — nó nói mẫu quá nhỏ. Đặc tả sinh ra để
 // tránh đúng kiểu bất công này ("mô hình chấm điểm hộp đen tạo tranh chấp
 // không giải quyết được và cảm giác bất công").
-func TestMauQuaNhoThiKhongCham(t *testing.T) {
-	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
-		TongDon: 3, DonHuy: 1, DonDaGiao: 2, DonGiaoDungHan: 1,
-	}, domain.NguongMacDinh())
+func TestTooSmallASampleIsNotGraded(t *testing.T) {
+	ds := domain.ComputeMetrics(domain.PerformanceStats{
+		TotalOrders: 3, CancelledOrders: 1, DeliveredOrders: 2, OnTimeOrders: 1,
+	}, domain.DefaultThresholds())
 	if len(ds) != 0 {
 		t.Errorf("mẫu 3 đơn vẫn bị chấm %d chỉ số — gian hàng mới mở hủy "+
 			"một đơn sẽ bị đánh giá NGHIÊM TRỌNG: %+v", len(ds), ds)
 	}
 }
 
-// TestDuMauThiCham: qua ngưỡng mẫu thì phải có chỉ số.
-func TestDuMauThiCham(t *testing.T) {
-	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
-		TongDon: 100, DonHuy: 2, DonDaGiao: 90, DonGiaoDungHan: 88,
-	}, domain.NguongMacDinh())
+// TestWithEnoughSampleItIsGraded: qua ngưỡng mẫu thì phải có chỉ số.
+func TestWithEnoughSampleItIsGraded(t *testing.T) {
+	ds := domain.ComputeMetrics(domain.PerformanceStats{
+		TotalOrders: 100, CancelledOrders: 2, DeliveredOrders: 90, OnTimeOrders: 88,
+	}, domain.DefaultThresholds())
 	if len(ds) != 2 {
 		t.Fatalf("cần 2 chỉ số, có %d: %+v", len(ds), ds)
 	}
 
-	huy, _ := timChiSo(ds, "cancellation_rate")
-	if huy.GiaTri != 0.02 {
-		t.Errorf("tỷ lệ hủy = %v, cần 0.02", huy.GiaTri)
+	cancel, _ := findMetric(ds, "cancellation_rate")
+	if cancel.Value != 0.02 {
+		t.Errorf("tỷ lệ hủy = %v, cần 0.02", cancel.Value)
 	}
-	if huy.TrangThai != domain.ChiSoTot {
-		t.Errorf("hủy 2%% dưới ngưỡng 3%% mà xếp %s", huy.TrangThai)
+	if cancel.Status != domain.MetricGood {
+		t.Errorf("hủy 2%% dưới ngưỡng 3%% mà xếp %s", cancel.Status)
 	}
 }
 
@@ -55,71 +55,71 @@ func TestDuMauThiCham(t *testing.T) {
 // `cancellation_rate` càng THẤP càng tốt; `on_time_shipping_rate` càng CAO
 // càng tốt. Dùng chung một phép so sánh cho cả hai sẽ cho ra kết luận
 // ngược hẳn — và không có gì báo, vì cả hai đều là số trong khoảng 0..1.
-func TestHaiChiSoNguocChieuNhau(t *testing.T) {
+func TestTwoMetricsPointInOppositeDirections(t *testing.T) {
 	// Hủy 10% — RẤT xấu. Giao đúng hạn 10% — cũng RẤT xấu.
-	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
-		TongDon: 100, DonHuy: 10, DonDaGiao: 100, DonGiaoDungHan: 10,
-	}, domain.NguongMacDinh())
+	ds := domain.ComputeMetrics(domain.PerformanceStats{
+		TotalOrders: 100, CancelledOrders: 10, DeliveredOrders: 100, OnTimeOrders: 10,
+	}, domain.DefaultThresholds())
 
-	huy, ok := timChiSo(ds, "cancellation_rate")
+	cancel, ok := findMetric(ds, "cancellation_rate")
 	if !ok {
 		t.Fatal("thiếu cancellation_rate")
 	}
-	if huy.TrangThai != domain.ChiSoNghiemTrong {
-		t.Errorf("hủy 10%% (ngưỡng 3%%) xếp %s, cần CRITICAL", huy.TrangThai)
+	if cancel.Status != domain.MetricCritical {
+		t.Errorf("hủy 10%% (ngưỡng 3%%) xếp %s, cần CRITICAL", cancel.Status)
 	}
 
-	dungHan, ok := timChiSo(ds, "on_time_shipping_rate")
+	onTime, ok := findMetric(ds, "on_time_shipping_rate")
 	if !ok {
 		t.Fatal("thiếu on_time_shipping_rate")
 	}
-	if dungHan.TrangThai != domain.ChiSoNghiemTrong {
+	if onTime.Status != domain.MetricCritical {
 		t.Errorf("giao đúng hạn 10%% (ngưỡng 95%%) xếp %s, cần CRITICAL",
-			dungHan.TrangThai)
+			onTime.Status)
 	}
 }
 
-// TestVungCanhBao: không có vùng đệm thì chỉ số nhảy giữa TỐT và NGHIÊM
+// TestTheWarningBand: không có vùng đệm thì chỉ số nhảy giữa TỐT và NGHIÊM
 // TRỌNG chỉ vì một đơn, và nhà bán không có tín hiệu sớm nào.
-func TestVungCanhBao(t *testing.T) {
+func TestTheWarningBand(t *testing.T) {
 	// 92% đúng hạn: dưới ngưỡng 95% nhưng trên 90% × 95% = 85,5%.
-	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
-		TongDon: 100, DonHuy: 0, DonDaGiao: 100, DonGiaoDungHan: 92,
-	}, domain.NguongMacDinh())
-	dungHan, _ := timChiSo(ds, "on_time_shipping_rate")
-	if dungHan.TrangThai != domain.ChiSoCanhBao {
+	ds := domain.ComputeMetrics(domain.PerformanceStats{
+		TotalOrders: 100, CancelledOrders: 0, DeliveredOrders: 100, OnTimeOrders: 92,
+	}, domain.DefaultThresholds())
+	onTime, _ := findMetric(ds, "on_time_shipping_rate")
+	if onTime.Status != domain.MetricWarning {
 		t.Errorf("đúng hạn 92%% xếp %s, cần WARNING — không có vùng đệm thì "+
 			"nhà bán chỉ biết mình có vấn đề khi đã NGHIÊM TRỌNG",
-			dungHan.TrangThai)
+			onTime.Status)
 	}
 }
 
-// TestKhongChiaChoKhong: không có đơn nào đã giao thì không tính tỷ lệ
+// TestNoDivisionByZero: không có đơn nào đã giao thì không tính tỷ lệ
 // đúng hạn — chia cho 0 cho ra NaN, và NaN đi thẳng vào JSON là một trường
 // không parse được ở phía client.
-func TestKhongChiaChoKhong(t *testing.T) {
-	ds := domain.TinhChiSo(domain.SoLieuHieuSuat{
-		TongDon: 50, DonHuy: 50, DonDaGiao: 0, DonGiaoDungHan: 0,
-	}, domain.NguongMacDinh())
-	if _, co := timChiSo(ds, "on_time_shipping_rate"); co {
+func TestNoDivisionByZero(t *testing.T) {
+	ds := domain.ComputeMetrics(domain.PerformanceStats{
+		TotalOrders: 50, CancelledOrders: 50, DeliveredOrders: 0, OnTimeOrders: 0,
+	}, domain.DefaultThresholds())
+	if _, co := findMetric(ds, "on_time_shipping_rate"); co {
 		t.Error("không có đơn nào đã giao mà vẫn tính tỷ lệ đúng hạn")
 	}
 	// Tỷ lệ hủy vẫn tính được và phải là 100%.
-	huy, ok := timChiSo(ds, "cancellation_rate")
-	if !ok || huy.GiaTri != 1 {
-		t.Errorf("tỷ lệ hủy = %v (có=%v), cần 1", huy.GiaTri, ok)
+	cancel, ok := findMetric(ds, "cancellation_rate")
+	if !ok || cancel.Value != 1 {
+		t.Errorf("tỷ lệ hủy = %v (có=%v), cần 1", cancel.Value, ok)
 	}
 }
 
-// TestChiSoChuaDoNoiRoLyDo.
+// TestUnmeasuredMetricsStateTheReason.
 //
 // Trả một phần chỉ số rồi im lặng về phần còn lại tạo ra đúng thứ hộp đen
 // mà đặc tả sinh ra để tránh — chỉ khác là ở phía người viết API.
-func TestChiSoChuaDoNoiRoLyDo(t *testing.T) {
+func TestUnmeasuredMetricsStateTheReason(t *testing.T) {
 	// Mẫu ĐỦ cho cả hai chỉ số đo được, nên danh sách chỉ còn bốn chỉ số
 	// thiếu nguồn dữ liệu.
-	du := domain.SoLieuHieuSuat{TongDon: 100, DonDaGiao: 100}
-	ds := domain.ChiSoChuaDo(du, domain.NguongMacDinh())
+	full := domain.PerformanceStats{TotalOrders: 100, DeliveredOrders: 100}
+	ds := domain.UnmeasuredMetrics(full, domain.DefaultThresholds())
 	if len(ds) == 0 {
 		t.Fatal("không khai chỉ số nào là chưa đo")
 	}
@@ -136,27 +136,27 @@ func TestChiSoChuaDoNoiRoLyDo(t *testing.T) {
 
 // MỘT chỉ số vắng mặt vì MẪU cũng phải được nói ra.
 //
-// Trước 17/09/2026, `ChiSoChuaDo` chỉ liệt kê những chỉ số thiếu NGUỒN DỮ
+// Trước 17/09/2026, `UnmeasuredMetrics` chỉ liệt kê những chỉ số thiếu NGUỒN DỮ
 // LIỆU. Chỉ số đo được mà kỳ này ít đơn quá thì biến mất khỏi `metrics`
 // không một lời — nhà bán không có cách nào biết vì sao, tức đúng thứ hộp
 // đen endpoint này sinh ra để tránh.
-func TestChuaDuMauCungPhaiNoiRa(t *testing.T) {
-	ng := domain.NguongMacDinh()
+func TestAnInsufficientSampleMustAlsoBeStated(t *testing.T) {
+	ng := domain.DefaultThresholds()
 
 	// Một gian hàng mới: ít đơn, chưa bàn giao cái nào.
-	moi := domain.SoLieuHieuSuat{TongDon: 3, DonDaGiao: 0}
+	moi := domain.PerformanceStats{TotalOrders: 3, DeliveredOrders: 0}
 
-	if got := domain.TinhChiSo(moi, ng); len(got) != 0 {
+	if got := domain.ComputeMetrics(moi, ng); len(got) != 0 {
 		t.Fatalf("mẫu quá nhỏ mà vẫn chấm: %+v", got)
 	}
 
 	theoTen := map[string]string{}
-	for _, c := range domain.ChiSoChuaDo(moi, ng) {
+	for _, c := range domain.UnmeasuredMetrics(moi, ng) {
 		theoTen[c.Ten] = c.LyDo
 	}
 
 	for _, ten := range []string{"cancellation_rate", "on_time_shipping_rate"} {
-		lyDo, co := theoTen[ten]
+		reason, co := theoTen[ten]
 		if !co {
 			t.Errorf("%q vắng khỏi metrics mà KHÔNG có trong not_measured "+
 				"— nhà bán không có cách nào biết vì sao", ten)
@@ -164,11 +164,11 @@ func TestChuaDuMauCungPhaiNoiRa(t *testing.T) {
 		}
 		// Lý do phải nêu CON SỐ: "chưa đủ mẫu" một mình không cho biết
 		// còn thiếu bao nhiêu, nên không ai làm gì được với nó.
-		if !strings.Contains(lyDo, "3") && !strings.Contains(lyDo, "0") {
-			t.Errorf("lý do của %q không nêu số đơn hiện có: %q", ten, lyDo)
+		if !strings.Contains(reason, "3") && !strings.Contains(reason, "0") {
+			t.Errorf("lý do của %q không nêu số đơn hiện có: %q", ten, reason)
 		}
-		if !strings.Contains(lyDo, "10") {
-			t.Errorf("lý do của %q không nêu ngưỡng mẫu tối thiểu: %q", ten, lyDo)
+		if !strings.Contains(reason, "10") {
+			t.Errorf("lý do của %q không nêu ngưỡng mẫu tối thiểu: %q", ten, reason)
 		}
 	}
 }
@@ -177,31 +177,31 @@ func TestChuaDuMauCungPhaiNoiRa(t *testing.T) {
 //
 // Hai danh sách dùng hai điều kiện phải là phủ định của nhau. Lệch nhau thì
 // hoặc mâu thuẫn, hoặc — tệ hơn — một chỉ số vắng ở CẢ HAI.
-func TestKhongChiSoNaoVuaDoVuaChuaDo(t *testing.T) {
-	ng := domain.NguongMacDinh()
+func TestNoMetricIsBothMeasuredAndUnmeasured(t *testing.T) {
+	ng := domain.DefaultThresholds()
 
-	for _, so := range []domain.SoLieuHieuSuat{
-		{TongDon: 0, DonDaGiao: 0},
-		{TongDon: 9, DonDaGiao: 9},
-		{TongDon: 10, DonDaGiao: 9},
-		{TongDon: 100, DonDaGiao: 10},
-		{TongDon: 100, DonDaGiao: 100},
+	for _, stats := range []domain.PerformanceStats{
+		{TotalOrders: 0, DeliveredOrders: 0},
+		{TotalOrders: 9, DeliveredOrders: 9},
+		{TotalOrders: 10, DeliveredOrders: 9},
+		{TotalOrders: 100, DeliveredOrders: 10},
+		{TotalOrders: 100, DeliveredOrders: 100},
 	} {
 		daDo := map[string]bool{}
-		for _, c := range domain.TinhChiSo(so, ng) {
+		for _, c := range domain.ComputeMetrics(stats, ng) {
 			daDo[c.Ten] = true
 		}
-		chuaDo := map[string]bool{}
-		for _, c := range domain.ChiSoChuaDo(so, ng) {
-			chuaDo[c.Ten] = true
+		unmeasured := map[string]bool{}
+		for _, c := range domain.UnmeasuredMetrics(stats, ng) {
+			unmeasured[c.Ten] = true
 		}
 
 		for _, ten := range []string{"cancellation_rate", "on_time_shipping_rate"} {
 			switch {
-			case daDo[ten] && chuaDo[ten]:
-				t.Errorf("%+v: %q vừa được chấm vừa báo chưa đo", so, ten)
-			case !daDo[ten] && !chuaDo[ten]:
-				t.Errorf("%+v: %q biến mất khỏi CẢ HAI danh sách", so, ten)
+			case daDo[ten] && unmeasured[ten]:
+				t.Errorf("%+v: %q vừa được chấm vừa báo chưa đo", stats, ten)
+			case !daDo[ten] && !unmeasured[ten]:
+				t.Errorf("%+v: %q biến mất khỏi CẢ HAI danh sách", stats, ten)
 			}
 		}
 	}

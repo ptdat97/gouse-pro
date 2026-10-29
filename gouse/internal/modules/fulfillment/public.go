@@ -88,7 +88,7 @@ type API interface {
 	// hàng không — và tiền đã chi thì đòi lại rất khó.
 	CompleteDelivered(ctx context.Context, limit int) (int, error)
 
-	// DoiSoatGiaoHang trả các gói đã bàn giao mà lâu rồi không có tin.
+	// ReconcileDeliveries trả các gói đã bàn giao mà lâu rồi không có tin.
 	//
 	// Yêu cầu 5 của `api/paths/webhooks.yaml`: "KHÔNG TIN TUYỆT ĐỐI — phải
 	// có đối chiếu định kỳ, vì webhook có thể mất."
@@ -97,30 +97,30 @@ type API interface {
 	// phải trả nhà bán đang bị giữ lại: `CompleteDelivered` ở trên chỉ
 	// nhận đơn DELIVERED, nên một webhook mất là tiền nằm im vô thời hạn.
 	// Nhưng tự đánh dấu đã giao để gỡ kẹt là trả tiền cho một lần giao
-	// hàng không ai xác nhận — xem `application.DoiSoatGiaoHang`.
-	DoiSoatGiaoHang(ctx context.Context, limit int) ([]GoiBatTinView, error)
+	// hàng không ai xác nhận — xem `application.ReconcileDeliveries`.
+	ReconcileDeliveries(ctx context.Context, limit int) ([]LostContactParcelView, error)
 }
 
-// GoiBatTinView là một gói hàng mất tin, mô tả đủ để đi hỏi ngay.
+// LostContactParcelView là một gói hàng mất tin, mô tả đủ để đi hỏi ngay.
 //
 // Mốc thời gian ở đây là `time.Time`, khác `FulfillmentView` dùng chuỗi
 // RFC3339. Có chủ ý: view kia đi ra HTTP nên phải đóng băng cách định
 // dạng, còn view này chỉ tới tiến trình nền — nơi cần so sánh và tính
 // khoảng thời gian, và nơi việc bắt Go chuyển chuỗi ngược lại là vô ích.
-type GoiBatTinView struct {
+type LostContactParcelView struct {
 	FulfillmentID string
 	FONumber      string
 	OrderID       string
 	SellerID      string
 
-	NhaVanChuyen string
-	MaVanDon     string
+	Carrier        string
+	TrackingNumber string
 
-	TrangThai string
+	Status    string
 	ShippedAt time.Time
 
-	// ImLang là thời gian kể từ lần cuối có tin về gói hàng.
-	ImLang time.Duration
+	// Silent là thời gian kể từ lần cuối có tin về gói hàng.
+	Silent time.Duration
 }
 
 // ---------------------------------------------------------------- DTO
@@ -187,7 +187,7 @@ type FulfillmentView struct {
 	// SLADeadline là hạn nhà bán phải bàn giao cho đơn vị vận chuyển.
 	//
 	// TÍNH RA từ `CreatedAt + SLA` chứ không lưu: xem
-	// `domain.FulfillmentOrder.HanBanGiao`. Đổi tham số SLA làm DỜI hạn
+	// `domain.FulfillmentOrder.HandoverDeadline`. Đổi tham số SLA làm DỜI hạn
 	// của mọi đơn đang chạy — hành vi đã ghi trong `HeQua` của tham số đó.
 	SLADeadline string
 
@@ -210,18 +210,18 @@ var (
 	// ErrForbidden khi seller thao tác trên đơn không phải của mình.
 	ErrForbidden = errForbidden{}
 
-	// ErrChuaNoiCauHinh khi bản dựng không có cấu hình vận hành.
+	// ErrConfigNotWired khi bản dựng không có cấu hình vận hành.
 	//
 	// Báo lỗi thay vì lặng lẽ trả danh sách rỗng: một job đối chiếu không
 	// bao giờ tìm thấy gì trông y hệt một hệ thống khỏe mạnh. Đó chính là
 	// dạng hỏng mà công việc này sinh ra để bắt, nên nó không được phép
 	// tồn tại trong chính nó.
-	ErrChuaNoiCauHinh = errChuaNoiCauHinh{}
+	ErrConfigNotWired = errConfigNotWired{}
 )
 
-type errChuaNoiCauHinh struct{}
+type errConfigNotWired struct{}
 
-func (errChuaNoiCauHinh) Error() string {
+func (errConfigNotWired) Error() string {
 	return "fulfillment: chưa nối cấu hình vận hành"
 }
 
@@ -280,8 +280,8 @@ const (
 
 // ---------------------------------------------------- Ước tính phí giao
 
-// NguonHangInput là một điểm xuất hàng — thực tế là MỘT KIỆN.
-type NguonHangInput struct {
+// SourceInput là một điểm xuất hàng — thực tế là MỘT KIỆN.
+type SourceInput struct {
 	SellerID string
 }
 
@@ -297,12 +297,12 @@ type NguonHangInput struct {
 // Khi kho có địa chỉ thì thêm trường ở đây, và lúc đó nó có người dùng.
 type ShippingEstimateRequest struct {
 	Method   string
-	Sources  []NguonHangInput
+	Sources  []SourceInput
 	Currency string
 }
 
-// PhiTheoNguonView là phí của MỘT nguồn hàng.
-type PhiTheoNguonView struct {
+// SourceFeeView là phí của MỘT nguồn hàng.
+type SourceFeeView struct {
 	SellerID      string
 	Amount        int64
 	EstimatedDays int
@@ -316,5 +316,5 @@ type PhiTheoNguonView struct {
 type ShippingEstimateView struct {
 	Total     int64
 	Currency  string
-	PerSource []PhiTheoNguonView
+	PerSource []SourceFeeView
 }

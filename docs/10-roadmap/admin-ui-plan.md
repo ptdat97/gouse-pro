@@ -220,7 +220,7 @@ Phép thử khoảng ngày quan trọng hơn vẻ ngoài: không bao trọn ngà
 nhân viên lọc theo tháng mất sạch bản ghi ngày 31 mà không hề biết.
 
 **Phát hiện ngoài lề: test suite có một chỗ chập chờn CÓ SẴN.**
-`TestTrangThaiDonSuyRaTuTienDoQuaEvent` (module fulfillment) thỉnh thoảng
+`TestOrderStatusIsDerivedFromProgressViaEvent` (module fulfillment) thỉnh thoảng
 fail khi chạy `go test ./...` với database thật. Nguyên nhân: `order` và
 `fulfillment` cùng `TRUNCATE "order" CASCADE` trong hàm dựng test, mà Go
 chạy các package test SONG SONG — package này xóa dữ liệu package kia đang

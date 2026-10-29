@@ -17,28 +17,28 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/metrics"
 )
 
-// GhiSuKien là cổng ra để ghi nhật ký webhook.
+// WebhookLog là cổng ra để ghi nhật ký webhook.
 //
 // PORT do module định nghĩa: fulfillment không import platform/webhook,
 // và bên khởi chạy nối hai thứ lại.
-type GhiSuKien interface {
-	Ghi(ctx context.Context, nhaCungCap, maSuKien, loaiSuKien string, than []byte) (SuKienDaGhi, error)
-	DanhDauXong(ctx context.Context, id string, loi error) error
+type WebhookLog interface {
+	Log(ctx context.Context, provider, maSuKien, loaiSuKien string, than []byte) (LoggedEvent, error)
+	MarkDone(ctx context.Context, id string, loi error) error
 }
 
-// SuKienDaGhi khớp webhook.SuKien.
-type SuKienDaGhi struct {
-	ID            string
-	DaNhanTruocDo bool
-	DaXuLyXong    bool
+// LoggedEvent khớp webhook.SuKien.
+type LoggedEvent struct {
+	ID              string
+	AlreadyReceived bool
+	AlreadyDone     bool
 }
 
-// BiMatNhaCungCap trả khóa HMAC của một hãng vận chuyển.
+// ProviderSecret trả khóa HMAC của một hãng vận chuyển.
 //
 // Trả chuỗi rỗng khi không biết hãng đó — và khi ấy chữ ký chắc chắn
 // KHÔNG hợp lệ, đúng như mong muốn: hãng chưa cấu hình thì không gửi được
 // gì vào hệ thống.
-type BiMatNhaCungCap func(nhaCungCap string) string
+type ProviderSecret func(provider string) string
 
 // WebhookHandler nhận cập nhật vận chuyển từ hãng giao hàng.
 //
@@ -50,20 +50,20 @@ type BiMatNhaCungCap func(nhaCungCap string) string
 //  4. Ghi mọi webhook  → kể cả loại không xử lý (PICKED_UP…)
 //  5. Không tin tuyệt đối → cần job đối chiếu định kỳ; CHƯA có, xem ghi chú
 type WebhookHandler struct {
-	svc    *application.Service
-	nhatKy GhiSuKien
-	biMat  BiMatNhaCungCap
-	log    *slog.Logger
+	svc        *application.Service
+	webhookLog WebhookLog
+	biMat      ProviderSecret
+	log        *slog.Logger
 }
 
 func NewWebhookHandler(
-	svc *application.Service, nhatKy GhiSuKien, biMat BiMatNhaCungCap, log *slog.Logger,
+	svc *application.Service, webhookLog WebhookLog, biMat ProviderSecret, log *slog.Logger,
 ) *WebhookHandler {
-	return &WebhookHandler{svc: svc, nhatKy: nhatKy, biMat: biMat, log: log}
+	return &WebhookHandler{svc: svc, webhookLog: webhookLog, biMat: biMat, log: log}
 }
 
 func (h *WebhookHandler) Register(mux *http.ServeMux) {
-	mux.Handle("POST /api/v1/webhooks/shipping/{provider}", http.HandlerFunc(h.nhan))
+	mux.Handle("POST /api/v1/webhooks/shipping/{provider}", http.HandlerFunc(h.receive))
 }
 
 // maxWebhookBytes chặn một thân request khổng lồ làm cạn bộ nhớ.
@@ -78,12 +78,12 @@ type shippingWebhookJSON struct {
 	FailureReason  string `json:"failure_reason"`
 }
 
-func (h *WebhookHandler) nhan(w http.ResponseWriter, r *http.Request) {
-	nhaCungCap := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
+func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
+	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
 
 	than, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBytes+1))
 	if err != nil || len(than) > maxWebhookBytes {
-		h.tuChoi(w, r, nhaCungCap, "thân request quá lớn hoặc không đọc được")
+		h.rejected(w, r, provider, "thân request quá lớn hoặc không đọc được")
 		return
 	}
 
@@ -95,10 +95,10 @@ func (h *WebhookHandler) nhan(w http.ResponseWriter, r *http.Request) {
 	// Chữ ký tính trên BYTE THÔ, không phải trên JSON đã parse rồi
 	// serialize lại — vòng đó đổi thứ tự khóa và khoảng trắng.
 	if err := httpserver.KiemChuKyHMAC(than,
-		r.Header.Get("X-Signature"), h.biMat(nhaCungCap)); err != nil {
+		r.Header.Get("X-Signature"), h.biMat(provider)); err != nil {
 		metrics.RecordFailure(metrics.StageWebhook, "chu_ky_sai")
 		h.log.WarnContext(r.Context(), "webhook có chữ ký KHÔNG hợp lệ",
-			"nha_cung_cap", nhaCungCap,
+			"nha_cung_cap", provider,
 			"request_id", logger.RequestIDFromContext(r.Context()))
 		apierror.Write(w, r, apierror.New(apierror.CodeUnauthorized,
 			"Chữ ký không hợp lệ"), logger.RequestIDFromContext(r.Context()), h.log)
@@ -108,7 +108,7 @@ func (h *WebhookHandler) nhan(w http.ResponseWriter, r *http.Request) {
 	var p shippingWebhookJSON
 	if err := json.Unmarshal(than, &p); err != nil ||
 		strings.TrimSpace(p.EventID) == "" {
-		h.tuChoi(w, r, nhaCungCap, "thiếu event_id hoặc JSON sai định dạng")
+		h.rejected(w, r, provider, "thiếu event_id hoặc JSON sai định dạng")
 		return
 	}
 
@@ -118,38 +118,38 @@ func (h *WebhookHandler) nhan(w http.ResponseWriter, r *http.Request) {
 	// trạng thái chưa-xử-lý và job thử lại nhặt được. Xử lý trước rồi mới
 	// ghi thì một lần chết giữa chừng làm mất hẳn sự kiện, và nhà cung cấp
 	// đã coi như xong.
-	su, err := h.nhatKy.Ghi(r.Context(), nhaCungCap, p.EventID, p.Status, than)
+	su, err := h.webhookLog.Log(r.Context(), provider, p.EventID, p.Status, than)
 	if err != nil {
 		apierror.Write(w, r, err, logger.RequestIDFromContext(r.Context()), h.log)
 		return
 	}
 
-	if su.DaNhanTruocDo && su.DaXuLyXong {
+	if su.AlreadyReceived && su.AlreadyDone {
 		// 200, KHÔNG phải lỗi: báo lỗi khiến nhà cung cấp gửi lại mãi cho
 		// một việc đã xong.
-		h.tra(w, r, true)
+		h.payout(w, r, true)
 		return
 	}
 
-	loiXuLy := h.svc.CapNhatTuHangVanChuyen(r.Context(),
-		application.CapNhatTuHangVanChuyenInput{
-			NhaVanChuyen: nhaCungCap,
-			MaVanDon:     strings.TrimSpace(p.TrackingNumber),
-			TrangThai:    strings.ToUpper(strings.TrimSpace(p.Status)),
-			LyDoThatBai:  p.FailureReason,
+	handleErr := h.svc.ApplyCarrierUpdate(r.Context(),
+		application.CarrierUpdateInput{
+			Carrier:        provider,
+			TrackingNumber: strings.TrimSpace(p.TrackingNumber),
+			Status:         strings.ToUpper(strings.TrimSpace(p.Status)),
+			FailureReason:  p.FailureReason,
 		})
 
 	switch {
-	case loiXuLy == nil, errors.Is(loiXuLy, application.ErrTrangThaiKhongDoi):
+	case handleErr == nil, errors.Is(handleErr, application.ErrStatusUnchanged):
 		// Mốc hệ thống không theo dõi vẫn tính là đã xử lý xong: không có
 		// gì để làm lại.
-		_ = h.nhatKy.DanhDauXong(r.Context(), su.ID, nil)
+		_ = h.webhookLog.MarkDone(r.Context(), su.ID, nil)
 
-	case errors.Is(loiXuLy, domain.ErrNotFound):
+	case errors.Is(handleErr, domain.ErrNotFound):
 		// 404 là câu trả lời ĐÚNG cho mã vận đơn lạ, và đặc tả yêu cầu nó.
 		// Vẫn giữ bản ghi: nó là bằng chứng hãng đã gửi cho một mã ta
 		// không biết, thường là dấu hiệu lệch dữ liệu giữa hai bên.
-		_ = h.nhatKy.DanhDauXong(r.Context(), su.ID, loiXuLy)
+		_ = h.webhookLog.MarkDone(r.Context(), su.ID, handleErr)
 		metrics.RecordFailure(metrics.StageWebhook, "khong_thay_ma_van_don")
 		apierror.Write(w, r, apierror.New(apierror.CodeNotFound,
 			"Không tìm thấy lô hàng với mã vận đơn này"),
@@ -159,29 +159,29 @@ func (h *WebhookHandler) nhan(w http.ResponseWriter, r *http.Request) {
 	default:
 		// Xử lý hỏng nhưng sự kiện ĐÃ được ghi durable. Trả 200 để nhà
 		// cung cấp thôi gửi lại; việc thử lại là của ta, không phải của họ.
-		_ = h.nhatKy.DanhDauXong(r.Context(), su.ID, loiXuLy)
+		_ = h.webhookLog.MarkDone(r.Context(), su.ID, handleErr)
 		metrics.RecordFailure(metrics.StageWebhook, "xu_ly_that_bai")
 		h.log.ErrorContext(r.Context(), "xử lý webhook vận chuyển thất bại",
-			"error", loiXuLy, "nha_cung_cap", nhaCungCap,
+			"error", handleErr, "nha_cung_cap", provider,
 			"ma_su_kien", p.EventID)
 	}
 
-	h.tra(w, r, su.DaNhanTruocDo)
+	h.payout(w, r, su.AlreadyReceived)
 }
 
-func (h *WebhookHandler) tra(w http.ResponseWriter, r *http.Request, daXuLy bool) {
-	body := map[string]any{"received": true, "already_processed": daXuLy}
+func (h *WebhookHandler) payout(w http.ResponseWriter, r *http.Request, processed bool) {
+	body := map[string]any{"received": true, "already_processed": processed}
 	if err := apierror.WriteJSON(w, http.StatusOK, body); err != nil {
 		h.log.ErrorContext(r.Context(), "không ghi được response", "error", err)
 	}
 }
 
-func (h *WebhookHandler) tuChoi(
-	w http.ResponseWriter, r *http.Request, nhaCungCap, vaoDe string,
+func (h *WebhookHandler) rejected(
+	w http.ResponseWriter, r *http.Request, provider, topic string,
 ) {
 	metrics.RecordFailure(metrics.StageWebhook, "than_khong_hop_le")
 	h.log.WarnContext(r.Context(), "webhook không hợp lệ",
-		"nha_cung_cap", nhaCungCap, "ly_do", vaoDe)
-	apierror.Write(w, r, apierror.New(apierror.CodeValidationFailed, vaoDe),
+		"nha_cung_cap", provider, "ly_do", topic)
+	apierror.Write(w, r, apierror.New(apierror.CodeValidationFailed, topic),
 		logger.RequestIDFromContext(r.Context()), h.log)
 }

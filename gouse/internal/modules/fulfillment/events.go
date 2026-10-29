@@ -159,8 +159,8 @@ func (h *SplitOnCheckoutCompleted) EventTypes() []string {
 // cho một đơn trả trước. Đó chính là ca ADR-0016 sinh ra để chặn.
 func (h *SplitOnCheckoutCompleted) MaxEventVersion(string) int { return 9 }
 
-// splitPayload là phần dữ liệu bên nhận này cần.
-type splitPayload struct {
+// checkoutSplitPayload là phần dữ liệu bên nhận này cần.
+type checkoutSplitPayload struct {
 	OrderID     string `json:"order_id"`
 	OrderNumber string `json:"order_number"`
 	Currency    string `json:"currency"`
@@ -222,7 +222,7 @@ type splitPayload struct {
 // Event có thể được phát lại, và tách hai lần nghĩa là seller thấy việc
 // trùng — có thể giao hàng hai lần cho một đơn.
 func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event) error {
-	var p splitPayload
+	var p checkoutSplitPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
 	}
@@ -247,12 +247,12 @@ func (h *SplitOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event)
 		// tới nhưng chưa được đụng vào cho tới khi `order.paid` mở khóa.
 		// COD không khóa — tiền về lúc giao, nên chờ là chặn chính đường
 		// thu tiền. Xem ADR-0018 phần A2.
-		ChoThanhToan:   domain.PhuongThucTraTruoc(p.PaymentMethod),
-		ShippingMethod: p.ShippingMethod,
-		Currency:       currency,
-		CustomerID:     ids.ID(p.CustomerID),
-		NotifyEmail:    p.GuestEmail,
-		NotifyPhone:    p.GuestPhone,
+		AwaitingPayment: domain.IsPrepaidMethod(p.PaymentMethod),
+		ShippingMethod:  p.ShippingMethod,
+		Currency:        currency,
+		CustomerID:      ids.ID(p.CustomerID),
+		NotifyEmail:     p.GuestEmail,
+		NotifyPhone:     p.GuestPhone,
 		ShippingAddress: domain.ShippingAddress{
 			RecipientName: p.ShippingAddress.RecipientName,
 			Phone:         p.ShippingAddress.Phone,
@@ -426,7 +426,7 @@ func (p *eventPublisher) PublishCompleted(
 
 // ---------------------------------------------------------------- Mở khóa
 
-// MoKhoaKhiDaTraTien mở khóa đơn thực hiện khi tiền của đơn đã về.
+// UnlockOnOrderPaid mở khóa đơn thực hiện khi tiền của đơn đã về.
 //
 // # Vì sao bên nhận này tồn tại
 //
@@ -436,23 +436,23 @@ func (p *eventPublisher) PublishCompleted(
 // viễn và không món hàng nào rời kho nữa. Xem ADR-0018 phần A2.
 //
 // COD không bao giờ đi qua đây: nó không bị khóa từ đầu.
-type MoKhoaKhiDaTraTien struct {
+type UnlockOnOrderPaid struct {
 	module *Module
 	log    *slog.Logger
 }
 
-// NewMoKhoaHandler tạo bên nhận mở khóa giao hàng.
-func NewMoKhoaHandler(m *Module, log *slog.Logger) *MoKhoaKhiDaTraTien {
-	return &MoKhoaKhiDaTraTien{module: m, log: log}
+// NewUnlockHandler tạo bên nhận mở khóa giao hàng.
+func NewUnlockHandler(m *Module, log *slog.Logger) *UnlockOnOrderPaid {
+	return &UnlockOnOrderPaid{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*MoKhoaKhiDaTraTien)(nil)
+var _ eventbus.Handler = (*UnlockOnOrderPaid)(nil)
 
-func (h *MoKhoaKhiDaTraTien) Name() string {
+func (h *UnlockOnOrderPaid) Name() string {
 	return "fulfillment.mo_khoa_khi_da_tra_tien"
 }
 
-func (h *MoKhoaKhiDaTraTien) EventTypes() []string {
+func (h *UnlockOnOrderPaid) EventTypes() []string {
 	return []string{eventbus.TypeOrderPaid}
 }
 
@@ -466,15 +466,15 @@ type orderPaidPayload struct {
 // gói), và tiền về là tiền của CẢ đơn — nên mở khóa từng phần là sai:
 // khách trả đủ mà chỉ một seller được giao.
 //
-// IDEMPOTENT: `MoKhoaThanhToan` gọi lại trên đơn đã mở không phải lỗi, và
+// IDEMPOTENT: `UnlockPayment` gọi lại trên đơn đã mở không phải lỗi, và
 // event có thể tới hai lần theo đúng thiết kế giao-ít-nhất-một-lần.
-func (h *MoKhoaKhiDaTraTien) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *UnlockOnOrderPaid) Handle(ctx context.Context, e eventbus.Event) error {
 	var p orderPaidPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
 	}
 
-	n, err := h.module.MoKhoaTheoDon(ctx, p.OrderID)
+	n, err := h.module.UnlockByOrder(ctx, p.OrderID)
 	if err != nil {
 		return fmt.Errorf("mở khóa đơn thực hiện: %w", err)
 	}
@@ -487,7 +487,7 @@ func (h *MoKhoaKhiDaTraTien) Handle(ctx context.Context, e eventbus.Event) error
 
 // ---------------------------------------------------- Hủy theo đơn hàng
 
-// HuyKhiDonBiHuy hủy các đơn thực hiện khi cả đơn hàng bị hủy.
+// CancelOnOrderCancelled hủy các đơn thực hiện khi cả đơn hàng bị hủy.
 //
 // # Vì sao bên nhận này tồn tại
 //
@@ -500,26 +500,26 @@ func (h *MoKhoaKhiDaTraTien) Handle(ctx context.Context, e eventbus.Event) error
 // `fulfillment.cancelled` — đường nhả đã có và đã kiểm chứng. Nối thẳng
 // order → inventory sẽ là đường nhả THỨ HAI cho cùng một việc, và hai
 // đường nhả nghĩa là sớm muộn nhả hai lần.
-type HuyKhiDonBiHuy struct {
+type CancelOnOrderCancelled struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewHuyTheoDonHandler(m *Module, log *slog.Logger) *HuyKhiDonBiHuy {
-	return &HuyKhiDonBiHuy{module: m, log: log}
+func NewCancelByOrderHandler(m *Module, log *slog.Logger) *CancelOnOrderCancelled {
+	return &CancelOnOrderCancelled{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*HuyKhiDonBiHuy)(nil)
+var _ eventbus.Handler = (*CancelOnOrderCancelled)(nil)
 
-func (h *HuyKhiDonBiHuy) Name() string {
+func (h *CancelOnOrderCancelled) Name() string {
 	return "fulfillment.huy_khi_don_bi_huy"
 }
 
-func (h *HuyKhiDonBiHuy) EventTypes() []string {
+func (h *CancelOnOrderCancelled) EventTypes() []string {
 	return []string{eventbus.TypeOrderCancelled}
 }
 
-type huyDonPayload struct {
+type cancelByOrderPayload struct {
 	OrderID string `json:"order_id"`
 	Reason  string `json:"reason"`
 }
@@ -528,18 +528,18 @@ type huyDonPayload struct {
 //
 // IDEMPOTENT: gọi lại trên đơn đã hủy hết thì không có gì để hủy và trả
 // nil. Event phát lại là đường đi bình thường.
-func (h *HuyKhiDonBiHuy) Handle(ctx context.Context, e eventbus.Event) error {
-	var p huyDonPayload
+func (h *CancelOnOrderCancelled) Handle(ctx context.Context, e eventbus.Event) error {
+	var p cancelByOrderPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
 	}
 
-	lyDo := strings.TrimSpace(p.Reason)
-	if lyDo == "" {
-		lyDo = "Đơn hàng đã bị hủy"
+	reason := strings.TrimSpace(p.Reason)
+	if reason == "" {
+		reason = "Đơn hàng đã bị hủy"
 	}
 
-	n, err := h.module.HuyTheoDon(ctx, p.OrderID, lyDo)
+	n, err := h.module.CancelByOrder(ctx, p.OrderID, reason)
 	if err != nil {
 		return fmt.Errorf("hủy đơn thực hiện theo đơn hàng: %w", err)
 	}

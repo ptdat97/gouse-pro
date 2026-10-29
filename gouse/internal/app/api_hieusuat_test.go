@@ -79,17 +79,17 @@ func TestHieuSuatTraChiSoVaThuocDoDangDung(t *testing.T) {
 		t.Fatalf("xem hiệu suất: HTTP %d — %s", res.code, res.raw)
 	}
 
-	if got, _ := res.body["period"].(string); got != string(domain.KyMacDinh) {
-		t.Errorf("period = %q, cần %q", got, domain.KyMacDinh)
+	if got, _ := res.body["period"].(string); got != string(domain.DefaultPeriod) {
+		t.Errorf("period = %q, cần %q", got, domain.DefaultPeriod)
 	}
 
 	// Thước đo phải hiện ra: không có nó thì "đúng hạn" là một khẳng định
 	// không kiểm chứng được.
 	sla, co := res.body["shipping_sla_hours"].(float64)
-	if !co || sla != domain.SLAGiaoHang.Hours() {
+	if !co || sla != domain.DeliverySLA.Hours() {
 		t.Errorf("shipping_sla_hours = %v (có=%v), cần %v — thước đo phải "+
 			"công khai, nếu không thì chấm điểm là hộp đen",
-			sla, co, domain.SLAGiaoHang.Hours())
+			sla, co, domain.DeliverySLA.Hours())
 	}
 
 	// Cỡ mẫu phải hiện ra.

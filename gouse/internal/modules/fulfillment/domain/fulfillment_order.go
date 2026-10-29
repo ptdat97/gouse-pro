@@ -224,11 +224,11 @@ type FulfillmentOrder struct {
 	subtotal         money.Money
 	commissionAmount money.Money
 
-	// choThanhToan = đơn TRẢ TRƯỚC chưa thu được tiền.
+	// awaitingPayment = đơn TRẢ TRƯỚC chưa thu được tiền.
 	//
 	// Nhà bán chưa được phép xử lý. Mở khóa bởi event `order.paid` — xem
-	// ADR-0018 phần A2 và `MoKhoaThanhToan`.
-	choThanhToan bool
+	// ADR-0018 phần A2 và `UnlockPayment`.
+	awaitingPayment bool
 
 	// cancelReason bắt buộc khi hủy: seller và khách đều cần biết vì sao.
 	cancelReason string
@@ -342,8 +342,8 @@ type NewFulfillmentOrderParams struct {
 	FONumber string
 	SellerID ids.ID
 
-	// ChoThanhToan khóa đơn cho tới khi tiền về (ADR-0018 phần A2).
-	ChoThanhToan     bool
+	// AwaitingPayment khóa đơn cho tới khi tiền về (ADR-0018 phần A2).
+	AwaitingPayment  bool
 	LineIDs          []ids.ID
 	Lines            []FOLine
 	Subtotal         money.Money
@@ -408,7 +408,7 @@ func NewFulfillmentOrder(p NewFulfillmentOrderParams) (*FulfillmentOrder, error)
 		lineIDs:          append([]ids.ID(nil), p.LineIDs...),
 		lines:            append([]FOLine(nil), p.Lines...),
 		status:           FOPending,
-		choThanhToan:     p.ChoThanhToan,
+		awaitingPayment:  p.AwaitingPayment,
 		subtotal:         p.Subtotal,
 		commissionAmount: p.CommissionAmount,
 		customerID:       p.CustomerID,
@@ -424,8 +424,8 @@ func NewFulfillmentOrder(p NewFulfillmentOrderParams) (*FulfillmentOrder, error)
 
 // RestoreFOParams dựng lại từ kho lưu trữ.
 type RestoreFOParams struct {
-	// ChoThanhToan khôi phục cờ khóa chờ tiền (ADR-0018).
-	ChoThanhToan bool
+	// AwaitingPayment khôi phục cờ khóa chờ tiền (ADR-0018).
+	AwaitingPayment bool
 
 	ID                ids.ID
 	OrderID           ids.ID
@@ -465,7 +465,7 @@ type RestoreFOParams struct {
 func RestoreFulfillmentOrder(p RestoreFOParams) *FulfillmentOrder {
 	return &FulfillmentOrder{
 		id:                p.ID,
-		choThanhToan:      p.ChoThanhToan,
+		awaitingPayment:   p.AwaitingPayment,
 		orderID:           p.OrderID,
 		foNumber:          p.FONumber,
 		sellerID:          p.SellerID,
@@ -603,7 +603,7 @@ func (f *FulfillmentOrder) Pick(now time.Time) error {
 // Từ đây hàng ra khỏi tầm kiểm soát của seller, nên mã vận đơn là BẮT
 // BUỘC: không có nó thì không ai trả lời được "hàng của tôi đang ở đâu".
 func (f *FulfillmentOrder) HandOver(
-	provider, trackingNumber string, bieu BieuPhiGiao, now time.Time,
+	provider, trackingNumber string, schedule FeeSchedule, now time.Time,
 ) error {
 	if strings.TrimSpace(trackingNumber) == "" {
 		return errors.New("fulfillment: bàn giao vận chuyển bắt buộc phải có mã vận đơn")
@@ -630,11 +630,11 @@ func (f *FulfillmentOrder) HandOver(
 	//
 	// CẮT VỀ NGÀY: cột lưu có kiểu DATE, nên giữ giờ phút trong bộ nhớ
 	// nghĩa là giá trị ghi xuống khác giá trị đọc lên — im lặng.
-	if bieu == nil {
-		bieu = BieuPhiMacDinh
+	if schedule == nil {
+		schedule = DefaultFeeSchedule
 	}
-	if muc, ok := bieu[PhuongThucGiao(f.shippingMethod)]; ok {
-		f.estimatedDelivery = types.DauNgay(now.AddDate(0, 0, muc.SoNgayDuKien))
+	if tier, ok := schedule[ShipMethod(f.shippingMethod)]; ok {
+		f.estimatedDelivery = types.DauNgay(now.AddDate(0, 0, tier.EstimatedDays))
 	}
 	return nil
 }
@@ -716,8 +716,8 @@ func (f *FulfillmentOrder) transition(next FOStatus, now time.Time) error {
 	// HỦY vẫn được phép: khách bỏ đơn chưa thanh toán là đường thoát bình
 	// thường và phổ biến nhất của chính những đơn đang bị khóa. Chặn nó sẽ
 	// làm hàng kẹt trong kho vĩnh viễn.
-	if f.choThanhToan && next != FOCancelled {
-		return ErrChoThanhToan
+	if f.awaitingPayment && next != FOCancelled {
+		return ErrAwaitingPayment
 	}
 
 	if !f.status.canTransitionTo(next) {
@@ -761,12 +761,12 @@ type SplitInput struct {
 	OrderNumber string
 	Currency    money.Currency
 
-	// ChoThanhToan = đơn TRẢ TRƯỚC chưa thu được tiền, xem ADR-0018.
+	// AwaitingPayment = đơn TRẢ TRƯỚC chưa thu được tiền, xem ADR-0018.
 	//
 	// Bên gọi tính từ `payment_method` của event `checkout.completed`
-	// (phiên bản 2) qua `PhuongThucTraTruoc` — quy tắc nằm ở domain, còn
+	// (phiên bản 2) qua `IsPrepaidMethod` — quy tắc nằm ở domain, còn
 	// việc đọc event thì không.
-	ChoThanhToan bool
+	AwaitingPayment bool
 
 	// Thông tin liên hệ, sao chép xuống từng đơn thực hiện.
 	//
@@ -875,7 +875,7 @@ func SplitIntoFulfillmentOrders(in SplitInput, now time.Time) ([]*FulfillmentOrd
 	for i, g := range groups {
 		fo, err := NewFulfillmentOrder(NewFulfillmentOrderParams{
 			OrderID:          in.OrderID,
-			ChoThanhToan:     in.ChoThanhToan,
+			AwaitingPayment:  in.AwaitingPayment,
 			FONumber:         in.OrderNumber + "-" + foSuffix(i),
 			SellerID:         g.sellerID,
 			LineIDs:          g.lineIDs,

@@ -152,10 +152,10 @@ func TestKhoaChanMoiBuocTien(t *testing.T) {
 		{"nhặt hàng", func() error { return fo.Pick(testNowE2E()) }},
 		{"đóng gói", func() error { return fo.Pack(testNowE2E()) }},
 		{"bàn giao", func() error {
-			return fo.HandOver("GHN", "TRACK-1", domain.BieuPhiMacDinh, testNowE2E())
+			return fo.HandOver("GHN", "TRACK-1", domain.DefaultFeeSchedule, testNowE2E())
 		}},
 	} {
-		if err := b.lam(); !errors.Is(err, domain.ErrChoThanhToan) {
+		if err := b.lam(); !errors.Is(err, domain.ErrAwaitingPayment) {
 			t.Errorf("%s: lỗi = %v, mong ErrChoThanhToan", b.ten, err)
 		}
 	}
@@ -165,10 +165,10 @@ func TestKhoaChanMoiBuocTien(t *testing.T) {
 func foChoThanhToan(t *testing.T) *domain.FulfillmentOrder {
 	t.Helper()
 	fos, err := domain.SplitIntoFulfillmentOrders(domain.SplitInput{
-		OrderID:      ids.MustNew(ids.PrefixOrder),
-		OrderNumber:  "FC-2026-09-000001",
-		Currency:     money.VND,
-		ChoThanhToan: true,
+		OrderID:         ids.MustNew(ids.PrefixOrder),
+		OrderNumber:     "FC-2026-09-000001",
+		Currency:        money.VND,
+		AwaitingPayment: true,
 		Lines: []domain.SplitLine{{
 			LineID:           ids.MustNew(ids.PrefixOrderLine),
 			SKUID:            ids.MustNew(ids.PrefixSKU),

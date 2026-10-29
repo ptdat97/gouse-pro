@@ -2746,7 +2746,7 @@ P3-17". Nhưng VÍ DỤ ngay phía trên lại in một giá trị `sla_deadline
 tài liệu tự mâu thuẫn — cùng lớp với ví dụ `status: PAID` đã sửa ở PH-36.
 
 **Hạn được TÍNH RA, không lưu thành cột**, và quyết định đó đã nằm sẵn
-trong chú thích của `SLAGiaoHang`: đặc tả yêu cầu "chỉ số, ngưỡng, và tác
+trong chú thích của `DeliverySLA`: đặc tả yêu cầu "chỉ số, ngưỡng, và tác
 động đều công khai và tường minh", nên một thời hạn riêng cho từng đơn mà
 không ai nhìn thấy chính là hộp đen. Hệ quả: đổi
 `fulfillment.shipping_sla_hours` dời hạn của mọi đơn ĐANG CHẠY — cùng hành
@@ -2766,7 +2766,7 @@ RFC3339 nên mất phần dưới giây, còn SQL so ở micro-giây** — ca "b
 Không sửa, có chủ ý: một hạn hiển thị cho người đọc thì tính bằng giây là
 đúng, và cắt cả hai bên xuống giây sẽ làm phép chấm điểm bớt chính xác để
 chiều một trường hợp cần bàn giao đúng vào giây thứ 172.800 mới chạm tới.
-Ghi vào chú thích của `HanBanGiao` thay vì im lặng.
+Ghi vào chú thích của `HandoverDeadline` thay vì im lặng.
 
 **Cờ `sla_breached` chỉ bật cho đơn CHƯA bàn giao.** Đơn bàn giao muộn đã
 bị trừ điểm rồi; hiện lại nhãn trễ trên một đơn đang đi đường làm nhà bán
@@ -3421,7 +3421,7 @@ order.cancelled  →  fulfillment hủy các FO  →  fulfillment.cancelled
 **KHÔNG nối thẳng order → inventory**, dù ngắn hơn: đó sẽ là đường nhả THỨ
 HAI cho cùng một việc, và hai đường nhả nghĩa là sớm muộn nhả hai lần.
 
-`HuyTheoDon` bỏ qua đơn thực hiện không hủy được (đã bàn giao) thay vì trả
+`CancelByOrder` bỏ qua đơn thực hiện không hủy được (đã bàn giao) thay vì trả
 lỗi: máy trạng thái đã chặn đúng chỗ, và trả lỗi sẽ làm event kẹt trong
 hàng đợi khiến những gói CÒN hủy được cũng không hủy.
 
@@ -3451,7 +3451,7 @@ Tách khỏi `FEE_EXPENSE` (phí cổng thanh toán): gộp lại thì báo cáo
 tách được lãi/lỗ vận chuyển khỏi chi phí thanh toán, mà hai thứ đó do hai
 quyết định kinh doanh khác nhau chi phối.
 
-**Hệ thống KHÔNG biết giá thỏa thuận với hãng.** `bieuPhi` của fulfillment
+**Hệ thống KHÔNG biết giá thỏa thuận với hãng.** `feeSchedule` của fulfillment
 là phí KHÁCH TRẢ, không phải giá nền tảng trả hãng — hai con số khác nhau,
 và chênh lệch giữa chúng chính là thứ cần đo. Nên giá là **cấu hình vận
 hành phải khai** (`fulfillment.carrier_cost_standard` / `_express`), mặc
@@ -3559,7 +3559,7 @@ promotion tự từ chối những mã cần biết gian hàng.
 **Và lần thứ HAI dính đúng một lỗi.** `withLines` bên checkout dựng lại
 thực thể bằng cách liệt kê từng trường; tôi quên `BenChiuGiamGia`, nên giá
 trị ghi đúng xuống DB rồi bị XÓA TRẮNG ở lần đọc kế tiếp và ghi đè ngược.
-Y hệt `withLineIDs` bên fulfillment quên `ChoThanhToan` hôm 07/09 — nhưng
+Y hệt `withLineIDs` bên fulfillment quên `AwaitingPayment` hôm 07/09 — nhưng
 bên đó có chú thích cảnh báo, bên này không.
 
 Sửa tận gốc thay vì thêm một dòng: `Checkout.KemDongHang` **sao chép cả
@@ -3639,7 +3639,7 @@ order.MarkPaid          nay phát `order.paid` TRONG cùng giao dịch
 checkout.completed      lên PHIÊN BẢN 2, thêm `payment_method`
 fulfillment_order       thêm cột `cho_thanh_toan` (migration 000044)
 FulfillmentOrder.transition  chặn MỌI bước tiến khi đang khóa, trừ HỦY
-fulfillment.MoKhoaTheoDon    bên nhận `order.paid` mở khóa
+fulfillment.UnlockByOrder    bên nhận `order.paid` mở khóa
 ```
 
 Cửa chặn đặt ở `transition`, không rải ở từng use case: `Confirm`, `Pick`,
@@ -3663,7 +3663,7 @@ tất cả sẽ khóa hàng nghìn đơn mà không ai mở nổi. Quy tắc m�
 đơn tạo từ đây trở đi.
 
 **Một lỗi tự gây ra, và chỗ nó bị bắt.** `withLineIDs` dựng lại thực thể từ
-đầu và liệt kê từng trường; tôi quên `ChoThanhToan`, nên cờ ghi đúng xuống
+đầu và liệt kê từng trường; tôi quên `AwaitingPayment`, nên cờ ghi đúng xuống
 database rồi bị XÓA TRẮNG lúc đọc lên. Chú thích ngay trên hàm đó đã cảnh
 báo đúng tình huống này: "trường nào quên là trường đó bị xóa trắng khi
 đọc — và lỗi chỉ lộ ra ở test đọc lại sau khi ghi". Bài e2e bắt được vì nó
@@ -3834,10 +3834,10 @@ chỗ khác.
    fulfillment KHÔNG truyền `OpsConfig`, chỉ API mới truyền. Nếu hàm đã trả
    danh sách rỗng cho êm thay vì báo lỗi thì job này sẽ báo "0 gói kẹt" mãi
    mãi, và đó đúng là dạng hỏng nó sinh ra để bắt — hỏng ngay bên trong
-   chính nó. Đây là lý do `ErrChuaNoiCauHinh` tồn tại.
+   chính nó. Đây là lý do `ErrConfigNotWired` tồn tại.
 2. Một lần phá — thêm `Deliver()` vào vòng lặp — LỌT qua cả sáu bài test
    đang có. Quy tắc quan trọng nhất của tính năng lại là quy tắc không ai
-   kiểm. Đã bổ sung `TestDoiSoatKhongDuocTuDanhDauDaGiao`, đọc thẳng
+   kiểm. Đã bổ sung `TestReconciliationMustNotMarkDeliveredByItself`, đọc thẳng
    `status` và `delivered_at` từ database.
 
 Chạy trên dữ liệu thật: **20 gói mất tin** (24 gói HANDED_OVER trừ 4 gói
@@ -4371,7 +4371,7 @@ ngay ca thứ hai — câu `UPDATE` không ghi cột này, và không đường 
 nó. Nó được trả cho KHÁCH ở trang theo dõi đơn dưới tên `estimated_arrival`,
 nên khách luôn thấy trống.
 
-Giá trị đúng có sẵn: `bieuPhi` đã mang `SoNgayDuKien` (chuẩn 3 ngày, nhanh
+Giá trị đúng có sẵn: `feeSchedule` đã mang `EstimatedDays` (chuẩn 3 ngày, nhanh
 1 ngày) — chính con số đã báo cho khách lúc thanh toán. Nay tính TẠI lúc
 bàn giao, vì đồng hồ của hãng bắt đầu chạy khi họ nhận hàng; thời gian nhà
 bán chuẩn bị là phần của người khác.
@@ -4390,11 +4390,11 @@ trường. Hai thiết kế làm nó không tự mắc lại chính lỗi nó ca
 1. **Reflect bắt buộc mọi trường khác rỗng.** Thêm một trường mà quên điền
    thì bài DỪNG kèm tên trường — vì lưu 0 rồi đọc lại 0 luôn khớp, kể cả
    khi cột bị bỏ quên hoàn toàn.
-2. **Danh sách `rongLucTao` liệt kê trường được phép rỗng lúc TẠO**, không
+2. **Danh sách `emptyAtCreate` liệt kê trường được phép rỗng lúc TẠO**, không
    liệt kê trường phải khứ hồi. Mặc định của một trường mới là "phải khứ
    hồi được" — quên xử lý thì test ĐỎ, không phải xanh.
 
-Ba lần cùng lớp lỗi trước đó: `withLineIDs` quên `ChoThanhToan`, `withLines`
+Ba lần cùng lớp lỗi trước đó: `withLineIDs` quên `AwaitingPayment`, `withLines`
 quên `BenChiuGiamGia`, và lần này. Hai lần đầu chữa bằng cách sao chép
 struct thay vì liệt kê trường; lần này không chữa được như thế vì SQL buộc
 phải liệt kê — nên chữa bằng hàng rào.
@@ -5936,7 +5936,7 @@ Bản trước chỉ nói ra loại thứ nhất. Loại thứ hai biến mất 
 đúng thứ hộp đen mà endpoint sinh ra để tránh, chỉ khác là ở phía người
 viết API.
 
-`ChiSoChuaDo` nay nhận số liệu và ngưỡng, rồi thêm các chỉ số thiếu mẫu
+`UnmeasuredMetrics` nay nhận số liệu và ngưỡng, rồi thêm các chỉ số thiếu mẫu
 kèm **con số cụ thể**: "cần ít nhất 10 đơn ĐÃ BÀN GIAO trong kỳ, hiện có
 0". Biết còn thiếu bao nhiêu thì mới làm gì được.
 
@@ -5946,9 +5946,9 @@ Hai danh sách dùng hai điều kiện phải là **phủ định của nhau**.
 thì hoặc mâu thuẫn (một chỉ số nằm ở cả hai), hoặc tệ hơn: nó biến mất
 khỏi CẢ HAI.
 
-`TestKhongChiSoNaoVuaDoVuaChuaDo` quét năm tổ hợp số liệu quanh ngưỡng.
-Phá thử: đổi điều kiện của `on_time_shipping_rate` từ `DonDaGiao` sang
-`TongDon` → đỏ ngay tại `{TongDon:10, DonDaGiao:9}` với câu *"biến mất khỏi
+`TestNoMetricIsBothMeasuredAndUnmeasured` quét năm tổ hợp số liệu quanh ngưỡng.
+Phá thử: đổi điều kiện của `on_time_shipping_rate` từ `DeliveredOrders` sang
+`TotalOrders` → đỏ ngay tại `{TotalOrders:10, DeliveredOrders:9}` với câu *"biến mất khỏi
 CẢ HAI danh sách"*. Đó đúng là tổ hợp mà mắt người bỏ qua.
 
 #### Ba quyết định của màn hình
@@ -7389,7 +7389,7 @@ những cặp sai hẳn:
 ```text
 BrandRef  ↔ thuongHieuChoBanJSON   khớp 4 trường, hai thứ khác nhau
 Cart      ↔ checkoutJSON           khớp 5, giỏ hàng ≠ phiên thanh toán
-Shipment  ↔ sellerFOJSON           khớp 6, lô hàng ≠ đơn thực hiện
+Shipment  ↔ sellerFulfillmentJSON           khớp 6, lô hàng ≠ đơn thực hiện
 ```
 
 Một cặp đúng tên vẫn có thể sai theo chiều khác: `OrderSummary` được phục

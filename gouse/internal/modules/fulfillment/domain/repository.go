@@ -36,7 +36,7 @@ type Repository interface {
 	//
 	// Dành cho webhook của hãng vận chuyển: họ được xác thực bằng chữ ký
 	// và không biết gian hàng nào cả.
-	FindByTracking(ctx context.Context, nhaVanChuyen, maVanDon string) (*FulfillmentOrder, error)
+	FindByTracking(ctx context.Context, carrier, trackingNumber string) (*FulfillmentOrder, error)
 
 	// ListBySeller trả danh sách việc cần xử lý của một seller.
 	//
@@ -45,7 +45,7 @@ type Repository interface {
 		ctx context.Context, sellerID ids.ID, statuses []FOStatus, limit, offset int,
 	) ([]*FulfillmentOrder, error)
 
-	// DemHieuSuat đếm số liệu hiệu suất của MỘT nhà bán trong một kỳ.
+	// CountForPerformance đếm số liệu hiệu suất của MỘT nhà bán trong một kỳ.
 	//
 	// Trả về số ĐẾM THÔ, không phải tỷ lệ: việc xếp hạng theo ngưỡng nằm ở
 	// domain, nơi kiểm được mà không cần database — và đó là chỗ dễ sai
@@ -54,9 +54,9 @@ type Repository interface {
 	// `sla` là thời hạn bàn giao, truyền vào chứ không cố định trong SQL:
 	// cùng một câu truy vấn phải trả lời được cho bất kỳ ngưỡng nào, nếu
 	// không thì đổi SLA sẽ phải sửa cả câu lệnh.
-	DemHieuSuat(
+	CountForPerformance(
 		ctx context.Context, sellerID ids.ID, tu, den time.Time, sla time.Duration,
-	) (SoLieuHieuSuat, error)
+	) (PerformanceStats, error)
 
 	// ListByOrder trả mọi đơn thực hiện của một đơn hàng.
 	//
@@ -70,7 +70,7 @@ type Repository interface {
 	// danh sách này là tiền của seller đang bị giữ lại chờ hết hạn đổi trả.
 	ListDeliveredBefore(ctx context.Context, before time.Time, limit int) ([]*FulfillmentOrder, error)
 
-	// ListDangGiaoTruoc lấy gói hàng ĐANG TRÊN ĐƯỜNG mà bàn giao trước
+	// ListInTransitBefore lấy gói hàng ĐANG TRÊN ĐƯỜNG mà bàn giao trước
 	// một mốc thời gian.
 	//
 	// Đầu vào của phép đối chiếu giao hàng (yêu cầu 5 của
@@ -82,7 +82,7 @@ type Repository interface {
 	//
 	// Sắp xếp theo `shipped_at` tăng dần: gói im lặng lâu nhất được xem
 	// trước, vì đó là gói khả năng mất tin cao nhất.
-	ListDangGiaoTruoc(ctx context.Context, before time.Time, limit int) ([]*FulfillmentOrder, error)
+	ListInTransitBefore(ctx context.Context, before time.Time, limit int) ([]*FulfillmentOrder, error)
 
 	// ExistsForOrder cho biết đơn hàng này đã được tách chưa.
 	//
