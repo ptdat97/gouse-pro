@@ -96,7 +96,7 @@ func newEvent(t *testing.T, eventType string) eventbus.Event {
 // Đây là nửa quan trọng nhất của Transactional Outbox. Không có nó, hệ
 // thống sẽ xử lý những sự thật chưa từng xảy ra: gửi email xác nhận cho
 // đơn hàng mà giao dịch đã rollback.
-func TestGiaoDichThatBaiThiEventKhongDuocPhat(t *testing.T) {
+func TestAFailedTransactionEmitsNoEvent(t *testing.T) {
 	bus, pool := newBus(t)
 	ctx := context.Background()
 
@@ -129,7 +129,7 @@ func TestGiaoDichThatBaiThiEventKhongDuocPhat(t *testing.T) {
 }
 
 // GIAO DỊCH THÀNH CÔNG thì event CHẮC CHẮN được phát.
-func TestGiaoDichThanhCongThiEventDuocPhat(t *testing.T) {
+func TestASuccessfulTransactionEmitsTheEvent(t *testing.T) {
 	bus, pool := newBus(t)
 	ctx := context.Background()
 
@@ -164,7 +164,7 @@ func TestGiaoDichThanhCongThiEventDuocPhat(t *testing.T) {
 //
 // Mô hình at-least-once nghĩa là event SẼ được phát nhiều lần. Bảng
 // event_processed là thứ đảm bảo bên nhận chỉ chạy một lần.
-func TestPhatLaiKhongXuLyHaiLan(t *testing.T) {
+func TestARedeliveryIsNotHandledTwice(t *testing.T) {
 	bus, pool := newBus(t)
 	ctx := context.Background()
 
@@ -208,7 +208,7 @@ func TestPhatLaiKhongXuLyHaiLan(t *testing.T) {
 //
 // notification đã xử lý không có nghĩa payment cũng đã xử lý — khóa
 // idempotency phải là cặp (event_id, handler), không phải chỉ event_id.
-func TestNhieuBenNhanXuLyDocLap(t *testing.T) {
+func TestManyHandlersWorkIndependently(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
@@ -230,7 +230,7 @@ func TestNhieuBenNhanXuLyDocLap(t *testing.T) {
 }
 
 // BÊN NHẬN LỖI thì event được THỬ LẠI, không mất.
-func TestBenNhanLoiThiThuLai(t *testing.T) {
+func TestAFailingHandlerIsRetried(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
@@ -263,7 +263,7 @@ func TestBenNhanLoiThiThuLai(t *testing.T) {
 //
 // Một event hỏng thử lại mãi sẽ chặn hàng đợi và làm mọi event sau nó
 // không bao giờ được phát.
-func TestLoiVinhVienThiChuyenDeadLetter(t *testing.T) {
+func TestAPermanentErrorGoesToTheDeadLetter(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
@@ -308,7 +308,7 @@ func TestLoiVinhVienThiChuyenDeadLetter(t *testing.T) {
 //
 // Bên phát không biết và không cần biết có ai nghe hay không. Event không
 // có bên nhận phải được đánh dấu đã phát, nếu không nó kẹt lại chặn hàng đợi.
-func TestKhongAiNgheVanDanhDauDaPhat(t *testing.T) {
+func TestWithNoListenersItIsStillMarkedPublished(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
@@ -332,7 +332,7 @@ func TestKhongAiNgheVanDanhDauDaPhat(t *testing.T) {
 }
 
 // THỨ TỰ PHÁT theo thứ tự GHI.
-func TestPhatTheoThuTuGhi(t *testing.T) {
+func TestEventsArePublishedInWriteOrder(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
@@ -363,7 +363,7 @@ func TestPhatTheoThuTuGhi(t *testing.T) {
 }
 
 // CHỈ SỐ GIÁM SÁT phản ánh đúng trạng thái.
-func TestChiSoGiamSat(t *testing.T) {
+func TestMonitoringMetrics(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
@@ -395,7 +395,7 @@ func TestChiSoGiamSat(t *testing.T) {
 	}
 }
 
-// TestCorrelationLayTuNguCanhKhiBenPhatKhongDat — PH-22.
+// TestCorrelationComesFromContextWhenThePublisherSetsNone — PH-22.
 //
 // # Vì sao mặc định ở outbox chứ không bắt mỗi bên phát tự nhớ
 //
@@ -406,7 +406,7 @@ func TestChiSoGiamSat(t *testing.T) {
 // Một trường truy vết chỉ có giá trị khi nó CÓ MẶT ở mọi mắt xích. Thiếu
 // một mắt là chuỗi đứt, và chuỗi đứt thì không lần được gì — kể cả những
 // mắt còn nguyên.
-func TestCorrelationLayTuNguCanhKhiBenPhatKhongDat(t *testing.T) {
+func TestCorrelationComesFromContextWhenThePublisherSetsNone(t *testing.T) {
 	_, pool := newBus(t)
 	outbox := eventbus.NewOutbox(pool)
 
@@ -441,12 +441,12 @@ func TestCorrelationLayTuNguCanhKhiBenPhatKhongDat(t *testing.T) {
 	}
 }
 
-// TestBenPhatTuDatThiGiuNguyen: giá trị bên phát đặt có Ý NGHĨA NGHIỆP VỤ
+// TestAPublisherSuppliedCorrelationIsKept: giá trị bên phát đặt có Ý NGHĨA NGHIỆP VỤ
 // (thường là mã đơn), nên nó phải thắng mã request.
 //
 // Mã đơn nối được cả những việc xảy ra nhiều ngày sau — lúc request HTTP
 // ban đầu đã kết thúc từ lâu.
-func TestBenPhatTuDatThiGiuNguyen(t *testing.T) {
+func TestAPublisherSuppliedCorrelationIsKept(t *testing.T) {
 	_, pool := newBus(t)
 	outbox := eventbus.NewOutbox(pool)
 
@@ -478,13 +478,13 @@ func TestBenPhatTuDatThiGiuNguyen(t *testing.T) {
 
 // ---------------------------------------------------- Phiên bản (ADR-0016)
 
-// benNhanCu là bên nhận CHỈ hiểu tới một phiên bản nhất định.
-type benNhanCu struct {
+// oldHandler là bên nhận CHỈ hiểu tới một phiên bản nhất định.
+type oldHandler struct {
 	recordingHandler
 	maxVersion int
 }
 
-func (h *benNhanCu) MaxEventVersion(string) int { return h.maxVersion }
+func (h *oldHandler) MaxEventVersion(string) int { return h.maxVersion }
 
 // newEventVersion dựng event ở một phiên bản cụ thể.
 func newEventVersion(t *testing.T, eventType string, version int) eventbus.Event {
@@ -494,7 +494,7 @@ func newEventVersion(t *testing.T, eventType string, version int) eventbus.Event
 	return e
 }
 
-// TestBenNhanCuKhongNuotEventMoiHon tái hiện sự cố 19/08 và khóa nó lại.
+// TestAnOldHandlerDoesNotSwallowANewerEvent tái hiện sự cố 19/08 và khóa nó lại.
 //
 // # Sự cố
 //
@@ -509,11 +509,11 @@ func newEventVersion(t *testing.T, eventType string, version int) eventbus.Event
 // Trả lỗi thì `attempts` chạm 5 trong vài giây và event chết vĩnh viễn —
 // biến sự cố tạm thời thành mất dữ liệu. Nên event phải NẰM LẠI hàng đợi,
 // KHÔNG tiêu tốn lượt thử.
-func TestBenNhanCuKhongNuotEventMoiHon(t *testing.T) {
+func TestAnOldHandlerDoesNotSwallowANewerEvent(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
-	h := &benNhanCu{
+	h := &oldHandler{
 		recordingHandler: recordingHandler{
 			name: "test.ben_nhan_cu", types: []string{"checkout.completed"},
 		},
@@ -553,15 +553,15 @@ func TestBenNhanCuKhongNuotEventMoiHon(t *testing.T) {
 	}
 }
 
-// TestEventHoanTuChayTiepKhiBenNhanDuocNangCap là nửa còn lại của quy tắc.
+// TestADeferredEventResumesOnceTheHandlerIsUpgraded là nửa còn lại của quy tắc.
 //
 // Hoãn chỉ đúng nếu nó THẬT SỰ tạm thời. Nếu event không tự chảy tiếp sau
 // khi bên nhận được nâng cấp thì "hoãn" chỉ là một cách chết chậm hơn.
-func TestEventHoanTuChayTiepKhiBenNhanDuocNangCap(t *testing.T) {
+func TestADeferredEventResumesOnceTheHandlerIsUpgraded(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 
-	h := &benNhanCu{
+	h := &oldHandler{
 		recordingHandler: recordingHandler{
 			name: "test.ben_nhan", types: []string{"checkout.completed"},
 		},
@@ -597,13 +597,13 @@ func TestEventHoanTuChayTiepKhiBenNhanDuocNangCap(t *testing.T) {
 	}
 }
 
-// TestHandlerKhongKhaiBaoThiHieuV1 khóa GIÁ TRỊ MẶC ĐỊNH.
+// TestAHandlerThatDeclaresNothingMeansV1 khóa GIÁ TRỊ MẶC ĐỊNH.
 //
 // Mặc định phải là "hiểu tới v1", không phải "hiểu mọi phiên bản". Mặc
 // định ngược lại dựng lại đúng sự cố 19/08: bên nhận chưa khai báo gì vui
 // vẻ nuốt event mới. Hôm nay mọi event đều v1 nên mặc định này không bắt
 // ai phải sửa gì.
-func TestHandlerKhongKhaiBaoThiHieuV1(t *testing.T) {
+func TestAHandlerThatDeclaresNothingMeansV1(t *testing.T) {
 	bus, _ := newBus(t)
 	ctx := context.Background()
 

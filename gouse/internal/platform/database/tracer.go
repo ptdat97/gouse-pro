@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	tenThoiGianTruyVan = "gouse_db_query_duration_seconds"
-	tenTruyVanLoi      = "gouse_db_query_errors_total"
+	queryTimeMetric = "gouse_db_query_duration_seconds"
+	queryErrMetric  = "gouse_db_query_errors_total"
 )
 
 // ThaoTac là tập ĐÓNG các loại câu lệnh dùng làm nhãn.
@@ -37,17 +37,17 @@ const (
 // hẳn, và trả lời ở đúng chỗ — trong database, nơi có sẵn kế hoạch thực
 // thi. Cố nhét việc đó vào Prometheus là dùng sai công cụ.
 const (
-	ThaoTacSelect = "select"
-	ThaoTacInsert = "insert"
-	ThaoTacUpdate = "update"
-	ThaoTacDelete = "delete"
-	ThaoTacKhac   = "khac"
+	OpSelect = "select"
+	OpInsert = "insert"
+	OpUpdate = "update"
+	OpDelete = "delete"
+	OpOther  = "khac"
 )
 
 // QueryTracer đo thời gian và đếm lỗi của mọi câu lệnh đi qua pool.
 type QueryTracer struct {
-	thoiGian *prometheus.HistogramVec
-	loi      *prometheus.CounterVec
+	elapsed    *prometheus.HistogramVec
+	errCounter *prometheus.CounterVec
 }
 
 var (
@@ -55,24 +55,24 @@ var (
 	_ prometheus.Collector = (*QueryTracer)(nil)
 )
 
-// khoaBatDau là kiểu khóa riêng để nhét mốc thời gian vào context.
+// startKey là kiểu khóa riêng để nhét mốc thời gian vào context.
 //
 // Kiểu RIÊNG chứ không phải string: khóa kiểu string có thể trùng với khóa
 // của gói khác và một bên sẽ lặng lẽ ghi đè giá trị của bên kia.
-type khoaBatDau struct{}
+type startKey struct{}
 
 // NewQueryTracer tạo bộ đo cho một pool.
-func NewQueryTracer(nhan string) *QueryTracer {
-	if nhan == "" {
-		nhan = "chinh"
+func NewQueryTracer(labels string) *QueryTracer {
+	if labels == "" {
+		labels = "chinh"
 	}
-	nhanCoDinh := prometheus.Labels{"pool": nhan}
+	fixedLabels := prometheus.Labels{"pool": labels}
 
 	return &QueryTracer{
-		thoiGian: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:        tenThoiGianTruyVan,
+		elapsed: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:        queryTimeMetric,
 			Help:        "Thời gian thực thi câu lệnh database, theo loại thao tác.",
-			ConstLabels: nhanCoDinh,
+			ConstLabels: fixedLabels,
 
 			// Thang đo trải từ 1ms tới ~4s.
 			//
@@ -89,34 +89,34 @@ func NewQueryTracer(nhan string) *QueryTracer {
 			},
 		}, []string{"operation"}),
 
-		loi: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name:        tenTruyVanLoi,
+		errCounter: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name:        queryErrMetric,
 			Help:        "Số câu lệnh database trả lỗi, theo loại thao tác.",
-			ConstLabels: nhanCoDinh,
+			ConstLabels: fixedLabels,
 		}, []string{"operation"}),
 	}
 }
 
 func (t *QueryTracer) Describe(ch chan<- *prometheus.Desc) {
-	t.thoiGian.Describe(ch)
-	t.loi.Describe(ch)
+	t.elapsed.Describe(ch)
+	t.errCounter.Describe(ch)
 }
 
 func (t *QueryTracer) Collect(ch chan<- prometheus.Metric) {
-	t.thoiGian.Collect(ch)
-	t.loi.Collect(ch)
+	t.elapsed.Collect(ch)
+	t.errCounter.Collect(ch)
 }
 
 func (t *QueryTracer) TraceQueryStart(
 	ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData,
 ) context.Context {
-	return context.WithValue(ctx, khoaBatDau{}, time.Now())
+	return context.WithValue(ctx, startKey{}, time.Now())
 }
 
 func (t *QueryTracer) TraceQueryEnd(
 	ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData,
 ) {
-	batDau, ok := ctx.Value(khoaBatDau{}).(time.Time)
+	start, ok := ctx.Value(startKey{}).(time.Time)
 	if !ok {
 		// Không có mốc bắt đầu thì KHÔNG đoán bừa một con số.
 		//
@@ -125,8 +125,8 @@ func (t *QueryTracer) TraceQueryEnd(
 		return
 	}
 
-	thaoTac := suyRaThaoTac(data.CommandTag)
-	t.thoiGian.WithLabelValues(thaoTac).Observe(time.Since(batDau).Seconds())
+	op := opFromTag(data.CommandTag)
+	t.elapsed.WithLabelValues(op).Observe(time.Since(start).Seconds())
 
 	// KHÔNG cần lọc `pgx.ErrNoRows` ở đây, và việc đó đã được kiểm chứng
 	// bằng thực nghiệm chứ không phải suy đoán: pgx báo kết thúc truy vấn
@@ -141,11 +141,11 @@ func (t *QueryTracer) TraceQueryEnd(
 	// Nó là MÃ CHẾT — gỡ đi thì không bài test nào đổi kết quả — nên bỏ,
 	// thay bằng ghi chú này. Giữ lại sẽ ngụ ý một mối nguy không có thật.
 	if data.Err != nil {
-		t.loi.WithLabelValues(thaoTac).Inc()
+		t.errCounter.WithLabelValues(op).Inc()
 	}
 }
 
-// suyRaThaoTac lấy loại thao tác từ CommandTag mà PostgreSQL trả về.
+// opFromTag lấy loại thao tác từ CommandTag mà PostgreSQL trả về.
 //
 // Dùng CommandTag chứ không phân tích chuỗi SQL: đó là điều PostgreSQL nói
 // về câu lệnh nó VỪA CHẠY, nên nó đúng kể cả khi câu lệnh có chú thích ở
@@ -154,21 +154,21 @@ func (t *QueryTracer) TraceQueryEnd(
 //
 // Câu lệnh lỗi thì CommandTag rỗng và ta trả `khac`; điều đó chấp nhận
 // được vì lỗi đã được đếm riêng.
-func suyRaThaoTac(tag pgconn.CommandTag) string {
+func opFromTag(tag pgconn.CommandTag) string {
 	s := tag.String()
 	if i := strings.IndexByte(s, ' '); i > 0 {
 		s = s[:i]
 	}
 	switch strings.ToUpper(s) {
 	case "SELECT":
-		return ThaoTacSelect
+		return OpSelect
 	case "INSERT":
-		return ThaoTacInsert
+		return OpInsert
 	case "UPDATE":
-		return ThaoTacUpdate
+		return OpUpdate
 	case "DELETE":
-		return ThaoTacDelete
+		return OpDelete
 	default:
-		return ThaoTacKhac
+		return OpOther
 	}
 }

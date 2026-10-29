@@ -154,8 +154,8 @@ func (h *CustomerHandler) checkAccess(r *http.Request, key string) (string, erro
 	}
 	if !allowed {
 		// Chủ đơn vừa hết hạn token KHÔNG phải người lạ — xem
-		// `httpserver.LoiTokenHetHan`.
-		if err := httpserver.LoiTokenHetHan(r.Context()); err != nil {
+		// `httpserver.ExpiredTokenError`.
+		if err := httpserver.ExpiredTokenError(r.Context()); err != nil {
 			return "", err
 		}
 

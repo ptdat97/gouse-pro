@@ -233,39 +233,39 @@ var EventVersionSkew = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Help: "Số lần event bị hoãn vì bên nhận chưa hiểu phiên bản của nó.",
 }, []string{"handler", "event_type"})
 
-// PaymentLechDoiSoat là số đơn ĐÃ THU TIỀN mà trạng thái đơn chưa theo kịp.
+// PaymentReconcileDrift là số đơn ĐÃ THU TIỀN mà trạng thái đơn chưa theo kịp.
 //
 // KHÁC 0 là sự cố: tiền đã vào tài khoản mà khách vẫn thấy đơn chờ thanh
 // toán. Không có ca hợp lệ nào cho tình trạng này, nên chỉ số này KHÔNG
 // bao giờ kêu oan.
-var PaymentLechDoiSoat = prometheus.NewGauge(prometheus.GaugeOpts{
+var PaymentReconcileDrift = prometheus.NewGauge(prometheus.GaugeOpts{
 	Name: "gouse_payment_reconcile_mismatch",
 	Help: "Số đơn đã thu tiền mà trạng thái đơn chưa cập nhật.",
 })
 
-// PaymentIntentChoThuQuaHan là số ý định thanh toán chờ thu đã quá hạn.
+// PaymentIntentOverdue là số ý định thanh toán chờ thu đã quá hạn.
 //
 // KHÔNG dùng để cảnh báo, có chủ ý: phần lớn là khách bỏ giữa chừng —
 // chuyện bình thường và nhiều. Nó là chỉ số để THEO DÕI XU HƯỚNG; tăng vọt
 // nghĩa là webhook thanh toán thôi không tới nữa.
 //
 // Một cảnh báo luôn kêu thì không ai đọc, và khi đó nó còn tệ hơn không có.
-var PaymentIntentChoThuQuaHan = prometheus.NewGauge(prometheus.GaugeOpts{
+var PaymentIntentOverdue = prometheus.NewGauge(prometheus.GaugeOpts{
 	Name: "gouse_payment_intent_pending_stale",
 	Help: "Số ý định thanh toán còn chờ thu và đã quá hạn.",
 })
 
-// GiaoHangBatTin là số gói đã bàn giao mà lâu rồi không có tin.
+// DeliverySilence là số gói đã bàn giao mà lâu rồi không có tin.
 //
 // KHÁC 0 là đáng xem, nhưng KHÔNG phải sự cố chắc chắn như
-// `PaymentLechDoiSoat`: một gói đi tuyến xa vẫn có thể im lặng lâu một
+// `PaymentReconcileDrift`: một gói đi tuyến xa vẫn có thể im lặng lâu một
 // cách hợp lệ. Ngưỡng nằm ở `fulfillment.delivery_silence_hours` và chỉnh
 // được — chính vì phân định "bất thường" ở đây là việc của vận hành.
 //
 // Điều làm nó đáng theo dõi là hệ quả tiền: mỗi gói kẹt là một khoản phải
 // trả nhà bán bị giữ lại, vì số dư chỉ chuyển sang khả dụng khi đơn đi hết
 // DELIVERED → COMPLETED.
-var GiaoHangBatTin = prometheus.NewGauge(prometheus.GaugeOpts{
+var DeliverySilence = prometheus.NewGauge(prometheus.GaugeOpts{
 	Name: "gouse_fulfillment_delivery_silent",
 	Help: "Số gói đã bàn giao mà quá lâu không có cập nhật từ đơn vị vận chuyển.",
 })
@@ -280,8 +280,8 @@ func init() {
 		WorkerJobInterval,
 		WorkerJobDuration, WorkerJobFailures,
 		HandlerFailures, BusinessFailures, EventVersionSkew,
-		PaymentLechDoiSoat, PaymentIntentChoThuQuaHan,
-		GiaoHangBatTin,
+		PaymentReconcileDrift, PaymentIntentOverdue,
+		DeliverySilence,
 
 		// Chỉ số của chính tiến trình Go: số goroutine, bộ nhớ, GC.
 		//
@@ -317,8 +317,8 @@ func RecordFailure(stage, reason string) {
 	BusinessFailures.WithLabelValues(stage, safeReason(reason)).Inc()
 }
 
-// lyDoChoPhep là tập ĐÓNG các lý do được phép làm nhãn.
-var lyDoChoPhep = map[string]bool{
+// allowedReasons là tập ĐÓNG các lý do được phép làm nhãn.
+var allowedReasons = map[string]bool{
 	"out_of_stock":     true,
 	"empty_cart":       true,
 	"invalid_status":   true,
@@ -356,7 +356,7 @@ var lyDoChoPhep = map[string]bool{
 }
 
 func safeReason(reason string) string {
-	if lyDoChoPhep[reason] {
+	if allowedReasons[reason] {
 		return reason
 	}
 	return "other"

@@ -868,7 +868,7 @@ func RegisterRoutes(
 		productMux, sizeSuggestionFrom(m.recommendation), log)
 	{
 		chain := []httpserver.Middleware{
-			httpserver.ResolveShopperChiDoc(khachTu(m.customer)),
+			httpserver.ResolveShopperReadOnly(khachTu(m.customer)),
 		}
 		if identityModule != nil {
 			chain = append([]httpserver.Middleware{
@@ -948,7 +948,7 @@ func RegisterRoutes(
 		// một lần nên không tài khoản nào bị khóa — chỉ nhìn từ phía ĐƯỜNG
 		// MẠNG mới thấy bất thường.
 		//
-		// Vì sao chỉ đếm lượt thất bại: xem `httpserver.RateLimitThatBai`.
+		// Vì sao chỉ đếm lượt thất bại: xem `httpserver.RateLimitFailures`.
 		//
 		// REFRESH và LOGOUT không giới hạn: cả hai đòi một token đã cấp,
 		// nên chúng không trả lời được câu hỏi nào cho người chưa có gì
@@ -958,7 +958,7 @@ func RegisterRoutes(
 
 		mux.Handle("POST /api/v1/auth/login", httpserver.Chain(
 			authMux,
-			httpserver.RateLimitThatBai(loginLimit, loginWindow, laDangNhapHong),
+			httpserver.RateLimitFailures(loginLimit, loginWindow, laDangNhapHong),
 		))
 		mux.Handle("POST /api/v1/auth/refresh", authMux)
 		mux.Handle("POST /api/v1/auth/logout", authMux)

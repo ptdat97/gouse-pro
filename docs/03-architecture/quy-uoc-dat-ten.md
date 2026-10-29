@@ -209,6 +209,27 @@ Thước đo đúng không phải ĐỘ DÀI mà là: tên cũ có phải một 
 hợp lệ không. Danh sách phải loại tay: `ghi doc tra lai moc sau truoc den
 cho khong gia tien ky phan nhan dau bao cong dao don goc lech dong huy buoc`.
 
+### Sổ gác ghim tên định danh ở BA chỗ, không phải một
+
+Tới lượt `internal/platform` thì cả ba đã lộ ra:
+
+```text
+cmd/apicheck/enum_cap.go   "TrangThaiDoiSoat"    tên KIỂU, dạng chuỗi
+cmd/apicheck/dto_cap.go    "sellerFOJSON"        tên KIỂU, dạng chuỗi
+cmd/apicheck/header.go     "HeaderChoPhep"       tên BIẾN, đọc bằng AST
+```
+
+Cái thứ ba khác hai cái đầu: `apicheck` PHÂN TÍCH `cors.go` để đọc danh
+sách header, nên đổi tên biến làm nó không tìm thấy gì. Cả ba lần thông báo
+lỗi đều tự nói phải sửa đâu — hàng rào viết tốt thì không cần ai đoán.
+
+Phép rà trước khi đổi tên một định danh EXPORT của `platform`:
+
+```bash
+grep -rn '"<TenCu>"' cmd/           # ghim dạng chuỗi
+grep -rn 'Name != "<TenCu>"' cmd/   # ghim dạng AST
+```
+
 ### Phép ĐO danh sách loại trừ — dùng từ lượt `internal/kernel`
 
 Thay vì nhớ, đếm: tên cũ nào xuất hiện trong chú thích NGOÀI backtick nhiều
@@ -537,7 +558,8 @@ XONG   modules/payment                 216   (kernel) + 1 method của checkout
 XONG   modules/fulfillment             248   (kernel)
 XONG   modules/checkout                170   (kernel, GỐC) — HẾT 21 MODULE
 XONG   internal/kernel                  45   (ids, money, types)
-CÒN    internal/platform 217 · cmd 360 · internal/e2e 105 · internal/app 57
+XONG   internal/platform               222   (13 gói, hai lượt)
+CÒN    cmd 360 · internal/e2e 105 · internal/app 57
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

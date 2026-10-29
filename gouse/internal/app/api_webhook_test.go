@@ -30,7 +30,7 @@ func (a *apiTest) goiWebhook(t *testing.T, nhaCungCap string, than any, biMat st
 		"/api/v1/webhooks/shipping/"+nhaCungCap, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	if biMat != "" {
-		req.Header.Set("X-Signature", httpserver.KyHMAC(raw, biMat))
+		req.Header.Set("X-Signature", httpserver.SignHMAC(raw, biMat))
 	}
 
 	rec := httptest.NewRecorder()

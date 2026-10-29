@@ -10,8 +10,8 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
-// moPoolCoTracer mở pool có bật đo thời gian truy vấn.
-func moPoolCoTracer(t *testing.T) (*database.DB, *database.QueryTracer) {
+// openPoolWithTracer mở pool có bật đo thời gian truy vấn.
+func openPoolWithTracer(t *testing.T) (*database.DB, *database.QueryTracer) {
 	t.Helper()
 
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -30,8 +30,8 @@ func moPoolCoTracer(t *testing.T) (*database.DB, *database.QueryTracer) {
 	return db, tr
 }
 
-// demTheoThaoTac đọc số lần quan sát của histogram theo nhãn `operation`.
-func demTheoThaoTac(t *testing.T, c prometheus.Collector) map[string]uint64 {
+// countByOp đọc số lần quan sát của histogram theo nhãn `operation`.
+func countByOp(t *testing.T, c prometheus.Collector) map[string]uint64 {
 	t.Helper()
 
 	reg := prometheus.NewRegistry()
@@ -59,14 +59,14 @@ func demTheoThaoTac(t *testing.T, c prometheus.Collector) map[string]uint64 {
 	return ra
 }
 
-// TestTracerPhanLoaiTheoDongTu: đọc và ghi phải vào hai nhãn KHÁC nhau.
+// TestTracerClassifiesByVerb: đọc và ghi phải vào hai nhãn KHÁC nhau.
 //
 // Đây là toàn bộ giá trị vận hành của chỉ số này. Câu hỏi thật khi hệ
 // thống chậm là "đọc chậm hay ghi chậm": đọc chậm thường là thiếu chỉ mục,
 // ghi chậm thường là tranh chấp khóa — hai hướng điều tra khác hẳn nhau.
 // Gộp chung một nhãn thì con số không trả lời được câu nào.
-func TestTracerPhanLoaiTheoDongTu(t *testing.T) {
-	db, tr := moPoolCoTracer(t)
+func TestTracerClassifiesByVerb(t *testing.T) {
+	db, tr := openPoolWithTracer(t)
 	ctx := context.Background()
 
 	if _, err := db.Pool().Exec(ctx,
@@ -74,7 +74,7 @@ func TestTracerPhanLoaiTheoDongTu(t *testing.T) {
 		t.Fatalf("tạo bảng tạm: %v", err)
 	}
 
-	truoc := demTheoThaoTac(t, tr)
+	before := countByOp(t, tr)
 
 	if _, err := db.Pool().Exec(ctx,
 		`INSERT INTO thu_tracer (id) VALUES (1), (2)`); err != nil {
@@ -94,19 +94,19 @@ func TestTracerPhanLoaiTheoDongTu(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 
-	sau := demTheoThaoTac(t, tr)
-	for _, thaoTac := range []string{
-		database.ThaoTacSelect, database.ThaoTacInsert,
-		database.ThaoTacUpdate, database.ThaoTacDelete,
+	after := countByOp(t, tr)
+	for _, op := range []string{
+		database.OpSelect, database.OpInsert,
+		database.OpUpdate, database.OpDelete,
 	} {
-		if sau[thaoTac] <= truoc[thaoTac] {
+		if after[op] <= before[op] {
 			t.Errorf("thao tác %q không được đo (%d → %d) — có %v",
-				thaoTac, truoc[thaoTac], sau[thaoTac], sau)
+				op, before[op], after[op], after)
 		}
 	}
 }
 
-// TestTracerKhongNoNhan là hàng rào quan trọng nhất của tệp này.
+// TestTracerDoesNotBlowUpLabels là hàng rào quan trọng nhất của tệp này.
 //
 // Lấy câu SQL làm nhãn là cách phổ biến nhất khiến một hệ thống giám sát
 // tự giết chính nó, và nó xảy ra âm thầm: mọi thứ chạy tốt cho tới khi
@@ -114,8 +114,8 @@ func TestTracerPhanLoaiTheoDongTu(t *testing.T) {
 //
 // Bài này chạy 50 câu lệnh KHÁC NHAU về nội dung và đòi số chuỗi thời gian
 // vẫn nằm trong tập động từ đóng.
-func TestTracerKhongNoNhan(t *testing.T) {
-	db, tr := moPoolCoTracer(t)
+func TestTracerDoesNotBlowUpLabels(t *testing.T) {
+	db, tr := openPoolWithTracer(t)
 	ctx := context.Background()
 
 	for i := 0; i < 50; i++ {
@@ -127,25 +127,25 @@ func TestTracerKhongNoNhan(t *testing.T) {
 		}
 	}
 
-	chiSo := demTheoThaoTac(t, tr)
-	choPhep := map[string]bool{
-		database.ThaoTacSelect: true, database.ThaoTacInsert: true,
-		database.ThaoTacUpdate: true, database.ThaoTacDelete: true,
-		database.ThaoTacKhac: true,
+	metrics := countByOp(t, tr)
+	allowed := map[string]bool{
+		database.OpSelect: true, database.OpInsert: true,
+		database.OpUpdate: true, database.OpDelete: true,
+		database.OpOther: true,
 	}
-	for nhan := range chiSo {
-		if !choPhep[nhan] {
+	for labels := range metrics {
+		if !allowed[labels] {
 			t.Errorf("nhãn operation=%q nằm ngoài tập đóng — "+
-				"số chuỗi thời gian sẽ tăng theo số câu SQL", nhan)
+				"số chuỗi thời gian sẽ tăng theo số câu SQL", labels)
 		}
 	}
-	if len(chiSo) > len(choPhep) {
+	if len(metrics) > len(allowed) {
 		t.Errorf("có %d nhãn khác nhau sau 50 câu lệnh, tối đa %d: %v",
-			len(chiSo), len(choPhep), chiSo)
+			len(metrics), len(allowed), metrics)
 	}
 }
 
-// TestTracerKhongDemKhongTimThayLaLoi.
+// TestTracerDoesNotCountNoRowsAsAnError.
 //
 // "Không tìm thấy" là câu trả lời HỢP LỆ và xảy ra liên tục ở đường tra
 // cứu. Nếu nó bị đếm là lỗi thì chỉ số lỗi luôn khác 0, và một chỉ số luôn
@@ -159,11 +159,11 @@ func TestTracerKhongNoNhan(t *testing.T) {
 //
 // Bài này vì thế ghim một tính chất của HỆ THỐNG, không phải một nhánh
 // điều kiện trong mã của ta — nó vẫn đỏ nếu pgx đổi hành vi ở bản sau.
-func TestTracerKhongDemKhongTimThayLaLoi(t *testing.T) {
-	db, tr := moPoolCoTracer(t)
+func TestTracerDoesNotCountNoRowsAsAnError(t *testing.T) {
+	db, tr := openPoolWithTracer(t)
 	ctx := context.Background()
 
-	truoc := demLoi(t, tr)
+	before := countErr(t, tr)
 
 	var x int
 	err := db.Pool().QueryRow(ctx, `SELECT 1 WHERE false`).Scan(&x)
@@ -171,30 +171,30 @@ func TestTracerKhongDemKhongTimThayLaLoi(t *testing.T) {
 		t.Fatal("truy vấn không trả ErrNoRows như mong đợi")
 	}
 
-	if sau := demLoi(t, tr); sau != truoc {
+	if after := countErr(t, tr); after != before {
 		t.Errorf("truy vấn không có dòng nào bị đếm là lỗi (%v → %v) — "+
 			"chỉ số lỗi sẽ luôn khác 0 và vì thế vô dụng cho cảnh báo",
-			truoc, sau)
+			before, after)
 	}
 }
 
-// TestTracerDemLoiThat: lỗi cú pháp thì PHẢI được đếm.
-func TestTracerDemLoiThat(t *testing.T) {
-	db, tr := moPoolCoTracer(t)
+// TestTracerCountsRealErrors: lỗi cú pháp thì PHẢI được đếm.
+func TestTracerCountsRealErrors(t *testing.T) {
+	db, tr := openPoolWithTracer(t)
 	ctx := context.Background()
 
-	truoc := demLoi(t, tr)
+	before := countErr(t, tr)
 
 	if _, err := db.Pool().Exec(ctx, `SELECT * FROM bang_khong_ton_tai_zz`); err == nil {
 		t.Fatal("truy vấn vào bảng không tồn tại lại thành công")
 	}
 
-	if sau := demLoi(t, tr); sau <= truoc {
-		t.Errorf("lỗi truy vấn không được đếm (%v → %v)", truoc, sau)
+	if after := countErr(t, tr); after <= before {
+		t.Errorf("lỗi truy vấn không được đếm (%v → %v)", before, after)
 	}
 }
 
-func demLoi(t *testing.T, c prometheus.Collector) float64 {
+func countErr(t *testing.T, c prometheus.Collector) float64 {
 	t.Helper()
 
 	reg := prometheus.NewRegistry()

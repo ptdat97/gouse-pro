@@ -139,7 +139,7 @@ func ResolveShopper(resolver CustomerResolver) Middleware {
 	}
 }
 
-// ResolveShopperChiDoc giống ResolveShopper nhưng KHÔNG cấp phiên vãng lai.
+// ResolveShopperReadOnly giống ResolveShopper nhưng KHÔNG cấp phiên vãng lai.
 //
 // # Dùng ở đâu
 //
@@ -157,7 +157,7 @@ func ResolveShopper(resolver CustomerResolver) Middleware {
 //
 // Cookie ĐÃ CÓ thì vẫn đọc: khách vãng lai đang có giỏ phải giữ nguyên
 // danh tính khi họ quay lại xem hàng.
-func ResolveShopperChiDoc(resolver CustomerResolver) Middleware {
+func ResolveShopperReadOnly(resolver CustomerResolver) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			s := Shopper{VisitID: visitID(r)}

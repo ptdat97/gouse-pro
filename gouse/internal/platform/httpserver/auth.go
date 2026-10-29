@@ -212,7 +212,7 @@ func TokenRejected(ctx context.Context) bool {
 	return v
 }
 
-// LoiTokenHetHan trả lỗi 401 KHI VÀ CHỈ KHI request này mang một token
+// ExpiredTokenError trả lỗi 401 KHI VÀ CHỈ KHI request này mang một token
 // mà OptionalAuth đã bỏ qua; ngoài ra trả nil.
 //
 // Dùng ở chỗ handler sắp từ chối vì người gọi "không phải chủ". Với chủ
@@ -220,7 +220,7 @@ func TokenRejected(ctx context.Context) bool {
 // CỤT: client không thử lại sau 403 lẫn 404, nên người dùng kẹt lại dù
 // refresh token còn hạn.
 //
-//	if err := httpserver.LoiTokenHetHan(r.Context()); err != nil {
+//	if err := httpserver.ExpiredTokenError(r.Context()); err != nil {
 //	    h.fail(w, r, err)
 //	    return
 //	}
@@ -228,7 +228,7 @@ func TokenRejected(ctx context.Context) bool {
 // KHÔNG lộ thêm gì: người gọi mang token hỏng nhận 401 cho MỌI mã đơn,
 // có thật hay không, nên phép dò tuần tự vẫn không đếm được gì — đúng
 // tính chất mà các câu 404 ở đó tồn tại để giữ.
-func LoiTokenHetHan(ctx context.Context) error {
+func ExpiredTokenError(ctx context.Context) error {
 	if !TokenRejected(ctx) {
 		return nil
 	}

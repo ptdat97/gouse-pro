@@ -276,14 +276,14 @@ func Load() (*Config, error) {
 	}
 
 	biMatWebhook := map[string]string{}
-	for _, cap := range strings.Split(os.Getenv("WEBHOOK_SECRETS"), ",") {
-		ten, khoa, co := strings.Cut(strings.TrimSpace(cap), ":")
+	for _, level := range strings.Split(os.Getenv("WEBHOOK_SECRETS"), ",") {
+		ten, key, co := strings.Cut(strings.TrimSpace(level), ":")
 		ten = strings.ToLower(strings.TrimSpace(ten))
-		khoa = strings.TrimSpace(khoa)
-		if !co || ten == "" || khoa == "" {
+		key = strings.TrimSpace(key)
+		if !co || ten == "" || key == "" {
 			continue
 		}
-		biMatWebhook[ten] = khoa
+		biMatWebhook[ten] = key
 	}
 
 	encKey := os.Getenv("ENCRYPTION_KEY")
@@ -373,17 +373,17 @@ func defaultLogFormat(env Environment) string {
 	return "json"
 }
 
-func getEnvDefault(key, def string) string {
+func getEnvDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return def
+	return fallback
 }
 
-func getIntDefault(key string, def int) (int, error) {
+func getIntDefault(key string, fallback int) (int, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		return def, nil
+		return fallback, nil
 	}
 	n, err := strconv.Atoi(v)
 	if err != nil {
@@ -392,10 +392,10 @@ func getIntDefault(key string, def int) (int, error) {
 	return n, nil
 }
 
-func getInt64Default(key string, def int64) (int64, error) {
+func getInt64Default(key string, fallback int64) (int64, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		return def, nil
+		return fallback, nil
 	}
 	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil {
@@ -404,10 +404,10 @@ func getInt64Default(key string, def int64) (int64, error) {
 	return n, nil
 }
 
-func getDurationDefault(key string, def time.Duration) (time.Duration, error) {
+func getDurationDefault(key string, fallback time.Duration) (time.Duration, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		return def, nil
+		return fallback, nil
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {

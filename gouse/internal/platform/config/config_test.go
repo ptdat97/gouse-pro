@@ -10,7 +10,7 @@ import (
 
 func TestLoadDefaults(t *testing.T) {
 	// Kho mặc định là `postgres` nên phải khai database ở đâu — xem
-	// TestMacDinhLaPostgres ngay dưới.
+	// TestTheDefaultIsPostgres ngay dưới.
 	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 
 	cfg, err := config.Load()
@@ -166,7 +166,7 @@ func TestSecureCookieOffOnlyInDevelopment(t *testing.T) {
 //
 // Bài này khóa lựa chọn ấy lại. Đổi mặc định về `memory` cho "tiện" sẽ
 // làm nó đỏ, và người đổi phải đọc đoạn trên trước khi quyết.
-func TestMacDinhLaPostgres(t *testing.T) {
+func TestTheDefaultIsPostgres(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 
@@ -184,7 +184,7 @@ func TestMacDinhLaPostgres(t *testing.T) {
 //
 // Trước 24/09/2026 nó im lặng rơi về kho in-memory. Thà không khởi động
 // còn hơn khởi động thành một hệ thống KHÁC.
-func TestThieuDatabaseURLLaLoiKhoiDong(t *testing.T) {
+func TestAMissingDatabaseURLIsAStartupError(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("DATABASE_URL", "")
 
@@ -208,7 +208,7 @@ func TestThieuDatabaseURLLaLoiKhoiDong(t *testing.T) {
 //
 // Đó là điểm của thay đổi: không cấm, chỉ bắt nói thành lời, để kết quả
 // lạ có một chỗ rõ ràng để nghi ngờ.
-func TestKhaiMemoryThiKhongCanDatabaseURL(t *testing.T) {
+func TestDeclaringMemoryNeedsNoDatabaseURL(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("MODULES_STORAGE", "memory")
@@ -294,7 +294,7 @@ func TestEnvironmentHelpers(t *testing.T) {
 // Admin ở cổng 3000, cửa hàng ở 3001. Thiếu một cái thì trình duyệt chặn
 // mọi lời gọi của ứng dụng đó — và lỗi chỉ hiện ở console trình duyệt,
 // không có gì trong log máy chủ, nên rất dễ đi tìm nhầm chỗ.
-func TestOriginMacDinhChoPhepCaHaiGiaoDien(t *testing.T) {
+func TestTheDefaultOriginsAllowBothFrontends(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("AUTH_ALLOWED_ORIGINS", "")
@@ -323,7 +323,7 @@ func TestOriginMacDinhChoPhepCaHaiGiaoDien(t *testing.T) {
 // KHÔNG có mặc định ở production: quên cấu hình thì giao diện không gọi
 // được API và người ta sửa ngay. Mặc định sai nguy hiểm hơn nhiều, vì nó
 // chạy được và không ai để ý.
-func TestProductionKhongCoOriginMacDinh(t *testing.T) {
+func TestProductionHasNoDefaultOrigins(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("AUTH_ALLOWED_ORIGINS", "")
 	t.Setenv("AUTH_JWT_SECRET", "khoa-du-dai-toi-thieu-32-ky-tu-cho-hs256")
@@ -340,13 +340,13 @@ func TestProductionKhongCoOriginMacDinh(t *testing.T) {
 	}
 }
 
-// TestThieuKhoaMaHoaOProductionLaLoiKhoiDong.
+// TestAMissingEncryptionKeyInProductionIsAStartupError.
 //
 // Cùng lý lẽ với AUTH_JWT_SECRET: mặc định sai còn nguy hiểm hơn thiếu,
 // vì nó chạy được và không ai để ý. Ở đây "chạy được" nghĩa là mọi hồ sơ
 // đăng ký nhà bán bị từ chối — một lỗi chỉ lộ ra khi có người thật đi
 // đăng ký, tức là muộn.
-func TestThieuKhoaMaHoaOProductionLaLoiKhoiDong(t *testing.T) {
+func TestAMissingEncryptionKeyInProductionIsAStartupError(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
 	t.Setenv("AUTH_JWT_SECRET", "khoa-bi-mat-du-dai-cho-production-32-ky-tu")
@@ -359,8 +359,8 @@ func TestThieuKhoaMaHoaOProductionLaLoiKhoiDong(t *testing.T) {
 	}
 }
 
-// TestKhoaMaHoaSaiDinhDangBiTuChoi — khóa 16 byte trông "có vẻ đúng".
-func TestKhoaMaHoaSaiDinhDangBiTuChoi(t *testing.T) {
+// TestAMalformedEncryptionKeyIsRejected — khóa 16 byte trông "có vẻ đúng".
+func TestAMalformedEncryptionKeyIsRejected(t *testing.T) {
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("DATABASE_URL", "postgres://localhost/db")
 	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")

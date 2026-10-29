@@ -13,8 +13,8 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/database"
 )
 
-// moPool mở pool với trần kết nối đặt sẵn.
-func moPool(t *testing.T, maxConns int32) *database.DB {
+// openPool mở pool với trần kết nối đặt sẵn.
+func openPool(t *testing.T, maxConns int32) *database.DB {
 	t.Helper()
 
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -34,8 +34,8 @@ func moPool(t *testing.T, maxConns int32) *database.DB {
 	return db
 }
 
-// doChiSo thu thập collector và trả về (tên+nhãn state) → giá trị.
-func doChiSo(t *testing.T, c prometheus.Collector) map[string]float64 {
+// collectMetrics thu thập collector và trả về (tên+nhãn state) → giá trị.
+func collectMetrics(t *testing.T, c prometheus.Collector) map[string]float64 {
 	t.Helper()
 
 	reg := prometheus.NewRegistry()
@@ -50,19 +50,19 @@ func doChiSo(t *testing.T, c prometheus.Collector) map[string]float64 {
 	ra := map[string]float64{}
 	for _, f := range fams {
 		for _, m := range f.GetMetric() {
-			khoa := f.GetName()
+			key := f.GetName()
 			for _, l := range m.GetLabel() {
 				if l.GetName() == "state" {
-					khoa += "{" + l.GetValue() + "}"
+					key += "{" + l.GetValue() + "}"
 				}
 			}
-			ra[khoa] = giaTri(m)
+			ra[key] = value(m)
 		}
 	}
 	return ra
 }
 
-func giaTri(m *dto.Metric) float64 {
+func value(m *dto.Metric) float64 {
 	if g := m.GetGauge(); g != nil {
 		return g.GetValue()
 	}
@@ -72,10 +72,10 @@ func giaTri(m *dto.Metric) float64 {
 	return 0
 }
 
-// TestPoolCollectorPhatDuChiSo — đường cơ bản.
-func TestPoolCollectorPhatDuChiSo(t *testing.T) {
-	db := moPool(t, 4)
-	chiSo := doChiSo(t, database.NewPoolCollector(db, ""))
+// TestThePoolCollectorEmitsEveryMetric — đường cơ bản.
+func TestThePoolCollectorEmitsEveryMetric(t *testing.T) {
+	db := openPool(t, 4)
+	metrics := collectMetrics(t, database.NewPoolCollector(db, ""))
 
 	for _, ten := range []string{
 		"gouse_db_pool_connections{acquired}",
@@ -85,18 +85,18 @@ func TestPoolCollectorPhatDuChiSo(t *testing.T) {
 		"gouse_db_pool_canceled_acquire_total",
 		"gouse_db_pool_acquire_wait_seconds_total",
 	} {
-		if _, co := chiSo[ten]; !co {
-			t.Errorf("thiếu chỉ số %s — có %v", ten, chiSo)
+		if _, co := metrics[ten]; !co {
+			t.Errorf("thiếu chỉ số %s — có %v", ten, metrics)
 		}
 	}
 
-	if got := chiSo["gouse_db_pool_max_connections"]; got != 4 {
+	if got := metrics["gouse_db_pool_max_connections"]; got != 4 {
 		t.Errorf("max_connections = %v, cần 4 — collector không đọc đúng "+
 			"cấu hình thật của pool", got)
 	}
 }
 
-// TestPoolCanKietDuocDem là lý do chỉ số này tồn tại.
+// TestPoolExhaustionIsCounted là lý do chỉ số này tồn tại.
 //
 // Khi pool cạn, request KHÔNG lỗi — nó chỉ đứng chờ. Độ trễ tăng vọt trong
 // khi tỷ lệ lỗi vẫn đẹp, và người trực nhìn bảng theo dõi không hiểu vì
@@ -111,72 +111,72 @@ func TestPoolCollectorPhatDuChiSo(t *testing.T) {
 //
 // Một lượt hết hạn KHÔNG làm tăng EmptyAcquireCount. Bài này dựng riêng
 // từng tình huống thay vì đòi cả hai cùng tăng trong một kịch bản.
-func TestPoolCanKietDuocDem(t *testing.T) {
+func TestPoolExhaustionIsCounted(t *testing.T) {
 	const tran = 2
-	db := moPool(t, tran)
+	db := openPool(t, tran)
 	c := database.NewPoolCollector(db, "")
 
 	ctx := context.Background()
 
 	// Giữ TOÀN BỘ kết nối.
-	giu := make([]*pgxpool.Conn, 0, tran)
+	held := make([]*pgxpool.Conn, 0, tran)
 	for i := 0; i < tran; i++ {
 		conn, err := db.Pool().Acquire(ctx)
 		if err != nil {
 			t.Fatalf("lấy kết nối %d: %v", i, err)
 		}
-		giu = append(giu, conn)
+		held = append(held, conn)
 	}
-	nhaHet := func() {
-		for _, conn := range giu {
+	releaseAll := func() {
+		for _, conn := range held {
 			if conn != nil {
 				conn.Release()
 			}
 		}
 	}
-	defer nhaHet()
+	defer releaseAll()
 
-	if got := doChiSo(t, c)["gouse_db_pool_connections{acquired}"]; got != tran {
+	if got := collectMetrics(t, c)["gouse_db_pool_connections{acquired}"]; got != tran {
 		t.Fatalf("acquired = %v, cần %d — chưa dựng được tình huống cạn pool",
 			got, tran)
 	}
 
 	// --- Tình huống 1: chờ rồi BỎ CUỘC ---
-	boCuocTruoc := doChiSo(t, c)["gouse_db_pool_canceled_acquire_total"]
+	cancelledBefore := collectMetrics(t, c)["gouse_db_pool_canceled_acquire_total"]
 
-	choNgan, huy := context.WithTimeout(ctx, 150*time.Millisecond)
-	if conn, err := db.Pool().Acquire(choNgan); err == nil {
+	shortWait, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	if conn, err := db.Pool().Acquire(shortWait); err == nil {
 		conn.Release()
-		huy()
+		cancel()
 		t.Fatal("lấy được kết nối thứ 3 dù trần là 2")
 	}
-	huy()
+	cancel()
 
-	if sau := doChiSo(t, c)["gouse_db_pool_canceled_acquire_total"]; sau <= boCuocTruoc {
+	if after := collectMetrics(t, c)["gouse_db_pool_canceled_acquire_total"]; after <= cancelledBefore {
 		t.Errorf("bỏ cuộc khi chờ mà canceled_acquire_total không tăng "+
 			"(%v → %v) — khách bị từ chối vì hết kết nối sẽ không được đếm",
-			boCuocTruoc, sau)
+			cancelledBefore, after)
 	}
 
 	// --- Tình huống 2: chờ rồi LẤY ĐƯỢC ---
-	choTruoc := doChiSo(t, c)["gouse_db_pool_empty_acquire_total"]
+	waitedBefore := collectMetrics(t, c)["gouse_db_pool_empty_acquire_total"]
 
-	xong := make(chan error, 1)
+	done := make(chan error, 1)
 	go func() {
 		conn, err := db.Pool().Acquire(ctx)
 		if err == nil {
 			conn.Release()
 		}
-		xong <- err
+		done <- err
 	}()
 
 	// Nhả một kết nối để lượt đang chờ ở trên đi tiếp.
 	time.Sleep(50 * time.Millisecond)
-	giu[0].Release()
-	giu[0] = nil
+	held[0].Release()
+	held[0] = nil
 
 	select {
-	case err := <-xong:
+	case err := <-done:
 		if err != nil {
 			t.Fatalf("lượt chờ không lấy được kết nối: %v", err)
 		}
@@ -184,27 +184,27 @@ func TestPoolCanKietDuocDem(t *testing.T) {
 		t.Fatal("lượt chờ treo quá lâu")
 	}
 
-	if sau := doChiSo(t, c)["gouse_db_pool_empty_acquire_total"]; sau <= choTruoc {
+	if after := collectMetrics(t, c)["gouse_db_pool_empty_acquire_total"]; after <= waitedBefore {
 		t.Errorf("phải chờ mới lấy được kết nối mà empty_acquire_total "+
 			"không tăng (%v → %v) — tình trạng pool cạn sẽ không hiện ra "+
-			"ở bất kỳ đâu, trong khi độ trễ đã tăng", choTruoc, sau)
+			"ở bất kỳ đâu, trong khi độ trễ đã tăng", waitedBefore, after)
 	}
 }
 
-// TestPoolDaDongThiKhongPhatSo: phát 0 tệ hơn im lặng.
+// TestAClosedPoolEmitsNoNumbers: phát 0 tệ hơn im lặng.
 //
 // Bảng theo dõi hiện "0 kết nối đang dùng, 0 lượt chờ" trông y hệt một hệ
 // thống khỏe mạnh đang rảnh — trong khi thật ra nó đã chết.
-func TestPoolDaDongThiKhongPhatSo(t *testing.T) {
-	db := moPool(t, 2)
+func TestAClosedPoolEmitsNoNumbers(t *testing.T) {
+	db := openPool(t, 2)
 	c := database.NewPoolCollector(db, "")
 
-	if len(doChiSo(t, c)) == 0 {
+	if len(collectMetrics(t, c)) == 0 {
 		t.Fatal("pool còn sống mà không phát chỉ số nào")
 	}
 
 	db.Close()
-	if n := len(doChiSo(t, c)); n != 0 {
+	if n := len(collectMetrics(t, c)); n != 0 {
 		t.Errorf("pool đã đóng nhưng vẫn phát %d chỉ số — "+
 			"số 0 trông giống hệ thống rảnh, không giống hệ thống chết", n)
 	}

@@ -27,7 +27,7 @@ func call(h http.Handler, ip string) int {
 // `identity.Register` CỐ Ý trả "email đã được dùng", nên endpoint đó trả
 // lời được "email này có tài khoản chưa". Không giới hạn tần suất thì nó
 // thành công cụ quét hàng nghìn email.
-func TestVuotHanMucBiChan(t *testing.T) {
+func TestExceedingTheQuotaIsBlocked(t *testing.T) {
 	h := limited(3, time.Minute)
 
 	for i := 1; i <= 3; i++ {
@@ -45,7 +45,7 @@ func TestVuotHanMucBiChan(t *testing.T) {
 //
 // Đếm chung thì một kẻ tấn công làm cả nền tảng không đăng ký được — biến
 // biện pháp bảo vệ thành công cụ từ chối dịch vụ.
-func TestGioiHanTheoTungIP(t *testing.T) {
+func TestTheLimitIsPerIP(t *testing.T) {
 	h := limited(2, time.Minute)
 
 	call(h, "1.1.1.1")
@@ -60,19 +60,19 @@ func TestGioiHanTheoTungIP(t *testing.T) {
 }
 
 // CỬA SỔ TRƯỢT: hết cửa sổ thì lượt cũ không còn tính.
-func TestHetCuaSoThiDuocGoiLai(t *testing.T) {
+func TestOnceTheWindowPassesCallsAreAllowedAgain(t *testing.T) {
 	l := &limiter{limit: 2, window: time.Minute, hits: map[string][]time.Time{}}
 	base := time.Now()
 
-	duoc := func(t time.Time) bool { ok, _ := l.allow("ip", t); return ok }
+	allowed := func(t time.Time) bool { ok, _ := l.allow("ip", t); return ok }
 
-	if !duoc(base) || !duoc(base) {
+	if !allowed(base) || !allowed(base) {
 		t.Fatal("hai lượt đầu phải được phép")
 	}
-	if duoc(base.Add(30 * time.Second)) {
+	if allowed(base.Add(30 * time.Second)) {
 		t.Error("lượt thứ ba trong cửa sổ phải bị chặn")
 	}
-	if !duoc(base.Add(61 * time.Second)) {
+	if !allowed(base.Add(61 * time.Second)) {
 		t.Error("qua cửa sổ rồi phải được phép lại")
 	}
 }
@@ -82,7 +82,7 @@ func TestHetCuaSoThiDuocGoiLai(t *testing.T) {
 // Dọn theo từng khóa lúc kiểm tra là chưa đủ — khóa của IP một-đi-không-trở
 // -lại sẽ nằm lại vĩnh viễn, và map phình theo số IP đã từng gọi. Rò rỉ
 // chậm nhưng chắc chắn, chỉ lộ ra sau nhiều tuần chạy.
-func TestQuetDonKhoaHetHan(t *testing.T) {
+func TestExpiredKeysAreSweptAway(t *testing.T) {
 	l := &limiter{limit: 5, window: time.Minute, hits: map[string][]time.Time{}}
 	base := time.Now()
 
@@ -107,7 +107,7 @@ func TestQuetDonKhoaHetHan(t *testing.T) {
 //
 // Nó là câu hỏi của trình duyệt, không phải hành động của người dùng. Tính
 // nó vào thì mỗi thao tác thật tốn hai lượt và hạn mức thực tế giảm nửa.
-func TestPreflightKhongTinhVaoHanMuc(t *testing.T) {
+func TestPreflightDoesNotCountAgainstTheQuota(t *testing.T) {
 	h := limited(2, time.Minute)
 
 	for i := 0; i < 5; i++ {
@@ -133,7 +133,7 @@ func TestPreflightKhongTinhVaoHanMuc(t *testing.T) {
 // mà tác dụng thật bằng không.
 //
 // Lỗi này đã xảy ra thật: 7 lần đăng ký liên tiếp đều qua với hạn mức 5.
-func TestKhoaTheoIPKhongKemCong(t *testing.T) {
+func TestThePerIPKeyIsNotTrivialToForge(t *testing.T) {
 	h := limited(2, time.Minute)
 
 	// Cùng một máy, ba kết nối TCP khác nhau — cổng nguồn khác nhau.
@@ -154,8 +154,8 @@ func TestKhoaTheoIPKhongKemCong(t *testing.T) {
 	}
 }
 
-// tieuDe gọi một lượt và trả về bộ tiêu đề hạn mức.
-func tieuDe(h http.Handler, ip string) (int, http.Header) {
+// headers gọi một lượt và trả về bộ tiêu đề hạn mức.
+func headers(h http.Handler, ip string) (int, http.Header) {
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", nil)
 	r.Header.Set("X-Real-IP", ip)
 	w := httptest.NewRecorder()
@@ -171,11 +171,11 @@ func tieuDe(h http.Handler, ip string) (int, http.Header) {
 //
 // CORS đã khai ba tiêu đề này trong `Access-Control-Expose-Headers` từ
 // trước, nên trình duyệt vốn đã sẵn sàng đọc thứ chưa ai gửi.
-func TestBaoHanMucConLaiTrenMoiLuot(t *testing.T) {
+func TestTheRemainingQuotaIsReportedOnEveryCall(t *testing.T) {
 	h := limited(3, time.Minute)
 
 	for i, mong := range []string{"2", "1", "0"} {
-		code, head := tieuDe(h, "9.9.9.9")
+		code, head := headers(h, "9.9.9.9")
 		if code != http.StatusOK {
 			t.Fatalf("lượt %d bị chặn sớm: %d", i+1, code)
 		}
@@ -189,7 +189,7 @@ func TestBaoHanMucConLaiTrenMoiLuot(t *testing.T) {
 		}
 	}
 
-	code, head := tieuDe(h, "9.9.9.9")
+	code, head := headers(h, "9.9.9.9")
 	if code != http.StatusTooManyRequests {
 		t.Fatalf("lượt thứ 4: mã = %d, muốn 429", code)
 	}
@@ -198,22 +198,22 @@ func TestBaoHanMucConLaiTrenMoiLuot(t *testing.T) {
 	}
 
 	// Reset là Unix timestamp theo đặc tả, và phải ở TƯƠNG LAI.
-	dat, err := strconv.ParseInt(head.Get("X-RateLimit-Reset"), 10, 64)
+	set, err := strconv.ParseInt(head.Get("X-RateLimit-Reset"), 10, 64)
 	if err != nil {
 		t.Fatalf("X-RateLimit-Reset = %q, cần Unix timestamp: %v",
 			head.Get("X-RateLimit-Reset"), err)
 	}
-	if !time.Unix(dat, 0).After(time.Now()) {
+	if !time.Unix(set, 0).After(time.Now()) {
 		t.Errorf("X-RateLimit-Reset ở quá khứ — client sẽ thử lại ngay")
 	}
 }
 
-// TestChoDoiTheoLuotCuNhatChuKhongTronCuaSo.
+// TestWaitFollowsTheOldestCallNotAFixedWindow.
 //
 // Cửa sổ TRƯỢT: chỗ trống đầu tiên xuất hiện khi lượt CŨ NHẤT rơi ra khỏi
 // cửa sổ. Bảo client chờ trọn một cửa sổ là bắt họ đợi lâu hơn cần thiết —
 // người bị chặn oan ngồi đợi hết phút trong khi chỗ đã trống từ lâu.
-func TestChoDoiTheoLuotCuNhatChuKhongTronCuaSo(t *testing.T) {
+func TestWaitFollowsTheOldestCallNotAFixedWindow(t *testing.T) {
 	l := &limiter{limit: 2, window: time.Minute, hits: map[string][]time.Time{}}
 	base := time.Now()
 
@@ -223,26 +223,26 @@ func TestChoDoiTheoLuotCuNhatChuKhongTronCuaSo(t *testing.T) {
 	// Bị chặn ở giây thứ 55: lượt cũ nhất (giây 0) hết hạn ở giây 60, nên
 	// chỉ còn phải chờ 5 giây — không phải trọn 60.
 	now := base.Add(55 * time.Second)
-	vuot, datLai := l.vuot("ip", now)
-	if !vuot {
+	over, reset := l.over("ip", now)
+	if !over {
 		t.Fatal("phải bị chặn ở lượt thứ ba")
 	}
-	if got := giayCho(datLai, now); got != 5 {
+	if got := retryAfterSec(reset, now); got != 5 {
 		t.Errorf("Retry-After = %d giây, cần 5 — chờ trọn cửa sổ là bắt "+
 			"người dùng đợi lâu hơn cần thiết", got)
 	}
 }
 
-// TestBoDemThatBaiKhongNoiConMayLuot.
+// TestTheFailureCounterDoesNotRevealHowManyAttemptsRemain.
 //
 // Khác biệt CÓ CHỦ Ý so với RateLimit thường. Bộ đếm của đường đăng nhập
 // đếm lượt THẤT BẠI; nói "còn 2 lượt nữa" là đưa cho kẻ rải mật khẩu đúng
 // ngân sách để đi chậm mà không bao giờ chạm ngưỡng.
 //
 // Không nói thì nó phải tự dò, và dò nghĩa là ăn 429 — tức là lộ diện.
-func TestBoDemThatBaiKhongNoiConMayLuot(t *testing.T) {
-	hong := func(status int) bool { return status == http.StatusUnauthorized }
-	h := RateLimitThatBai(2, time.Minute, hong)(http.HandlerFunc(
+func TestTheFailureCounterDoesNotRevealHowManyAttemptsRemain(t *testing.T) {
+	broken := func(status int) bool { return status == http.StatusUnauthorized }
+	h := RateLimitFailures(2, time.Minute, broken)(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 		}))

@@ -6,11 +6,11 @@ import (
 
 // Tên chỉ số, đặt cùng quy ước với internal/platform/metrics.
 const (
-	tenKetNoi      = "gouse_db_pool_connections"
+	connMetric     = "gouse_db_pool_connections"
 	tenToiDa       = "gouse_db_pool_max_connections"
-	tenChoLuot     = "gouse_db_pool_empty_acquire_total"
-	tenBoCuoc      = "gouse_db_pool_canceled_acquire_total"
-	tenThoiGianCho = "gouse_db_pool_acquire_wait_seconds_total"
+	waitMetric     = "gouse_db_pool_empty_acquire_total"
+	cancelMetric   = "gouse_db_pool_canceled_acquire_total"
+	waitTimeMetric = "gouse_db_pool_acquire_wait_seconds_total"
 )
 
 // PoolCollector phơi trạng thái pool kết nối cho Prometheus.
@@ -41,11 +41,11 @@ const (
 type PoolCollector struct {
 	db *DB
 
-	ketNoi      *prometheus.Desc
+	connect     *prometheus.Desc
 	toiDa       *prometheus.Desc
-	choLuot     *prometheus.Desc
-	boCuoc      *prometheus.Desc
-	thoiGianCho *prometheus.Desc
+	waitForSlot *prometheus.Desc
+	cancelled   *prometheus.Desc
+	waitTime    *prometheus.Desc
 }
 
 var _ prometheus.Collector = (*PoolCollector)(nil)
@@ -54,38 +54,38 @@ var _ prometheus.Collector = (*PoolCollector)(nil)
 //
 // `nhan` phân biệt nhiều pool trong cùng tiến trình (ví dụ api và worker
 // dùng chung mã nhưng khác cấu hình). Để trống thì nhãn `pool` là "chính".
-func NewPoolCollector(db *DB, nhan string) *PoolCollector {
-	if nhan == "" {
-		nhan = "chinh"
+func NewPoolCollector(db *DB, labels string) *PoolCollector {
+	if labels == "" {
+		labels = "chinh"
 	}
-	nhanCoDinh := prometheus.Labels{"pool": nhan}
+	fixedLabels := prometheus.Labels{"pool": labels}
 
 	return &PoolCollector{
 		db: db,
-		ketNoi: prometheus.NewDesc(tenKetNoi,
+		connect: prometheus.NewDesc(connMetric,
 			"Số kết nối trong pool theo trạng thái.",
-			[]string{"state"}, nhanCoDinh),
+			[]string{"state"}, fixedLabels),
 		toiDa: prometheus.NewDesc(tenToiDa,
 			"Trần số kết nối của pool.",
-			nil, nhanCoDinh),
-		choLuot: prometheus.NewDesc(tenChoLuot,
+			nil, fixedLabels),
+		waitForSlot: prometheus.NewDesc(waitMetric,
 			"Số lần phải chờ vì pool đã cạn kết nối.",
-			nil, nhanCoDinh),
-		boCuoc: prometheus.NewDesc(tenBoCuoc,
+			nil, fixedLabels),
+		cancelled: prometheus.NewDesc(cancelMetric,
 			"Số lần bỏ cuộc khi đang chờ kết nối.",
-			nil, nhanCoDinh),
-		thoiGianCho: prometheus.NewDesc(tenThoiGianCho,
+			nil, fixedLabels),
+		waitTime: prometheus.NewDesc(waitTimeMetric,
 			"Tổng thời gian đã chờ để lấy kết nối, tính bằng giây.",
-			nil, nhanCoDinh),
+			nil, fixedLabels),
 	}
 }
 
 func (c *PoolCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- c.ketNoi
+	ch <- c.connect
 	ch <- c.toiDa
-	ch <- c.choLuot
-	ch <- c.boCuoc
-	ch <- c.thoiGianCho
+	ch <- c.waitForSlot
+	ch <- c.cancelled
+	ch <- c.waitTime
 }
 
 func (c *PoolCollector) Collect(ch chan<- prometheus.Metric) {
@@ -93,14 +93,14 @@ func (c *PoolCollector) Collect(ch chan<- prometheus.Metric) {
 	//
 	// Phát số 0 sẽ tệ hơn im lặng: bảng theo dõi hiện "0 kết nối đang
 	// dùng, 0 lượt chờ" — trông y hệt một hệ thống khỏe mạnh đang rảnh.
-	if c.db == nil || c.db.pool == nil || c.db.DaDong() {
+	if c.db == nil || c.db.pool == nil || c.db.Closed() {
 		return
 	}
 	s := c.db.pool.Stat()
 
-	ch <- prometheus.MustNewConstMetric(c.ketNoi,
+	ch <- prometheus.MustNewConstMetric(c.connect,
 		prometheus.GaugeValue, float64(s.AcquiredConns()), "acquired")
-	ch <- prometheus.MustNewConstMetric(c.ketNoi,
+	ch <- prometheus.MustNewConstMetric(c.connect,
 		prometheus.GaugeValue, float64(s.IdleConns()), "idle")
 	ch <- prometheus.MustNewConstMetric(c.toiDa,
 		prometheus.GaugeValue, float64(s.MaxConns()))
@@ -108,10 +108,10 @@ func (c *PoolCollector) Collect(ch chan<- prometheus.Metric) {
 	// Counter, không phải Gauge: đây là số cộng dồn từ lúc mở pool, và
 	// cảnh báo phải đặt trên ĐỘ TĂNG. Tổng 500 lượt chờ tích trong một
 	// tuần là bình thường; 500 lượt trong một phút thì không.
-	ch <- prometheus.MustNewConstMetric(c.choLuot,
+	ch <- prometheus.MustNewConstMetric(c.waitForSlot,
 		prometheus.CounterValue, float64(s.EmptyAcquireCount()))
-	ch <- prometheus.MustNewConstMetric(c.boCuoc,
+	ch <- prometheus.MustNewConstMetric(c.cancelled,
 		prometheus.CounterValue, float64(s.CanceledAcquireCount()))
-	ch <- prometheus.MustNewConstMetric(c.thoiGianCho,
+	ch <- prometheus.MustNewConstMetric(c.waitTime,
 		prometheus.CounterValue, s.AcquireDuration().Seconds())
 }

@@ -24,7 +24,7 @@ import (
 // đúng origin đó.
 //
 // Xem docs/09-operations/security.md mục "CORS chặt — chỉ domain của mình".
-// HeaderChoPhep là danh sách header TRÌNH DUYỆT được phép gửi lên.
+// AllowedHeaders là danh sách header TRÌNH DUYỆT được phép gửi lên.
 //
 // # Vì sao là một danh sách khai báo, không phải một chuỗi trong hàm
 //
@@ -41,7 +41,7 @@ import (
 // Nay danh sách là biến XUẤT KHẨU để `cmd/apicheck` đối chiếu nó với các
 // header khai `in: header` trong đặc tả OpenAPI. Thêm header vào đặc tả mà
 // quên chỗ này thì CI đỏ.
-var HeaderChoPhep = []string{
+var AllowedHeaders = []string{
 	// Chuẩn HTTP, mọi lệnh ghi đều cần.
 	"Authorization",
 	"Content-Type",
@@ -69,8 +69,8 @@ var HeaderChoPhep = []string{
 	"X-Access-Reason",
 }
 
-// allowHeaders là HeaderChoPhep đã nối sẵn, tính một lần lúc nạp package.
-var allowHeaders = strings.Join(HeaderChoPhep, ", ")
+// allowHeaders là AllowedHeaders đã nối sẵn, tính một lần lúc nạp package.
+var allowHeaders = strings.Join(AllowedHeaders, ", ")
 
 func CORS(allowedOrigins []string) Middleware {
 	allowed := make(map[string]struct{}, len(allowedOrigins))

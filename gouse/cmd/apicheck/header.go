@@ -151,7 +151,7 @@ func timTenHeader(dong []string, i int) string {
 	return ""
 }
 
-// docHeaderCORS đọc danh sách `HeaderChoPhep` bằng AST.
+// docHeaderCORS đọc danh sách `AllowedHeaders` bằng AST.
 //
 // Đọc AST chứ không grep chuỗi vì cùng lý do như phần đọc tuyến: một tên
 // header xuất hiện trong bình luận hay trong thông điệp lỗi không phải là
@@ -167,7 +167,7 @@ func (c *checker) docHeaderCORS() (map[string]bool, error) {
 	out := map[string]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		vs, ok := n.(*ast.ValueSpec)
-		if !ok || len(vs.Names) != 1 || vs.Names[0].Name != "HeaderChoPhep" {
+		if !ok || len(vs.Names) != 1 || vs.Names[0].Name != "AllowedHeaders" {
 			return true
 		}
 		if len(vs.Values) != 1 {
@@ -191,7 +191,7 @@ func (c *checker) docHeaderCORS() (map[string]bool, error) {
 	})
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%s: không tìm thấy `var HeaderChoPhep = []string{...}` "+
+		return nil, fmt.Errorf("%s: không tìm thấy `var AllowedHeaders = []string{...}` "+
 			"— công cụ này đọc đúng biến đó, đổi tên thì phải sửa cả đây", duong)
 	}
 	return out, nil
@@ -223,7 +223,7 @@ func (c *checker) doiChieuHeader(dacTa map[string]string, cors map[string]bool) 
 		c.viPham = append(c.viPham, fmt.Sprintf(
 			"HEADER %s khai trong đặc tả (%s) mà CORS KHÔNG cho phép — "+
 				"trình duyệt sẽ chặn ở preflight và log máy chủ sẽ SẠCH. "+
-				"Thêm vào `HeaderChoPhep` trong internal/platform/httpserver/cors.go",
+				"Thêm vào `AllowedHeaders` trong internal/platform/httpserver/cors.go",
 			h, dacTa[h]))
 	}
 

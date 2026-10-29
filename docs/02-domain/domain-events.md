@@ -485,7 +485,7 @@ nhất vì không ai biết để đi sửa.
 ✅ Trường `event_version` — có ở cả Go (`Event.Version`) và outbox
 ✅ Bên nhận KHAI phiên bản mình hiểu: `MaxEventVersion(eventType) int`
    12 bên nhận đã khai
-✅ Dispatcher HOÃN event mà có bên nhận chưa hiểu (ErrHoanLechPhienBan)
+✅ Dispatcher HOÃN event mà có bên nhận chưa hiểu (ErrVersionTooNew)
 ✅ Bốn event đang ở phiên bản > 1:
    checkout.completed       v9
    cart.item_added          v2

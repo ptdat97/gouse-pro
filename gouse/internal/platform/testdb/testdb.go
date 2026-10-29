@@ -85,22 +85,22 @@ var (
 // test, không vì mã.
 func Open(t *testing.T) *database.DB {
 	t.Helper()
-	return OpenVoiCauHinh(t, database.Config{})
+	return OpenWithConfig(t, database.Config{})
 }
 
-// OpenVoiCauHinh như Open nhưng cho phép chỉnh pool.
+// OpenWithConfig như Open nhưng cho phép chỉnh pool.
 //
 // `DSN` luôn bị ghi đè bằng database riêng của gói: một test trỏ nhầm sang
 // database phát triển là mất dữ liệu thật.
-func OpenVoiCauHinh(t *testing.T, cfg database.Config) *database.DB {
+func OpenWithConfig(t *testing.T, cfg database.Config) *database.DB {
 	t.Helper()
 
 	cfg.DSN = DSN(t)
 	if cfg.ConnectTimeout == 0 {
-		cfg.ConnectTimeout = timeoutKetNoiTest
+		cfg.ConnectTimeout = testConnectTimeout
 	}
 
-	db, err := moLaiVaiLan(cfg)
+	db, err := openSeveralTimes(cfg)
 	if err != nil {
 		t.Fatalf("mở database test %q: %v", provOnce, err)
 	}
@@ -108,7 +108,7 @@ func OpenVoiCauHinh(t *testing.T, cfg database.Config) *database.DB {
 	return db
 }
 
-// timeoutKetNoiTest RỘNG hơn nhiều so với production (5 giây).
+// testConnectTimeout RỘNG hơn nhiều so với production (5 giây).
 //
 // Lúc `go test ./...` khởi động, hai mươi ba gói cùng chạy
 // `DROP DATABASE` rồi `CREATE DATABASE ... TEMPLATE` — mỗi lệnh sau là một
@@ -118,9 +118,9 @@ func OpenVoiCauHinh(t *testing.T, cfg database.Config) *database.DB {
 // Năm giây là con số chỉnh cho một máy chủ ĐANG ẤM phục vụ khách. Đem nó
 // vào một máy đang chép hai mươi ba database thì thỉnh thoảng hết hạn —
 // và một bộ test thỉnh thoảng đỏ dạy người ta bấm chạy lại thay vì đọc.
-const timeoutKetNoiTest = 30 * time.Second
+const testConnectTimeout = 30 * time.Second
 
-// moLaiVaiLan thử lại khi kết nối hết hạn.
+// openSeveralTimes thử lại khi kết nối hết hạn.
 //
 // Cùng lý do và cùng khuôn với vòng thử lại của `CREATE DATABASE` bên
 // dưới: chỗ nghẽn là ĐĨA và CPU lúc khởi động, không phải database hỏng.
@@ -128,27 +128,27 @@ const timeoutKetNoiTest = 30 * time.Second
 //
 // KHÔNG thử lại vô hạn: nếu Postgres thật sự không chạy thì phải đỏ NGAY,
 // chứ không treo test suite ba mươi giây một lần cho mỗi gói.
-func moLaiVaiLan(cfg database.Config) (*database.DB, error) {
-	return thuLai(func() (*database.DB, error) {
+func openSeveralTimes(cfg database.Config) (*database.DB, error) {
+	return retry(func() (*database.DB, error) {
 		return database.Open(context.Background(), cfg)
 	})
 }
 
-// soLanThu và nhipThuLai là biến để TEST rút ngắn được.
+// attempts và retryInterval là biến để TEST rút ngắn được.
 //
 // Hằng số thì bài test phải ngủ ba giây thật, và một bài test chậm là một
 // bài test người ta bỏ qua.
 var (
-	soLanThu   = 3
-	nhipThuLai = time.Second
+	attempts      = 3
+	retryInterval = time.Second
 )
 
-// thuLai gọi `mo` tới `soLanThu` lần, chỉ thử lại khi lỗi là HẾT HẠN.
-func thuLai(mo func() (*database.DB, error)) (*database.DB, error) {
+// retry gọi `mo` tới `attempts` lần, chỉ thử lại khi lỗi là HẾT HẠN.
+func retry(open func() (*database.DB, error)) (*database.DB, error) {
 	var err error
-	for lan := 0; lan < soLanThu; lan++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		var db *database.DB
-		if db, err = mo(); err == nil {
+		if db, err = open(); err == nil {
 			return db, nil
 		}
 		// Không thử lại với lỗi cấu hình: DSN sai, sai mật khẩu, hay
@@ -157,9 +157,9 @@ func thuLai(mo func() (*database.DB, error)) (*database.DB, error) {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
-		time.Sleep(time.Duration(lan+1) * nhipThuLai)
+		time.Sleep(time.Duration(attempt+1) * retryInterval)
 	}
-	return nil, fmt.Errorf("thử %d lần vẫn hết hạn kết nối: %w", soLanThu, err)
+	return nil, fmt.Errorf("thử %d lần vẫn hết hạn kết nối: %w", attempts, err)
 }
 
 // DSN trả chuỗi kết nối tới database riêng của gói, dựng nó nếu chưa có.

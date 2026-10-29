@@ -82,8 +82,8 @@ func (d *Dispatcher) DispatchBatch(ctx context.Context, limit int) (int, error) 
 		case err == nil:
 			done++
 
-		case errors.Is(err, ErrHoanLechPhienBan):
-			// HOÃN, không phải thất bại: `kiemPhienBan` đã ghi log và
+		case errors.Is(err, ErrVersionTooNew):
+			// HOÃN, không phải thất bại: `checkVersion` đã ghi log và
 			// metric, và cố ý KHÔNG gọi markFailed — event giữ nguyên
 			// trạng thái chờ với `attempts` không đổi, nên nó không bao
 			// giờ chết vì lệch phiên bản. Xem ADR-0016.
@@ -131,7 +131,7 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, tx pgx.Tx, p pending) erro
 	// tới khi B được nâng cấp — một nửa phản ứng của cùng một sự thật
 	// nghiệp vụ đã xảy ra, nửa kia thì chưa. Hoãn cả event thì trạng thái
 	// luôn là "chưa xử lý", thứ dễ suy luận hơn hẳn.
-	if err := d.kiemPhienBan(p.event, handlers); err != nil {
+	if err := d.checkVersion(p.event, handlers); err != nil {
 		return err
 	}
 
@@ -149,14 +149,14 @@ func (d *Dispatcher) dispatchOne(ctx context.Context, tx pgx.Tx, p pending) erro
 	return d.outbox.markPublished(ctx, tx, p.rowID)
 }
 
-// ErrHoanLechPhienBan báo event mới hơn thứ bên nhận hiểu được.
+// ErrVersionTooNew báo event mới hơn thứ bên nhận hiểu được.
 //
 // KHÔNG phải lỗi xử lý: event giữ nguyên trạng thái chờ, `attempts` không
 // tăng, và nó KHÔNG bao giờ chuyển dead letter vì lý do này. Xem ADR-0016.
-var ErrHoanLechPhienBan = errors.New("eventbus: hoãn — bên nhận chưa hiểu phiên bản event")
+var ErrVersionTooNew = errors.New("eventbus: hoãn — bên nhận chưa hiểu phiên bản event")
 
-// kiemPhienBan hoãn event nếu có bên nhận chưa hiểu phiên bản của nó.
-func (d *Dispatcher) kiemPhienBan(e Event, handlers []Handler) error {
+// checkVersion hoãn event nếu có bên nhận chưa hiểu phiên bản của nó.
+func (d *Dispatcher) checkVersion(e Event, handlers []Handler) error {
 	for _, h := range handlers {
 		max := MaxVersionOf(h, e.Type)
 		if e.Version <= max {
@@ -177,7 +177,7 @@ func (d *Dispatcher) kiemPhienBan(e Event, handlers []Handler) error {
 			"gợi_ý", "nâng cấp bên nhận; event chờ sẵn và tự chảy tiếp")
 
 		return fmt.Errorf("%w: %s hiểu tới v%d, event là v%d",
-			ErrHoanLechPhienBan, h.Name(), max, e.Version)
+			ErrVersionTooNew, h.Name(), max, e.Version)
 	}
 	return nil
 }

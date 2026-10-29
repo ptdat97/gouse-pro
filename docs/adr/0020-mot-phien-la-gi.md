@@ -118,7 +118,7 @@ Máy chủ đã có cookie `shopper_session` (HttpOnly, 30 ngày). Dùng nó là
 1. Cookie ấy sống 30 ngày nên nó là **người truy cập**, không phải **lượt
    truy cập**. Chỉ số đổi nghĩa, và đổi theo hướng đẹp hơn thực tế.
 2. Nó mâu thuẫn với đặc tả (*"Do client sinh"*).
-3. Trang xem hàng CỐ Ý không cấp cookie ấy (`ResolveShopperChiDoc`, P3-50):
+3. Trang xem hàng CỐ Ý không cấp cookie ấy (`ResolveShopperReadOnly`, P3-50):
    không đặt cookie định danh vào trình duyệt của người mới lướt. Chọn B là
    phải đảo lại quyết định riêng tư đó, và đảo nó để lấy một chỉ số đẹp hơn
    là đổi sai thứ.

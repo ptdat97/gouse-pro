@@ -1182,7 +1182,7 @@ func doiSoatThanhToan(
 			return fmt.Errorf("đối soát tiền đã thu: %w", err)
 		}
 
-		metrics.PaymentLechDoiSoat.Set(float64(len(lech)))
+		metrics.PaymentReconcileDrift.Set(float64(len(lech)))
 
 		// Mức ERROR: không có ca hợp lệ nào cho "đã thu tiền mà đơn vẫn
 		// chờ thanh toán". Chỉ số này không bao giờ kêu oan.
@@ -1204,7 +1204,7 @@ func doiSoatThanhToan(
 		if err != nil {
 			return fmt.Errorf("đếm ý định thanh toán quá hạn: %w", err)
 		}
-		metrics.PaymentIntentChoThuQuaHan.Set(float64(quaHan))
+		metrics.PaymentIntentOverdue.Set(float64(quaHan))
 
 		return nil
 	}
@@ -1232,7 +1232,7 @@ func doiSoatGiaoHang(
 			return fmt.Errorf("đối soát giao hàng: %w", err)
 		}
 
-		metrics.GiaoHangBatTin.Set(float64(len(goi)))
+		metrics.DeliverySilence.Set(float64(len(goi)))
 		if len(goi) == 0 {
 			return nil
 		}

@@ -98,7 +98,7 @@ func TestCORSPreflightDoesNotReachHandler(t *testing.T) {
 	// Client PHẢI gửi được các header mà API yêu cầu, nếu không mọi lệnh
 	// ghi đều bị trình duyệt chặn trước khi rời máy.
 	//
-	// # Vì sao đọc HeaderChoPhep chứ không viết lại danh sách
+	// # Vì sao đọc AllowedHeaders chứ không viết lại danh sách
 	//
 	// Bản trước liệt kê tay bốn header. Nó xanh suốt ngày 17/09/2026 trong
 	// lúc `X-Visit-Id` — header `api-client` gửi kèm MỌI request — không có
@@ -109,10 +109,10 @@ func TestCORSPreflightDoesNotReachHandler(t *testing.T) {
 	// việc canh danh sách ấy có ĐỦ hay không là của `cmd/apicheck`, bằng
 	// cách đối chiếu với đặc tả OpenAPI.
 	allow := rec.Header().Get("Access-Control-Allow-Headers")
-	if len(httpserver.HeaderChoPhep) == 0 {
-		t.Fatal("HeaderChoPhep rỗng — preflight sẽ chặn mọi lệnh ghi")
+	if len(httpserver.AllowedHeaders) == 0 {
+		t.Fatal("AllowedHeaders rỗng — preflight sẽ chặn mọi lệnh ghi")
 	}
-	for _, h := range httpserver.HeaderChoPhep {
+	for _, h := range httpserver.AllowedHeaders {
 		if !contains(allow, h) {
 			t.Errorf("preflight phải cho phép header %q, nhận %q", h, allow)
 		}

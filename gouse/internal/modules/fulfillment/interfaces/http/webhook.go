@@ -44,7 +44,7 @@ type ProviderSecret func(provider string) string
 //
 // # Năm yêu cầu của api/paths/webhooks.yaml, và chỗ nào đáp ứng
 //
-//  1. Xác minh chữ ký  → httpserver.KiemChuKyHMAC, trước mọi thứ khác
+//  1. Xác minh chữ ký  → httpserver.VerifyHMAC, trước mọi thứ khác
 //  2. Idempotent       → chỉ mục UNIQUE (provider, provider_event_id)
 //  3. Trả 200 nhanh    → ghi nhật ký rồi mới xử lý; xử lý hỏng VẪN trả 200
 //  4. Ghi mọi webhook  → kể cả loại không xử lý (PICKED_UP…)
@@ -94,7 +94,7 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 	//
 	// Chữ ký tính trên BYTE THÔ, không phải trên JSON đã parse rồi
 	// serialize lại — vòng đó đổi thứ tự khóa và khoảng trắng.
-	if err := httpserver.KiemChuKyHMAC(than,
+	if err := httpserver.VerifyHMAC(than,
 		r.Header.Get("X-Signature"), h.biMat(provider)); err != nil {
 		metrics.RecordFailure(metrics.StageWebhook, "chu_ky_sai")
 		h.log.WarnContext(r.Context(), "webhook có chữ ký KHÔNG hợp lệ",

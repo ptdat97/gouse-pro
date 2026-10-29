@@ -10,22 +10,22 @@ import (
 	"testing"
 )
 
-// duongDeploy trỏ tới thư mục cấu hình Prometheus từ gói này.
-func duongDeploy(t *testing.T, ten string) string {
+// deployPath trỏ tới thư mục cấu hình Prometheus từ gói này.
+func deployPath(t *testing.T, ten string) string {
 	t.Helper()
 	return filepath.Join("..", "..", "..", "deploy", "prometheus", ten)
 }
 
-func doc(t *testing.T, ten string) string {
+func readFile(t *testing.T, ten string) string {
 	t.Helper()
-	b, err := os.ReadFile(duongDeploy(t, ten))
+	b, err := os.ReadFile(deployPath(t, ten))
 	if err != nil {
 		t.Fatalf("đọc %s: %v", ten, err)
 	}
 	return string(b)
 }
 
-// TestNhanJobTrongCanhBaoKhopCauHinhThuThap.
+// TestAlertJobLabelsMatchTheScrapeConfig.
 //
 // # Vì sao bài này tồn tại
 //
@@ -45,48 +45,48 @@ func doc(t *testing.T, ten string) string {
 //
 // Không công cụ nào của Prometheus bắt được, vì không công cụ nào nối hai
 // file đó lại với nhau. Bài này làm đúng việc ấy.
-func TestNhanJobTrongCanhBaoKhopCauHinhThuThap(t *testing.T) {
-	canhBao := doc(t, "alerts.yml")
-	cauHinh := doc(t, "prometheus.yml")
+func TestAlertJobLabelsMatchTheScrapeConfig(t *testing.T) {
+	alerts := readFile(t, "alerts.yml")
+	scrapeConfig := readFile(t, "prometheus.yml")
 
 	// Tên job mà cấu hình thu thập ĐẶT RA.
-	dat := map[string]bool{}
+	set := map[string]bool{}
 	for _, m := range regexp.MustCompile(`(?m)^\s*-?\s*job_name:\s*(\S+)`).
-		FindAllStringSubmatch(cauHinh, -1) {
-		dat[m[1]] = true
+		FindAllStringSubmatch(scrapeConfig, -1) {
+		set[m[1]] = true
 	}
-	if len(dat) == 0 {
+	if len(set) == 0 {
 		t.Fatal("prometheus.yml không khai job_name nào")
 	}
 
 	// Tên job mà cảnh báo LỌC THEO.
-	loc := map[string]bool{}
+	filter := map[string]bool{}
 	for _, m := range regexp.MustCompile(`job\s*=\s*"([^"]+)"`).
-		FindAllStringSubmatch(canhBao, -1) {
-		loc[m[1]] = true
+		FindAllStringSubmatch(alerts, -1) {
+		filter[m[1]] = true
 	}
 
-	var thieu []string
-	for j := range loc {
-		if !dat[j] {
-			thieu = append(thieu, j)
+	var missing []string
+	for j := range filter {
+		if !set[j] {
+			missing = append(missing, j)
 		}
 	}
-	sort.Strings(thieu)
+	sort.Strings(missing)
 
-	if len(thieu) > 0 {
+	if len(missing) > 0 {
 		t.Errorf("cảnh báo lọc theo job %q nhưng prometheus.yml không đặt tên đó "+
-			"(đang có: %v) — cảnh báo sẽ KHÔNG BAO GIỜ kêu", thieu, tenSapXep(dat))
+			"(đang có: %v) — cảnh báo sẽ KHÔNG BAO GIỜ kêu", missing, sortedNames(set))
 	}
 }
 
-// TestMoiChiSoTrongCanhBaoDeuCoTrongCode.
+// TestEveryMetricInTheAlertsExistsInCode.
 //
 // Một biểu thức trỏ vào chỉ số không tồn tại vẫn hợp lệ với promtool: nó
 // chạy, không khớp dòng nào, và không kêu. Đổi tên một chỉ số trong code
 // mà quên sửa cảnh báo là cách dễ nhất để mất giám sát trong im lặng.
-func TestMoiChiSoTrongCanhBaoDeuCoTrongCode(t *testing.T) {
-	canhBao := doc(t, "alerts.yml")
+func TestEveryMetricInTheAlertsExistsInCode(t *testing.T) {
+	alerts := readFile(t, "alerts.yml")
 
 	// Quét CẢ CÂY internal/ để tìm tên chỉ số.
 	//
@@ -95,22 +95,22 @@ func TestMoiChiSoTrongCanhBaoDeuCoTrongCode(t *testing.T) {
 	// không sai một cách âm thầm — bài test kêu ngay — nhưng nó biến việc
 	// thêm chỉ số thành việc phải nhớ sửa một tệp không liên quan, và
 	// người sửa dễ chọn cách nhanh hơn: nới điều kiện cho qua.
-	phat := map[string]bool{}
-	tenChiSo := regexp.MustCompile(`"(gouse_[a-z_]+)"`)
-	err := filepath.WalkDir("..", func(duong string, d fs.DirEntry, err error) error {
+	emit := map[string]bool{}
+	metricNames := regexp.MustCompile(`"(gouse_[a-z_]+)"`)
+	err := filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(duong, ".go") ||
-			strings.HasSuffix(duong, "_test.go") {
+		if d.IsDir() || !strings.HasSuffix(path, ".go") ||
+			strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		nguon, err := os.ReadFile(duong)
+		source, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		for _, m := range tenChiSo.FindAllStringSubmatch(string(nguon), -1) {
-			phat[m[1]] = true
+		for _, m := range metricNames.FindAllStringSubmatch(string(source), -1) {
+			emit[m[1]] = true
 		}
 		return nil
 	})
@@ -121,20 +121,20 @@ func TestMoiChiSoTrongCanhBaoDeuCoTrongCode(t *testing.T) {
 	// Chống xanh rỗng: quét hỏng (sai đường dẫn, regexp lệch) sẽ cho tập
 	// RỖNG, và khi đó mọi chỉ số đều bị báo thiếu — dễ thấy. Nhưng quét ra
 	// một tập nhỏ bất thường thì không ai để ý, nên khẳng định luôn.
-	if len(phat) < 10 {
+	if len(emit) < 10 {
 		t.Fatalf("chỉ tìm thấy %d tên chỉ số trong internal/ — "+
-			"bộ quét nhiều khả năng đang hỏng", len(phat))
+			"bộ quét nhiều khả năng đang hỏng", len(emit))
 	}
 
 	for _, m := range regexp.MustCompile(`\b(gouse_[a-z_]+)`).
-		FindAllStringSubmatch(canhBao, -1) {
+		FindAllStringSubmatch(alerts, -1) {
 		ten := m[1]
-		if phat[ten] {
+		if emit[ten] {
 			continue
 		}
 		// Histogram sinh thêm _count, _sum, _bucket. Cắt hậu tố rồi thử lại.
-		goc := regexp.MustCompile(`_(count|sum|bucket)$`).ReplaceAllString(ten, "")
-		if phat[goc] {
+		root := regexp.MustCompile(`_(count|sum|bucket)$`).ReplaceAllString(ten, "")
+		if emit[root] {
 			continue
 		}
 		t.Errorf("cảnh báo dùng chỉ số %q mà code không phát — "+
@@ -142,7 +142,7 @@ func TestMoiChiSoTrongCanhBaoDeuCoTrongCode(t *testing.T) {
 	}
 }
 
-func tenSapXep(m map[string]bool) []string {
+func sortedNames(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

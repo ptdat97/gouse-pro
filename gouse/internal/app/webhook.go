@@ -36,7 +36,7 @@ func (g *ghiSuKien) MarkDone(ctx context.Context, id string, loi error) error {
 // biMatWebhook tra khóa HMAC theo mã nhà cung cấp.
 //
 // Nhà cung cấp không có trong cấu hình trả chuỗi RỖNG, và
-// httpserver.KiemChuKyHMAC coi khóa rỗng là chữ ký không hợp lệ. Mặc định
+// httpserver.VerifyHMAC coi khóa rỗng là chữ ký không hợp lệ. Mặc định
 // là ĐÓNG: hãng chưa cấu hình thì không gửi được gì vào hệ thống.
 func biMatWebhook(bang map[string]string) fulfillmenthttp.ProviderSecret {
 	return func(nhaCungCap string) string { return bang[nhaCungCap] }

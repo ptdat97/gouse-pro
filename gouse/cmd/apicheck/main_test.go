@@ -53,10 +53,10 @@ func duAn(t *testing.T, openapi string, paths map[string]string, goSrc string) s
 	return goc
 }
 
-// corsGo dựng một cors.go tối thiểu có đúng `var HeaderChoPhep`.
+// corsGo dựng một cors.go tối thiểu có đúng `var AllowedHeaders`.
 func corsGo(header ...string) string {
 	var b strings.Builder
-	b.WriteString("package httpserver\n\nvar HeaderChoPhep = []string{\n")
+	b.WriteString("package httpserver\n\nvar AllowedHeaders = []string{\n")
 	for _, h := range header {
 		fmt.Fprintf(&b, "\t%q,\n", h)
 	}

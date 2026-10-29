@@ -56,16 +56,16 @@ func RateLimit(limit int, window time.Duration) Middleware {
 			}
 
 			now := time.Now()
-			duoc, hm := l.allow(clientIP(r), now)
-			ghiTieuDe(w, limit, hm)
+			ok2, hm := l.allow(clientIP(r), now)
+			writeHeaders(w, limit, hm)
 
-			if !duoc {
+			if !ok2 {
 				logger.FromContext(r.Context()).Warn("chặn vì vượt giới hạn tần suất",
 					"path", r.URL.Path)
 
 				// Retry-After để client biết chờ bao lâu thay vì thử lại
 				// ngay và tiếp tục bị chặn.
-				w.Header().Set("Retry-After", strconv.Itoa(giayCho(hm.datLai, now)))
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfterSec(hm.reset, now)))
 				apierror.Write(w, r,
 					apierror.New(apierror.CodeRateLimitExceeded,
 						"Bạn thao tác quá nhanh, vui lòng thử lại sau"),
@@ -79,7 +79,7 @@ func RateLimit(limit int, window time.Duration) Middleware {
 	}
 }
 
-// RateLimitThatBai giới hạn theo IP nhưng CHỈ đếm những lượt THẤT BẠI.
+// RateLimitFailures giới hạn theo IP nhưng CHỈ đếm những lượt THẤT BẠI.
 //
 // # Vì sao đăng nhập không dùng được RateLimit thường
 //
@@ -105,10 +105,10 @@ func RateLimit(limit int, window time.Duration) Middleware {
 // Hai lớp nhìn cùng một chuỗi request từ hai phía — theo tài khoản và theo
 // đường mạng — nên mỗi lớp bắt được thứ lớp kia mù.
 //
-// `laThatBai` quyết định lượt nào bị tính. Truyền vào thay vì cố định 401
+// `isFailure` quyết định lượt nào bị tính. Truyền vào thay vì cố định 401
 // để bên gọi tự định nghĩa "thất bại" theo endpoint của mình.
-func RateLimitThatBai(
-	limit int, window time.Duration, laThatBai func(status int) bool,
+func RateLimitFailures(
+	limit int, window time.Duration, isFailure func(status int) bool,
 ) Middleware {
 	l := &limiter{
 		limit:  limit,
@@ -125,7 +125,7 @@ func RateLimitThatBai(
 
 			key := clientIP(r)
 			now := time.Now()
-			vuotRoi, datLai := l.vuot(key, now)
+			exceeded, reset := l.over(key, now)
 
 			// KHÔNG gắn bộ tiêu đề X-RateLimit-* ở đây, khác với RateLimit
 			// thường — và đây là chỗ khác biệt có chủ ý.
@@ -137,12 +137,12 @@ func RateLimitThatBai(
 			//
 			// Người dùng thật không mất gì: đăng nhập đúng thì không bao
 			// giờ chạm hạn mức này, và khi bị chặn vẫn có Retry-After.
-			if vuotRoi {
+			if exceeded {
 				logger.FromContext(r.Context()).Warn(
 					"chặn vì quá nhiều lượt thất bại",
 					"path", r.URL.Path)
 
-				w.Header().Set("Retry-After", strconv.Itoa(giayCho(datLai, now)))
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfterSec(reset, now)))
 				apierror.Write(w, r,
 					apierror.New(apierror.CodeRateLimitExceeded,
 						"Bạn thao tác quá nhanh, vui lòng thử lại sau"),
@@ -154,8 +154,8 @@ func RateLimitThatBai(
 			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rec, r)
 
-			if laThatBai(rec.status) {
-				l.ghiNhan(key, time.Now())
+			if isFailure(rec.status) {
+				l.record(key, time.Now())
 			}
 		})
 	}
@@ -182,15 +182,15 @@ const sweepThreshold = 1024
 // Dùng CỬA SỔ TRƯỢT chứ không phải cửa sổ cố định: với cửa sổ cố định, kẻ
 // tấn công gửi đủ hạn mức ở cuối cửa sổ này rồi đủ hạn mức nữa ở đầu cửa sổ
 // sau — gấp đôi hạn mức trong vài giây.
-func (l *limiter) allow(key string, now time.Time) (bool, hanMuc) {
+func (l *limiter) allow(key string, now time.Time) (bool, quota) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	cutoff := now.Add(-l.window)
 
-	// conHieuLuc dọn luôn khóa không còn lượt nào: không dọn thì map phình
+	// stillValid dọn luôn khóa không còn lượt nào: không dọn thì map phình
 	// theo số IP đã từng gọi — rò rỉ bộ nhớ chậm nhưng chắc chắn.
-	kept := l.conHieuLuc(key, cutoff)
+	kept := l.stillValid(key, cutoff)
 
 	if len(l.hits) > sweepThreshold {
 		l.sweep(cutoff)
@@ -203,21 +203,21 @@ func (l *limiter) allow(key string, now time.Time) (bool, hanMuc) {
 		// Bảo client chờ trọn cửa sổ là bắt họ chờ lâu hơn cần thiết: kẻ
 		// gửi dồn 3 lượt trong một giây thì chỉ một giây sau đã có chỗ,
 		// còn người dùng thật bị chặn oan phải ngồi đợi hết phút.
-		return false, hanMuc{conLai: 0, datLai: kept[0].Add(l.window)}
+		return false, quota{remaining: 0, reset: kept[0].Add(l.window)}
 	}
 
 	l.hits[key] = append(l.hits[key], now)
 	con := l.hits[key]
-	return true, hanMuc{conLai: l.limit - len(con), datLai: con[0].Add(l.window)}
+	return true, quota{remaining: l.limit - len(con), reset: con[0].Add(l.window)}
 }
 
-// hanMuc là phần hạn mức còn lại của một khóa, để báo cho client.
-type hanMuc struct {
-	conLai int
-	datLai time.Time
+// quota là phần hạn mức còn lại của một khóa, để báo cho client.
+type quota struct {
+	remaining int
+	reset     time.Time
 }
 
-// ghiTieuDe gắn bộ tiêu đề hạn mức vào response.
+// writeHeaders gắn bộ tiêu đề hạn mức vào response.
 //
 // Gắn cho MỌI lượt chứ không riêng lượt bị chặn 429, vì đó mới là công
 // dụng: client thấy hạn mức sắp cạn thì tự giãn nhịp, thay vì gõ tới khi
@@ -227,57 +227,57 @@ type hanMuc struct {
 // (common.yaml#/headers). Đồng hồ hai bên lệch nhau thì con số này lệch
 // theo — nên `Retry-After`, vốn là SỐ GIÂY tương đối và miễn nhiễm với
 // lệch đồng hồ, vẫn là thứ client nên dùng để chờ.
-func ghiTieuDe(w http.ResponseWriter, limit int, h hanMuc) {
+func writeHeaders(w http.ResponseWriter, limit int, h quota) {
 	head := w.Header()
 	head.Set("X-RateLimit-Limit", strconv.Itoa(limit))
-	head.Set("X-RateLimit-Remaining", strconv.Itoa(h.conLai))
-	head.Set("X-RateLimit-Reset", strconv.FormatInt(h.datLai.Unix(), 10))
+	head.Set("X-RateLimit-Remaining", strconv.Itoa(h.remaining))
+	head.Set("X-RateLimit-Reset", strconv.FormatInt(h.reset.Unix(), 10))
 }
 
-// giayCho là số giây tới lúc có chỗ trống, làm tròn LÊN và tối thiểu 1.
+// retryAfterSec là số giây tới lúc có chỗ trống, làm tròn LÊN và tối thiểu 1.
 //
 // Làm tròn xuống thì client thử lại đúng lúc chưa tới hạn và bị chặn tiếp;
 // 0 giây thì nó thử lại ngay lập tức.
-func giayCho(datLai, now time.Time) int {
-	giay := int(math.Ceil(datLai.Sub(now).Seconds()))
-	if giay < 1 {
+func retryAfterSec(reset, now time.Time) int {
+	seconds := int(math.Ceil(reset.Sub(now).Seconds()))
+	if seconds < 1 {
 		return 1
 	}
-	return giay
+	return seconds
 }
 
 // vuot cho biết khóa ĐÃ chạm hạn mức, KHÔNG ghi nhận thêm lượt nào.
 //
-// Tách khỏi `allow` vì `RateLimitThatBai` chỉ biết lượt này có tính hay
+// Tách khỏi `allow` vì `RateLimitFailures` chỉ biết lượt này có tính hay
 // không SAU khi handler chạy xong — lúc kiểm thì chưa được ghi.
-func (l *limiter) vuot(key string, now time.Time) (bool, time.Time) {
+func (l *limiter) over(key string, now time.Time) (bool, time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	kept := l.conHieuLuc(key, now.Add(-l.window))
+	kept := l.stillValid(key, now.Add(-l.window))
 	if len(kept) < l.limit {
 		return false, time.Time{}
 	}
 	return true, kept[0].Add(l.window)
 }
 
-// ghiNhan ghi một lượt vào bộ đếm.
-func (l *limiter) ghiNhan(key string, now time.Time) {
+// record ghi một lượt vào bộ đếm.
+func (l *limiter) record(key string, now time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	cutoff := now.Add(-l.window)
-	l.conHieuLuc(key, cutoff)
+	l.stillValid(key, cutoff)
 	if len(l.hits) > sweepThreshold {
 		l.sweep(cutoff)
 	}
 	l.hits[key] = append(l.hits[key], now)
 }
 
-// conHieuLuc lọc bỏ những lượt đã ra ngoài cửa sổ và ghi lại kết quả.
+// stillValid lọc bỏ những lượt đã ra ngoài cửa sổ và ghi lại kết quả.
 //
 // Bên gọi PHẢI đang giữ khóa mu.
-func (l *limiter) conHieuLuc(key string, cutoff time.Time) []time.Time {
+func (l *limiter) stillValid(key string, cutoff time.Time) []time.Time {
 	kept := l.hits[key][:0]
 	for _, t := range l.hits[key] {
 		if t.After(cutoff) {

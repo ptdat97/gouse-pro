@@ -299,7 +299,7 @@ không, và lý do đáng ghi lại.
 `api/paths/webhooks.yaml` quy định ba lớp bảo vệ cho webhook thanh toán:
 
 ```text
-1. Xác minh chữ ký HMAC          → cài được, đã có httpserver.KiemChuKyHMAC
+1. Xác minh chữ ký HMAC          → cài được, đã có httpserver.VerifyHMAC
 2. Idempotency theo event_id     → cài được, đã có bảng webhook_event
 3. ĐỐI CHIẾU SỐ TIỀN với         → KHÔNG cài được
    payment_intent trong hệ thống
@@ -1550,7 +1550,7 @@ Còn phải rà:
    trong khi nhân viên hàng hóa đọc được sổ cái. Kèm bài phủ bắt buộc mọi
    đường mới phải có nhóm trong ma trận.
 ✅ rate limit cho ĐĂNG NHẬP `[XONG 30/08]`
-   `httpserver.RateLimitThatBai` + `internal/app/api_gioihan_dangnhap_test.go`.
+   `httpserver.RateLimitFailures` + `internal/app/api_gioihan_dangnhap_test.go`.
    Rà lại mới thấy mô hình đe dọa ban đầu ghi sai: khóa theo TÀI KHOẢN
    (`identity.MaxFailedAttempts` = 5, khóa 15 phút) ĐÃ chặn việc dò mật khẩu
    một tài khoản. Lỗ thật còn hở là RẢI MẬT KHẨU — một mật khẩu phổ biến thử
@@ -4839,7 +4839,7 @@ gouse_db_pool_connections{state="acquired"}
 
 PromQL khớp phép chia theo TOÀN BỘ nhãn. Vế trái có `state="acquired"`, vế
 phải **không có nhãn `state`** (xác nhận ở `internal/platform/database/metrics.go`:
-`ketNoi` khai `[]string{"state"}`, `toiDa` khai `nil`). Hai tập nhãn không
+`connect` khai `[]string{"state"}`, `toiDa` khai `nil`). Hai tập nhãn không
 bao giờ khớp, biểu thức luôn rỗng, và `DatabasePoolNearLimit` **chưa từng
 có khả năng kêu**.
 
@@ -5099,9 +5099,9 @@ request thật và một response thật.
 |---|---|---|
 | Lỗi PHIÊN nói về mật khẩu | `/auth/refresh` trả "Email hoặc mật khẩu không đúng" cho request không mang email lẫn mật khẩu | `translatePhienErr` |
 | Token hết hạn → 403 ở checkout | client KHÔNG thử lại sau 403, nên khách kẹt giữa bước thanh toán dù refresh token còn hạn | `httpserver.TokenRejected` |
-| Token hết hạn → 404 ở ba đường đọc đơn | chủ đơn được trả lời "đơn của bạn không tồn tại" | `httpserver.LoiTokenHetHan` |
+| Token hết hạn → 404 ở ba đường đọc đơn | chủ đơn được trả lời "đơn của bạn không tồn tại" | `httpserver.ExpiredTokenError` |
 | Kiện hàng mang mã dòng của PHIÊN | `order_line_ids` trả `cln_…` còn đơn trả `oln_…`; phép ghép khớp 0 dòng trên MỌI đơn | `PlacedOrder.Lines` + migration 000053 |
-| `size_recommendation` không bao giờ xuất hiện | hai chỗ đứt độc lập: tham số truyền vào rồi không dùng, và tuyến thiếu middleware nhận diện khách | gán vào DTO + `ResolveShopperChiDoc` |
+| `size_recommendation` không bao giờ xuất hiện | hai chỗ đứt độc lập: tham số truyền vào rồi không dùng, và tuyến thiếu middleware nhận diện khách | gán vào DTO + `ResolveShopperReadOnly` |
 | `cmd/taonhaban` panic mọi lần chạy | thiếu khóa mã hóa; đăng nhập một tài khoản không ai tạo; thiếu biến môi trường thì panic GIỮA CHỪNG | tự tạo tài khoản, kiểm biến trước khi ghi |
 
 **Cái được kiểm chứng là ĐÚNG** cũng đáng ghi, vì mỗi cái là một bản sửa
@@ -5609,18 +5609,18 @@ Viết phép kiểm xong, chạy lên repo thật, nó tìm thêm hai chỗ:
 #### Hàng rào
 
 `cmd/apicheck` nay kiểm **tầng thứ ba** của hợp đồng — header — bằng cách
-đối chiếu mọi khai báo `in: header` trong `api/` với `HeaderChoPhep` đọc
+đối chiếu mọi khai báo `in: header` trong `api/` với `AllowedHeaders` đọc
 bằng AST từ `cors.go`. Hai hướng, hai sổ lý do, và cả hai sổ bị bắt khi có
 dòng chết. So không phân biệt hoa thường, vì `X-Request-ID` và
 `X-Request-Id` là MỘT header và một cảnh báo giả sẽ làm người ta tắt hẳn
 phép kiểm.
 
 `cors_test.go` cũng đổi: nó từng liệt kê tay bốn header và xanh suốt trong
-lúc cửa hàng hỏng. Nay nó đọc `HeaderChoPhep`, tức kiểm rằng mọi thứ đã
+lúc cửa hàng hỏng. Nay nó đọc `AllowedHeaders`, tức kiểm rằng mọi thứ đã
 khai đều tới được trình duyệt; còn việc danh sách ấy có ĐỦ hay không là
 việc của `apicheck`.
 
-**Kiểm chứng bằng cách phá:** bỏ lại `X-Visit-Id` khỏi `HeaderChoPhep` →
+**Kiểm chứng bằng cách phá:** bỏ lại `X-Visit-Id` khỏi `AllowedHeaders` →
 `apicheck` đỏ kèm tên header và đường dẫn đặc tả, `cors_test` đỏ kèm câu
 "cả cửa hàng trắng trang". Khôi phục → cả hai xanh.
 
@@ -7014,7 +7014,7 @@ Phá từng nhánh đều đỏ đúng bài.
 **Nhưng chưa chứng minh được là hết.** Lỗi gốc chập chờn và tôi không tái
 hiện được theo ý muốn. Bằng chứng hiện có chỉ là: sáu lượt `go test ./...`
 liên tiếp không lượt nào đỏ, so với khoảng hai trên sáu trước đó. Nếu nó
-xuất hiện lại, chỗ cần nhìn là `testdb.timeoutKetNoiTest` và số lần thử.
+xuất hiện lại, chỗ cần nhìn là `testdb.testConnectTimeout` và số lần thử.
 
 ---
 

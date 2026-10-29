@@ -17,7 +17,7 @@ import (
 // database phát triển. So chuỗi thuần thì hai DSN chỉ khác `sslmode` sẽ
 // lọt qua — và hậu quả là mất dữ liệu, im lặng, không ai biết cho tới lần
 // mở giao diện sau.
-func TestNhanRaHaiDSNCungDatabase(t *testing.T) {
+func TestRecognisesTwoDSNsForOneDatabase(t *testing.T) {
 	cases := []struct {
 		name string
 		a, b string
@@ -75,7 +75,7 @@ func TestNhanRaHaiDSNCungDatabase(t *testing.T) {
 // Ba gói `interfaces/http` của cart, checkout và order đều cho ra tệp nhị
 // phân tên `http.test`. Nếu đặt tên database theo đó, chúng dùng chung một
 // database và mang lại đúng sự cố cần chữa.
-func TestMoiGoiMotTenDatabase(t *testing.T) {
+func TestOneDatabaseNamePerPackage(t *testing.T) {
 	got := map[string]string{}
 	for _, dir := range []string{
 		"/Users/ai/gouse/internal/modules/cart",
@@ -96,7 +96,7 @@ func TestMoiGoiMotTenDatabase(t *testing.T) {
 
 // TÊN KHÔNG PHỤ THUỘC MÁY: đường dẫn tuyệt đối khác nhau ở mỗi máy, nhưng
 // cùng một gói phải luôn ra cùng một tên database.
-func TestTenKhongPhuThuocDuongDanTuyetDoi(t *testing.T) {
+func TestTheNameDoesNotDependOnTheAbsolutePath(t *testing.T) {
 	a := slugify("/Users/ai/gouse/internal/modules/order")
 	b := slugify("/home/ci/work/nen-tang/internal/modules/order")
 	if a != b {
@@ -111,7 +111,7 @@ func TestTenKhongPhuThuocDuongDanTuyetDoi(t *testing.T) {
 //
 // Thông báo của hàng rào đi thẳng vào log CI, và log CI thường công khai
 // hoặc chia sẻ rộng hơn nhiều so với biến môi trường.
-func TestThongBaoLoiKhongLoMatKhau(t *testing.T) {
+func TestTheErrorMessageLeaksNoPassword(t *testing.T) {
 	got := redact("postgres://postgres:sieu-bi-mat@127.0.0.1:5432/gouse")
 	if got == "postgres://postgres:sieu-bi-mat@127.0.0.1:5432/gouse" {
 		t.Fatal("mật khẩu còn nguyên trong chuỗi đã che")
@@ -144,21 +144,21 @@ func TestThongBaoLoiKhongLoMatKhau(t *testing.T) {
 // ĐÃ LOẠI TRỪ: không phải chạm trần kết nối. Đo trong lúc chạy cả bộ,
 // đỉnh là 22 trên `max_connections = 100`.
 
-func rutNganNhipThuLai(t *testing.T) {
+func shortenRetryInterval(t *testing.T) {
 	t.Helper()
-	nhip, lan := nhipThuLai, soLanThu
-	nhipThuLai = time.Millisecond
-	t.Cleanup(func() { nhipThuLai, soLanThu = nhip, lan })
+	interval, attempt := retryInterval, attempts
+	retryInterval = time.Millisecond
+	t.Cleanup(func() { retryInterval, attempts = interval, attempt })
 }
 
 // Hết hạn thì THỬ LẠI, và lần sau thành công thì trả về kết nối ấy.
-func TestHetHanThiThuLai(t *testing.T) {
-	rutNganNhipThuLai(t)
+func TestATimeoutIsRetried(t *testing.T) {
+	shortenRetryInterval(t)
 
-	goi := 0
-	_, err := thuLai(func() (*database.DB, error) {
-		goi++
-		if goi < 3 {
+	pkg := 0
+	_, err := retry(func() (*database.DB, error) {
+		pkg++
+		if pkg < 3 {
 			return nil, fmt.Errorf("bọc: %w", context.DeadlineExceeded)
 		}
 		return nil, nil // lần thứ ba "thành công"
@@ -166,8 +166,8 @@ func TestHetHanThiThuLai(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lần thứ ba thành công thì không được trả lỗi: %v", err)
 	}
-	if goi != 3 {
-		t.Errorf("gọi %d lần, mong 3", goi)
+	if pkg != 3 {
+		t.Errorf("gọi %d lần, mong 3", pkg)
 	}
 }
 
@@ -176,34 +176,34 @@ func TestHetHanThiThuLai(t *testing.T) {
 // Postgres không chạy, DSN sai, sai mật khẩu — lần sau vẫn thế. Thử lại
 // chỉ làm mỗi gói treo thêm vài giây trước khi đỏ, nhân với hai mươi ba
 // gói.
-func TestLoiKhacHetHanThiKhongThuLai(t *testing.T) {
-	rutNganNhipThuLai(t)
+func TestANonTimeoutErrorIsNotRetried(t *testing.T) {
+	shortenRetryInterval(t)
 
-	goi := 0
-	loiGoc := errors.New("database: DSN không hợp lệ")
-	_, err := thuLai(func() (*database.DB, error) {
-		goi++
-		return nil, loiGoc
+	pkg := 0
+	rootErr := errors.New("database: DSN không hợp lệ")
+	_, err := retry(func() (*database.DB, error) {
+		pkg++
+		return nil, rootErr
 	})
-	if goi != 1 {
-		t.Errorf("gọi %d lần, mong 1 — lỗi cấu hình không đáng thử lại", goi)
+	if pkg != 1 {
+		t.Errorf("gọi %d lần, mong 1 — lỗi cấu hình không đáng thử lại", pkg)
 	}
-	if !errors.Is(err, loiGoc) {
+	if !errors.Is(err, rootErr) {
 		t.Errorf("phải trả NGUYÊN lỗi gốc để người đọc biết sửa gì, nhận %v", err)
 	}
 }
 
 // Hết hạn mãi thì chịu thua, và thông báo phải nói rõ đã thử mấy lần.
-func TestHetHanMaiThiChiuThua(t *testing.T) {
-	rutNganNhipThuLai(t)
+func TestRepeatedTimeoutsEventuallyGiveUp(t *testing.T) {
+	shortenRetryInterval(t)
 
-	goi := 0
-	_, err := thuLai(func() (*database.DB, error) {
-		goi++
+	pkg := 0
+	_, err := retry(func() (*database.DB, error) {
+		pkg++
 		return nil, fmt.Errorf("bọc: %w", context.DeadlineExceeded)
 	})
-	if goi != soLanThu {
-		t.Errorf("gọi %d lần, mong %d", goi, soLanThu)
+	if pkg != attempts {
+		t.Errorf("gọi %d lần, mong %d", pkg, attempts)
 	}
 	if err == nil {
 		t.Fatal("hết hạn mãi mà không báo lỗi")

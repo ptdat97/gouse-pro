@@ -51,7 +51,7 @@ type MarkPaid func(ctx context.Context, orderID string) error
 //
 // # BA LỚP BẢO VỆ của api/paths/webhooks.yaml, và chỗ nào đáp ứng
 //
-//  1. Chữ ký HMAC       → httpserver.KiemChuKyHMAC, TRƯỚC mọi thứ khác
+//  1. Chữ ký HMAC       → httpserver.VerifyHMAC, TRƯỚC mọi thứ khác
 //  2. Idempotency       → chỉ mục UNIQUE (provider, provider_event_id)
 //  3. ĐỐI CHIẾU SỐ TIỀN → payment_intent (ADR-0017) — lớp này là lý do
 //     endpoint không được mở trước khi có bảng đó
@@ -114,7 +114,7 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 	// Trước cả việc đọc JSON: thân chưa xác minh là dữ liệu của người lạ.
 	// Chữ ký tính trên BYTE THÔ — parse rồi serialize lại sẽ đổi thứ tự
 	// khóa và khoảng trắng.
-	if err := httpserver.KiemChuKyHMAC(than,
+	if err := httpserver.VerifyHMAC(than,
 		r.Header.Get("X-Signature"), h.secretOf(provider)); err != nil {
 		metrics.RecordFailure(metrics.StageWebhook, "chu_ky_sai")
 		h.log.WarnContext(r.Context(), "webhook thanh toán có chữ ký KHÔNG hợp lệ",

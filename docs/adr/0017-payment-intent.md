@@ -10,7 +10,7 @@ Webhook **vận chuyển** đã cài xong (27/08). Webhook **thanh toán** thì
 không, và `api/paths/webhooks.yaml` quy định ba lớp bảo vệ cho nó:
 
 ```text
-1. Xác minh chữ ký HMAC          → cài được, đã có httpserver.KiemChuKyHMAC
+1. Xác minh chữ ký HMAC          → cài được, đã có httpserver.VerifyHMAC
 2. Idempotency theo event_id     → cài được, đã có bảng webhook_event
 3. ĐỐI CHIẾU SỐ TIỀN với         → KHÔNG cài được: không có gì để đối chiếu
    payment_intent trong hệ thống

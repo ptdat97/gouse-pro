@@ -361,8 +361,8 @@ func (h *CustomerHandler) findOwned(r *http.Request) (*domain.Order, error) {
 
 	if !h.owns(r, o) {
 		// Chủ đơn vừa hết hạn token KHÔNG phải người lạ — xem
-		// `httpserver.LoiTokenHetHan`.
-		if err := httpserver.LoiTokenHetHan(r.Context()); err != nil {
+		// `httpserver.ExpiredTokenError`.
+		if err := httpserver.ExpiredTokenError(r.Context()); err != nil {
 			return nil, err
 		}
 		return nil, apierror.New(apierror.CodeNotFound, "Không tìm thấy đơn hàng")
