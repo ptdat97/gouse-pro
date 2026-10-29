@@ -256,9 +256,9 @@ chạy đầu tiên.
 Ba tầng vì ba dạng lỗi trên đều đã xảy ra THẬT, và không phép kiểm nào lúc
 ấy nhìn vào chỗ chúng xảy ra.
 
-Mỗi tầng có một **sổ miễn trừ ghi tay kèm lý do** — `chuaCai`,
-`ngoaiHopDong`, `headerNgoaiDacTa`, `headerKhongQuaTrinhDuyet`,
-`capEnumDaKiem`, `enumKhongGhep`. Miễn trừ phải là một quyết định có người
+Mỗi tầng có một **sổ miễn trừ ghi tay kèm lý do** — `notImplemented`,
+`outsideContract`, `headersOutsideSpec`, `headersNotViaBrowser`,
+`checkedEnumPairs`, `unpairedEnums`. Miễn trừ phải là một quyết định có người
 ký, không phải một chỗ bị bỏ quên.
 
 Tầng enum ghép cặp TAY chứ không theo tên: phép rà tự động đầu tiên cho
@@ -304,7 +304,7 @@ nguyên 15 khả dụng / 5 cam kết"* không bài nào ở lớp ấy bắt đ
 Tìm ra bằng một phép phá **KHÔNG ĐỎ**: bỏ khai báo phiên bản của chính bên
 nhận ấy mà bài test vẫn xanh, vì nó chưa bao giờ chạy ở đó. Xem P3-86.
 
-Miễn trừ đi qua sổ `benNhanChiOWorker` kèm lý do, cùng khuôn mọi sổ khác —
+Miễn trừ đi qua sổ `receiversOnlyInWorker` kèm lý do, cùng khuôn mọi sổ khác —
 và sổ ấy cũng bị gác: một dòng trỏ tới bên nhận không còn tồn tại là vi phạm.
 
 ---

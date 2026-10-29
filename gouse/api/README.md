@@ -103,8 +103,8 @@ ra: `color_family` khai `GRAY` trong khi máy chủ lưu `GREY`, và bộ lọc 
 im lặng không khớp gì (P3-70).
 
 Tầng enum của `cmd/apicheck` gác việc này. Thêm enum mới vào đặc tả thì
-phải QUYẾT: ghép cặp với hằng số Go trong `capEnumDaKiem`, hoặc khai lý do
-không ghép vào `enumKhongGhep`. Không làm gì thì CI đỏ.
+phải QUYẾT: ghép cặp với hằng số Go trong `checkedEnumPairs`, hoặc khai lý do
+không ghép vào `unpairedEnums`. Không làm gì thì CI đỏ.
 
 ---
 

@@ -19,29 +19,29 @@ import (
 // tìm ra nó.
 
 // duAn dựng một cây thư mục tối thiểu mà apicheck đọc được.
-func duAn(t *testing.T, openapi string, paths map[string]string, goSrc string) string {
+func project(t *testing.T, openapi string, paths map[string]string, goSrc string) string {
 	t.Helper()
-	goc := t.TempDir()
+	root2 := t.TempDir()
 
-	must := func(duong, noiDung string) {
+	must := func(path, content string) {
 		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(duong), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(duong, []byte(noiDung), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	must(filepath.Join(goc, "api", "openapi.yaml"), openapi)
-	for ten, noiDung := range paths {
-		must(filepath.Join(goc, "api", "paths", ten), noiDung)
+	must(filepath.Join(root2, "api", "openapi.yaml"), openapi)
+	for ten, content := range paths {
+		must(filepath.Join(root2, "api", "paths", ten), content)
 	}
-	must(filepath.Join(goc, "internal", "app", "routes.go"), goSrc)
+	must(filepath.Join(root2, "internal", "app", "routes.go"), goSrc)
 
 	// Mọi dự án giả cần một cors.go, vì `run` luôn đọc nó. Bài nào muốn
 	// kiểm tầng header thì ghi đè file này.
-	must(filepath.Join(goc, "internal", "platform", "httpserver", "cors.go"),
+	must(filepath.Join(root2, "internal", "platform", "httpserver", "cors.go"),
 		corsGo("X-Thing-Id"))
 
 	// …và một schemas.yaml, vì tầng DTO luôn đọc nó.
@@ -49,8 +49,8 @@ func duAn(t *testing.T, openapi string, paths map[string]string, goSrc string) s
 	// Dựng ở đây chứ không bắt từng bài tự thêm: thêm tầng thứ năm sau này
 	// sẽ lại làm mọi bài cũ vỡ vì cùng một lý do, và lần nào cũng phải sửa
 	// hàng chục chỗ. Đã mắc đúng lỗi này với `archcheck` cùng ngày.
-	must(filepath.Join(goc, "api", "components", "schemas.yaml"), "")
-	return goc
+	must(filepath.Join(root2, "api", "components", "schemas.yaml"), "")
+	return root2
 }
 
 // corsGo dựng một cors.go tối thiểu có đúng `var AllowedHeaders`.
@@ -64,25 +64,25 @@ func corsGo(header ...string) string {
 	return b.String()
 }
 
-// ghiDe ghi đè một file trong dự án giả đã dựng.
-func ghiDe(t *testing.T, goc, duong, noiDung string) {
+// override ghi đè một file trong dự án giả đã dựng.
+func override(t *testing.T, root2, path, content string) {
 	t.Helper()
-	d := filepath.Join(goc, filepath.FromSlash(duong))
+	d := filepath.Join(root2, filepath.FromSlash(path))
 	if err := os.MkdirAll(filepath.Dir(d), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(d, []byte(noiDung), 0o644); err != nil {
+	if err := os.WriteFile(d, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-const openapiMotTuyen = `openapi: 3.1.0
+const oneRouteOpenAPI = `openapi: 3.1.0
 paths:
   /api/v1/things:
     $ref: './paths/things.yaml#/things'
 `
 
-const pathsMotTuyen = `things:
+const oneRoutePaths = `things:
   get:
     operationId: listThings
     parameters:
@@ -95,7 +95,7 @@ const pathsMotTuyen = `things:
         description: ok
 `
 
-const goMotTuyen = `package app
+const oneRouteGo = `package app
 
 import "net/http"
 
@@ -109,20 +109,20 @@ func Register(mux *http.ServeMux) {
 // Sổ rỗng có chủ ý: bài test đo phép đối chiếu, không đo nội dung sổ của
 // dự án thật. Dùng sổ thật thì mỗi bài kèm theo mười chín vi phạm không
 // liên quan và không bài nào đo được thứ nó muốn đo.
-func chay(t *testing.T, goc string, so ...map[string]string) *checker {
+func chay(t *testing.T, root2 string, overrides ...map[string]string) *checker {
 	t.Helper()
 	c := &checker{
-		root:                     goc,
-		chuaCai:                  map[string]string{},
-		ngoaiHopDong:             map[string]string{},
-		headerNgoaiDacTa:         map[string]string{},
-		headerKhongQuaTrinhDuyet: map[string]string{},
+		root:                 root2,
+		notImplemented:       map[string]string{},
+		outsideContract:      map[string]string{},
+		headersOutsideSpec:   map[string]string{},
+		headersNotViaBrowser: map[string]string{},
 	}
-	if len(so) > 0 && so[0] != nil {
-		c.chuaCai = so[0]
+	if len(overrides) > 0 && overrides[0] != nil {
+		c.notImplemented = overrides[0]
 	}
-	if len(so) > 1 && so[1] != nil {
-		c.ngoaiHopDong = so[1]
+	if len(overrides) > 1 && overrides[1] != nil {
+		c.outsideContract = overrides[1]
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run: %v", err)
@@ -130,37 +130,37 @@ func chay(t *testing.T, goc string, so ...map[string]string) *checker {
 	return c
 }
 
-func TestKhopThiKhongBaoViPham(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+func TestAMatchReportsNoViolation(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 
-	if c := chay(t, goc); len(c.viPham) != 0 {
-		t.Fatalf("dự án khớp mà báo %d vi phạm: %v", len(c.viPham), c.viPham)
+	if c := chay(t, root2); len(c.violations) != 0 {
+		t.Fatalf("dự án khớp mà báo %d vi phạm: %v", len(c.violations), c.violations)
 	}
 }
 
 // TUYẾN SỐNG NGOÀI HỢP ĐỒNG — lỗi công cụ này sinh ra để bắt.
-func TestBatTuyenKhongCoTrongDacTa(t *testing.T) {
-	goSrc := goMotTuyen + `
+func TestCatchesARouteMissingFromTheSpec(t *testing.T) {
+	goSrc := oneRouteGo + `
 func Them(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/things/{id}/approve", nil)
 }
 `
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goSrc)
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, goSrc)
 
-	c := chay(t, goc)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chay(t, root2)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "POST /api/v1/things/{id}/approve") {
-		t.Errorf("vi phạm không nêu đúng tuyến: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "POST /api/v1/things/{id}/approve") {
+		t.Errorf("vi phạm không nêu đúng tuyến: %s", c.violations[0])
 	}
 }
 
 // THAO TÁC ĐẶC TẢ KHÔNG AI CÀI, và không ai khai lý do.
-func TestBatThaoTacChuaCaiMaKhongKhai(t *testing.T) {
-	openapi := openapiMotTuyen + `  /api/v1/widgets:
+func TestCatchesAnUnimplementedOperationNotDeclared(t *testing.T) {
+	openapi := oneRouteOpenAPI + `  /api/v1/widgets:
     $ref: './paths/widgets.yaml#/widgets'
 `
 	widgets := `widgets:
@@ -170,16 +170,16 @@ func TestBatThaoTacChuaCaiMaKhongKhai(t *testing.T) {
       '200':
         description: ok
 `
-	goc := duAn(t, openapi, map[string]string{
-		"things.yaml": pathsMotTuyen, "widgets.yaml": widgets,
-	}, goMotTuyen)
+	root2 := project(t, openapi, map[string]string{
+		"things.yaml": oneRoutePaths, "widgets.yaml": widgets,
+	}, oneRouteGo)
 
-	c := chay(t, goc)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chay(t, root2)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "GET /api/v1/widgets") {
-		t.Errorf("vi phạm không nêu đúng thao tác: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "GET /api/v1/widgets") {
+		t.Errorf("vi phạm không nêu đúng thao tác: %s", c.violations[0])
 	}
 }
 
@@ -189,17 +189,17 @@ func TestBatThaoTacChuaCaiMaKhongKhai(t *testing.T) {
 // thật sự xuất hiện trong mô tả của một tham số vận hành, và một phép
 // grep sẽ đếm nó là tuyến rồi báo vi phạm giả. Cảnh báo giả là thứ làm
 // người ta tắt hẳn phép kiểm.
-func TestChuoiTrongMoTaKhongPhaiTuyen(t *testing.T) {
-	goSrc := goMotTuyen + `
+func TestAStringInADescriptionIsNotARoute(t *testing.T) {
+	goSrc := oneRouteGo + `
 const moTa = "Số sự kiện tối đa mỗi phút qua POST /api/v1/events. 0 = TẮT."
 
 func Dung() string { return moTa }
 `
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goSrc)
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, goSrc)
 
-	if c := chay(t, goc); len(c.viPham) != 0 {
-		t.Fatalf("chuỗi trong mô tả bị đếm là tuyến: %v", c.viPham)
+	if c := chay(t, root2); len(c.violations) != 0 {
+		t.Fatalf("chuỗi trong mô tả bị đếm là tuyến: %v", c.violations)
 	}
 }
 
@@ -208,22 +208,22 @@ func Dung() string { return moTa }
 // Gặp cách khai nó không hiểu thì phải BÁO LỖI. Âm thầm bỏ qua sẽ dựng
 // lại đúng vấn đề công cụ này sinh ra để sửa: một dấu xanh cho một phép
 // kiểm không kiểm gì.
-func TestDacTaKhaiLaThiBaoLoiChuKhongBoQua(t *testing.T) {
+func TestAnUnknownSpecDeclarationErrorsInsteadOfBeingSkipped(t *testing.T) {
 	openapi := `openapi: 3.1.0
 paths:
   /api/v1/things:
     get:
       operationId: listThings
 `
-	goc := duAn(t, openapi,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+	root2 := project(t, openapi,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 
 	c := &checker{
-		root:                     goc,
-		chuaCai:                  map[string]string{},
-		ngoaiHopDong:             map[string]string{},
-		headerNgoaiDacTa:         map[string]string{},
-		headerKhongQuaTrinhDuyet: map[string]string{},
+		root:                 root2,
+		notImplemented:       map[string]string{},
+		outsideContract:      map[string]string{},
+		headersOutsideSpec:   map[string]string{},
+		headersNotViaBrowser: map[string]string{},
 	}
 	err := c.run()
 	if err == nil {
@@ -236,30 +236,30 @@ paths:
 
 // DANH SÁCH HOÃN PHẢI ĐƯỢC DỌN.
 //
-// Cài xong mà quên xóa dòng trong `chuaCai` thì danh sách hoãn dần thành
+// Cài xong mà quên xóa dòng trong `notImplemented` thì danh sách hoãn dần thành
 // danh sách không ai đọc — và khi ấy nó che mất thao tác thật sự bị bỏ
 // quên.
-func TestBatDongHoanDaCaiXong(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+func TestCatchesADeferRowAlreadyImplemented(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 
-	c := chay(t, goc, map[string]string{"GET /api/v1/things": "giả vờ hoãn"})
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chay(t, root2, map[string]string{"GET /api/v1/things": "giả vờ hoãn"})
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "xóa dòng") {
-		t.Errorf("vi phạm không nói phải làm gì: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "xóa dòng") {
+		t.Errorf("vi phạm không nói phải làm gì: %s", c.violations[0])
 	}
 }
 
 // MIỄN TRỪ CHO THỨ KHÔNG TỒN TẠI cũng phải bị bắt.
-func TestBatMienTruThua(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+func TestCatchesAnExtraExemption(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 
-	c := chay(t, goc, nil, map[string]string{"GET /khong-ton-tai": "giả vờ"})
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chay(t, root2, nil, map[string]string{"GET /khong-ton-tai": "giả vờ"})
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
 }
 
@@ -268,23 +268,23 @@ func TestBatMienTruThua(t *testing.T) {
 // Hai bài kia dùng dự án giả nên chúng chứng minh công cụ ĐÚNG; bài này
 // chứng minh dự án đang KHỚP. Thiếu nó thì công cụ có thể đúng mà không ai
 // chạy nó lên thứ đáng chạy.
-func TestDuAnThatKhop(t *testing.T) {
+func TestTheRealProjectMatches(t *testing.T) {
 	c := &checker{
-		root: "../..", chuaCai: chuaCai, ngoaiHopDong: ngoaiHopDong,
-		headerNgoaiDacTa:         headerNgoaiDacTa,
-		headerKhongQuaTrinhDuyet: headerKhongQuaTrinhDuyet,
-		capEnum:                  capEnumDaKiem,
-		enumKhongGhep:            enumKhongGhep,
-		nguongEnumChuaGac:        soEnumChuaGac,
-		capDTO:                   capDTODaKiem,
-		nguongDTOChuaGac:         soDTOChuaGac,
+		root: "../..", notImplemented: notImplemented, outsideContract: outsideContract,
+		headersOutsideSpec:   headersOutsideSpec,
+		headersNotViaBrowser: headersNotViaBrowser,
+		enumPair:             checkedEnumPairs,
+		unpairedEnums:        unpairedEnums,
+		ungatedEnumLedger:    ungatedEnums,
+		dtoPair:              checkedDTOPairs,
+		ungatedDTOLedger:     ungatedDTOs,
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run trên repo thật: %v", err)
 	}
-	if len(c.viPham) != 0 {
+	if len(c.violations) != 0 {
 		t.Fatalf("repo có %d lệch giữa đặc tả và tuyến:\n%s",
-			len(c.viPham), strings.Join(c.viPham, "\n"))
+			len(c.violations), strings.Join(c.violations, "\n"))
 	}
 }
 
@@ -292,21 +292,21 @@ func TestDuAnThatKhop(t *testing.T) {
 
 // chayHeader chạy công cụ với hai sổ header truyền vào.
 func chayHeader(
-	t *testing.T, goc string, ngoaiDacTa, khongQuaTrinhDuyet map[string]string,
+	t *testing.T, root2 string, outsideSpec, notViaBrowser map[string]string,
 ) *checker {
 	t.Helper()
-	if ngoaiDacTa == nil {
-		ngoaiDacTa = map[string]string{}
+	if outsideSpec == nil {
+		outsideSpec = map[string]string{}
 	}
-	if khongQuaTrinhDuyet == nil {
-		khongQuaTrinhDuyet = map[string]string{}
+	if notViaBrowser == nil {
+		notViaBrowser = map[string]string{}
 	}
 	c := &checker{
-		root:                     goc,
-		chuaCai:                  map[string]string{},
-		ngoaiHopDong:             map[string]string{},
-		headerNgoaiDacTa:         ngoaiDacTa,
-		headerKhongQuaTrinhDuyet: khongQuaTrinhDuyet,
+		root:                 root2,
+		notImplemented:       map[string]string{},
+		outsideContract:      map[string]string{},
+		headersOutsideSpec:   outsideSpec,
+		headersNotViaBrowser: notViaBrowser,
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run: %v", err)
@@ -319,23 +319,23 @@ func chayHeader(
 // `X-Visit-Id` vào api-client mà không vào CORS: preflight từ chối, request
 // thật không rời máy khách, log máy chủ sạch trơn, và CẢ cửa hàng ngừng
 // tải dữ liệu. Không phép kiểm nào lúc đó nhìn vào chỗ này.
-func TestBatHeaderDacTaCoMaCORSKhongChoPhep(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+func TestCatchesASpecHeaderCORSDoesNotAllow(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 	// CORS quên mất X-Thing-Id mà đặc tả khai.
-	ghiDe(t, goc, "internal/platform/httpserver/cors.go", corsGo("Authorization"))
+	override(t, root2, "internal/platform/httpserver/cors.go", corsGo("Authorization"))
 
-	c := chayHeader(t, goc, map[string]string{"Authorization": "chuẩn"}, nil)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chayHeader(t, root2, map[string]string{"Authorization": "chuẩn"}, nil)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "X-Thing-Id") {
-		t.Errorf("vi phạm không nêu đúng header: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "X-Thing-Id") {
+		t.Errorf("vi phạm không nêu đúng header: %s", c.violations[0])
 	}
 	// Thông điệp phải nói rõ vì sao KHÔNG tìm thấy dấu vết ở máy chủ —
 	// thiếu câu đó thì người sửa đi tìm nhầm chỗ, đúng như lần đầu.
-	if !strings.Contains(c.viPham[0], "SẠCH") {
-		t.Errorf("vi phạm không cảnh báo về log máy chủ sạch: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "SẠCH") {
+		t.Errorf("vi phạm không cảnh báo về log máy chủ sạch: %s", c.violations[0])
 	}
 }
 
@@ -343,18 +343,18 @@ func TestBatHeaderDacTaCoMaCORSKhongChoPhep(t *testing.T) {
 //
 // Không vô hại. Mỗi header thừa là một lời mời gửi kèm từ trình duyệt, và
 // không ai rà soát thứ không nằm trong hợp đồng.
-func TestBatHeaderCORSChoPhepMaDacTaKhongKhai(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
-	ghiDe(t, goc, "internal/platform/httpserver/cors.go",
+func TestCatchesACORSHeaderTheSpecDoesNotDeclare(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
+	override(t, root2, "internal/platform/httpserver/cors.go",
 		corsGo("X-Thing-Id", "X-Khong-Ai-Khai"))
 
-	c := chayHeader(t, goc, nil, nil)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chayHeader(t, root2, nil, nil)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "X-Khong-Ai-Khai") {
-		t.Errorf("vi phạm không nêu đúng header: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "X-Khong-Ai-Khai") {
+		t.Errorf("vi phạm không nêu đúng header: %s", c.violations[0])
 	}
 }
 
@@ -362,31 +362,31 @@ func TestBatHeaderCORSChoPhepMaDacTaKhongKhai(t *testing.T) {
 //
 // `X-Signature` của webhook là ca thật: đặc tả khai nó, mà cho nó vào CORS
 // sẽ là nói với mọi trang web rằng chữ ký webhook gửi được từ trình duyệt.
-func TestHeaderServerToServerKhaiLyDoThiHetViPham(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
-	ghiDe(t, goc, "internal/platform/httpserver/cors.go", corsGo("Authorization"))
+func TestAServerToServerHeaderWithAReasonClearsTheViolation(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
+	override(t, root2, "internal/platform/httpserver/cors.go", corsGo("Authorization"))
 
-	c := chayHeader(t, goc,
+	c := chayHeader(t, root2,
 		map[string]string{"Authorization": "chuẩn"},
 		map[string]string{"X-Thing-Id": "webhook, không qua trình duyệt"})
-	if len(c.viPham) != 0 {
-		t.Fatalf("khai lý do rồi mà vẫn báo: %v", c.viPham)
+	if len(c.violations) != 0 {
+		t.Fatalf("khai lý do rồi mà vẫn báo: %v", c.violations)
 	}
 }
 
 // Dòng miễn trừ CHẾT cũng phải bị bắt — ở cả hai sổ.
-func TestBatDongMienTruHeaderDaChet(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
+func TestCatchesADeadHeaderExemptionRow(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 
-	c := chayHeader(t, goc,
+	c := chayHeader(t, root2,
 		map[string]string{"X-Da-Bo": "CORS không còn cho phép"},
 		map[string]string{"X-Cung-Da-Bo": "đặc tả không còn khai"})
-	if len(c.viPham) != 2 {
-		t.Fatalf("mong 2 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	if len(c.violations) != 2 {
+		t.Fatalf("mong 2 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	got := strings.Join(c.viPham, "\n")
+	got := strings.Join(c.violations, "\n")
 	for _, can := range []string{"X-Da-Bo", "X-Cung-Da-Bo", "xóa dòng"} {
 		if !strings.Contains(got, can) {
 			t.Errorf("thiếu %q trong: %s", can, got)
@@ -400,13 +400,13 @@ func TestBatDongMienTruHeaderDaChet(t *testing.T) {
 // `x-visit-id` viết thường. Một phép so phân biệt hoa thường sẽ báo lỗi cho
 // `X-Request-ID` đấu với `X-Request-Id` — hai cách viết của MỘT header.
 // Cảnh báo giả là thứ làm người ta tắt hẳn phép kiểm.
-func TestHeaderKhongPhanBietHoaThuong(t *testing.T) {
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
-	ghiDe(t, goc, "internal/platform/httpserver/cors.go", corsGo("X-THING-ID"))
+func TestHeadersAreCaseInsensitive(t *testing.T) {
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
+	override(t, root2, "internal/platform/httpserver/cors.go", corsGo("X-THING-ID"))
 
-	if c := chayHeader(t, goc, nil, nil); len(c.viPham) != 0 {
-		t.Fatalf("khác hoa thường bị coi là khác header: %v", c.viPham)
+	if c := chayHeader(t, root2, nil, nil); len(c.violations) != 0 {
+		t.Fatalf("khác hoa thường bị coi là khác header: %v", c.violations)
 	}
 }
 
@@ -414,7 +414,7 @@ func TestHeaderKhongPhanBietHoaThuong(t *testing.T) {
 //
 // Cùng nguyên tắc với bộ đọc đặc tả: bỏ qua âm thầm là dựng lại đúng vấn
 // đề công cụ này sinh ra để sửa.
-func TestHeaderKhongTimDuocTenThiBaoLoi(t *testing.T) {
+func TestANameLessHeaderErrors(t *testing.T) {
 	paths := `things:
   get:
     operationId: listThings
@@ -426,14 +426,14 @@ func TestHeaderKhongTimDuocTenThiBaoLoi(t *testing.T) {
       '200':
         description: ok
 `
-	goc := duAn(t, openapiMotTuyen, map[string]string{"things.yaml": paths}, goMotTuyen)
+	root2 := project(t, oneRouteOpenAPI, map[string]string{"things.yaml": paths}, oneRouteGo)
 
 	c := &checker{
-		root:                     goc,
-		chuaCai:                  map[string]string{},
-		ngoaiHopDong:             map[string]string{},
-		headerNgoaiDacTa:         map[string]string{},
-		headerKhongQuaTrinhDuyet: map[string]string{},
+		root:                 root2,
+		notImplemented:       map[string]string{},
+		outsideContract:      map[string]string{},
+		headersOutsideSpec:   map[string]string{},
+		headersNotViaBrowser: map[string]string{},
 	}
 	err := c.run()
 	if err == nil {
@@ -446,27 +446,27 @@ func TestHeaderKhongTimDuocTenThiBaoLoi(t *testing.T) {
 
 // --------------------------------------------------------------- Tầng ENUM
 
-// chayEnum chạy công cụ với sổ ghép enum truyền vào.
+// runEnum chạy công cụ với sổ ghép enum truyền vào.
 //
 // `nguong` phải truyền tay từng bài: chốt của dự án thật (63) sẽ biến mọi
 // bài ở đây thành "thiếu 63 enum chưa gác" và không bài nào đo được thứ nó
 // muốn đo.
-func chayEnum(
-	t *testing.T, goc string, cap []capEnum, khongGhep map[string]string, nguong int,
+func runEnum(
+	t *testing.T, root2 string, pair []enumPair, unpaired map[string]string, ledger int,
 ) *checker {
 	t.Helper()
-	if khongGhep == nil {
-		khongGhep = map[string]string{}
+	if unpaired == nil {
+		unpaired = map[string]string{}
 	}
 	c := &checker{
-		root:                     goc,
-		chuaCai:                  map[string]string{},
-		ngoaiHopDong:             map[string]string{},
-		headerNgoaiDacTa:         map[string]string{},
-		headerKhongQuaTrinhDuyet: map[string]string{},
-		capEnum:                  cap,
-		enumKhongGhep:            khongGhep,
-		nguongEnumChuaGac:        nguong,
+		root:                 root2,
+		notImplemented:       map[string]string{},
+		outsideContract:      map[string]string{},
+		headersOutsideSpec:   map[string]string{},
+		headersNotViaBrowser: map[string]string{},
+		enumPair:             pair,
+		unpairedEnums:        unpaired,
+		ungatedEnumLedger:    ledger,
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run: %v", err)
@@ -474,11 +474,11 @@ func chayEnum(
 	return c
 }
 
-// duongMau là đường dẫn mà cả hai cách viết YAML dưới đây phải cho ra.
-const duongMau = "components/mau.yaml#/schemas/Color/properties/color_family"
+// samplePath là đường dẫn mà cả hai cách viết YAML dưới đây phải cho ra.
+const samplePath = "components/mau.yaml#/schemas/Color/properties/color_family"
 
-// enumNhieuDong là dạng danh sách — cách đặc tả thật viết.
-const enumNhieuDong = `schemas:
+// multiLineEnum là dạng danh sách — cách đặc tả thật viết.
+const multiLineEnum = `schemas:
   Color:
     properties:
       color_family:
@@ -488,8 +488,8 @@ const enumNhieuDong = `schemas:
           - GREY
 `
 
-// enumMotDong là dạng gọn `[A, B]` — YAML hợp lệ như nhau.
-const enumMotDong = `schemas:
+// oneLineEnum là dạng gọn `[A, B]` — YAML hợp lệ như nhau.
+const oneLineEnum = `schemas:
   Color:
     properties:
       color_family:
@@ -497,7 +497,7 @@ const enumMotDong = `schemas:
         enum: [WHITE, GREY]
 `
 
-const goMau = `package domain
+const sampleGo = `package domain
 
 type NhomMau string
 
@@ -507,26 +507,26 @@ const (
 )
 `
 
-// capMau là sổ ghép trỏ đúng vào cặp trên.
-func capMau(tapCon bool) []capEnum {
-	return []capEnum{{duongMau, "thing/domain", "NhomMau", tapCon, "nhóm màu"}}
+// samplePairs là sổ ghép trỏ đúng vào cặp trên.
+func samplePairs(tapCon bool) []enumPair {
+	return []enumPair{{samplePath, "thing/domain", "NhomMau", tapCon, "nhóm màu"}}
 }
 
-// duAnMau dựng dự án giả có một enum trong đặc tả và một kiểu trong Go.
-func duAnMau(t *testing.T, yaml, goSrc string) string {
+// sampleProject dựng dự án giả có một enum trong đặc tả và một kiểu trong Go.
+func sampleProject(t *testing.T, yaml, goSrc string) string {
 	t.Helper()
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
-	ghiDe(t, goc, "api/components/mau.yaml", yaml)
-	ghiDe(t, goc, "internal/thing/domain/mau.go", goSrc)
-	return goc
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
+	override(t, root2, "api/components/mau.yaml", yaml)
+	override(t, root2, "internal/thing/domain/mau.go", goSrc)
+	return root2
 }
 
-func TestEnumKhopThiKhongBaoViPham(t *testing.T) {
-	goc := duAnMau(t, enumNhieuDong, goMau)
+func TestAMatchingEnumReportsNoViolation(t *testing.T) {
+	root2 := sampleProject(t, multiLineEnum, sampleGo)
 
-	if c := chayEnum(t, goc, capMau(false), nil, 0); len(c.viPham) != 0 {
-		t.Fatalf("mong 0 vi phạm, nhận: %v", c.viPham)
+	if c := runEnum(t, root2, samplePairs(false), nil, 0); len(c.violations) != 0 {
+		t.Fatalf("mong 0 vi phạm, nhận: %v", c.violations)
 	}
 }
 
@@ -534,11 +534,11 @@ func TestEnumKhopThiKhongBaoViPham(t *testing.T) {
 //
 // Nếu không, sổ ghép phải biết đặc tả viết kiểu nào — một chi tiết không ai
 // nhớ, và đổi cách viết sẽ lặng lẽ tháo hàng rào ra khỏi enum đó.
-func TestEnumVietMotDongCungDuongDanVoiNhieuDong(t *testing.T) {
-	goc := duAnMau(t, enumMotDong, goMau)
+func TestOneLineEnumsTakeTheSamePathAsMultiLine(t *testing.T) {
+	root2 := sampleProject(t, oneLineEnum, sampleGo)
 
-	if c := chayEnum(t, goc, capMau(false), nil, 0); len(c.viPham) != 0 {
-		t.Fatalf("dạng một dòng phải khớp cùng sổ, nhận: %v", c.viPham)
+	if c := runEnum(t, root2, samplePairs(false), nil, 0); len(c.violations) != 0 {
+		t.Fatalf("dạng một dòng phải khớp cùng sổ, nhận: %v", c.violations)
 	}
 }
 
@@ -546,34 +546,34 @@ func TestEnumVietMotDongCungDuongDanVoiNhieuDong(t *testing.T) {
 //
 // Bộ lọc theo màu im lặng trả rỗng — không lỗi, không log, không ai biết.
 // Một chữ cái, và cả hai chiều đều sai cùng lúc.
-func TestBatLechMotChuCai(t *testing.T) {
-	goc := duAnMau(t, strings.Replace(enumNhieuDong, "GREY", "GRAY", 1), goMau)
+func TestCatchesASingleLetterDrift(t *testing.T) {
+	root2 := sampleProject(t, strings.Replace(multiLineEnum, "GREY", "GRAY", 1), sampleGo)
 
-	c := chayEnum(t, goc, capMau(false), nil, 0)
-	if len(c.viPham) != 2 {
-		t.Fatalf("mong 2 vi phạm (mỗi chiều một), nhận %d: %v", len(c.viPham), c.viPham)
+	c := runEnum(t, root2, samplePairs(false), nil, 0)
+	if len(c.violations) != 2 {
+		t.Fatalf("mong 2 vi phạm (mỗi chiều một), nhận %d: %v", len(c.violations), c.violations)
 	}
-	gop := strings.Join(c.viPham, "\n")
-	if !strings.Contains(gop, "GRAY") || !strings.Contains(gop, "GREY") {
-		t.Fatalf("phải gọi tên CẢ HAI giá trị lệch: %v", c.viPham)
+	merge := strings.Join(c.violations, "\n")
+	if !strings.Contains(merge, "GRAY") || !strings.Contains(merge, "GREY") {
+		t.Fatalf("phải gọi tên CẢ HAI giá trị lệch: %v", c.violations)
 	}
 }
 
 // Đặc tả khai giá trị Go không sinh ra: client viết một nhánh không bao giờ
 // chạy tới. KHÔNG BAO GIỜ hợp lệ — kể cả khi cặp cho phép tập con.
-func TestBatDacTaKhaiGiaTriGoKhongCo(t *testing.T) {
-	yaml := strings.Replace(enumNhieuDong, "          - GREY",
+func TestCatchesASpecValueMissingFromGo(t *testing.T) {
+	yaml := strings.Replace(multiLineEnum, "          - GREY",
 		"          - GREY\n          - MULTI", 1)
-	goc := duAnMau(t, yaml, goMau)
+	root2 := sampleProject(t, yaml, sampleGo)
 
 	for _, tapCon := range []bool{false, true} {
-		c := chayEnum(t, goc, capMau(tapCon), nil, 0)
-		if len(c.viPham) != 1 {
+		c := runEnum(t, root2, samplePairs(tapCon), nil, 0)
+		if len(c.violations) != 1 {
 			t.Fatalf("tậpCon=%v: mong 1 vi phạm, nhận %d: %v",
-				tapCon, len(c.viPham), c.viPham)
+				tapCon, len(c.violations), c.violations)
 		}
-		if !strings.Contains(c.viPham[0], "MULTI") {
-			t.Fatalf("tậpCon=%v: phải gọi tên MULTI: %v", tapCon, c.viPham[0])
+		if !strings.Contains(c.violations[0], "MULTI") {
+			t.Fatalf("tậpCon=%v: phải gọi tên MULTI: %v", tapCon, c.violations[0])
 		}
 	}
 }
@@ -581,23 +581,23 @@ func TestBatDacTaKhaiGiaTriGoKhongCo(t *testing.T) {
 // ĐÂY LÀ LỖI THẬT: `account_type` khai 9 tài khoản, Go có 13.
 //
 // Client sinh kiểu từ đặc tả thu hẹp kiểu sai, rồi vỡ khi gặp response thật.
-func TestBatGoCoMaDacTaThieu(t *testing.T) {
-	goSrc := strings.Replace(goMau, `	MauXam   NhomMau = "GREY"`,
+func TestCatchesAGoValueMissingFromTheSpec(t *testing.T) {
+	goSrc := strings.Replace(sampleGo, `	MauXam   NhomMau = "GREY"`,
 		`	MauXam   NhomMau = "GREY"`+"\n"+`	MauBac   NhomMau = "SILVER"`, 1)
-	goc := duAnMau(t, enumNhieuDong, goSrc)
+	root2 := sampleProject(t, multiLineEnum, goSrc)
 
-	c := chayEnum(t, goc, capMau(false), nil, 0)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := runEnum(t, root2, samplePairs(false), nil, 0)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "SILVER") {
-		t.Fatalf("phải gọi tên SILVER: %v", c.viPham[0])
+	if !strings.Contains(c.violations[0], "SILVER") {
+		t.Fatalf("phải gọi tên SILVER: %v", c.violations[0])
 	}
 
 	// …trừ khi cặp KHAI rằng đặc tả hẹp hơn là đúng — như `tier` của `/me`
 	// không bao giờ trả `ANONYMIZED`.
-	if c := chayEnum(t, goc, capMau(true), nil, 0); len(c.viPham) != 0 {
-		t.Fatalf("khai ChoPhepTapCon rồi thì phải im: %v", c.viPham)
+	if c := runEnum(t, root2, samplePairs(true), nil, 0); len(c.violations) != 0 {
+		t.Fatalf("khai AllowSubset rồi thì phải im: %v", c.violations)
 	}
 }
 
@@ -606,16 +606,16 @@ func TestBatGoCoMaDacTaThieu(t *testing.T) {
 // Một giá trị nằm trong bình luận hay trong thông điệp lỗi KHÔNG phải một
 // giá trị hợp lệ của kiểu. Nếu công cụ grep, nó sẽ đòi đặc tả khai thêm
 // `BLACK` — một cảnh báo giả, và cảnh báo giả làm người ta tắt phép kiểm.
-func TestGiaTriTrongBinhLuanVaChuoiKhongTinh(t *testing.T) {
-	goSrc := goMau + `
+func TestValuesInCommentsAndStringsDoNotCount(t *testing.T) {
+	goSrc := sampleGo + `
 // MauDen NhomMau = "BLACK" — bỏ đi vì kho không còn phân loại theo đen.
 
 const ThongBaoLoi = "nhóm màu hợp lệ: WHITE, GREY, BLACK"
 `
-	goc := duAnMau(t, enumNhieuDong, goSrc)
+	root2 := sampleProject(t, multiLineEnum, goSrc)
 
-	if c := chayEnum(t, goc, capMau(false), nil, 0); len(c.viPham) != 0 {
-		t.Fatalf("BLACK trong bình luận/chuỗi không phải giá trị: %v", c.viPham)
+	if c := runEnum(t, root2, samplePairs(false), nil, 0); len(c.violations) != 0 {
+		t.Fatalf("BLACK trong bình luận/chuỗi không phải giá trị: %v", c.violations)
 	}
 }
 
@@ -623,34 +623,34 @@ const ThongBaoLoi = "nhóm màu hợp lệ: WHITE, GREY, BLACK"
 //
 // Nó im lặng ngừng gác enum ấy trong khi vẫn trông như đang gác — đúng kiểu
 // hỏng mà `types:check` đã mắc.
-func TestBatSoGhepTroToiDuongDanChet(t *testing.T) {
-	goc := duAnMau(t, enumNhieuDong, goMau)
-	chet := []capEnum{{
+func TestCatchesALedgerEntryPointingAtADeadPath(t *testing.T) {
+	root2 := sampleProject(t, multiLineEnum, sampleGo)
+	chet := []enumPair{{
 		"components/mau.yaml#/schemas/ColorInfo/properties/color_family",
 		"thing/domain", "NhomMau", false, "nhóm màu",
 	}}
 
 	// Enum thật lúc này KHÔNG được gác, nên chốt để 1 để đo đúng một thứ.
-	c := chayEnum(t, goc, chet, nil, 1)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := runEnum(t, root2, chet, nil, 1)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "ColorInfo") {
-		t.Fatalf("phải gọi tên đường dẫn chết: %v", c.viPham[0])
+	if !strings.Contains(c.violations[0], "ColorInfo") {
+		t.Fatalf("phải gọi tên đường dẫn chết: %v", c.violations[0])
 	}
 }
 
 // Sổ miễn trừ cũng phải chết theo enum nó miễn trừ.
-func TestBatDongKhongGhepDaChet(t *testing.T) {
-	goc := duAnMau(t, enumNhieuDong, goMau)
-	c := chayEnum(t, goc, capMau(false),
+func TestCatchesADeadUnpairedRow(t *testing.T) {
+	root2 := sampleProject(t, multiLineEnum, sampleGo)
+	c := runEnum(t, root2, samplePairs(false),
 		map[string]string{"components/mau.yaml#/schemas/DaXoa/properties/x": "lý do cũ"}, 0)
 
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "DaXoa") {
-		t.Fatalf("phải gọi tên dòng chết: %v", c.viPham[0])
+	if !strings.Contains(c.violations[0], "DaXoa") {
+		t.Fatalf("phải gọi tên dòng chết: %v", c.violations[0])
 	}
 }
 
@@ -658,34 +658,34 @@ func TestBatDongKhongGhepDaChet(t *testing.T) {
 //
 // Một chốt cao hơn thực tế là chỗ trống để lặng lẽ thêm enum không ai gác —
 // nó không đỏ, nên không ai biết hàng rào đã nới ra.
-func TestChotEnumChuaGacChiDuocGiam(t *testing.T) {
-	goc := duAnMau(t, enumNhieuDong, goMau)
+func TestTheUngatedEnumRatchetOnlyGoesDown(t *testing.T) {
+	root2 := sampleProject(t, multiLineEnum, sampleGo)
 
-	c := chayEnum(t, goc, capMau(false), nil, 5)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := runEnum(t, root2, samplePairs(false), nil, 5)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "Hạ chốt") {
-		t.Fatalf("phải bảo hạ chốt: %v", c.viPham[0])
+	if !strings.Contains(c.violations[0], "Hạ chốt") {
+		t.Fatalf("phải bảo hạ chốt: %v", c.violations[0])
 	}
 
 	// Thêm enum không gác mà chốt vẫn thấp thì cũng đỏ, ở chiều kia.
-	if c := chayEnum(t, goc, nil, nil, 0); len(c.viPham) != 1 {
+	if c := runEnum(t, root2, nil, nil, 0); len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm ở chiều vượt chốt, nhận %d: %v",
-			len(c.viPham), c.viPham)
+			len(c.violations), c.violations)
 	}
 }
 
 // Đổi tên kiểu Go mà quên sửa sổ: công cụ phải KÊU, không được im.
-func TestBatKieuGoDoiTen(t *testing.T) {
-	goc := duAnMau(t, enumNhieuDong, strings.ReplaceAll(goMau, "NhomMau", "HoMau"))
+func TestCatchesARenamedGoType(t *testing.T) {
+	root2 := sampleProject(t, multiLineEnum, strings.ReplaceAll(sampleGo, "NhomMau", "HoMau"))
 
-	c := chayEnum(t, goc, capMau(false), nil, 0)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := runEnum(t, root2, samplePairs(false), nil, 0)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "NhomMau") {
-		t.Fatalf("phải gọi tên kiểu không tìm thấy: %v", c.viPham[0])
+	if !strings.Contains(c.violations[0], "NhomMau") {
+		t.Fatalf("phải gọi tên kiểu không tìm thấy: %v", c.violations[0])
 	}
 }
 
@@ -695,16 +695,16 @@ func TestBatKieuGoDoiTen(t *testing.T) {
 //
 // `nguong` truyền tay từng bài: chốt của dự án thật (20) sẽ biến mọi bài ở
 // đây thành "thiếu 20 schema chưa gác".
-func chayDTO(t *testing.T, goc string, cap []capDTO, nguong int) *checker {
+func chayDTO(t *testing.T, root2 string, pair []dtoPair, ledger int) *checker {
 	t.Helper()
 	c := &checker{
-		root:                     goc,
-		chuaCai:                  map[string]string{},
-		ngoaiHopDong:             map[string]string{},
-		headerNgoaiDacTa:         map[string]string{},
-		headerKhongQuaTrinhDuyet: map[string]string{},
-		capDTO:                   cap,
-		nguongDTOChuaGac:         nguong,
+		root:                 root2,
+		notImplemented:       map[string]string{},
+		outsideContract:      map[string]string{},
+		headersOutsideSpec:   map[string]string{},
+		headersNotViaBrowser: map[string]string{},
+		dtoPair:              pair,
+		ungatedDTOLedger:     ledger,
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("run: %v", err)
@@ -712,8 +712,8 @@ func chayDTO(t *testing.T, goc string, cap []capDTO, nguong int) *checker {
 	return c
 }
 
-// schemaHang là một schema có ba thuộc tính, dạng thật của đặc tả.
-const schemaHang = `Hang:
+// rowSchema là một schema có ba thuộc tính, dạng thật của đặc tả.
+const rowSchema = `Hang:
   type: object
   required: [id, ten]
   description: |
@@ -734,37 +734,37 @@ const schemaHang = `Hang:
           type: string
 `
 
-// dtoHang dựng struct Go phục vụ schema trên.
-func dtoHang(truong ...string) string {
+// rowDTO dựng struct Go phục vụ schema trên.
+func rowDTO(fields ...string) string {
 	s := "package http\n\ntype hangJSON struct {\n"
-	for _, t := range truong {
+	for _, t := range fields {
 		s += "\tX" + t + " string `json:\"" + t + "\"`\n"
 	}
 	return s + "}\n"
 }
 
-// duAnDTO dựng dự án giả có schemas.yaml và một gói DTO.
-func duAnDTO(t *testing.T, schema, dto string) string {
+// dtoProject dựng dự án giả có schemas.yaml và một gói DTO.
+func dtoProject(t *testing.T, schema, dto string) string {
 	t.Helper()
-	goc := duAn(t, openapiMotTuyen,
-		map[string]string{"things.yaml": pathsMotTuyen}, goMotTuyen)
-	ghiDe(t, goc, "api/components/schemas.yaml", schema)
-	ghiDe(t, goc, "internal/modules/hang/interfaces/http/dto.go", dto)
-	return goc
+	root2 := project(t, oneRouteOpenAPI,
+		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
+	override(t, root2, "api/components/schemas.yaml", schema)
+	override(t, root2, "internal/modules/hang/interfaces/http/dto.go", dto)
+	return root2
 }
 
-func capHang(choPhepThieu map[string]string) []capDTO {
-	return []capDTO{{
-		Schema: "Hang", GoiGo: "modules/hang/interfaces/http",
-		KieuGo: "hangJSON", ChoPhepThieu: choPhepThieu, LyDo: "hàng thử",
+func rowPairs(allowMissing map[string]string) []dtoPair {
+	return []dtoPair{{
+		Schema: "Hang", GoPkg: "modules/hang/interfaces/http",
+		GoType: "hangJSON", AllowMissing: allowMissing, Reason: "hàng thử",
 	}}
 }
 
-func TestDTOKhopThiKhongBaoViPham(t *testing.T) {
-	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+func TestAMatchingDTOReportsNoViolation(t *testing.T) {
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
 
-	if c := chayDTO(t, goc, capHang(nil), 0); len(c.viPham) != 0 {
-		t.Fatalf("mong 0 vi phạm, nhận: %v", c.viPham)
+	if c := chayDTO(t, root2, rowPairs(nil), 0); len(c.violations) != 0 {
+		t.Fatalf("mong 0 vi phạm, nhận: %v", c.violations)
 	}
 }
 
@@ -776,11 +776,11 @@ func TestDTOKhopThiKhongBaoViPham(t *testing.T) {
 // Bản đầu của phép đọc mắc đúng lỗi này theo chiều NGƯỢC LẠI: nó dùng một
 // máy trạng thái "đã vào object lồng" và không bao giờ ra, nên `Checkout`
 // chỉ đọc được 7 trong 12 thuộc tính.
-func TestDTOThuocTinhLongKhongTinh(t *testing.T) {
-	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
+func TestDTONestedPropertiesDoNotCount(t *testing.T) {
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
 
-	c := chayDTO(t, goc, capHang(nil), 0)
-	for _, v := range c.viPham {
+	c := chayDTO(t, root2, rowPairs(nil), 0)
+	for _, v := range c.violations {
 		if strings.Contains(v, "ma") || strings.Contains(v, "nhan") {
 			t.Fatalf("thuộc tính lồng bị tính vào schema ngoài: %s", v)
 		}
@@ -788,15 +788,15 @@ func TestDTOThuocTinhLongKhongTinh(t *testing.T) {
 }
 
 // ĐÂY LÀ DẠNG LỖI đã xảy ra năm lần: đặc tả có, DTO không có.
-func TestDTOBatTruongDacTaCoMaGoThieu(t *testing.T) {
-	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten")) // thiếu `nhom`
+func TestDTOCatchesASpecFieldMissingFromGo(t *testing.T) {
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten")) // thiếu `nhom`
 
-	c := chayDTO(t, goc, capHang(nil), 0)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chayDTO(t, root2, rowPairs(nil), 0)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "nhom") {
-		t.Fatalf("phải gọi tên trường thiếu: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "nhom") {
+		t.Fatalf("phải gọi tên trường thiếu: %s", c.violations[0])
 	}
 }
 
@@ -804,96 +804,96 @@ func TestDTOBatTruongDacTaCoMaGoThieu(t *testing.T) {
 //
 // Không ai biết nó tồn tại để dùng, và xóa nó đi là thay đổi PHÁ VỠ không
 // ai nhận ra.
-func TestDTOBatTruongGoTraNgoaiHopDong(t *testing.T) {
-	goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom", "bi_mat"))
+func TestDTOCatchesAGoFieldOutsideTheContract(t *testing.T) {
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom", "bi_mat"))
 
-	c := chayDTO(t, goc, capHang(nil), 0)
-	if len(c.viPham) != 1 {
-		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.viPham), c.viPham)
+	c := chayDTO(t, root2, rowPairs(nil), 0)
+	if len(c.violations) != 1 {
+		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "bi_mat") {
-		t.Fatalf("phải gọi tên trường thừa: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "bi_mat") {
+		t.Fatalf("phải gọi tên trường thừa: %s", c.violations[0])
 	}
 }
 
-// `ChoPhepThieu` tắt được một trường, và CHỈ trường ấy.
-func TestDTOChoPhepThieuChiTatMotTruong(t *testing.T) {
-	goc := duAnDTO(t, schemaHang, dtoHang("id")) // thiếu `ten` và `nhom`
+// `AllowMissing` tắt được một trường, và CHỈ trường ấy.
+func TestDTOAllowMissingSilencesExactlyOneField(t *testing.T) {
+	root2 := dtoProject(t, rowSchema, rowDTO("id")) // thiếu `ten` và `nhom`
 
-	c := chayDTO(t, goc, capHang(map[string]string{"nhom": "chưa làm"}), 0)
-	if len(c.viPham) != 1 {
+	c := chayDTO(t, root2, rowPairs(map[string]string{"nhom": "chưa làm"}), 0)
+	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm (còn `ten`), nhận %d: %v",
-			len(c.viPham), c.viPham)
+			len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.viPham[0], "ten") ||
-		strings.Contains(c.viPham[0], "nhom") {
-		t.Fatalf("phải còn kêu `ten` và im về `nhom`: %s", c.viPham[0])
+	if !strings.Contains(c.violations[0], "ten") ||
+		strings.Contains(c.violations[0], "nhom") {
+		t.Fatalf("phải còn kêu `ten` và im về `nhom`: %s", c.violations[0])
 	}
 }
 
-// Hai cách một dòng `ChoPhepThieu` thành NÓI DỐI.
-func TestDTOChoPhepThieuNoiDoiThiBiBat(t *testing.T) {
+// Hai cách một dòng `AllowMissing` thành NÓI DỐI.
+func TestDTOAllowMissingThatLiesIsCaught(t *testing.T) {
 	t.Run("trường không còn trong đặc tả", func(t *testing.T) {
-		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
-		c := chayDTO(t, goc, capHang(map[string]string{"da_xoa": "lý do cũ"}), 0)
-		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "da_xoa") {
-			t.Fatalf("mong 1 vi phạm về `da_xoa`, nhận: %v", c.viPham)
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+		c := chayDTO(t, root2, rowPairs(map[string]string{"da_xoa": "lý do cũ"}), 0)
+		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "da_xoa") {
+			t.Fatalf("mong 1 vi phạm về `da_xoa`, nhận: %v", c.violations)
 		}
 	})
 
 	t.Run("Go ĐÃ trả trường ấy", func(t *testing.T) {
-		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
-		c := chayDTO(t, goc, capHang(map[string]string{"ten": "nói là chưa trả"}), 0)
-		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "ĐÃ trả") {
-			t.Fatalf("mong 1 vi phạm \"Go ĐÃ trả\", nhận: %v", c.viPham)
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+		c := chayDTO(t, root2, rowPairs(map[string]string{"ten": "nói là chưa trả"}), 0)
+		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "ĐÃ trả") {
+			t.Fatalf("mong 1 vi phạm \"Go ĐÃ trả\", nhận: %v", c.violations)
 		}
 	})
 }
 
 // Sổ ghép trỏ tới schema hoặc struct KHÔNG CÒN phải bị bắt.
-func TestDTOSoGhepTroSaiThiBiBat(t *testing.T) {
+func TestDTOCatchesALedgerEntryPointingWrong(t *testing.T) {
 	t.Run("schema không tồn tại", func(t *testing.T) {
-		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
-		c := chayDTO(t, goc, []capDTO{{
-			Schema: "KhongCo", GoiGo: "modules/hang/interfaces/http",
-			KieuGo: "hangJSON", LyDo: "thử",
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+		c := chayDTO(t, root2, []dtoPair{{
+			Schema: "KhongCo", GoPkg: "modules/hang/interfaces/http",
+			GoType: "hangJSON", Reason: "thử",
 		}}, 1)
-		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "KhongCo") {
-			t.Fatalf("mong 1 vi phạm về schema chết, nhận: %v", c.viPham)
+		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "KhongCo") {
+			t.Fatalf("mong 1 vi phạm về schema chết, nhận: %v", c.violations)
 		}
 	})
 
 	t.Run("struct không tồn tại", func(t *testing.T) {
-		goc := duAnDTO(t, schemaHang, dtoHang("id", "ten", "nhom"))
-		c := chayDTO(t, goc, []capDTO{{
-			Schema: "Hang", GoiGo: "modules/hang/interfaces/http",
-			KieuGo: "khongCoJSON", LyDo: "thử",
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+		c := chayDTO(t, root2, []dtoPair{{
+			Schema: "Hang", GoPkg: "modules/hang/interfaces/http",
+			GoType: "khongCoJSON", Reason: "thử",
 		}}, 0)
-		if len(c.viPham) != 1 || !strings.Contains(c.viPham[0], "khongCoJSON") {
-			t.Fatalf("mong 1 vi phạm về struct chết, nhận: %v", c.viPham)
+		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "khongCoJSON") {
+			t.Fatalf("mong 1 vi phạm về struct chết, nhận: %v", c.violations)
 		}
 	})
 }
 
 // Chốt schema chưa gác CHỈ ĐƯỢC GIẢM.
-func TestDTOChotChuaGacChiDuocGiam(t *testing.T) {
-	goc := duAnDTO(t, schemaHang+`
+func TestTheUngatedDTORatchetOnlyGoesDown(t *testing.T) {
+	root2 := dtoProject(t, rowSchema+`
 HangKhac:
   type: object
   properties:
     x:
       type: string
-`, dtoHang("id", "ten", "nhom"))
+`, rowDTO("id", "ten", "nhom"))
 
 	// `HangKhac` chưa gác → chốt phải là 1.
-	if c := chayDTO(t, goc, capHang(nil), 1); len(c.viPham) != 0 {
-		t.Fatalf("chốt đúng thì phải im: %v", c.viPham)
+	if c := chayDTO(t, root2, rowPairs(nil), 1); len(c.violations) != 0 {
+		t.Fatalf("chốt đúng thì phải im: %v", c.violations)
 	}
-	if c := chayDTO(t, goc, capHang(nil), 0); len(c.viPham) != 1 {
-		t.Fatalf("vượt chốt phải kêu: %v", c.viPham)
+	if c := chayDTO(t, root2, rowPairs(nil), 0); len(c.violations) != 1 {
+		t.Fatalf("vượt chốt phải kêu: %v", c.violations)
 	}
-	if c := chayDTO(t, goc, capHang(nil), 5); len(c.viPham) != 1 ||
-		!strings.Contains(c.viPham[0], "Hạ chốt") {
-		t.Fatalf("chốt cao hơn thực tế phải bảo hạ: %v", c.viPham)
+	if c := chayDTO(t, root2, rowPairs(nil), 5); len(c.violations) != 1 ||
+		!strings.Contains(c.violations[0], "Hạ chốt") {
+		t.Fatalf("chốt cao hơn thực tế phải bảo hạ: %v", c.violations)
 	}
 }

@@ -11,7 +11,7 @@ package main
 //	                               `Status`; chúng gộp thành một tập khổng
 //	                               lồ và mọi enum đều "thiếu" vài chục giá
 //	                               trị
-//	`ReturnReasonCode` ↔ `LyDo`    HAI kiểu `LyDo` khác nhau: một của
+//	`ReturnReasonCode` ↔ `Reason`    HAI kiểu `Reason` khác nhau: một của
 //	                               `returns`, một của `recommendation`
 //
 // Cảnh báo giả là thứ làm người ta tắt hẳn phép kiểm. Nên cặp phải tường
@@ -26,20 +26,20 @@ package main
 //
 // Quy tắc: chỉ ghép khi giá trị miền ĐI THẲNG ra JSON.
 
-// capEnum là các cặp đã KIỂM.
-type capEnum struct {
-	// Duong là đường dẫn trong đặc tả, dạng `file#/khóa/khóa/...`.
+// enumPair là các cặp đã KIỂM.
+type enumPair struct {
+	// Path là đường dẫn trong đặc tả, dạng `file#/khóa/khóa/...`.
 	//
 	// Dùng đường dẫn thay vì số dòng: một lần sửa mô tả ở trên làm mọi số
 	// dòng trôi, và một sổ phải sửa sau mỗi lần chỉnh chữ là sổ không ai
 	// giữ đúng.
-	Duong string
+	Path string
 
-	// GoiGo và KieuGo trỏ tới khối hằng số trong `internal/`.
-	GoiGo  string
-	KieuGo string
+	// GoPkg và GoType trỏ tới khối hằng số trong `internal/`.
+	GoPkg  string
+	GoType string
 
-	// ChoPhepTapCon: đặc tả được phép có ÍT hơn Go.
+	// AllowSubset: đặc tả được phép có ÍT hơn Go.
 	//
 	// Có thật: `tier` của `/me` không bao giờ trả `ANONYMIZED`, vì một
 	// khách đã ẩn danh thì không đăng nhập được. Đặc tả hẹp hơn ở đây là
@@ -47,13 +47,13 @@ type capEnum struct {
 	//
 	// Chiều ngược lại KHÔNG bao giờ được phép: đặc tả khai một giá trị mà
 	// Go không sinh ra là một nhánh client viết rồi không bao giờ chạy.
-	ChoPhepTapCon bool
+	AllowSubset bool
 
-	// LyDo giải thích cặp này nói về cái gì, cho người đọc lỗi.
-	LyDo string
+	// Reason giải thích cặp này nói về cái gì, cho người đọc lỗi.
+	Reason string
 }
 
-var capEnumDaKiem = []capEnum{
+var checkedEnumPairs = []enumPair{
 	{"components/schemas.yaml#/OrderStatus", "modules/order/domain", "Status",
 		false, "trạng thái đơn hàng"},
 	{"components/schemas.yaml#/FulfillmentStatus", "modules/fulfillment/domain", "FOStatus",
@@ -95,11 +95,11 @@ var capEnumDaKiem = []capEnum{
 		true, "hạng khách — `/me` không trả ANONYMIZED vì khách đã ẩn danh thì không đăng nhập được"},
 }
 
-// enumKhongGhep là những enum CỐ Ý không ghép cặp, kèm lý do.
+// unpairedEnums là những enum CỐ Ý không ghép cặp, kèm lý do.
 //
 // Sổ này tồn tại để "không ghép" là một quyết định có người ký, không phải
 // một chỗ bị bỏ quên.
-var enumKhongGhep = map[string]string{
+var unpairedEnums = map[string]string{
 	"components/schemas.yaml#/CartItem/properties/availability": "tầng HTTP DỊCH ở biên " +
 		"(`availabilityJSON`: QUANTITY_REDUCED → LOW_STOCK), nên giá trị miền không phải " +
 		"giá trị trên dây",
@@ -108,7 +108,7 @@ var enumKhongGhep = map[string]string{
 		"đâu cả; xem chú thích ở product/interfaces/http/dto.go",
 }
 
-// soEnumChuaGac là số enum trong đặc tả CHƯA nằm trong hai sổ trên.
+// ungatedEnums là số enum trong đặc tả CHƯA nằm trong hai sổ trên.
 //
 // # Vì sao một con số thay vì bắt khai hết
 //
@@ -123,4 +123,4 @@ var enumKhongGhep = map[string]string{
 //
 // Nó KHÔNG phải lời hứa rằng phần còn lại đã được kiểm. Công cụ in ra con
 // số ấy ở chế độ `-v` để không ai nhầm.
-const soEnumChuaGac = 63
+const ungatedEnums = 63

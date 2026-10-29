@@ -38,7 +38,7 @@ import (
 // không phải mọi trường hợp, và một cảnh báo giả là thứ làm người ta tắt
 // hẳn phép kiểm — cùng lý do với tầng enum (P3-70).
 //
-// Nên mỗi cặp phải được KIỂM bằng mắt trước khi ghi vào `capDTODaKiem`.
+// Nên mỗi cặp phải được KIỂM bằng mắt trước khi ghi vào `checkedDTOPairs`.
 //
 // # Hai chiều, hai hậu quả khác nhau
 //
@@ -49,26 +49,26 @@ import (
 //	                          và xóa nó đi là thay đổi PHÁ VỠ không ai
 //	                          nhận ra
 
-// capDTO là một cặp đã KIỂM: schema của đặc tả ⇄ struct Go phục vụ nó.
-type capDTO struct {
+// dtoPair là một cặp đã KIỂM: schema của đặc tả ⇄ struct Go phục vụ nó.
+type dtoPair struct {
 	// Schema là tên schema cấp cao nhất trong `components/schemas.yaml`.
 	Schema string
 
-	// GoiGo là đường dẫn dưới `internal/`, KieuGo là tên struct.
-	GoiGo  string
-	KieuGo string
+	// GoPkg là đường dẫn dưới `internal/`, GoType là tên struct.
+	GoPkg  string
+	GoType string
 
-	// ChoPhepThieu là các trường đặc tả khai mà Go CỐ Ý chưa trả, kèm lý
+	// AllowMissing là các trường đặc tả khai mà Go CỐ Ý chưa trả, kèm lý
 	// do đọc được.
 	//
 	// Khác với một cặp không ghép: ở đây phần còn lại vẫn được gác.
-	ChoPhepThieu map[string]string
+	AllowMissing map[string]string
 
-	// LyDo nói cặp này về cái gì, cho người đọc thông báo lỗi.
-	LyDo string
+	// Reason nói cặp này về cái gì, cho người đọc thông báo lỗi.
+	Reason string
 }
 
-// docThuocTinhSchema đọc thuộc tính của các schema cấp cao nhất.
+// readSchemaProperties đọc thuộc tính của các schema cấp cao nhất.
 //
 // Đọc theo THỤT LỀ, cùng cách các tầng khác của công cụ này làm: dự án có
 // đúng bốn phụ thuộc Go trực tiếp, và thêm một thư viện YAML chỉ để đọc
@@ -77,25 +77,25 @@ type capDTO struct {
 // Chỉ nhận thuộc tính ở ĐÚNG hai cấp thụt lề dưới `properties:` của
 // schema — thuộc tính lồng trong một object con là hình dạng của object
 // ấy, không phải của schema này.
-func (c *checker) docThuocTinhSchema() (map[string][]string, error) {
-	duong := filepath.Join(c.root, "api", "components", "schemas.yaml")
-	noiDung, err := os.ReadFile(duong)
+func (c *checker) readSchemaProperties() (map[string][]string, error) {
+	path := filepath.Join(c.root, "api", "components", "schemas.yaml")
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("đọc schemas.yaml: %w", err)
 	}
 
 	var (
-		reSchema    = regexp.MustCompile(`^([A-Z][A-Za-z0-9]*):\s*$`)
-		reThuocTinh = regexp.MustCompile(`^    ([a-z][a-z0-9_]*):`)
+		reSchema   = regexp.MustCompile(`^([A-Z][A-Za-z0-9]*):\s*$`)
+		reProperty = regexp.MustCompile(`^    ([a-z][a-z0-9_]*):`)
 	)
 
 	ra := map[string][]string{}
 	schema := ""
-	trongProps := false
+	inProps := false
 
-	for _, l := range strings.Split(string(noiDung), "\n") {
+	for _, l := range strings.Split(string(content), "\n") {
 		if m := reSchema.FindStringSubmatch(l); m != nil {
-			schema, trongProps = m[1], false
+			schema, inProps = m[1], false
 			ra[schema] = nil
 			continue
 		}
@@ -103,7 +103,7 @@ func (c *checker) docThuocTinhSchema() (map[string][]string, error) {
 			continue
 		}
 		if l == "  properties:" {
-			trongProps = true
+			inProps = true
 			continue
 		}
 		if strings.TrimSpace(l) == "" {
@@ -112,12 +112,12 @@ func (c *checker) docThuocTinhSchema() (map[string][]string, error) {
 
 		// Một dòng ở thụt lề 2 (`type:`, `required:`, `description:`) là
 		// thuộc về CHÍNH schema, nên khối `properties:` đã kết thúc.
-		thut := len(l) - len(strings.TrimLeft(l, " "))
-		if thut <= 2 {
-			trongProps = false
+		indent := len(l) - len(strings.TrimLeft(l, " "))
+		if indent <= 2 {
+			inProps = false
 			continue
 		}
-		if !trongProps {
+		if !inProps {
 			continue
 		}
 
@@ -125,55 +125,55 @@ func (c *checker) docThuocTinhSchema() (map[string][]string, error) {
 		// mô tả của thuộc tính ấy, hoặc thuộc tính của một object LỒNG —
 		// và thuộc tính lồng là hình dạng của object con, không phải của
 		// schema này.
-		if thut != 4 {
+		if indent != 4 {
 			continue
 		}
-		if m := reThuocTinh.FindStringSubmatch(l); m != nil {
+		if m := reProperty.FindStringSubmatch(l); m != nil {
 			ra[schema] = append(ra[schema], m[1])
 		}
 	}
 	return ra, nil
 }
 
-// docTruongJSON đọc các tên trường JSON của một struct Go.
+// readJSONFields đọc các tên trường JSON của một struct Go.
 //
 // Đọc AST chứ không grep: một chuỗi `json:"x"` trong chú thích hay trong
 // một struct khác cùng file không phải trường của struct này.
 //
 // Trường nhúng (embedded) được mở ra: `struct{ moneyJSON }` đưa các trường
 // của `moneyJSON` lên cùng cấp trong JSON.
-func (c *checker) docTruongJSON(goi, kieu string) ([]string, error) {
-	thuMuc := filepath.Join(c.root, "internal", filepath.FromSlash(goi))
-	vao, err := os.ReadDir(thuMuc)
+func (c *checker) readJSONFields(pkg, kind string) ([]string, error) {
+	dir := filepath.Join(c.root, "internal", filepath.FromSlash(pkg))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("đọc gói %s: %w", goi, err)
+		return nil, fmt.Errorf("đọc gói %s: %w", pkg, err)
 	}
 
 	fset := token.NewFileSet()
 	var ra []string
-	timThay := false
+	found := false
 
-	for _, e := range vao {
+	for _, e := range entries {
 		ten := e.Name()
 		if e.IsDir() || !strings.HasSuffix(ten, ".go") ||
 			strings.HasSuffix(ten, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(thuMuc, ten), nil, 0)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, ten), nil, 0)
 		if err != nil {
 			return nil, fmt.Errorf("phân tích %s: %w", ten, err)
 		}
 
 		ast.Inspect(f, func(n ast.Node) bool {
 			ts, ok := n.(*ast.TypeSpec)
-			if !ok || ts.Name.Name != kieu {
+			if !ok || ts.Name.Name != kind {
 				return true
 			}
 			st, ok := ts.Type.(*ast.StructType)
 			if !ok {
 				return true
 			}
-			timThay = true
+			found = true
 			for _, fld := range st.Fields.List {
 				ten := tenJSON(fld)
 				if ten != "" && ten != "-" {
@@ -184,9 +184,9 @@ func (c *checker) docTruongJSON(goi, kieu string) ([]string, error) {
 		})
 	}
 
-	if !timThay {
+	if !found {
 		return nil, fmt.Errorf("không tìm thấy struct %s.%s — đổi tên struct "+
-			"thì phải sửa cả sổ `capDTODaKiem`", goi, kieu)
+			"thì phải sửa cả sổ `checkedDTOPairs`", pkg, kind)
 	}
 	sort.Strings(ra)
 	return ra, nil
@@ -213,81 +213,81 @@ func tenJSON(fld *ast.Field) string {
 	return strings.SplitN(con[:j], ",", 2)[0]
 }
 
-// doiChieuDTO so từng cặp đã khai.
-func (c *checker) doiChieuDTO(thuocTinh map[string][]string) {
-	for _, cap := range c.capDTO {
-		sp, co := thuocTinh[cap.Schema]
+// compareDTO so từng cặp đã khai.
+func (c *checker) compareDTO(properties map[string][]string) {
+	for _, pair := range c.dtoPair {
+		sp, co := properties[pair.Schema]
 		if !co {
-			c.viPham = append(c.viPham, fmt.Sprintf(
+			c.violations = append(c.violations, fmt.Sprintf(
 				"DTO sổ ghép trỏ tới schema %q (%s) mà `components/schemas.yaml` "+
-					"không có — đổi tên schema thì phải sửa `capDTODaKiem`",
-				cap.Schema, cap.LyDo))
+					"không có — đổi tên schema thì phải sửa `checkedDTOPairs`",
+				pair.Schema, pair.Reason))
 			continue
 		}
 		if len(sp) == 0 {
-			c.viPham = append(c.viPham, fmt.Sprintf(
+			c.violations = append(c.violations, fmt.Sprintf(
 				"DTO schema %q không đọc được thuộc tính nào — cặp %s đang gác "+
-					"một tập rỗng, tức không gác gì", cap.Schema, cap.LyDo))
+					"một tập rỗng, tức không gác gì", pair.Schema, pair.Reason))
 			continue
 		}
 
-		gv, err := c.docTruongJSON(cap.GoiGo, cap.KieuGo)
+		gv, err := c.readJSONFields(pair.GoPkg, pair.GoType)
 		if err != nil {
-			c.viPham = append(c.viPham, fmt.Sprintf("DTO %s: %v", cap.LyDo, err))
+			c.violations = append(c.violations, fmt.Sprintf("DTO %s: %v", pair.Reason, err))
 			continue
 		}
 
-		tapGo, tapSpec := tapChuoi(gv), tapChuoi(sp)
+		tapGo, tapSpec := stringSet(gv), stringSet(sp)
 
-		var thieu []string
+		var missing []string
 		for _, t := range sp {
 			if tapGo[t] {
 				continue
 			}
-			if _, choPhep := cap.ChoPhepThieu[t]; choPhep {
+			if _, allowed := pair.AllowMissing[t]; allowed {
 				continue
 			}
-			thieu = append(thieu, t)
+			missing = append(missing, t)
 		}
-		sort.Strings(thieu)
-		if len(thieu) > 0 {
-			c.viPham = append(c.viPham, fmt.Sprintf(
+		sort.Strings(missing)
+		if len(missing) > 0 {
+			c.violations = append(c.violations, fmt.Sprintf(
 				"DTO %s (%s ↔ %s.%s): đặc tả khai %s mà struct Go KHÔNG có "+
 					"trường tương ứng. Client dựng giao diện quanh một trường "+
 					"không bao giờ tới — dạng lỗi đã xảy ra NĂM lần, xem P3-80.",
-				cap.LyDo, cap.Schema, cap.GoiGo, cap.KieuGo,
-				strings.Join(thieu, ", ")))
+				pair.Reason, pair.Schema, pair.GoPkg, pair.GoType,
+				strings.Join(missing, ", ")))
 		}
 
-		var thua []string
+		var extra []string
 		for _, t := range gv {
 			if !tapSpec[t] {
-				thua = append(thua, t)
+				extra = append(extra, t)
 			}
 		}
-		sort.Strings(thua)
-		if len(thua) > 0 {
-			c.viPham = append(c.viPham, fmt.Sprintf(
+		sort.Strings(extra)
+		if len(extra) > 0 {
+			c.violations = append(c.violations, fmt.Sprintf(
 				"DTO %s (%s ↔ %s.%s): Go trả %s mà đặc tả KHÔNG khai. Một "+
 					"trường rời máy chủ ngoài hợp đồng: không ai biết nó tồn "+
 					"tại để dùng, và xóa nó đi là thay đổi PHÁ VỠ không ai "+
 					"nhận ra.",
-				cap.LyDo, cap.Schema, cap.GoiGo, cap.KieuGo,
-				strings.Join(thua, ", ")))
+				pair.Reason, pair.Schema, pair.GoPkg, pair.GoType,
+				strings.Join(extra, ", ")))
 		}
 
 		// Một dòng cho phép thiếu trỏ tới trường KHÔNG CÒN trong đặc tả là
 		// một dòng nói dối — nó im lặng ngừng gác.
-		for t := range cap.ChoPhepThieu {
+		for t := range pair.AllowMissing {
 			if !tapSpec[t] {
-				c.viPham = append(c.viPham, fmt.Sprintf(
-					"DTO %s: `ChoPhepThieu` còn dòng cho %q mà đặc tả không "+
-						"còn khai trường ấy — xóa đi", cap.LyDo, t))
+				c.violations = append(c.violations, fmt.Sprintf(
+					"DTO %s: `AllowMissing` còn dòng cho %q mà đặc tả không "+
+						"còn khai trường ấy — xóa đi", pair.Reason, t))
 			}
 			if tapGo[t] {
-				c.viPham = append(c.viPham, fmt.Sprintf(
-					"DTO %s: `ChoPhepThieu` khai %q là chưa trả, nhưng Go ĐÃ "+
-						"trả nó — xóa dòng ấy đi", cap.LyDo, t))
+				c.violations = append(c.violations, fmt.Sprintf(
+					"DTO %s: `AllowMissing` khai %q là chưa trả, nhưng Go ĐÃ "+
+						"trả nó — xóa dòng ấy đi", pair.Reason, t))
 			}
 		}
 	}

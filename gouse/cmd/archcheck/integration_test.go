@@ -8,29 +8,29 @@ import (
 	"testing"
 )
 
-// duAnGia gọi writeFiles rồi TỰ THÊM tài liệu cho mọi module nó dựng.
+// fakeProject gọi writeFiles rồi TỰ THÊM tài liệu cho mọi module nó dựng.
 //
 // R6 đỏ khi một thư mục module không tra ra tài liệu — chủ ý, để lệch tên
 // phải kêu. Nhưng mọi bài test cũ dựng module mà không dựng tài liệu, nên
 // nếu bắt từng bài tự thêm thì mỗi bài mới lại vỡ một lần vì cùng lý do.
-func duAnGia(t *testing.T, files map[string]string) string {
+func fakeProject(t *testing.T, files map[string]string) string {
 	t.Helper()
 
 	mods := map[string]bool{}
 	for rel := range files {
-		if m := reModuleTrongDuong.FindStringSubmatch(rel); m != nil {
+		if m := reModuleInPath.FindStringSubmatch(rel); m != nil {
 			mods[m[1]] = true
 		}
 	}
 	for m := range mods {
-		if ten, than := taiLieuModule(m); files[ten] == "" {
+		if ten, than := moduleDoc(m); files[ten] == "" {
 			files[ten] = than
 		}
 	}
 	return writeFiles(t, files)
 }
 
-var reModuleTrongDuong = regexp.MustCompile(`^internal/modules/([a-z][a-z0-9_]*)/`)
+var reModuleInPath = regexp.MustCompile(`^internal/modules/([a-z][a-z0-9_]*)/`)
 
 // writeFiles tạo cây thư mục tạm với nội dung cho trước.
 func writeFiles(t *testing.T, files map[string]string) string {
@@ -75,13 +75,13 @@ func chayChecker(root string) ([]Violation, error) {
 	return c.violations, nil
 }
 
-// taiLieuModule dựng một file tài liệu tối thiểu có mục "Dữ liệu sở hữu".
+// moduleDoc dựng một file tài liệu tối thiểu có mục "Dữ liệu sở hữu".
 //
 // Mọi dự án giả phải có nó cho MỌI thư mục module, vì R6 đỏ khi một module
 // không tra ra tài liệu — đó là chủ ý: lệch tên phải kêu, không được im.
-func taiLieuModule(mod string, bang ...string) (string, string) {
+func moduleDoc(mod string, tables ...string) (string, string) {
 	than := "## 1. Dữ liệu sở hữu\n\n```sql\n"
-	for _, b := range bang {
+	for _, b := range tables {
 		than += b + "\n"
 	}
 	than += "```\n"
@@ -105,7 +105,7 @@ func TestDetectsEachViolationType(t *testing.T) {
 		return "package x\nimport _ \"" + mod + p + "\"\n"
 	}
 
-	root := duAnGia(t, map[string]string{
+	root := fakeProject(t, map[string]string{
 		// R4: kernel import platform
 		"internal/kernel/money/money.go": imp("/internal/platform/database"),
 		// R3: platform import module nghiệp vụ
@@ -140,7 +140,7 @@ func TestDetectsDependencyCycle(t *testing.T) {
 		return "package application\nimport _ \"" + mod + p + "\"\n"
 	}
 
-	root := duAnGia(t, map[string]string{
+	root := fakeProject(t, map[string]string{
 		"internal/modules/order/public.go":   "package order\n",
 		"internal/modules/loyalty/public.go": "package loyalty\n",
 		"internal/modules/catalog/public.go": "package catalog\n",
@@ -181,7 +181,7 @@ func TestValidStructureProducesNoViolations(t *testing.T) {
 		return s
 	}
 
-	root := duAnGia(t, map[string]string{
+	root := fakeProject(t, map[string]string{
 		"internal/kernel/money/money.go":   "package money\n",
 		"internal/kernel/types/t.go":       imp("types", "/internal/kernel/money"),
 		"internal/platform/database/db.go": imp("database", "/internal/kernel/ids"),
@@ -252,9 +252,9 @@ func TestSelfCheck(t *testing.T) {
 //
 // Hậu quả nặng hơn ghép nối thường: B đổi lược đồ bảng của mình mà không
 // biết A đang đọc nó, nên một migration đúng theo mọi nghĩa vẫn làm A vỡ.
-func TestR6_ModuleKhongChamBangCuaModuleKhac(t *testing.T) {
-	tenOrder, thanOrder := taiLieuModule("order", `"order"`, "order_line")
-	tenSeller, thanSeller := taiLieuModule("seller", "seller", "seller_bank_account")
+func TestR6_AModuleMustNotTouchAnothersTable(t *testing.T) {
+	tenOrder, thanOrder := moduleDoc("order", `"order"`, "order_line")
+	tenSeller, thanSeller := moduleDoc("seller", "seller", "seller_bank_account")
 
 	root := writeFiles(t, map[string]string{
 		tenOrder:  thanOrder,
@@ -277,17 +277,17 @@ func TestR6_ModuleKhongChamBangCuaModuleKhac(t *testing.T) {
 		t.Fatalf("phải bắt R6, nhận: %v", vs)
 	}
 
-	var soR6 int
+	var r6Count int
 	for _, v := range vs {
 		if v.Rule == "R6" {
-			soR6++
+			r6Count++
 			if !strings.Contains(v.Message, "seller") {
 				t.Errorf("thông báo phải gọi tên bảng và module chủ: %s", v.Message)
 			}
 		}
 	}
-	if soR6 != 1 {
-		t.Errorf("mong đúng 1 vi phạm R6 (bảng của chính mình không tính), nhận %d", soR6)
+	if r6Count != 1 {
+		t.Errorf("mong đúng 1 vi phạm R6 (bảng của chính mình không tính), nhận %d", r6Count)
 	}
 }
 
@@ -296,8 +296,8 @@ func TestR6_ModuleKhongChamBangCuaModuleKhac(t *testing.T) {
 // Đó là hạ tầng dùng chung và không mang khái niệm nghiệp vụ nào để rò rỉ.
 // Không có ngoại lệ này thì mọi module ghi audit đều đỏ, và người ta tắt
 // hẳn quy tắc.
-func TestR6_BangPlatformThiAiCungChamDuoc(t *testing.T) {
-	ten, than := taiLieuModule("order", `"order"`)
+func TestR6_APlatformTableIsReachableByEveryone(t *testing.T) {
+	ten, than := moduleDoc("order", `"order"`)
 	root := writeFiles(t, map[string]string{
 		ten: than,
 		"internal/modules/order/infrastructure/postgres/store.go": "package postgres\n" +
@@ -318,11 +318,11 @@ func TestR6_BangPlatformThiAiCungChamDuoc(t *testing.T) {
 //
 // Không có bảng sở hữu đáng tin thì R6 không kiểm được gì — và một quy tắc
 // im lặng không kiểm gì là thứ tệ nhất: nó vẫn in ra OK.
-func TestR6_BangSoHuuHongThiBaoLoi(t *testing.T) {
-	tenOrder, thanOrder := taiLieuModule("order", `"order"`)
+func TestR6_ABrokenOwnershipLedgerErrors(t *testing.T) {
+	tenOrder, thanOrder := moduleDoc("order", `"order"`)
 
 	t.Run("hai module cùng khai một bảng", func(t *testing.T) {
-		tenSeller, thanSeller := taiLieuModule("seller", "seller", `"order"`)
+		tenSeller, thanSeller := moduleDoc("seller", "seller", `"order"`)
 		root := writeFiles(t, map[string]string{
 			tenOrder:                       thanOrder,
 			tenSeller:                      thanSeller,
@@ -361,7 +361,7 @@ func TestR6_BangSoHuuHongThiBaoLoi(t *testing.T) {
 
 // ------------------------------------------- R10: microkernel
 
-// duAnMicrokernel dựng dự án giả CÓ bật R10.
+// microkernelProject dựng dự án giả CÓ bật R10.
 //
 // `chayChecker` để `goc` rỗng, tức tắt R10 — đúng cho các bài kiểm R1–R9
 // nhưng vô dụng ở đây. Hàm này bật R10 với sổ năng lực cắt ngang truyền vào.
@@ -369,21 +369,21 @@ func TestR6_BangSoHuuHongThiBaoLoi(t *testing.T) {
 // `tang` là tầng của từng module, và nó được ghi vào TÀI LIỆU module chứ
 // không truyền thẳng vào checker: R10 đọc tài liệu, nên bộ test phải đi qua
 // đúng đường ấy — bỏ qua nó thì bài test kiểm một đường mã không ai chạy.
-func duAnMicrokernel(
+func microkernelProject(
 	t *testing.T, files map[string]string,
-	tang map[string]string, catNgang map[string]string,
+	tier map[string]string, crossCutting map[string]string,
 ) []Violation {
 	t.Helper()
 
 	mods := map[string]bool{}
 	for rel := range files {
-		if m := reModuleTrongDuong.FindStringSubmatch(rel); m != nil {
+		if m := reModuleInPath.FindStringSubmatch(rel); m != nil {
 			mods[m[1]] = true
 		}
 	}
 	for m := range mods {
-		ten, than := taiLieuModule(m)
-		if t, co := tang[m]; co {
+		ten, than := moduleDoc(m)
+		if t, co := tier[m]; co {
 			than = "| **Tầng (microkernel)** | **" + t + "** |\n\n" + than
 		}
 		if files[ten] == "" {
@@ -391,23 +391,23 @@ func duAnMicrokernel(
 		}
 	}
 	// Tài liệu cho module KHÔNG có mã — dùng để kiểm sổ đã mục.
-	for m, t := range tang {
+	for m, t := range tier {
 		if mods[m] {
 			continue
 		}
-		ten, than := taiLieuModule(m)
+		ten, than := moduleDoc(m)
 		files[ten] = "| **Tầng (microkernel)** | **" + t + "** |\n\n" + than
 	}
 
 	root := writeFiles(t, files)
 
 	c := &checker{
-		root:       root,
-		modulePath: mod,
-		goc:        "checkout",
-		catNgang:   catNgang,
-		imports:    make(map[string][]string),
-		pkgFiles:   make(map[string][]string),
+		root:         root,
+		modulePath:   mod,
+		root2:        "checkout",
+		crossCutting: crossCutting,
+		imports:      make(map[string][]string),
+		pkgFiles:     make(map[string][]string),
 	}
 	if err := c.run(); err != nil {
 		t.Fatalf("checker.run: %v", err)
@@ -415,14 +415,14 @@ func duAnMicrokernel(
 	return c.violations
 }
 
-// chayMicrokernelLoi chạy như trên nhưng ĐÒI một lỗi khởi động.
-func chayMicrokernelLoi(t *testing.T, files map[string]string) error {
+// runMicrokernelError chạy như trên nhưng ĐÒI một lỗi khởi động.
+func runMicrokernelError(t *testing.T, files map[string]string) error {
 	t.Helper()
 	root := writeFiles(t, files)
 	c := &checker{
 		root:       root,
 		modulePath: mod,
-		goc:        "checkout",
+		root2:      "checkout",
 		imports:    make(map[string][]string),
 		pkgFiles:   make(map[string][]string),
 	}
@@ -433,8 +433,8 @@ func chayMicrokernelLoi(t *testing.T, files map[string]string) error {
 	return err
 }
 
-// chiR10 lọc lấy vi phạm R10 — các bài dưới đây không quan tâm quy tắc khác.
-func chiR10(vs []Violation) []Violation {
+// onlyR10 lọc lấy vi phạm R10 — các bài dưới đây không quan tâm quy tắc khác.
+func onlyR10(vs []Violation) []Violation {
 	var out []Violation
 	for _, v := range vs {
 		if v.Rule == "R10" {
@@ -444,7 +444,7 @@ func chiR10(vs []Violation) []Violation {
 	return out
 }
 
-const nguonCheckout = `package checkout
+const checkoutSource = `package checkout
 
 type API interface{ Mua() }
 `
@@ -457,8 +457,8 @@ type API interface{ Mua() }
 // vẫn là DAG và R5 im lặng. Sau dòng import ấy, tháo `notification` ra làm
 // `checkout` không biên dịch được — tức câu "tháo extension ra thì khách vẫn
 // mua được hàng" thành câu không đúng.
-func TestR10_KernelKhongDuocImportExtension(t *testing.T) {
-	vs := chiR10(duAnMicrokernel(t, map[string]string{
+func TestR10_TheKernelMustNotImportAnExtension(t *testing.T) {
+	vs := onlyR10(microkernelProject(t, map[string]string{
 		"internal/modules/checkout/public.go": `package checkout
 
 import _ "` + mod + `/internal/modules/notification"
@@ -489,9 +489,9 @@ type API interface{ Gui() }
 // Mạnh hơn "kernel không import extension" có chủ ý: hai extension dính nhau
 // thì không tháo riêng được cái nào, và câu "tháo nó ra thì chỉ mất tính năng
 // của nó" thành sai cho cả hai.
-func TestR10_ExtensionKhongDuocImportExtension(t *testing.T) {
-	vs := chiR10(duAnMicrokernel(t, map[string]string{
-		"internal/modules/checkout/public.go": nguonCheckout,
+func TestR10_AnExtensionMustNotImportAnExtension(t *testing.T) {
+	vs := onlyR10(microkernelProject(t, map[string]string{
+		"internal/modules/checkout/public.go": checkoutSource,
 		"internal/modules/returns/public.go": `package returns
 
 import _ "` + mod + `/internal/modules/analytics"
@@ -521,9 +521,9 @@ type API interface{ Ghi() }
 //
 // Ngoài đường mua hàng VÀ không ai import: đó đúng là hình dạng một
 // extension. Phân loại cũ sẽ làm người sau tin module ấy ổn định.
-func TestR10_TaiLieuXepKernelSaiThiDo(t *testing.T) {
-	vs := chiR10(duAnMicrokernel(t, map[string]string{
-		"internal/modules/checkout/public.go": nguonCheckout,
+func TestR10_ADocMisfilingAModuleAsKernelIsRed(t *testing.T) {
+	vs := onlyR10(microkernelProject(t, map[string]string{
+		"internal/modules/checkout/public.go": checkoutSource,
 		"internal/modules/analytics/public.go": `package analytics
 
 type API interface{ Ghi() }
@@ -542,9 +542,9 @@ type API interface{ Ghi() }
 }
 
 // Khai năng lực CẮT NGANG thì R10c im — đó là đường miễn trừ có lý do.
-func TestR10_NangLucCatNgangDuocMienTru(t *testing.T) {
-	vs := chiR10(duAnMicrokernel(t, map[string]string{
-		"internal/modules/checkout/public.go": nguonCheckout,
+func TestR10_CrossCuttingCapabilitiesAreExempt(t *testing.T) {
+	vs := onlyR10(microkernelProject(t, map[string]string{
+		"internal/modules/checkout/public.go": checkoutSource,
 		"internal/modules/identity/public.go": `package identity
 
 type API interface{ Ai() }
@@ -567,9 +567,9 @@ type API interface{ Ai() }
 // nhưng `marketplace` không import nó, nên khung giá ấy không cưỡng chế gì.
 // Xếp sai còn tệ hơn để trống — một module gán nhãn "kernel" sẽ được người
 // sau tin là ổn định.
-func TestR10_ChuaXepDuocThiKhongKetLuan(t *testing.T) {
-	vs := chiR10(duAnMicrokernel(t, map[string]string{
-		"internal/modules/checkout/public.go": nguonCheckout,
+func TestR10_AnUnassignedModuleDrawsNoConclusion(t *testing.T) {
+	vs := onlyR10(microkernelProject(t, map[string]string{
+		"internal/modules/checkout/public.go": checkoutSource,
 		"internal/modules/pricing/public.go": `package pricing
 
 type API interface{ Gia() }
@@ -589,10 +589,10 @@ type API interface{ Gia() }
 // Cùng cách R6 xử lý tài liệu thiếu mục sở hữu: không có bảng phân loại đáng
 // tin thì R10 không kiểm được gì, và một quy tắc im lặng không kiểm gì vẫn
 // in ra `OK` — thứ tệ nhất.
-func TestR10_ThieuHangTangThiLoiKhoiDong(t *testing.T) {
-	ten, than := taiLieuModule("checkout")
-	err := chayMicrokernelLoi(t, map[string]string{
-		"internal/modules/checkout/public.go": nguonCheckout,
+func TestR10_AMissingTierRowIsAStartupError(t *testing.T) {
+	ten, than := moduleDoc("checkout")
+	err := runMicrokernelError(t, map[string]string{
+		"internal/modules/checkout/public.go": checkoutSource,
 		ten:                                   than, // KHÔNG có hàng tầng
 	})
 	if !strings.Contains(err.Error(), "Tầng (microkernel)") {
@@ -604,10 +604,10 @@ func TestR10_ThieuHangTangThiLoiKhoiDong(t *testing.T) {
 //
 // "Quan trọng" không phải một tầng. Nhận im lặng rồi coi là chưa phân loại
 // sẽ biến một lỗi đánh máy thành một module mất hàng rào.
-func TestR10_TangLaThiLoiKhoiDong(t *testing.T) {
-	ten, than := taiLieuModule("checkout")
-	err := chayMicrokernelLoi(t, map[string]string{
-		"internal/modules/checkout/public.go": nguonCheckout,
+func TestR10_AnUnknownTierIsAStartupError(t *testing.T) {
+	ten, than := moduleDoc("checkout")
+	err := runMicrokernelError(t, map[string]string{
+		"internal/modules/checkout/public.go": checkoutSource,
 		ten:                                   "| **Tầng (microkernel)** | **Quan trọng** |\n\n" + than,
 	})
 	if !strings.Contains(err.Error(), "Quan trọng") {
@@ -615,10 +615,10 @@ func TestR10_TangLaThiLoiKhoiDong(t *testing.T) {
 	}
 }
 
-// Sổ `nangLucCatNgang` trỏ tới module KHÔNG tồn tại là một sổ đã mục.
-func TestR10_BatSoCatNgangDaMuc(t *testing.T) {
-	vs := chiR10(duAnMicrokernel(t, map[string]string{
-		"internal/modules/checkout/public.go": nguonCheckout,
+// Sổ `crossCuttingCapabilities` trỏ tới module KHÔNG tồn tại là một sổ đã mục.
+func TestR10_CatchesARottenCrossCuttingOverride(t *testing.T) {
+	vs := onlyR10(microkernelProject(t, map[string]string{
+		"internal/modules/checkout/public.go": checkoutSource,
 	}, map[string]string{
 		"checkout": "KERNEL — đường mua hàng",
 	}, map[string]string{

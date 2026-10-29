@@ -33,12 +33,12 @@ import (
 // thay vì giữ một danh sách riêng — một bản sao thứ hai của bảng sở hữu
 // sớm muộn sẽ lệch với tài liệu, và khi ấy không biết bên nào đúng.
 
-// bangCuaPlatform là các bảng thuộc `internal/platform`, không thuộc module
+// platformTables là các bảng thuộc `internal/platform`, không thuộc module
 // nghiệp vụ nào — nên không tài liệu module nào khai chúng.
 //
 // Mọi module được phép chạm: đó là hạ tầng dùng chung, và chúng không mang
 // khái niệm nghiệp vụ nào để mà rò rỉ.
-var bangCuaPlatform = map[string]string{
+var platformTables = map[string]string{
 	"audit_log":       "platform/audit — vết kiểm toán của MỌI module",
 	"event_outbox":    "platform/eventbus — hàng đợi phát event",
 	"event_processed": "platform/eventbus — đánh dấu đã xử lý, chống xử lý hai lần",
@@ -46,76 +46,76 @@ var bangCuaPlatform = map[string]string{
 	"webhook_event":   "platform/webhook — chống trùng webhook theo định danh CỦA HỌ",
 }
 
-// tenTaiLieuKhacTenModule ánh xạ tên file tài liệu sang tên thư mục module.
+// docNameDiffersFromModule ánh xạ tên file tài liệu sang tên thư mục module.
 //
 // Hai chỗ lệch, và sửa bằng cách đổi tên file sẽ phải sửa 57 liên kết —
 // trong đó `return.md` còn trùng tên với tài liệu LUỒNG trả hàng, nên đổi
 // tên là rủi ro không đáng.
 //
 // Bảng dịch tên là một nguồn sự thật thứ hai, và bình thường tôi tránh nó.
-// Nó an toàn ở đây vì `docSoHuuBang` ĐỎ khi một thư mục module không tra ra
+// Nó an toàn ở đây vì `readTableOwnership` ĐỎ khi một thư mục module không tra ra
 // tài liệu: lệch tên mới sẽ kêu ngay chứ không im lặng bỏ gác.
-var tenTaiLieuKhacTenModule = map[string]string{
+var docNameDiffersFromModule = map[string]string{
 	"return":       "returns",
 	"supply-chain": "supplychain",
 }
 
-// reMucSoHuu tách khối ```sql ĐẦU TIÊN sau tiêu đề "Dữ liệu sở hữu".
+// reOwnerEntry tách khối ```sql ĐẦU TIÊN sau tiêu đề "Dữ liệu sở hữu".
 //
 // Chỉ khối đầu: mục ấy thường có thêm các khối `CREATE TABLE` bên dưới để
 // giải thích lược đồ, và chúng không phải danh sách sở hữu.
-var reMucSoHuu = regexp.MustCompile(
+var reOwnerEntry = regexp.MustCompile(
 	`(?s)##\s*\d+\.\s*Dữ liệu sở hữu\s*\n+` + "```" + `sql\n(.*?)` + "```")
 
-var reTenBang = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+var reTableName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
-// docSoHuuBang đọc bảng sở hữu từ `docs/04-modules/*.md`.
-func (c *checker) docSoHuuBang() (map[string]string, error) {
-	goc := filepath.Join(c.root, "..", "docs", "04-modules")
-	vao, err := os.ReadDir(goc)
+// readTableOwnership đọc bảng sở hữu từ `docs/04-modules/*.md`.
+func (c *checker) readTableOwnership() (map[string]string, error) {
+	root2 := filepath.Join(c.root, "..", "docs", "04-modules")
+	entries, err := os.ReadDir(root2)
 	if err != nil {
 		return nil, fmt.Errorf("đọc tài liệu module: %w\n"+
 			"(R6 đọc mục \"Dữ liệu sở hữu\" của chính tài liệu — đổi chỗ "+
 			"thư mục ấy thì phải sửa cả công cụ này)", err)
 	}
 
-	chuSoHuu := map[string]string{}
-	coTaiLieu := map[string]bool{}
+	owner := map[string]string{}
+	hasDoc := map[string]bool{}
 
-	for _, e := range vao {
+	for _, e := range entries {
 		ten := e.Name()
 		if e.IsDir() || !strings.HasSuffix(ten, ".md") || ten == "README.md" {
 			continue
 		}
-		noiDung, err := os.ReadFile(filepath.Join(goc, ten))
+		content, err := os.ReadFile(filepath.Join(root2, ten))
 		if err != nil {
 			return nil, err
 		}
 
 		mod := strings.TrimSuffix(ten, ".md")
-		if m, co := tenTaiLieuKhacTenModule[mod]; co {
+		if m, co := docNameDiffersFromModule[mod]; co {
 			mod = m
 		}
-		coTaiLieu[mod] = true
+		hasDoc[mod] = true
 
-		m := reMucSoHuu.FindSubmatch(noiDung)
+		m := reOwnerEntry.FindSubmatch(content)
 		if m == nil {
 			return nil, fmt.Errorf("tài liệu %s không có mục \"N. Dữ liệu sở "+
 				"hữu\" kèm khối ```sql — R6 không biết module ấy sở hữu bảng "+
 				"nào", ten)
 		}
-		for _, dong := range strings.Split(string(m[1]), "\n") {
-			bang := strings.Trim(strings.TrimSpace(
-				strings.SplitN(dong, "--", 2)[0]), `",`)
-			if !reTenBang.MatchString(bang) {
+		for _, line := range strings.Split(string(m[1]), "\n") {
+			tables := strings.Trim(strings.TrimSpace(
+				strings.SplitN(line, "--", 2)[0]), `",`)
+			if !reTableName.MatchString(tables) {
 				continue
 			}
-			if truoc, trung := chuSoHuu[bang]; trung && truoc != mod {
+			if before, duplicate := owner[tables]; duplicate && before != mod {
 				return nil, fmt.Errorf("bảng %q bị HAI module khai sở hữu: "+
 					"%s và %s — sở hữu phải là một, nếu không không ai biết "+
-					"đổi lược đồ phải hỏi ai", bang, truoc, mod)
+					"đổi lược đồ phải hỏi ai", tables, before, mod)
 			}
-			chuSoHuu[bang] = mod
+			owner[tables] = mod
 		}
 	}
 
@@ -125,92 +125,92 @@ func (c *checker) docSoHuuBang() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var thieu []string
+	var missing []string
 	for _, d := range moduleDir {
-		if d.IsDir() && !coTaiLieu[d.Name()] {
-			thieu = append(thieu, d.Name())
+		if d.IsDir() && !hasDoc[d.Name()] {
+			missing = append(missing, d.Name())
 		}
 	}
-	if len(thieu) > 0 {
-		sort.Strings(thieu)
+	if len(missing) > 0 {
+		sort.Strings(missing)
 		return nil, fmt.Errorf("module %s không có tài liệu tương ứng trong "+
 			"docs/04-modules/ — thêm tài liệu, hoặc thêm dòng vào "+
-			"`tenTaiLieuKhacTenModule` nếu tên file khác tên thư mục",
-			strings.Join(thieu, ", "))
+			"`docNameDiffersFromModule` nếu tên file khác tên thư mục",
+			strings.Join(missing, ", "))
 	}
-	return chuSoHuu, nil
+	return owner, nil
 }
 
-// reBangTrongSQL tìm tên bảng trong câu SQL.
+// reTableInSQL tìm tên bảng trong câu SQL.
 //
 // Bốn dạng câu chạm bảng, và chỉ bốn: `FROM`, `JOIN`, `INSERT INTO`,
 // `UPDATE`, `DELETE FROM`. Không cố phân tích SQL đầy đủ — một bộ phân tích
 // SQL trong công cụ kiểm ranh giới là một thứ phải bảo trì riêng, và bốn
 // mẫu này đã bắt được mọi truy vấn của dự án.
-var reBangTrongSQL = regexp.MustCompile(
+var reTableInSQL = regexp.MustCompile(
 	`(?i)\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?([a-z_][a-z0-9_]*)"?`)
 
-// kiemSoHuuBang thực thi R6 trên mã của các module.
-func (c *checker) kiemSoHuuBang() error {
-	chuSoHuu, err := c.docSoHuuBang()
+// checkTableOwnership thực thi R6 trên mã của các module.
+func (c *checker) checkTableOwnership() error {
+	owner, err := c.readTableOwnership()
 	if err != nil {
 		return err
 	}
 
-	goc := filepath.Join(c.root, "internal", "modules")
-	return filepath.Walk(goc, func(duong string, info os.FileInfo, err error) error {
+	root2 := filepath.Join(c.root, "internal", "modules")
+	return filepath.Walk(root2, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() || !strings.HasSuffix(duong, ".go") ||
-			strings.HasSuffix(duong, "_test.go") {
+		if info.IsDir() || !strings.HasSuffix(path, ".go") ||
+			strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 
-		rel, _ := filepath.Rel(goc, duong)
+		rel, _ := filepath.Rel(root2, path)
 		mod := strings.SplitN(filepath.ToSlash(rel), "/", 2)[0]
 
-		noiDung, err := os.ReadFile(duong)
+		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 
-		daBao := map[string]bool{}
-		for _, m := range reBangTrongSQL.FindAllSubmatchIndex(noiDung, -1) {
-			bang := strings.ToLower(string(noiDung[m[2]:m[3]]))
+		reported := map[string]bool{}
+		for _, m := range reTableInSQL.FindAllSubmatchIndex(content, -1) {
+			tables := strings.ToLower(string(content[m[2]:m[3]]))
 
-			chu, coChu := chuSoHuu[bang]
+			ownerOf, hasOwner := owner[tables]
 			switch {
-			case !coChu:
+			case !hasOwner:
 				// Không ai khai: có thể là bảng platform, một CTE, hay một
 				// bảng chưa vào tài liệu. Platform thì cho qua; còn lại để
 				// `kiemBangChuaKhai` xử lý, vì ở đây không phân biệt được
 				// CTE với bảng thật.
 				continue
-			case chu == mod:
+			case ownerOf == mod:
 				continue
 			}
 
-			if daBao[bang] {
+			if reported[tables] {
 				continue
 			}
-			daBao[bang] = true
+			reported[tables] = true
 
-			relRoot, _ := filepath.Rel(c.root, duong)
+			relRoot, _ := filepath.Rel(c.root, path)
 			c.violations = append(c.violations, Violation{
 				Rule: "R6",
 				File: filepath.ToSlash(relRoot),
-				Line: soDong(noiDung, m[2]),
+				Line: lineOf(content, m[2]),
 				Message: fmt.Sprintf(
-					"module %q chạm bảng %q của module %q", mod, bang, chu),
+					"module %q chạm bảng %q của module %q", mod, tables, ownerOf),
 				Hint: fmt.Sprintf("dùng cổng công khai của %s; %s đổi lược "+
-					"đồ bảng ấy sẽ làm %s vỡ mà không ai biết", chu, chu, mod),
+					"đồ bảng ấy sẽ làm %s vỡ mà không ai biết", ownerOf, ownerOf, mod),
 			})
 		}
 		return nil
 	})
 }
 
-func soDong(noiDung []byte, offset int) int {
-	return 1 + strings.Count(string(noiDung[:offset]), "\n")
+func lineOf(content []byte, offset int) int {
+	return 1 + strings.Count(string(content[:offset]), "\n")
 }

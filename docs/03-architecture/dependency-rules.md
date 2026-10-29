@@ -467,7 +467,7 @@ Bản hiện tại tách hai việc: **phân loại là QUYẾT ĐỊNH** — h�
 cùng nguồn sự thật với R6 — còn **tính nhất quán là phép ĐO**, và R10a/R10c
 đo nó.
 
-Chỉ còn MỘT sổ trong Go: `nangLucCatNgang`, cho hai module tài liệu xếp
+Chỉ còn MỘT sổ trong Go: `crossCuttingCapabilities`, cho hai module tài liệu xếp
 KERNEL mà nằm ngoài đường mua hàng (`identity`, `customer`). Thiếu một dòng ở
 đó thì R10c đỏ với chính module ấy, nên sổ không mục trong im lặng.
 

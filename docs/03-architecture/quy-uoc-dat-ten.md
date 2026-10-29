@@ -230,6 +230,29 @@ grep -rn '"<TenCu>"' cmd/           # ghim dạng chuỗi
 grep -rn 'Name != "<TenCu>"' cmd/   # ghim dạng AST
 ```
 
+### Chuỗi CÓ KHI phải đổi: phân biệt bằng backtick
+
+Ba công cụ kiểm nhúng tên sổ gác vào thông báo lỗi, để người đọc lỗi biết
+sửa đâu:
+
+```go
+"— đổi tên kiểu thì phải sửa cả sổ `capEnumDaKiem`"
+{"khongAiPhat", c.khongPhat}   // tên sổ, in ra qua `sổ %s`
+```
+
+Đổi tên sổ mà KHÔNG đổi chuỗi thì thông báo lỗi trỏ vào một cái tên không
+còn tồn tại — đúng thứ mục 2 cấm. Nên phép rà literal không phải "phải
+rỗng" mà là "phải PHÂN LOẠI ĐƯỢC":
+
+```python
+mat = [chuỗi có ở dòng '-' mà không có ở dòng '+']
+ngoai_backtick = [s for s in mat if '`' not in s]   # <- đọc tay từng cái
+```
+
+Lượt này: 31 chuỗi đổi, 27 trong backtick (đúng), 4 ngoài — đọc tay thì cả
+bốn cũng là tên định danh nhúng vào thông báo. Lượt `cmd/worker` thì ngược
+lại: 4 chuỗi, cả 4 đều sai.
+
 ### Lượt quét chú thích cũng đổi CHUỖI — rà bằng cách đếm literal
 
 `sed` không biết đâu là chú thích, đâu là chuỗi. Luật `chung -> shared` đổi
@@ -615,8 +638,8 @@ XONG   modules/checkout                170   (kernel, GỐC) — HẾT 21 MODULE
 XONG   internal/kernel                  45   (ids, money, types)
 XONG   internal/platform               222   (13 gói, hai lượt)
 XONG   cmd (worker, dotai, doisoat*, tao*)  151
-CÒN    cmd/apicheck 116 · cmd/archcheck 68 · cmd/eventcheck 61 ·
-       internal/e2e 105 · internal/app 57
+XONG   cmd (apicheck, archcheck, eventcheck) 252  — HẾT cmd
+CÒN    internal/e2e 105 · internal/app 57
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

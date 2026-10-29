@@ -13,7 +13,7 @@ package main
 //
 // Cảnh báo giả là thứ làm người ta tắt hẳn phép kiểm. Nên cặp phải tường
 // minh, và mỗi cặp được kiểm bằng mắt trước khi ghi vào đây — cùng lý do
-// và cùng khuôn với `capEnumDaKiem` (P3-70).
+// và cùng khuôn với `checkedEnumPairs` (P3-70).
 //
 // # Một cặp đúng tên vẫn có thể SAI
 //
@@ -30,22 +30,22 @@ package main
 // Số còn lại là các schema nhỏ được NHÚNG vào schema khác
 // (`BrandRef`, `Image`, `ProductTag`) — chúng xuất hiện bên trong một
 // struct lớn hơn, và tầng này so ở mức schema cấp cao nhất. Gác chúng cần
-// một phép so lồng nhau; chưa làm, và `soDTOChuaGac` canh để việc chưa làm
+// một phép so lồng nhau; chưa làm, và `ungatedDTOs` canh để việc chưa làm
 // ấy không tăng lên.
-var capDTODaKiem = []capDTO{
+var checkedDTOPairs = []dtoPair{
 	// ---------------------------------------------------------- Mua hàng
 	{
-		Schema: "Offer", GoiGo: "modules/marketplace/interfaces/http",
-		KieuGo: "offerJSON", LyDo: "lời chào bán một SKU",
+		Schema: "Offer", GoPkg: "modules/marketplace/interfaces/http",
+		GoType: "offerJSON", Reason: "lời chào bán một SKU",
 	},
 	{
-		Schema: "SellerOffer", GoiGo: "modules/marketplace/interfaces/http",
-		KieuGo: "sellerOfferJSON", LyDo: "offer nhìn từ phía nhà bán",
+		Schema: "SellerOffer", GoPkg: "modules/marketplace/interfaces/http",
+		GoType: "sellerOfferJSON", Reason: "offer nhìn từ phía nhà bán",
 	},
 	{
-		Schema: "CartItem", GoiGo: "modules/cart/interfaces/http",
-		KieuGo: "itemJSON", LyDo: "một dòng trong giỏ",
-		ChoPhepThieu: map[string]string{
+		Schema: "CartItem", GoPkg: "modules/cart/interfaces/http",
+		GoType: "itemJSON", Reason: "một dòng trong giỏ",
+		AllowMissing: map[string]string{
 			// Tầng này tìm ra `product_id` ngày 25/09/2026 — trường hợp
 			// THỨ SÁU của dạng lỗi nó sinh ra để bắt.
 			//
@@ -64,8 +64,8 @@ var capDTODaKiem = []capDTO{
 		},
 	},
 	{
-		Schema: "AttributionSource", GoiGo: "modules/cart/interfaces/http",
-		KieuGo: "attributionJSON", LyDo: "nguồn giới thiệu của dòng giỏ",
+		Schema: "AttributionSource", GoPkg: "modules/cart/interfaces/http",
+		GoType: "attributionJSON", Reason: "nguồn giới thiệu của dòng giỏ",
 	},
 
 	// ------------------------------------------------- Phiên thanh toán
@@ -73,52 +73,52 @@ var capDTODaKiem = []capDTO{
 	// Cặp này là lý do tầng thứ tư tồn tại: `shipping_groups` (P3-50) và
 	// `shipping_method` (P3-73) đều từng vắng mặt ở đây.
 	{
-		Schema: "Checkout", GoiGo: "modules/checkout/interfaces/http",
-		KieuGo: "checkoutJSON", LyDo: "phiên thanh toán — đã thiếu hai lần",
+		Schema: "Checkout", GoPkg: "modules/checkout/interfaces/http",
+		GoType: "checkoutJSON", Reason: "phiên thanh toán — đã thiếu hai lần",
 	},
 	{
-		Schema: "CheckoutLine", GoiGo: "modules/checkout/interfaces/http",
-		KieuGo: "lineJSON", LyDo: "một dòng trong phiên thanh toán",
+		Schema: "CheckoutLine", GoPkg: "modules/checkout/interfaces/http",
+		GoType: "lineJSON", Reason: "một dòng trong phiên thanh toán",
 	},
 	{
-		Schema: "OrderSummary", GoiGo: "modules/checkout/interfaces/http",
-		KieuGo: "orderSummaryJSON",
-		LyDo:   "đơn vừa tạo, trả về khi hoàn tất phiên",
+		Schema: "OrderSummary", GoPkg: "modules/checkout/interfaces/http",
+		GoType: "orderSummaryJSON",
+		Reason: "đơn vừa tạo, trả về khi hoàn tất phiên",
 	},
 
 	// ------------------------------------------------------- Đơn hàng
 	{
-		Schema: "OrderDetailLine", GoiGo: "modules/order/interfaces/http",
-		KieuGo: "customerLineJSON", LyDo: "dòng đơn khách nhìn thấy",
+		Schema: "OrderDetailLine", GoPkg: "modules/order/interfaces/http",
+		GoType: "customerLineJSON", Reason: "dòng đơn khách nhìn thấy",
 	},
 
 	// --------------------------------------------------------- Trả hàng
 	{
-		Schema: "ReturnRequest", GoiGo: "modules/returns/interfaces/http",
-		KieuGo: "returnJSON", LyDo: "yêu cầu trả hàng",
+		Schema: "ReturnRequest", GoPkg: "modules/returns/interfaces/http",
+		GoType: "returnJSON", Reason: "yêu cầu trả hàng",
 	},
 	{
-		Schema: "ReturnLine", GoiGo: "modules/returns/interfaces/http",
-		KieuGo: "returnLineJSON", LyDo: "một dòng xin trả",
+		Schema: "ReturnLine", GoPkg: "modules/returns/interfaces/http",
+		GoType: "returnLineJSON", Reason: "một dòng xin trả",
 	},
 
 	// ------------------------------------------------------------ Tiền
 	{
-		Schema: "SellerBalance", GoiGo: "modules/payment/interfaces/http",
-		KieuGo: "balanceJSON", LyDo: "số dư nhà bán",
+		Schema: "SellerBalance", GoPkg: "modules/payment/interfaces/http",
+		GoType: "balanceJSON", Reason: "số dư nhà bán",
 	},
 	{
-		Schema: "Settlement", GoiGo: "modules/payment/interfaces/http",
-		KieuGo: "settlementJSON",
-		LyDo:   "đợt đối soát — `lines` đã từng bị vứt ở tầng DTO (P3-69)",
+		Schema: "Settlement", GoPkg: "modules/payment/interfaces/http",
+		GoType: "settlementJSON",
+		Reason: "đợt đối soát — `lines` đã từng bị vứt ở tầng DTO (P3-69)",
 	},
 }
 
-// soDTOChuaGac là số schema CÓ thuộc tính mà chưa nằm trong sổ trên.
+// ungatedDTOs là số schema CÓ thuộc tính mà chưa nằm trong sổ trên.
 //
 // # Vì sao một con số thay vì bắt khai hết
 //
-// Cùng lý do với `soEnumChuaGac`: phần lớn schema chưa gác thuộc Phase 2
+// Cùng lý do với `ungatedEnums`: phần lớn schema chưa gác thuộc Phase 2
 // và không có struct Go nào để ghép. Bắt khai lý do cho từng cái sẽ sinh
 // một sổ mười ba dòng "Phase 2" mà không ai đọc.
 //
@@ -126,4 +126,4 @@ var capDTODaKiem = []capDTO{
 // CI đỏ, buộc người thêm phải quyết. Nó CHỈ ĐƯỢC GIẢM.
 //
 // Nó KHÔNG phải lời hứa rằng phần còn lại đã được kiểm.
-const soDTOChuaGac = 20
+const ungatedDTOs = 20

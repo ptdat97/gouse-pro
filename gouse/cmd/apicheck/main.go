@@ -18,7 +18,7 @@
 //
 //	tuyến có, đặc tả không   LỖI. Endpoint ngoài hợp đồng là endpoint
 //	                         client không gọi được và không ai rà soát.
-//	đặc tả có, tuyến không   phải KHAI vào `chuaCai` kèm lý do. Phần lớn
+//	đặc tả có, tuyến không   phải KHAI vào `notImplemented` kèm lý do. Phần lớn
 //	                         là Phase 2/3 — hợp lệ, nhưng phải nói ra.
 //
 // Nhờ hướng thứ hai mà câu "24 thao tác chưa cài, 20 thuộc Phase 2/3"
@@ -45,29 +45,29 @@ func main() {
 		root    = flag.String("root", ".", "thư mục gốc dự án")
 		verbose = flag.Bool("v", false, "in chi tiết quá trình kiểm tra")
 
-		// lietKeEnum in đường dẫn của MỌI enum trong đặc tả.
+		// listEnums in đường dẫn của MỌI enum trong đặc tả.
 		//
-		// Sổ `capEnumDaKiem` khóa theo đường dẫn, và đường dẫn là thứ không
+		// Sổ `checkedEnumPairs` khóa theo đường dẫn, và đường dẫn là thứ không
 		// đoán được — nó do bộ đọc dựng ra từ thụt lề. Không có cờ này thì
 		// mỗi lần thêm một cặp là một vòng đoán rồi chạy rồi sửa.
-		lietKeEnum = flag.Bool("liet-ke-enum", false,
+		listEnums = flag.Bool("liet-ke-enum", false,
 			"in đường dẫn và giá trị của mọi enum trong đặc tả, rồi thoát")
 	)
 	flag.Parse()
 
-	if *lietKeEnum {
+	if *listEnums {
 		c := &checker{root: *root}
-		ds, err := c.docEnumDacTa()
+		ds, err := c.readSpecEnums()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "apicheck: %v\n", err)
 			os.Exit(2)
 		}
-		duong := make([]string, 0, len(ds))
+		path := make([]string, 0, len(ds))
 		for d := range ds {
-			duong = append(duong, d)
+			path = append(path, d)
 		}
-		sort.Strings(duong)
-		for _, d := range duong {
+		sort.Strings(path)
+		for _, d := range path {
 			fmt.Printf("%-78s %s\n", d, strings.Join(ds[d], ", "))
 		}
 		fmt.Printf("\n%d enum\n", len(ds))
@@ -76,14 +76,14 @@ func main() {
 
 	c := &checker{
 		root: *root, verbose: *verbose,
-		chuaCai: chuaCai, ngoaiHopDong: ngoaiHopDong,
-		headerNgoaiDacTa:         headerNgoaiDacTa,
-		headerKhongQuaTrinhDuyet: headerKhongQuaTrinhDuyet,
-		capEnum:                  capEnumDaKiem,
-		enumKhongGhep:            enumKhongGhep,
-		nguongEnumChuaGac:        soEnumChuaGac,
-		capDTO:                   capDTODaKiem,
-		nguongDTOChuaGac:         soDTOChuaGac,
+		notImplemented: notImplemented, outsideContract: outsideContract,
+		headersOutsideSpec:   headersOutsideSpec,
+		headersNotViaBrowser: headersNotViaBrowser,
+		enumPair:             checkedEnumPairs,
+		unpairedEnums:        unpairedEnums,
+		ungatedEnumLedger:    ungatedEnums,
+		dtoPair:              checkedDTOPairs,
+		ungatedDTOLedger:     ungatedDTOs,
 	}
 	if err := c.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "apicheck: %v\n", err)
@@ -91,18 +91,18 @@ func main() {
 	}
 
 	c.report()
-	if len(c.viPham) > 0 {
+	if len(c.violations) > 0 {
 		os.Exit(1)
 	}
 }
 
-// thaoTac là một cặp (method, đường dẫn).
-type thaoTac struct {
+// operation là một cặp (method, đường dẫn).
+type operation struct {
 	Method string
 	Path   string
 }
 
-func (t thaoTac) String() string { return t.Method + " " + t.Path }
+func (t operation) String() string { return t.Method + " " + t.Path }
 
 type checker struct {
 	root    string
@@ -113,101 +113,101 @@ type checker struct {
 	// Nhờ vậy bài test dựng được một dự án giả với sổ RỖNG: nếu công cụ
 	// đọc thẳng sổ thật thì mọi bài test đều kèm theo mười chín vi phạm
 	// của dự án thật, và không bài nào đo được thứ nó muốn đo.
-	chuaCai      map[string]string
-	ngoaiHopDong map[string]string
+	notImplemented  map[string]string
+	outsideContract map[string]string
 
 	// Hai sổ cho tầng HEADER — xem header.go.
-	headerNgoaiDacTa         map[string]string
-	headerKhongQuaTrinhDuyet map[string]string
+	headersOutsideSpec   map[string]string
+	headersNotViaBrowser map[string]string
 
 	// Hai sổ + một chốt cho tầng ENUM — xem enum.go.
-	capEnum           []capEnum
-	enumKhongGhep     map[string]string
-	nguongEnumChuaGac int
-	soEnumChuaGac     int
+	enumPair          []enumPair
+	unpairedEnums     map[string]string
+	ungatedEnumLedger int
+	ungatedEnums      int
 
-	capDTO           []capDTO
-	nguongDTOChuaGac int
-	soDTOChuaGac     int
+	dtoPair          []dtoPair
+	ungatedDTOLedger int
+	ungatedDTOs      int
 
-	dacTa map[thaoTac]string // thao tác -> file đặc tả khai nó
-	tuyen map[thaoTac]string // tuyến   -> file Go đăng ký nó
+	spec  map[operation]string // thao tác -> file đặc tả khai nó
+	route map[operation]string // tuyến   -> file Go đăng ký nó
 
-	headerDacTa map[string]string // header -> file đặc tả khai nó
+	specHeaders map[string]string // header -> file đặc tả khai nó
 	headerCORS  map[string]bool   // header CORS cho phép
 
-	viPham []string
+	violations []string
 }
 
 func (c *checker) run() error {
 	var err error
-	if c.dacTa, err = c.docDacTa(); err != nil {
+	if c.spec, err = c.readSpec(); err != nil {
 		return err
 	}
-	if c.tuyen, err = c.docTuyen(); err != nil {
+	if c.route, err = c.readRoutes(); err != nil {
 		return err
 	}
-	if len(c.dacTa) == 0 || len(c.tuyen) == 0 {
+	if len(c.spec) == 0 || len(c.route) == 0 {
 		return fmt.Errorf("đọc được %d thao tác và %d tuyến — quá ít để "+
-			"kết luận gì; kiểm lại -root", len(c.dacTa), len(c.tuyen))
+			"kết luận gì; kiểm lại -root", len(c.spec), len(c.route))
 	}
 
-	if c.headerDacTa, err = c.docHeaderDacTa(); err != nil {
+	if c.specHeaders, err = c.readSpecHeaders(); err != nil {
 		return err
 	}
-	if c.headerCORS, err = c.docHeaderCORS(); err != nil {
+	if c.headerCORS, err = c.readCORSHeaders(); err != nil {
 		return err
 	}
 
-	enumDacTa, err := c.docEnumDacTa()
+	specEnums, err := c.readSpecEnums()
 	if err != nil {
 		return err
 	}
 
-	thuocTinhDTO, err := c.docThuocTinhSchema()
+	dtoProperties, err := c.readSchemaProperties()
 	if err != nil {
 		return err
 	}
 
-	c.doiChieu()
-	c.doiChieuHeader(c.headerDacTa, c.headerCORS)
-	c.doiChieuEnum(enumDacTa)
-	c.doiChieuDTO(thuocTinhDTO)
-	c.canhDTOChuaGac(thuocTinhDTO)
+	c.compare()
+	c.compareHeaders(c.specHeaders, c.headerCORS)
+	c.compareEnums(specEnums)
+	c.compareDTO(dtoProperties)
+	c.warnUngatedDTOs(dtoProperties)
 	return nil
 }
 
-// canhDTOChuaGac là CHỐT MỘT CHIỀU cho các schema chưa ghép cặp.
+// warnUngatedDTOs là CHỐT MỘT CHIỀU cho các schema chưa ghép cặp.
 //
 // Chỉ đếm schema CÓ thuộc tính: một schema chỉ có `type: string` hay
 // `$ref` không có hình dạng để mà so.
-func (c *checker) canhDTOChuaGac(thuocTinh map[string][]string) {
-	daGhep := map[string]bool{}
-	for _, cap := range c.capDTO {
-		daGhep[cap.Schema] = true
+func (c *checker) warnUngatedDTOs(properties map[string][]string) {
+	paired := map[string]bool{}
+	for _, pair := range c.dtoPair {
+		paired[pair.Schema] = true
 	}
 
-	chuaGac := 0
-	for ten, props := range thuocTinh {
-		if len(props) > 0 && !daGhep[ten] {
-			chuaGac++
+	ungated := 0
+	for ten, props := range properties {
+		if len(props) > 0 && !paired[ten] {
+			ungated++
 		}
 	}
-	c.soDTOChuaGac = chuaGac
+	c.ungatedDTOs = ungated
 
 	switch {
-	case chuaGac > c.nguongDTOChuaGac:
-		c.viPham = append(c.viPham, fmt.Sprintf(
+	case ungated > c.ungatedDTOLedger:
+		c.violations = append(c.violations, fmt.Sprintf(
 			"DTO có %d schema chưa gác hình dạng, vượt chốt %d. Schema mới "+
-				"thêm vào đặc tả phải được QUYẾT: ghép cặp vào `capDTODaKiem`, "+
+				"thêm vào đặc tả phải được QUYẾT: ghép cặp vào `checkedDTOPairs`, "+
 				"hoặc hạ chốt nếu nó thật sự chưa có struct Go nào phục vụ.",
-			chuaGac, c.nguongDTOChuaGac))
-	case chuaGac < c.nguongDTOChuaGac:
-		c.viPham = append(c.viPham, fmt.Sprintf(
+			ungated, c.ungatedDTOLedger))
+	case ungated < c.ungatedDTOLedger:
+		c.violations = append(c.violations, fmt.Sprintf(
 			"DTO chỉ còn %d schema chưa gác, chốt đang để %d. Hạ chốt xuống "+
 				"%d trong `dto_cap.go` — chốt này chỉ được GIẢM, và một chốt "+
 				"cao hơn thực tế cho phép lặng lẽ thêm schema không ai gác.",
-			chuaGac, c.nguongDTOChuaGac, chuaGac))
+			ungated, c.ungatedDTOLedger, ungated))
 	}
 }
 
@@ -215,7 +215,7 @@ func (c *checker) canhDTOChuaGac(thuocTinh map[string][]string) {
 
 var (
 	// Dòng khai một đường dẫn trong openapi.yaml: hai dấu cách rồi "/...:".
-	reDuongDan = regexp.MustCompile(`^  (/\S*):\s*$`)
+	rePath = regexp.MustCompile(`^  (/\S*):\s*$`)
 
 	// Dòng $ref trỏ tới khối trong file con.
 	reRef = regexp.MustCompile(`^\s+\$ref:\s*'\./paths/([^#']+)#/([^']+)'\s*$`)
@@ -224,7 +224,7 @@ var (
 	reMethod = regexp.MustCompile(`^  (get|post|put|patch|delete):\s*$`)
 )
 
-// docDacTa đọc mọi thao tác khai trong api/openapi.yaml.
+// readSpec đọc mọi thao tác khai trong api/openapi.yaml.
 //
 // # Vì sao TỰ PHÂN TÍCH thay vì dùng thư viện YAML
 //
@@ -236,74 +236,74 @@ var (
 // thì nó BÁO LỖI chứ không bỏ qua — một bộ đọc âm thầm bỏ qua sẽ dựng lại
 // đúng vấn đề mà công cụ này sinh ra để sửa: một dấu xanh cho một phép
 // kiểm không kiểm gì.
-func (c *checker) docDacTa() (map[thaoTac]string, error) {
-	goc := filepath.Join(c.root, "api", "openapi.yaml")
-	noiDung, err := os.ReadFile(goc)
+func (c *checker) readSpec() (map[operation]string, error) {
+	root2 := filepath.Join(c.root, "api", "openapi.yaml")
+	content, err := os.ReadFile(root2)
 	if err != nil {
-		return nil, fmt.Errorf("đọc %s: %w", goc, err)
+		return nil, fmt.Errorf("đọc %s: %w", root2, err)
 	}
 
-	out := map[thaoTac]string{}
-	dong := strings.Split(string(noiDung), "\n")
+	out := map[operation]string{}
+	line := strings.Split(string(content), "\n")
 
-	for i := 0; i < len(dong); i++ {
-		m := reDuongDan.FindStringSubmatch(dong[i])
+	for i := 0; i < len(line); i++ {
+		m := rePath.FindStringSubmatch(line[i])
 		if m == nil {
 			continue
 		}
-		duongDan := m[1]
+		fullPath := m[1]
 
 		// Dòng ngay sau PHẢI là $ref. Đặc tả này không dùng cách khai nào
 		// khác, và nếu có thì công cụ phải biết trước khi tin kết quả.
-		if i+1 >= len(dong) {
+		if i+1 >= len(line) {
 			return nil, fmt.Errorf("%s: đường dẫn %q ở cuối file, không có $ref",
-				goc, duongDan)
+				root2, fullPath)
 		}
-		r := reRef.FindStringSubmatch(dong[i+1])
+		r := reRef.FindStringSubmatch(line[i+1])
 		if r == nil {
 			return nil, fmt.Errorf(
 				"%s dòng %d: đường dẫn %q không theo sau bởi $ref tới paths/ — "+
 					"apicheck chỉ hiểu cách khai đó, và đoán bừa ở đây nghĩa là "+
 					"bỏ sót thao tác mà vẫn báo xanh",
-				goc, i+2, duongDan)
+				root2, i+2, fullPath)
 		}
 
-		tep, neo := r[1], r[2]
-		methods, err := c.docKhoi(filepath.Join(c.root, "api", "paths", tep), neo)
+		file, neo := r[1], r[2]
+		methods, err := c.readBlock(filepath.Join(c.root, "api", "paths", file), neo)
 		if err != nil {
 			return nil, err
 		}
 		for _, meth := range methods {
-			out[thaoTac{Method: meth, Path: duongDan}] = tep + "#/" + neo
+			out[operation{Method: meth, Path: fullPath}] = file + "#/" + neo
 		}
 		i++
 	}
 	return out, nil
 }
 
-// docKhoi trả danh sách method của một khối thao tác trong file paths/.
-func (c *checker) docKhoi(tep, neo string) ([]string, error) {
-	noiDung, err := os.ReadFile(tep)
+// readBlock trả danh sách method của một khối thao tác trong file paths/.
+func (c *checker) readBlock(file, neo string) ([]string, error) {
+	content, err := os.ReadFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("đọc %s: %w", tep, err)
+		return nil, fmt.Errorf("đọc %s: %w", file, err)
 	}
 
-	dong := strings.Split(string(noiDung), "\n")
-	batDau := -1
-	for i, d := range dong {
+	line := strings.Split(string(content), "\n")
+	start := -1
+	for i, d := range line {
 		if d == neo+":" {
-			batDau = i
+			start = i
 			break
 		}
 	}
-	if batDau < 0 {
+	if start < 0 {
 		return nil, fmt.Errorf("%s: không tìm thấy khối %q mà openapi.yaml trỏ tới",
-			tep, neo)
+			file, neo)
 	}
 
 	var out []string
-	for i := batDau + 1; i < len(dong); i++ {
-		d := dong[i]
+	for i := start + 1; i < len(line); i++ {
+		d := line[i]
 		// Khối kết thúc khi gặp khóa ở cột 0.
 		if d != "" && !strings.HasPrefix(d, " ") {
 			break
@@ -313,65 +313,65 @@ func (c *checker) docKhoi(tep, neo string) ([]string, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%s: khối %q không khai method nào", tep, neo)
+		return nil, fmt.Errorf("%s: khối %q không khai method nào", file, neo)
 	}
 	return out, nil
 }
 
 // ------------------------------------------------------------------- Tuyến
 
-var reTuyen = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE) (/\S*)$`)
+var reRoute = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE) (/\S*)$`)
 
-// docTuyen tìm mọi tuyến đăng ký vào một ServeMux.
+// readRoutes tìm mọi tuyến đăng ký vào một ServeMux.
 //
 // Đọc bằng AST chứ không bằng grep: chuỗi `"POST /api/v1/events"` còn xuất
 // hiện trong MÔ TẢ của tham số vận hành, và một phép grep sẽ đếm nó là một
 // tuyến. Chỉ đối số ĐẦU TIÊN của `Handle`/`HandleFunc` mới là tuyến.
-func (c *checker) docTuyen() (map[thaoTac]string, error) {
-	out := map[thaoTac]string{}
+func (c *checker) readRoutes() (map[operation]string, error) {
+	out := map[operation]string{}
 	fset := token.NewFileSet()
 
 	err := filepath.WalkDir(filepath.Join(c.root, "internal"),
-		func(duong string, d fs.DirEntry, err error) error {
+		func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			if d.IsDir() || !strings.HasSuffix(duong, ".go") {
+			if d.IsDir() || !strings.HasSuffix(path, ".go") {
 				return nil
 			}
 			// Test dựng mux riêng để thử; chúng không phải bề mặt công khai.
-			if strings.HasSuffix(duong, "_test.go") {
+			if strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
 
-			tep, err := parser.ParseFile(fset, duong, nil, 0)
+			file, err := parser.ParseFile(fset, path, nil, 0)
 			if err != nil {
-				return fmt.Errorf("phân tích %s: %w", duong, err)
+				return fmt.Errorf("phân tích %s: %w", path, err)
 			}
 
-			ast.Inspect(tep, func(n ast.Node) bool {
-				goi, ok := n.(*ast.CallExpr)
-				if !ok || len(goi.Args) == 0 {
+			ast.Inspect(file, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) == 0 {
 					return true
 				}
-				sel, ok := goi.Fun.(*ast.SelectorExpr)
+				sel, ok := call.Fun.(*ast.SelectorExpr)
 				if !ok {
 					return true
 				}
 				if sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc" {
 					return true
 				}
-				lit, ok := goi.Args[0].(*ast.BasicLit)
+				lit, ok := call.Args[0].(*ast.BasicLit)
 				if !ok || lit.Kind != token.STRING {
 					return true
 				}
-				gia, err := strconv.Unquote(lit.Value)
+				raw, err := strconv.Unquote(lit.Value)
 				if err != nil {
 					return true
 				}
-				if m := reTuyen.FindStringSubmatch(gia); m != nil {
-					rel, _ := filepath.Rel(c.root, duong)
-					out[thaoTac{Method: m[1], Path: m[2]}] = rel
+				if m := reRoute.FindStringSubmatch(raw); m != nil {
+					rel, _ := filepath.Rel(c.root, path)
+					out[operation{Method: m[1], Path: m[2]}] = rel
 				}
 				return true
 			})
@@ -382,83 +382,83 @@ func (c *checker) docTuyen() (map[thaoTac]string, error) {
 
 // ---------------------------------------------------------------- Đối chiếu
 
-func (c *checker) doiChieu() {
+func (c *checker) compare() {
 	// Hướng 1: tuyến sống ngoài hợp đồng. LỖI, không có ngoại lệ.
-	var thua []thaoTac
-	for t := range c.tuyen {
-		if _, co := c.dacTa[t]; co {
+	var extra []operation
+	for t := range c.route {
+		if _, co := c.spec[t]; co {
 			continue
 		}
-		if _, mien := c.ngoaiHopDong[t.String()]; mien {
+		if _, exempt := c.outsideContract[t.String()]; exempt {
 			continue
 		}
-		thua = append(thua, t)
+		extra = append(extra, t)
 	}
-	sort.Slice(thua, func(i, j int) bool { return thua[i].String() < thua[j].String() })
-	for _, t := range thua {
-		c.viPham = append(c.viPham, fmt.Sprintf(
+	sort.Slice(extra, func(i, j int) bool { return extra[i].String() < extra[j].String() })
+	for _, t := range extra {
+		c.violations = append(c.violations, fmt.Sprintf(
 			"%s đăng ký ở %s nhưng KHÔNG có trong đặc tả.\n"+
 				"    Endpoint ngoài hợp đồng là endpoint client không gọi được "+
 				"theo cách có kiểu, và không ai rà soát khi đổi.",
-			t, c.tuyen[t]))
+			t, c.route[t]))
 	}
 
-	// Hướng 2: đặc tả khai mà chưa cài. Phải có mặt trong `chuaCai`.
-	var thieu []thaoTac
-	for t := range c.dacTa {
-		if _, co := c.tuyen[t]; !co {
-			thieu = append(thieu, t)
+	// Hướng 2: đặc tả khai mà chưa cài. Phải có mặt trong `notImplemented`.
+	var missing []operation
+	for t := range c.spec {
+		if _, co := c.route[t]; !co {
+			missing = append(missing, t)
 		}
 	}
-	sort.Slice(thieu, func(i, j int) bool { return thieu[i].String() < thieu[j].String() })
-	for _, t := range thieu {
-		if _, khai := c.chuaCai[t.String()]; !khai {
-			c.viPham = append(c.viPham, fmt.Sprintf(
+	sort.Slice(missing, func(i, j int) bool { return missing[i].String() < missing[j].String() })
+	for _, t := range missing {
+		if _, declared := c.notImplemented[t.String()]; !declared {
+			c.violations = append(c.violations, fmt.Sprintf(
 				"%s có trong đặc tả (%s) nhưng KHÔNG có route.\n"+
-					"    Chưa định cài thì khai vào `chuaCai` kèm lý do; "+
+					"    Chưa định cài thì khai vào `notImplemented` kèm lý do; "+
 					"một thao tác im lặng không ai cài là một lời hứa với client "+
 					"mà không ai giữ.",
-				t, c.dacTa[t]))
+				t, c.spec[t]))
 		}
 	}
 
-	// Dòng trong `ngoaiHopDong` mà không còn tuyến nào thì phải XÓA.
+	// Dòng trong `outsideContract` mà không còn tuyến nào thì phải XÓA.
 	//
 	// Một miễn trừ cho thứ không tồn tại là một miễn trừ sẽ che nhầm thứ
 	// khác trùng tên về sau.
-	for ten := range c.ngoaiHopDong {
-		phan := strings.SplitN(ten, " ", 2)
-		if len(phan) != 2 {
-			c.viPham = append(c.viPham, fmt.Sprintf(
-				"`ngoaiHopDong` có dòng sai định dạng: %q", ten))
+	for ten := range c.outsideContract {
+		parts := strings.SplitN(ten, " ", 2)
+		if len(parts) != 2 {
+			c.violations = append(c.violations, fmt.Sprintf(
+				"`outsideContract` có dòng sai định dạng: %q", ten))
 			continue
 		}
-		if _, co := c.tuyen[thaoTac{Method: phan[0], Path: phan[1]}]; !co {
-			c.viPham = append(c.viPham, fmt.Sprintf(
-				"%s nằm trong `ngoaiHopDong` nhưng KHÔNG còn tuyến nào — xóa dòng đó.",
+		if _, co := c.route[operation{Method: parts[0], Path: parts[1]}]; !co {
+			c.violations = append(c.violations, fmt.Sprintf(
+				"%s nằm trong `outsideContract` nhưng KHÔNG còn tuyến nào — xóa dòng đó.",
 				ten))
 		}
 	}
 
-	// Hướng 2b: dòng trong `chuaCai` đã được cài xong thì phải XÓA đi.
-	for ten := range c.chuaCai {
-		phan := strings.SplitN(ten, " ", 2)
-		if len(phan) != 2 {
-			c.viPham = append(c.viPham, fmt.Sprintf(
-				"`chuaCai` có dòng sai định dạng: %q — cần \"METHOD /đường/dẫn\"", ten))
+	// Hướng 2b: dòng trong `notImplemented` đã được cài xong thì phải XÓA đi.
+	for ten := range c.notImplemented {
+		parts := strings.SplitN(ten, " ", 2)
+		if len(parts) != 2 {
+			c.violations = append(c.violations, fmt.Sprintf(
+				"`notImplemented` có dòng sai định dạng: %q — cần \"METHOD /đường/dẫn\"", ten))
 			continue
 		}
-		t := thaoTac{Method: phan[0], Path: phan[1]}
-		if _, coRoute := c.tuyen[t]; coRoute {
-			c.viPham = append(c.viPham, fmt.Sprintf(
-				"%s ĐÃ có route nhưng vẫn nằm trong `chuaCai` — xóa dòng đó.\n"+
+		t := operation{Method: parts[0], Path: parts[1]}
+		if _, coRoute := c.route[t]; coRoute {
+			c.violations = append(c.violations, fmt.Sprintf(
+				"%s ĐÃ có route nhưng vẫn nằm trong `notImplemented` — xóa dòng đó.\n"+
 					"    Một danh sách hoãn không ai dọn sẽ thành danh sách không "+
 					"ai đọc.", t))
 			continue
 		}
-		if _, coDacTa := c.dacTa[t]; !coDacTa {
-			c.viPham = append(c.viPham, fmt.Sprintf(
-				"%s nằm trong `chuaCai` nhưng KHÔNG còn trong đặc tả — xóa dòng đó.", t))
+		if _, hasSpec := c.spec[t]; !hasSpec {
+			c.violations = append(c.violations, fmt.Sprintf(
+				"%s nằm trong `notImplemented` nhưng KHÔNG còn trong đặc tả — xóa dòng đó.", t))
 		}
 	}
 }
@@ -467,37 +467,37 @@ func (c *checker) report() {
 	if c.verbose {
 		fmt.Printf("apicheck: %d thao tác đặc tả · %d tuyến · %d hoãn · "+
 			"%d ngoài hợp đồng\n",
-			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.ngoaiHopDong))
+			len(c.spec), len(c.route), len(c.notImplemented), len(c.outsideContract))
 		fmt.Printf("apicheck: %d cặp enum đã kiểm · %d enum khai không ghép · "+
 			"%d enum CHƯA GÁC (chốt %d)\n",
-			len(c.capEnum), len(c.enumKhongGhep), c.soEnumChuaGac,
-			c.nguongEnumChuaGac)
+			len(c.enumPair), len(c.unpairedEnums), c.ungatedEnums,
+			c.ungatedEnumLedger)
 		fmt.Printf("apicheck: %d header đặc tả · %d header CORS cho phép · "+
 			"%d ngoài đặc tả · %d không qua trình duyệt\n",
-			len(c.headerDacTa), len(c.headerCORS),
-			len(c.headerNgoaiDacTa), len(c.headerKhongQuaTrinhDuyet))
+			len(c.specHeaders), len(c.headerCORS),
+			len(c.headersOutsideSpec), len(c.headersNotViaBrowser))
 
-		var choPhepThieu int
-		for _, cap := range c.capDTO {
-			choPhepThieu += len(cap.ChoPhepThieu)
+		var allowMissing int
+		for _, pair := range c.dtoPair {
+			allowMissing += len(pair.AllowMissing)
 		}
 		fmt.Printf("apicheck: %d cặp DTO đã kiểm · %d trường cho phép thiếu · "+
 			"%d schema CHƯA GÁC (chốt %d)\n",
-			len(c.capDTO), choPhepThieu, c.soDTOChuaGac, c.nguongDTOChuaGac)
+			len(c.dtoPair), allowMissing, c.ungatedDTOs, c.ungatedDTOLedger)
 	}
 
-	if len(c.viPham) == 0 {
+	if len(c.violations) == 0 {
 		fmt.Printf("apicheck: OK — %d thao tác đặc tả khớp %d tuyến "+
 			"(%d hoãn, đã khai) · %d header khớp danh sách CORS · "+
 			"%d cặp enum khớp · %d cặp DTO khớp\n",
-			len(c.dacTa), len(c.tuyen), len(c.chuaCai), len(c.headerCORS),
-			len(c.capEnum), len(c.capDTO))
+			len(c.spec), len(c.route), len(c.notImplemented), len(c.headerCORS),
+			len(c.enumPair), len(c.dtoPair))
 		return
 	}
 
-	sort.Strings(c.viPham)
-	fmt.Fprintf(os.Stderr, "apicheck: %d vi phạm\n\n", len(c.viPham))
-	for _, v := range c.viPham {
+	sort.Strings(c.violations)
+	fmt.Fprintf(os.Stderr, "apicheck: %d vi phạm\n\n", len(c.violations))
+	for _, v := range c.violations {
 		fmt.Fprintf(os.Stderr, "  %s\n\n", v)
 	}
 }

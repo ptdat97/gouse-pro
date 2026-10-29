@@ -49,7 +49,7 @@ import (
 // Xem docs/adr/0022-microkernel-kernel-on-dinh.md và
 // docs/03-architecture/microkernel.md.
 
-// moduleGoc là GỐC của bao đóng định nghĩa ĐƯỜNG MUA HÀNG.
+// rootModule là GỐC của bao đóng định nghĩa ĐƯỜNG MUA HÀNG.
 //
 // `checkout` chứ không `order`: một đơn hàng chỉ ra đời từ một phiên thanh
 // toán hoàn tất, nên `checkout` là điểm vào thật của việc bán hàng.
@@ -57,9 +57,9 @@ import (
 // Bao đóng này KHÔNG dùng để suy tập extension (xem lý do ở trên). Nó chỉ
 // dùng cho R10b: một module nằm trên đường mua hàng thì đã được phân loại
 // bằng phép đo, không cần khai tay.
-const moduleGoc = "checkout"
+const rootModule = "checkout"
 
-// nangLucCatNgang là các module tài liệu xếp KERNEL mà nằm NGOÀI đường mua
+// crossCuttingCapabilities là các module tài liệu xếp KERNEL mà nằm NGOÀI đường mua
 // hàng — tức phán đoán, không phải phép đo.
 //
 // Đây là chỗ DUY NHẤT của R10 dựa vào phán đoán, nên mỗi dòng phải nêu vì
@@ -70,7 +70,7 @@ const moduleGoc = "checkout"
 // Thiếu một dòng ở đây thì R10c ĐỎ với chính module ấy — nên sổ này không
 // mục trong im lặng, và nó cũng không thể dùng để miễn trừ một module nằm
 // trên đường mua hàng (những module ấy đã được PHÉP ĐO phân loại).
-var nangLucCatNgang = map[string]string{
+var crossCuttingCapabilities = map[string]string{
 	"identity": "ai đang gọi. Khách vãng lai mua được mà không đăng nhập, " +
 		"nhưng nhà bán và quản trị thì không — mọi mô hình kinh doanh đều cần",
 
@@ -79,23 +79,23 @@ var nangLucCatNgang = map[string]string{
 }
 
 // Tầng của một module, đọc từ hàng `**Tầng (microkernel)**` của tài liệu.
-type tangModule int
+type moduleTier int
 
 const (
-	tangChuaBiet tangModule = iota
-	tangKernel
-	tangExtension
-	tangChuaXep
+	tierUnknown moduleTier = iota
+	tierKernel
+	tierExtension
+	tierUnassigned
 )
 
-// reTangMicrokernel tách giá trị hàng `| **Tầng (microkernel)** | ... |`.
+// reMicrokernelTier tách giá trị hàng `| **Tầng (microkernel)** | ... |`.
 //
 // Hàng này nằm ở bảng đầu mỗi tài liệu module, cạnh `Bounded Context` và
 // `Phân loại`. Hai dấu `**` quanh giá trị là tùy chọn.
-var reTangMicrokernel = regexp.MustCompile(
+var reMicrokernelTier = regexp.MustCompile(
 	`(?m)^\|\s*\*\*Tầng \(microkernel\)\*\*\s*\|\s*\**([^|*]+?)\**\s*\|`)
 
-// docTangModule đọc tầng của mọi module từ `docs/04-modules/*.md`.
+// readModuleTiers đọc tầng của mọi module từ `docs/04-modules/*.md`.
 //
 // # Vì sao nguồn sự thật là TÀI LIỆU, không phải một sổ trong Go
 //
@@ -110,32 +110,32 @@ var reTangMicrokernel = regexp.MustCompile(
 // Trả LỖI (không phải vi phạm) khi tài liệu thiếu hoặc ghi giá trị lạ: không
 // có bảng phân loại đáng tin thì R10 không kiểm được gì, và một quy tắc im
 // lặng không kiểm gì vẫn in ra `OK` — thứ tệ nhất.
-func (c *checker) docTangModule() (map[string]tangModule, error) {
-	goc := filepath.Join(c.root, "..", "docs", "04-modules")
-	vao, err := os.ReadDir(goc)
+func (c *checker) readModuleTiers() (map[string]moduleTier, error) {
+	root2 := filepath.Join(c.root, "..", "docs", "04-modules")
+	entries, err := os.ReadDir(root2)
 	if err != nil {
 		return nil, fmt.Errorf("đọc tài liệu module: %w\n"+
 			"(R10 đọc hàng \"Tầng (microkernel)\" của chính tài liệu — đổi "+
 			"chỗ thư mục ấy thì phải sửa cả công cụ này)", err)
 	}
 
-	ra := map[string]tangModule{}
-	for _, e := range vao {
+	ra := map[string]moduleTier{}
+	for _, e := range entries {
 		ten := e.Name()
 		if e.IsDir() || !strings.HasSuffix(ten, ".md") || ten == "README.md" {
 			continue
 		}
-		noiDung, err := os.ReadFile(filepath.Join(goc, ten))
+		content, err := os.ReadFile(filepath.Join(root2, ten))
 		if err != nil {
 			return nil, err
 		}
 
 		mod := strings.TrimSuffix(ten, ".md")
-		if m, co := tenTaiLieuKhacTenModule[mod]; co {
+		if m, co := docNameDiffersFromModule[mod]; co {
 			mod = m
 		}
 
-		m := reTangMicrokernel.FindSubmatch(noiDung)
+		m := reMicrokernelTier.FindSubmatch(content)
 		if m == nil {
 			return nil, fmt.Errorf("tài liệu %s không có hàng \"**Tầng "+
 				"(microkernel)**\" — R10 không biết module ấy là kernel hay "+
@@ -147,11 +147,11 @@ func (c *checker) docTangModule() (map[string]tangModule, error) {
 		gt := strings.TrimSpace(string(m[1]))
 		switch {
 		case strings.HasPrefix(gt, "KERNEL"):
-			ra[mod] = tangKernel
+			ra[mod] = tierKernel
 		case strings.HasPrefix(gt, "EXTENSION"):
-			ra[mod] = tangExtension
+			ra[mod] = tierExtension
 		case strings.HasPrefix(gt, "CHƯA XẾP ĐƯỢC"):
-			ra[mod] = tangChuaXep
+			ra[mod] = tierUnassigned
 		default:
 			return nil, fmt.Errorf("tài liệu %s ghi tầng %q — R10 chỉ hiểu "+
 				"\"KERNEL …\", \"EXTENSION …\" hoặc \"CHƯA XẾP ĐƯỢC\"",
@@ -161,60 +161,60 @@ func (c *checker) docTangModule() (map[string]tangModule, error) {
 	return ra, nil
 }
 
-// kiemMicrokernel thực thi R10.
+// checkMicrokernel thực thi R10.
 //
-// Trả LỖI khi bảng phân loại không đọc được — xem `docTangModule`.
-func (c *checker) kiemMicrokernel() error {
+// Trả LỖI khi bảng phân loại không đọc được — xem `readModuleTiers`.
+func (c *checker) checkMicrokernel() error {
 	// `goc` rỗng = R10 TẮT. Dùng bởi bộ test của công cụ: một dự án giả ba
 	// module không có kernel để mà gác.
-	if c.goc == "" {
+	if c.root2 == "" {
 		return nil
 	}
 
-	doThi, moduleCo := c.doThiModule()
-	if len(moduleCo) == 0 {
+	graph, moduleHas := c.buildModuleGraph()
+	if len(moduleHas) == 0 {
 		return nil
 	}
 
-	tang, err := c.docTangModule()
+	tier, err := c.readModuleTiers()
 	if err != nil {
 		return err
 	}
 
-	if !moduleCo[c.goc] {
+	if !moduleHas[c.root2] {
 		c.violations = append(c.violations, Violation{
 			Rule: "R10",
 			File: "internal/modules",
 			Message: fmt.Sprintf(
 				"không tìm thấy module gốc %q — R10b dùng bao đóng phụ thuộc "+
 					"của nó để biết module nào đã phân loại bằng phép đo",
-				c.goc),
-			Hint: "đổi tên hoặc bỏ module ấy thì phải sửa cả `moduleGoc` " +
+				c.root2),
+			Hint: "đổi tên hoặc bỏ module ấy thì phải sửa cả `rootModule` " +
 				"trong cmd/archcheck/microkernel.go",
 		})
 		return nil
 	}
 
-	nguoiDung := nguoiImport(doThi)
-	duongMuaHang := baoDong(doThi, c.goc)
+	users := importers(graph)
+	purchasePath := alarm(graph, c.root2)
 
-	ten := make([]string, 0, len(moduleCo))
-	for m := range moduleCo {
+	ten := make([]string, 0, len(moduleHas))
+	for m := range moduleHas {
 		ten = append(ten, m)
 	}
 	sort.Strings(ten)
 
-	var soKernel, soExt int
+	var kernelCount, extCount int
 	for _, m := range ten {
-		switch tang[m] {
-		case tangKernel:
-			soKernel++
+		switch tier[m] {
+		case tierKernel:
+			kernelCount++
 
-		case tangExtension:
-			soExt++
+		case tierExtension:
+			extCount++
 
 			// ---- R10a: extension phải KHÔNG BÊN NÀO import ----
-			dung := nguoiDung[m]
+			dung := users[m]
 			if len(dung) == 0 {
 				continue
 			}
@@ -232,7 +232,7 @@ func (c *checker) kiemMicrokernel() error {
 					m, strings.Join(dung, ", "), m),
 			})
 
-		case tangChuaXep:
+		case tierUnassigned:
 			// KHÔNG kết luận gì: xếp sai còn tệ hơn để trống, vì một module
 			// gán nhãn "kernel" sẽ được người sau tin là ổn định.
 			if c.verbose {
@@ -243,7 +243,7 @@ func (c *checker) kiemMicrokernel() error {
 			// ---- R10b: module chưa được phân loại ----
 			//
 			// Chỉ xảy ra khi thư mục module không tra ra tài liệu —
-			// `docSoHuuBang` của R6 đã trả LỖI cho trường hợp ấy, nên nhánh
+			// `readTableOwnership` của R6 đã trả LỖI cho trường hợp ấy, nên nhánh
 			// này là lớp bảo vệ thứ hai, không phải đường thường đi.
 			c.violations = append(c.violations, Violation{
 				Rule: "R10",
@@ -258,8 +258,8 @@ func (c *checker) kiemMicrokernel() error {
 
 		// ---- R10c: tài liệu nói KERNEL mà module nằm ngoài đường mua hàng
 		// và không ai import — dấu hiệu phân loại đã cũ ----
-		if tang[m] == tangKernel && !duongMuaHang[m] && len(nguoiDung[m]) == 0 {
-			if _, catNgang := c.catNgang[m]; !catNgang {
+		if tier[m] == tierKernel && !purchasePath[m] && len(users[m]) == 0 {
+			if _, crossCutting := c.crossCutting[m]; !crossCutting {
 				c.violations = append(c.violations, Violation{
 					Rule: "R10",
 					File: "docs/04-modules",
@@ -268,7 +268,7 @@ func (c *checker) kiemMicrokernel() error {
 							"đường mua hàng và KHÔNG module nào import nó", m),
 					Hint: "đó là hình dạng của một EXTENSION. Hoặc sửa tài " +
 						"liệu, hoặc khai nó là năng lực cắt ngang trong " +
-						"`nangLucCatNgang` (cmd/archcheck/microkernel.go) " +
+						"`crossCuttingCapabilities` (cmd/archcheck/microkernel.go) " +
 						"kèm lý do mọi mô hình kinh doanh đều cần nó",
 				})
 			}
@@ -276,33 +276,33 @@ func (c *checker) kiemMicrokernel() error {
 	}
 
 	// Lý do khai cho một năng lực cắt ngang KHÔNG tồn tại là một sổ đã mục.
-	catNgang := make([]string, 0, len(c.catNgang))
-	for m := range c.catNgang {
-		catNgang = append(catNgang, m)
+	crossCutting := make([]string, 0, len(c.crossCutting))
+	for m := range c.crossCutting {
+		crossCutting = append(crossCutting, m)
 	}
-	sort.Strings(catNgang)
-	for _, m := range catNgang {
-		if moduleCo[m] {
+	sort.Strings(crossCutting)
+	for _, m := range crossCutting {
+		if moduleHas[m] {
 			continue
 		}
 		c.violations = append(c.violations, Violation{
 			Rule: "R10",
 			File: "cmd/archcheck/microkernel.go",
-			Message: fmt.Sprintf("sổ `nangLucCatNgang` khai module %q mà "+
+			Message: fmt.Sprintf("sổ `crossCuttingCapabilities` khai module %q mà "+
 				"internal/modules KHÔNG có nó", m),
 			Hint: "module đã đổi tên hoặc bị xóa; bỏ dòng ấy khỏi sổ",
 		})
 	}
 
-	c.soKernel = soKernel
-	c.soExtension = soExt
+	c.kernelCount = kernelCount
+	c.extensionCount = extCount
 	return nil
 }
 
-// nguoiImport đảo đồ thị: module -> các module import nó.
-func nguoiImport(doThi map[string]map[string]bool) map[string][]string {
+// importers đảo đồ thị: module -> các module import nó.
+func importers(graph map[string]map[string]bool) map[string][]string {
 	ra := map[string][]string{}
-	for from, tos := range doThi {
+	for from, tos := range graph {
 		for to := range tos {
 			ra[to] = append(ra[to], from)
 		}
@@ -310,13 +310,13 @@ func nguoiImport(doThi map[string]map[string]bool) map[string][]string {
 	return ra
 }
 
-// doThiModule rút gọn đồ thị package thành đồ thị MODULE.
+// buildModuleGraph rút gọn đồ thị package thành đồ thị MODULE.
 //
 // Tách thành hàm riêng để R5 và R10 dùng CÙNG một phép rút gọn: hai bản cài
 // của cùng một đồ thị sớm muộn sẽ khác nhau, và khi ấy hai quy tắc nói về hai
 // hệ thống khác nhau.
-func (c *checker) doThiModule() (map[string]map[string]bool, map[string]bool) {
-	doThi := map[string]map[string]bool{}
+func (c *checker) buildModuleGraph() (map[string]map[string]bool, map[string]bool) {
+	graph := map[string]map[string]bool{}
 	co := map[string]bool{}
 
 	// Tập module lấy từ `pkgFiles` — MỌI package đã quét — không từ
@@ -330,8 +330,8 @@ func (c *checker) doThiModule() (map[string]map[string]bool, map[string]bool) {
 	for pkg := range c.pkgFiles {
 		if m := classify(c.modulePath, pkg).Module; m != "" {
 			co[m] = true
-			if doThi[m] == nil {
-				doThi[m] = map[string]bool{}
+			if graph[m] == nil {
+				graph[m] = map[string]bool{}
 			}
 		}
 	}
@@ -342,8 +342,8 @@ func (c *checker) doThiModule() (map[string]map[string]bool, map[string]bool) {
 			continue
 		}
 		co[from.Module] = true
-		if doThi[from.Module] == nil {
-			doThi[from.Module] = map[string]bool{}
+		if graph[from.Module] == nil {
+			graph[from.Module] = map[string]bool{}
 		}
 
 		for _, toPkg := range tos {
@@ -352,14 +352,14 @@ func (c *checker) doThiModule() (map[string]map[string]bool, map[string]bool) {
 				continue
 			}
 			co[to.Module] = true
-			doThi[from.Module][to.Module] = true
+			graph[from.Module][to.Module] = true
 		}
 	}
-	return doThi, co
+	return graph, co
 }
 
-// baoDong trả bao đóng phụ thuộc (đóng kín theo chiều import) từ một gốc.
-func baoDong(doThi map[string]map[string]bool, goc string) map[string]bool {
+// alarm trả bao đóng phụ thuộc (đóng kín theo chiều import) từ một gốc.
+func alarm(graph map[string]map[string]bool, root2 string) map[string]bool {
 	ra := map[string]bool{}
 	var di func(string)
 	di = func(m string) {
@@ -367,10 +367,10 @@ func baoDong(doThi map[string]map[string]bool, goc string) map[string]bool {
 			return
 		}
 		ra[m] = true
-		for to := range doThi[m] {
+		for to := range graph[m] {
 			di(to)
 		}
 	}
-	di(goc)
+	di(root2)
 	return ra
 }

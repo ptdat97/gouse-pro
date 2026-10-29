@@ -42,32 +42,32 @@ import (
 // # Hai hướng, và chúng cũng KHÔNG đối xứng
 //
 //	đặc tả khai, CORS không cho   LỖI. Client làm đúng đặc tả vẫn bị chặn.
-//	CORS cho, đặc tả không khai   phải KHAI vào `headerNgoaiDacTa` kèm lý do.
+//	CORS cho, đặc tả không khai   phải KHAI vào `headersOutsideSpec` kèm lý do.
 
-// headerKhongQuaTrinhDuyet là những header đặc tả CÓ khai mà CORS KHÔNG
+// headersNotViaBrowser là những header đặc tả CÓ khai mà CORS KHÔNG
 // được cho phép, kèm lý do.
 //
 // Đây không phải miễn trừ cho tiện. Cho một header server-to-server vào
 // danh sách CORS là MỞ RỘNG bề mặt tấn công: nó nói với mọi trang web rằng
 // header ấy gửi kèm được từ trình duyệt.
-var headerKhongQuaTrinhDuyet = map[string]string{
+var headersNotViaBrowser = map[string]string{
 	"X-Signature": "webhook từ nhà cung cấp thanh toán/vận chuyển — " +
 		"server-to-server, KHÔNG bao giờ từ trình duyệt. Cho vào CORS là " +
 		"mời trình duyệt thử ký giả.",
 }
 
-// headerNgoaiDacTa là những header được CORS cho phép mà đặc tả OpenAPI
+// headersOutsideSpec là những header được CORS cho phép mà đặc tả OpenAPI
 // KHÔNG khai thành parameter, kèm lý do vì sao hợp lệ.
 //
 // Chúng hợp lệ vì đặc tả khai chúng theo cách khác — qua `securitySchemes`,
 // qua `requestBody`, hoặc theo chuẩn HTTP — chứ không phải vì chúng được
 // miễn kiểm.
-var headerNgoaiDacTa = map[string]string{
+var headersOutsideSpec = map[string]string{
 	"Authorization": "khai qua securitySchemes.bearerAuth, không phải parameter",
 	"Content-Type":  "chuẩn HTTP; đặc tả khai qua requestBody.content",
 }
 
-// docHeaderDacTa đọc mọi header khai `in: header` trong thư mục api/.
+// readSpecHeaders đọc mọi header khai `in: header` trong thư mục api/.
 //
 // # Vì sao quét THƯ MỤC chứ không đi theo $ref
 //
@@ -82,24 +82,24 @@ var headerNgoaiDacTa = map[string]string{
 // nhận cả hai, nhưng KHÔNG chấp nhận một khối `in: header` không tìm được
 // tên — gặp thế thì báo lỗi, vì một header bị bỏ sót âm thầm là đúng loại
 // lỗi công cụ này sinh ra để chặn.
-func (c *checker) docHeaderDacTa() (map[string]string, error) {
-	goc := filepath.Join(c.root, "api")
+func (c *checker) readSpecHeaders() (map[string]string, error) {
+	apiDir := filepath.Join(c.root, "api")
 	out := map[string]string{}
 
-	err := filepath.WalkDir(goc, func(duong string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(apiDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() || !strings.HasSuffix(d.Name(), ".yaml") {
 			return nil
 		}
-		noiDung, err := os.ReadFile(duong)
+		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		dong := strings.Split(string(noiDung), "\n")
+		line := strings.Split(string(content), "\n")
 
-		for i, l := range dong {
+		for i, l := range line {
 			// Cả hai cách viết: `in: header` và `- in: header`. YAML cho
 			// phép đặt `in` trước `name` trong một phần tử danh sách, và
 			// một bộ đọc chỉ nhận dạng thứ nhất sẽ ÂM THẦM bỏ qua dạng
@@ -108,13 +108,13 @@ func (c *checker) docHeaderDacTa() (map[string]string, error) {
 			if t != "in: header" && t != "- in: header" {
 				continue
 			}
-			ten := timTenHeader(dong, i)
+			ten := findHeaderName(line, i)
 			if ten == "" {
 				return fmt.Errorf("%s dòng %d: khai `in: header` mà không "+
 					"tìm được `name:` đi kèm — bộ đọc không đoán, xem "+
-					"cmd/apicheck/header.go", duong, i+1)
+					"cmd/apicheck/header.go", path, i+1)
 			}
-			rel, _ := filepath.Rel(c.root, duong)
+			rel, _ := filepath.Rel(c.root, path)
 			out[ten] = rel
 		}
 		return nil
@@ -131,19 +131,19 @@ func (c *checker) docHeaderDacTa() (map[string]string, error) {
 // reTenHeader khớp dòng khai tên, có hoặc không có gạch đầu dòng.
 var reTenHeader = regexp.MustCompile(`^\s*-?\s*name:\s*([A-Za-z][A-Za-z0-9-]*)\s*$`)
 
-// timTenHeader tìm `name:` quanh dòng `in: header`.
+// findHeaderName tìm `name:` quanh dòng `in: header`.
 //
 // Cửa sổ ±3 dòng: đủ cho `description` hoặc `required` xen giữa, đủ hẹp để
 // không vớ phải tên của parameter kế bên.
-func timTenHeader(dong []string, i int) string {
+func findHeaderName(line []string, i int) string {
 	for d := 1; d <= 3; d++ {
 		for _, j := range []int{i - d, i + d} {
-			if j < 0 || j >= len(dong) {
+			if j < 0 || j >= len(line) {
 				continue
 			}
 			// Dừng ở ranh giới khối: một dòng `- name:` mới bắt đầu
 			// parameter khác, nên chỉ nhận nó nếu nó là dòng gần nhất.
-			if m := reTenHeader.FindStringSubmatch(dong[j]); m != nil {
+			if m := reTenHeader.FindStringSubmatch(line[j]); m != nil {
 				return m[1]
 			}
 		}
@@ -151,17 +151,17 @@ func timTenHeader(dong []string, i int) string {
 	return ""
 }
 
-// docHeaderCORS đọc danh sách `AllowedHeaders` bằng AST.
+// readCORSHeaders đọc danh sách `AllowedHeaders` bằng AST.
 //
 // Đọc AST chứ không grep chuỗi vì cùng lý do như phần đọc tuyến: một tên
 // header xuất hiện trong bình luận hay trong thông điệp lỗi không phải là
 // một header được cho phép.
-func (c *checker) docHeaderCORS() (map[string]bool, error) {
-	duong := filepath.Join(c.root, "internal", "platform", "httpserver", "cors.go")
+func (c *checker) readCORSHeaders() (map[string]bool, error) {
+	path := filepath.Join(c.root, "internal", "platform", "httpserver", "cors.go")
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, duong, nil, 0)
+	f, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("đọc %s: %w", duong, err)
+		return nil, fmt.Errorf("đọc %s: %w", path, err)
 	}
 
 	out := map[string]bool{}
@@ -192,81 +192,81 @@ func (c *checker) docHeaderCORS() (map[string]bool, error) {
 
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%s: không tìm thấy `var AllowedHeaders = []string{...}` "+
-			"— công cụ này đọc đúng biến đó, đổi tên thì phải sửa cả đây", duong)
+			"— công cụ này đọc đúng biến đó, đổi tên thì phải sửa cả đây", path)
 	}
 	return out, nil
 }
 
-// doiChieuHeader so hai danh sách và ghi vi phạm.
-func (c *checker) doiChieuHeader(dacTa map[string]string, cors map[string]bool) {
+// compareHeaders so hai danh sách và ghi vi phạm.
+func (c *checker) compareHeaders(spec map[string]string, cors map[string]bool) {
 	// So KHÔNG phân biệt hoa thường: chuẩn HTTP nói tên header không phân
 	// biệt hoa thường, và trình duyệt gửi `x-visit-id` viết thường. Một
 	// phép so phân biệt hoa thường ở đây sẽ báo lỗi giả cho `X-Request-ID`
 	// và `X-Request-Id` — hai cách viết của cùng một header.
-	corsThuong := map[string]string{}
+	corsLower := map[string]string{}
 	for h := range cors {
-		corsThuong[strings.ToLower(h)] = h
+		corsLower[strings.ToLower(h)] = h
 	}
 
-	var thieu []string
-	for h := range dacTa {
-		if _, ok := corsThuong[strings.ToLower(h)]; ok {
+	var missing []string
+	for h := range spec {
+		if _, ok := corsLower[strings.ToLower(h)]; ok {
 			continue
 		}
-		if _, co := c.headerKhongQuaTrinhDuyet[h]; co {
+		if _, co := c.headersNotViaBrowser[h]; co {
 			continue
 		}
-		thieu = append(thieu, h)
+		missing = append(missing, h)
 	}
-	sort.Strings(thieu)
-	for _, h := range thieu {
-		c.viPham = append(c.viPham, fmt.Sprintf(
+	sort.Strings(missing)
+	for _, h := range missing {
+		c.violations = append(c.violations, fmt.Sprintf(
 			"HEADER %s khai trong đặc tả (%s) mà CORS KHÔNG cho phép — "+
 				"trình duyệt sẽ chặn ở preflight và log máy chủ sẽ SẠCH. "+
 				"Thêm vào `AllowedHeaders` trong internal/platform/httpserver/cors.go",
-			h, dacTa[h]))
+			h, spec[h]))
 	}
 
-	dacTaThuong := map[string]bool{}
-	for h := range dacTa {
-		dacTaThuong[strings.ToLower(h)] = true
+	specLower := map[string]bool{}
+	for h := range spec {
+		specLower[strings.ToLower(h)] = true
 	}
 
-	var thua []string
+	var extra []string
 	for h := range cors {
-		if dacTaThuong[strings.ToLower(h)] {
+		if specLower[strings.ToLower(h)] {
 			continue
 		}
-		if _, co := c.headerNgoaiDacTa[h]; co {
+		if _, co := c.headersOutsideSpec[h]; co {
 			continue
 		}
-		thua = append(thua, h)
+		extra = append(extra, h)
 	}
-	sort.Strings(thua)
-	for _, h := range thua {
-		c.viPham = append(c.viPham, fmt.Sprintf(
+	sort.Strings(extra)
+	for _, h := range extra {
+		c.violations = append(c.violations, fmt.Sprintf(
 			"HEADER %s được CORS cho phép mà đặc tả KHÔNG khai ở đâu — "+
 				"hoặc khai nó vào api/ (`in: header`), hoặc khai lý do vào "+
-				"`headerNgoaiDacTa` trong cmd/apicheck/header.go", h))
+				"`headersOutsideSpec` trong cmd/apicheck/header.go", h))
 	}
 
 	// Miễn trừ cho thứ không còn tồn tại cũng là một dòng nói dối, và một
 	// sổ đầy dòng chết là sổ không ai đọc.
-	var mienTruThua []string
-	for h := range c.headerNgoaiDacTa {
-		if _, ok := corsThuong[strings.ToLower(h)]; !ok {
-			mienTruThua = append(mienTruThua, fmt.Sprintf(
-				"HEADER %s có dòng miễn trừ trong `headerNgoaiDacTa` mà "+
+	var extraExemptions []string
+	for h := range c.headersOutsideSpec {
+		if _, ok := corsLower[strings.ToLower(h)]; !ok {
+			extraExemptions = append(extraExemptions, fmt.Sprintf(
+				"HEADER %s có dòng miễn trừ trong `headersOutsideSpec` mà "+
 					"CORS không còn cho phép — xóa dòng ấy đi", h))
 		}
 	}
-	for h := range c.headerKhongQuaTrinhDuyet {
-		if !dacTaThuong[strings.ToLower(h)] {
-			mienTruThua = append(mienTruThua, fmt.Sprintf(
-				"HEADER %s có dòng miễn trừ trong `headerKhongQuaTrinhDuyet` "+
+	for h := range c.headersNotViaBrowser {
+		if !specLower[strings.ToLower(h)] {
+			extraExemptions = append(extraExemptions, fmt.Sprintf(
+				"HEADER %s có dòng miễn trừ trong `headersNotViaBrowser` "+
 					"mà đặc tả không còn khai — xóa dòng ấy đi", h))
 		}
 	}
-	sort.Strings(mienTruThua)
-	c.viPham = append(c.viPham, mienTruThua...)
+	sort.Strings(extraExemptions)
+	c.violations = append(c.violations, extraExemptions...)
 }

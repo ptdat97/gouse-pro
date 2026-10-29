@@ -299,7 +299,7 @@ tài liệu MẤT hàng `**Tầng (microkernel)**`
 tài liệu ghi giá trị LẠ (ví dụ "Quan trọng")
 ```
 
-Chỉ còn MỘT sổ trong Go: `nangLucCatNgang`, cho hai module tài liệu xếp
+Chỉ còn MỘT sổ trong Go: `crossCuttingCapabilities`, cho hai module tài liệu xếp
 KERNEL mà nằm ngoài đường mua hàng. Đó là chỗ duy nhất R10 dựa vào phán đoán,
 và thiếu một dòng ở đó thì R10c đỏ với chính module ấy.
 

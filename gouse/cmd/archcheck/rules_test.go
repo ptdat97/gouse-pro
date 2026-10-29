@@ -227,7 +227,7 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// TestR9_KhongSDKNgoaiTrongKernelVaDomain.
+// TestR9_NoExternalSDKInKernelOrDomain.
 //
 // # Vì sao quy tắc này cần bài test riêng
 //
@@ -239,7 +239,7 @@ func contains(s, sub string) bool {
 //
 // Hai quy tắc hứa nhiều hơn thứ chúng kiểm là đúng dạng lỗi tệ nhất của
 // một công cụ kiểm: nó tạo cảm giác an toàn giả.
-func TestR9_KhongSDKNgoaiTrongKernelVaDomain(t *testing.T) {
+func TestR9_NoExternalSDKInKernelOrDomain(t *testing.T) {
 	kernel := p(mod + "/internal/kernel/money")
 	domain := p(mod + "/internal/modules/order/domain")
 	infra := p(mod + "/internal/modules/order/infrastructure/postgres")
@@ -249,14 +249,14 @@ func TestR9_KhongSDKNgoaiTrongKernelVaDomain(t *testing.T) {
 		ten  string
 		from pkgInfo
 	}{{"kernel", kernel}, {"domain", domain}} {
-		rule, _, _ := KiemThuVienNgoai(tc.from, "github.com/stripe/stripe-go/v76")
+		rule, _, _ := CheckExternalLib(tc.from, "github.com/stripe/stripe-go/v76")
 		if rule != "R9" {
 			t.Errorf("%s import SDK ngoài phải vi phạm R9, nhận %q", tc.ten, rule)
 		}
 	}
 
 	// ĐƯỢC ở infrastructure: đó chính là chỗ SDK phải sống.
-	if rule, _, _ := KiemThuVienNgoai(infra, "github.com/jackc/pgx/v5"); rule != "" {
+	if rule, _, _ := CheckExternalLib(infra, "github.com/jackc/pgx/v5"); rule != "" {
 		t.Errorf("infrastructure import SDK phải hợp lệ, nhận %q", rule)
 	}
 }
@@ -265,10 +265,10 @@ func TestR9_KhongSDKNgoaiTrongKernelVaDomain(t *testing.T) {
 //
 // Nhầm theo chiều "chuẩn thành ngoài" sẽ làm mọi file domain đỏ và người ta
 // tắt hẳn công cụ. Nhầm theo chiều ngược lại thì quy tắc không gác gì.
-func TestNhanDienThuVienNgoai(t *testing.T) {
+func TestRecognisesExternalLibraries(t *testing.T) {
 	cases := []struct {
 		importPath string
-		ngoai      bool
+		outside    bool
 	}{
 		// Thư viện chuẩn: đoạn đầu KHÔNG có dấu chấm.
 		{"time", false},
@@ -287,8 +287,8 @@ func TestNhanDienThuVienNgoai(t *testing.T) {
 		{"go.uber.org/zap", true},
 	}
 	for _, tc := range cases {
-		if got := LaThuVienNgoai(mod, tc.importPath); got != tc.ngoai {
-			t.Errorf("LaThuVienNgoai(%q) = %v, mong %v", tc.importPath, got, tc.ngoai)
+		if got := IsExternalLib(mod, tc.importPath); got != tc.outside {
+			t.Errorf("IsExternalLib(%q) = %v, mong %v", tc.importPath, got, tc.outside)
 		}
 	}
 }

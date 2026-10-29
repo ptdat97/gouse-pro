@@ -43,12 +43,12 @@ func main() {
 // thật. Dựng bằng tay ở hai chỗ là hai chỗ để quên một sổ.
 func moiChecker(root, modulePath string) *checker {
 	return &checker{
-		root:       root,
-		modulePath: modulePath,
-		goc:        moduleGoc,
-		catNgang:   nangLucCatNgang,
-		imports:    make(map[string][]string),
-		pkgFiles:   make(map[string][]string),
+		root:         root,
+		modulePath:   modulePath,
+		root2:        rootModule,
+		crossCutting: crossCuttingCapabilities,
+		imports:      make(map[string][]string),
+		pkgFiles:     make(map[string][]string),
 	}
 }
 
@@ -63,17 +63,17 @@ type checker struct {
 	//
 	// `goc` RỖNG tắt R10 hoàn toàn — dự án giả của bộ test không có module
 	// `checkout`, và một dự án giả ba module không có kernel để mà gác.
-	goc      string
-	catNgang map[string]string
+	root2        string
+	crossCutting map[string]string
 
 	imports    map[string][]string // package → danh sách import nội bộ
 	pkgFiles   map[string][]string // package → file thuộc package
 	violations []Violation
 	filesRead  int
 
-	// soKernel và soExtension chỉ để in báo cáo ở chế độ -v.
-	soKernel    int
-	soExtension int
+	// kernelCount và extensionCount chỉ để in báo cáo ở chế độ -v.
+	kernelCount    int
+	extensionCount int
 }
 
 func (c *checker) run() error {
@@ -88,13 +88,13 @@ func (c *checker) run() error {
 	// R6 — sở hữu bảng. Đọc mục "Dữ liệu sở hữu" của tài liệu module, nên
 	// nó trả LỖI (không phải vi phạm) khi tài liệu thiếu hoặc mâu thuẫn:
 	// không có bảng sở hữu đáng tin thì không kiểm được gì.
-	if err := c.kiemSoHuuBang(); err != nil {
+	if err := c.checkTableOwnership(); err != nil {
 		return err
 	}
 
 	// R10 — microkernel. Chạy SAU R5 vì nó dùng cùng đồ thị module, và sau
 	// R6 vì một lược đồ sai làm phân loại kernel/extension vô nghĩa.
-	if err := c.kiemMicrokernel(); err != nil {
+	if err := c.checkMicrokernel(); err != nil {
 		return err
 	}
 	return nil
@@ -172,8 +172,8 @@ func (c *checker) scanPackages() error {
 			}
 			// R9 phải kiểm TRƯỚC lệnh bỏ qua dưới đây: đây là chỗ duy
 			// nhất thư viện bên thứ ba còn nhìn thấy được.
-			if LaThuVienNgoai(c.modulePath, importPath) {
-				if rule, msg, hint := KiemThuVienNgoai(from, importPath); rule != "" {
+			if IsExternalLib(c.modulePath, importPath) {
+				if rule, msg, hint := CheckExternalLib(from, importPath); rule != "" {
 					pos := fset.Position(spec.Pos())
 					c.violations = append(c.violations, Violation{
 						Rule: rule, File: rel, Line: pos.Line,
@@ -255,20 +255,20 @@ func (c *checker) checkDependencyCycles() {
 		}
 		sort.Strings(deps) // thứ tự xác định để thông báo lỗi ổn định
 
-		for _, dep := range deps {
-			switch state[dep] {
+		for _, wiring := range deps {
+			switch state[wiring] {
 			case white:
-				visit(dep)
+				visit(wiring)
 			case gray:
 				// Tìm thấy chu trình: cắt ngăn xếp từ dep tới hiện tại.
 				cycleStart := 0
 				for i, m := range stack {
-					if m == dep {
+					if m == wiring {
 						cycleStart = i
 						break
 					}
 				}
-				cycle := append(append([]string{}, stack[cycleStart:]...), dep)
+				cycle := append(append([]string{}, stack[cycleStart:]...), wiring)
 				c.violations = append(c.violations, Violation{
 					Rule:    "R5",
 					File:    "internal/modules/" + mod,
@@ -299,7 +299,7 @@ func (c *checker) report() {
 	if c.verbose {
 		fmt.Printf("Đã đọc %d file Go, %d package nội bộ\n", c.filesRead, len(c.pkgFiles))
 		fmt.Printf("R10 microkernel: %d module kernel · %d extension\n",
-			c.soKernel, c.soExtension)
+			c.kernelCount, c.extensionCount)
 	}
 
 	if len(c.violations) == 0 {

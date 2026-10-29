@@ -295,7 +295,7 @@ header   quá RỘNG cũng là lỗ hổng     → mời trình duyệt gửi k�
 ```
 
 Vì hướng thứ ba mà `X-Signature` (chữ ký webhook) **cố ý** không nằm trong
-danh sách, và lý do ấy được ghi vào sổ `headerKhongQuaTrinhDuyet` của
+danh sách, và lý do ấy được ghi vào sổ `headersNotViaBrowser` của
 `cmd/apicheck` chứ không nằm trong trí nhớ ai.
 
 Từ 17/09/2026 `cmd/apicheck` đối chiếu danh sách header với mọi khai báo

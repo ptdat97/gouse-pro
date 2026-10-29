@@ -1,6 +1,6 @@
 package main
 
-// chuaCai là những thao tác ĐÃ khai trong đặc tả mà CHƯA có route, kèm lý
+// notImplemented là những thao tác ĐÃ khai trong đặc tả mà CHƯA có route, kèm lý
 // do vì sao chưa.
 //
 // # Vì sao phải khai từng dòng thay vì đếm tổng
@@ -14,8 +14,8 @@ package main
 // quên xóa dòng ở đây thì CI cũng đỏ.
 //
 // Mỗi lý do phải nói được PHASE hoặc ĐIỀU KIỆN, không phải "chưa làm".
-var chuaCai = map[string]string{
-	// Nội dung bên dưới. Danh sách thứ hai — `ngoaiHopDong` — ở cuối file.
+var notImplemented = map[string]string{
+	// Nội dung bên dưới. Danh sách thứ hai — `outsideContract` — ở cuối file.
 	// ------------------------------------------------ Phase 2 — Creator Commerce
 	//
 	// Bảy module của Phase 2 (creator, content, affiliate, campaign…) chưa
@@ -44,7 +44,7 @@ var chuaCai = map[string]string{
 	"GET /api/v1/admin/replenishment-suggestions": "Phase 3 — gợi ý nhập bổ sung",
 }
 
-// ngoaiHopDong là những tuyến CỐ Ý không nằm trong OpenAPI.
+// outsideContract là những tuyến CỐ Ý không nằm trong OpenAPI.
 //
 // # Vì sao có ngoại lệ, và vì sao nó phải ngắn
 //
@@ -58,7 +58,7 @@ var chuaCai = map[string]string{
 //
 // Danh sách này phải NGẮN. Mỗi dòng thêm vào là một endpoint không ai rà
 // soát khi đổi, nên lý do phải nói được vì sao client KHÔNG BAO GIỜ gọi nó.
-var ngoaiHopDong = map[string]string{
+var outsideContract = map[string]string{
 	"GET /health/live":  "thăm dò của trình điều phối; hợp đồng do Kubernetes định nghĩa",
 	"GET /health/ready": "thăm dò của trình điều phối; hợp đồng do Kubernetes định nghĩa",
 	"GET /metrics":      "Prometheus thu thập; định dạng do Prometheus định nghĩa",

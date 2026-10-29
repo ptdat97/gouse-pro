@@ -114,7 +114,7 @@ func classify(modulePath, importPath string) pkgInfo {
 // chung), platform/ (hạ tầng trung lập domain), hoặc pkg/ (tiện ích thuần).
 var forbiddenDirs = []string{"common", "utils", "helpers", "services", "shared", "misc"}
 
-// KiemThuVienNgoai thực thi R9: kernel và domain KHÔNG dùng thư viện bên
+// CheckExternalLib thực thi R9: kernel và domain KHÔNG dùng thư viện bên
 // thứ ba.
 //
 // # Vì sao quy tắc này phải tồn tại riêng
@@ -138,7 +138,7 @@ var forbiddenDirs = []string{"common", "utils", "helpers", "services", "shared",
 //
 // Thư viện chuẩn KHÔNG bị chặn: `time`, `errors`, `fmt` không mang mô hình
 // của ai cả.
-func KiemThuVienNgoai(from pkgInfo, importPath string) (rule, msg, hint string) {
+func CheckExternalLib(from pkgInfo, importPath string) (rule, msg, hint string) {
 	switch {
 	case from.IsKernel:
 		return "R9",
@@ -154,7 +154,7 @@ func KiemThuVienNgoai(from pkgInfo, importPath string) (rule, msg, hint string) 
 	return "", "", ""
 }
 
-// LaThuVienNgoai cho biết một đường dẫn import là thư viện BÊN THỨ BA.
+// IsExternalLib cho biết một đường dẫn import là thư viện BÊN THỨ BA.
 //
 // Quy ước của Go: đoạn đầu của đường dẫn thư viện chuẩn KHÔNG chứa dấu
 // chấm (`time`, `net/http`, `encoding/json`), còn phụ thuộc ngoài luôn bắt
@@ -162,15 +162,15 @@ func KiemThuVienNgoai(from pkgInfo, importPath string) (rule, msg, hint string) 
 //
 // Chính dự án này cũng bắt đầu bằng `github.com/`, nên phải loại nó ra —
 // `internal/...` của mình do các quy tắc khác gác.
-func LaThuVienNgoai(modulePath, importPath string) bool {
+func IsExternalLib(modulePath, importPath string) bool {
 	if strings.HasPrefix(importPath, modulePath) {
 		return false
 	}
-	doanDau := importPath
+	head := importPath
 	if i := strings.Index(importPath, "/"); i >= 0 {
-		doanDau = importPath[:i]
+		head = importPath[:i]
 	}
-	return strings.Contains(doanDau, ".")
+	return strings.Contains(head, ".")
 }
 
 // checkImport áp dụng các quy tắc phụ thuộc cho một cặp (package, import).

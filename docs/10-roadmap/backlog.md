@@ -5474,7 +5474,7 @@ bằng 0 và `size_recommendation` không bao giờ hiện.
 
 ```text
 tuyến có, đặc tả không   LỖI, không ngoại lệ
-đặc tả có, tuyến không   phải KHAI vào `chuaCai` kèm lý do
+đặc tả có, tuyến không   phải KHAI vào `notImplemented` kèm lý do
 ```
 
 Hướng thứ hai biến câu "24 thao tác chưa cài, 20 thuộc Phase 2/3" — đúng
@@ -5604,7 +5604,7 @@ Viết phép kiểm xong, chạy lên repo thật, nó tìm thêm hai chỗ:
 | Header | Lệch | Xử lý |
 |---|---|---|
 | `X-Session-ID` | đặc tả khai ở 3 thao tác giỏ/thanh toán. **Không đường nào đọc.** Giỏ khách vãng lai đi bằng cookie `shopper_session` (HttpOnly) — mà trình duyệt còn không đặt được cookie HttpOnly bằng header | bỏ khỏi đặc tả; thay bằng `VisitId` và ghi rõ cơ chế thật |
-| `X-Signature` | đặc tả khai (webhook), CORS không cho — và **đúng là không nên cho** | khai vào sổ `headerKhongQuaTrinhDuyet` kèm lý do: cho header server-to-server vào CORS là nói với mọi trang web rằng nó gửi được từ trình duyệt |
+| `X-Signature` | đặc tả khai (webhook), CORS không cho — và **đúng là không nên cho** | khai vào sổ `headersNotViaBrowser` kèm lý do: cho header server-to-server vào CORS là nói với mọi trang web rằng nó gửi được từ trình duyệt |
 
 #### Hàng rào
 
@@ -5902,7 +5902,7 @@ Hai cảnh báo GIẢ trên ba kết quả. Cảnh báo giả là thứ làm ng�
 phép kiểm — bài học đã ghi ở `apicheck`.
 
 Nên hàng rào đúng cần một sổ ghi cặp TƯỜNG MINH (`schemas.yaml#/OrderStatus`
-↔ `order/domain.Status`), cùng kiểu sổ như `chuaCai` và `headerNgoaiDacTa`.
+↔ `order/domain.Status`), cùng kiểu sổ như `notImplemented` và `headersOutsideSpec`.
 Chưa làm; ghi lại ở đây kèm hai bằng chứng rằng hai enum ĐÃ lệch thật, để
 lần sau không phải đi tìm lại lý do.
 
@@ -6634,8 +6634,8 @@ nhưng tầng HTTP DỊCH ở biên (`QUANTITY_REDUCED` → `LOW_STOCK`). Ghép 
 sẽ báo bốn lệch không có thật. Quy tắc: **chỉ ghép khi giá trị miền đi
 thẳng ra JSON.**
 
-Nên `capEnumDaKiem` là 15 cặp ghi tay, mỗi cặp một lý do. Hai enum cố ý
-KHÔNG ghép nằm ở `enumKhongGhep`, cũng kèm lý do — để "không ghép" là một
+Nên `checkedEnumPairs` là 15 cặp ghi tay, mỗi cặp một lý do. Hai enum cố ý
+KHÔNG ghép nằm ở `unpairedEnums`, cũng kèm lý do — để "không ghép" là một
 quyết định có người ký, không phải một chỗ bị bỏ quên.
 
 63 enum còn lại (phần lớn thuộc module Phase 2 chưa tồn tại) được canh
@@ -6648,7 +6648,7 @@ bằng một CHỐT MỘT CHIỀU: thêm enum mới mà không quyết thì CI �
 đặc tả có, Go không   → KHÔNG BAO GIỜ hợp lệ: client viết một nhánh không
                         bao giờ chạy tới, hoặc mời người dùng chọn một giá
                         trị luôn trả về rỗng
-Go có, đặc tả không   → hợp lệ KHI cặp khai `ChoPhepTapCon`. Có thật:
+Go có, đặc tả không   → hợp lệ KHI cặp khai `AllowSubset`. Có thật:
                         `tier` của `/me` không bao giờ trả `ANONYMIZED`,
                         vì khách đã ẩn danh thì không đăng nhập được
 ```
@@ -7066,13 +7066,13 @@ R2  khai mà KHÔNG AI NGHE   một sự thật không ai hành động
 R3  NGHE mà không ai phát   bên nhận chết, chờ một event không tới
 ```
 
-R1 và R2 có sổ miễn trừ kèm lý do — cùng khuôn với `chuaCai`,
-`ngoaiHopDong`, `headerNgoaiDacTa`, `capEnumDaKiem` của apicheck. Cả hai
+R1 và R2 có sổ miễn trừ kèm lý do — cùng khuôn với `notImplemented`,
+`outsideContract`, `headersOutsideSpec`, `checkedEnumPairs` của apicheck. Cả hai
 sổ hiện **trống**, và đó là trạng thái đúng: event chưa dùng thì XÓA hằng
 số đi, thêm lại khi thật sự phát.
 
 **R3 không có sổ miễn trừ.** Một bên nhận không bao giờ chạy không có lý
-do hợp lệ nào, và `TestR3KhongTatDuocBangSoMienTru` khóa điều đó lại:
+do hợp lệ nào, và `TestR3CannotBeSilencedByAnOverride` khóa điều đó lại:
 khai lý do "cố ý chưa phát" vẫn không tắt được R3.
 
 #### Đọc AST, không grep
@@ -7210,7 +7210,7 @@ Sửa theo: bốn bảng thật chưa ai khai đã vào tài liệu
 (`email_verification_token`, `fulfillment_order_line`, `price`,
 `size_observation`), và `fulfillment_line` sửa thành
 `fulfillment_order_line` cho khớp bảng thật. Năm bảng của `platform` khai
-trong sổ `bangCuaPlatform` kèm lý do.
+trong sổ `platformTables` kèm lý do.
 
 #### Phần TỆ HƠN: `apicheck` và `eventcheck` chưa bao giờ chạy trong CI
 
@@ -7378,7 +7378,7 @@ bỏ product_id khỏi đặc tả       thừa nhận giỏ không cần đư�
                                 Rẻ nhất, và sai với điều khách mong đợi
 ```
 
-Trong lúc chờ quyết, `product_id` nằm ở `ChoPhepThieu` kèm lý do — phần còn
+Trong lúc chờ quyết, `product_id` nằm ở `AllowMissing` kèm lý do — phần còn
 lại của `CartItem` vẫn được gác.
 
 #### Vì sao ghép cặp TAY
@@ -7409,14 +7409,14 @@ không khớp phép đếm tay.
 
 Luật thay thế đơn giản hơn và đúng: thuộc tính của schema là dòng ở thụt lề
 ĐÚNG 4 trong khối `properties:` ở thụt lề 2. Thuộc tính lồng nằm ở thụt lề
-≥ 6 nên tự bị loại. `TestDTOThuocTinhLongKhongTinh` khóa cả hai chiều lại.
+≥ 6 nên tự bị loại. `TestDTONestedPropertiesDoNotCount` khóa cả hai chiều lại.
 
 #### Kiểm chứng bằng cách phá
 
 ```text
 bỏ `lines` khỏi settlementJSON      "đặc tả khai lines mà struct Go KHÔNG có"
 thêm trường ngoài hợp đồng           "Go trả bi_mat mà đặc tả KHÔNG khai"
-ChoPhepThieu khai sai (Go ĐÃ trả)    "xóa dòng ấy đi"
+AllowMissing khai sai (Go ĐÃ trả)    "xóa dòng ấy đi"
 thêm schema mới không ghép cặp       "21 schema chưa gác, vượt chốt 20"
 ```
 
@@ -7899,7 +7899,7 @@ R10c   tài liệu khai KERNEL mà module nằm ngoài đường mua hàng VÀ
 LỖI    tài liệu thiếu hàng tầng, hoặc ghi giá trị lạ
 ```
 
-Sổ Go duy nhất còn lại: `nangLucCatNgang` cho `identity` và `customer` —
+Sổ Go duy nhất còn lại: `crossCuttingCapabilities` cho `identity` và `customer` —
 chỗ DUY NHẤT R10 dựa vào phán đoán. Thiếu một dòng ở đó thì R10c đỏ với
 chính module ấy.
 
@@ -8154,7 +8154,7 @@ lọt nhiều tháng — một bên nhận không chạy ở lớp test thì kh�
 ```text
 internal/app/app.go      dựng supplychainModule + vào struct Modules
 api_ledger_test.go       bus.Subscribe(supplychain.NewSignalHandler(...))
-bo_ben_nhan.go           bỏ dòng supplychain khỏi `benNhanChiOWorker`
+bo_ben_nhan.go           bỏ dòng supplychain khỏi `receiversOnlyInWorker`
 api_tin_hieu_nhu_cau_test.go   HAI bài mới
 ```
 
@@ -8194,7 +8194,7 @@ handler ghi Quantity: 1  → "tổng số lượng = 1, cần 2"
 
 #### Và một dòng chú thích đã làm hiện trạng sống lâu hơn
 
-Sổ `benNhanChiOWorker` từng miễn trừ `supplychain.NewSignalHandler` với lý do
+Sổ `receiversOnlyInWorker` từng miễn trừ `supplychain.NewSignalHandler` với lý do
 *"module không nằm trong `Modules` của internal/app"*. Lý do ấy là một **HIỆN
 TRẠNG**, không phải một ràng buộc — và một dòng miễn trừ mô tả hiện trạng
 biến một việc phải làm thành một đặc điểm đã được giải thích.
