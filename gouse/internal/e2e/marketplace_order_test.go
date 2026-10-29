@@ -707,7 +707,7 @@ func address() checkoutdomain.Address {
 }
 
 // LayDon đọc lại đơn đã tạo — dùng ở đường THỬ LẠI của CompleteCheckout.
-func (p *orderPort) LayDon(
+func (p *orderPort) GetOrder(
 	ctx context.Context, orderID ids.ID,
 ) (checkoutapp.PlacedOrder, error) {
 	v, err := p.api.GetOrder(ctx, orderID.String())
@@ -727,7 +727,7 @@ type shippingPort struct{ api *fulfillment.Module }
 
 func (p *shippingPort) EstimateShipping(
 	ctx context.Context, method string, sellerIDs []string, currency string,
-) (checkoutapp.UocTinhPhiGiao, error) {
+) (checkoutapp.ShippingEstimate, error) {
 	sources := make([]fulfillment.SourceInput, 0, len(sellerIDs))
 	for _, id := range sellerIDs {
 		sources = append(sources, fulfillment.SourceInput{SellerID: id})
@@ -736,9 +736,9 @@ func (p *shippingPort) EstimateShipping(
 		Method: method, Sources: sources, Currency: currency,
 	})
 	if err != nil {
-		return checkoutapp.UocTinhPhiGiao{}, err
+		return checkoutapp.ShippingEstimate{}, err
 	}
-	return checkoutapp.UocTinhPhiGiao{Total: res.Total}, nil
+	return checkoutapp.ShippingEstimate{Total: res.Total}, nil
 }
 
 // IsInternal cho payment biết nhà bán là gian hàng nội bộ hay bên ngoài.

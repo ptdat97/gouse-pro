@@ -561,7 +561,7 @@ với tiền thì phát hiện muộn không cứu được gì.
 | …và ở tầng DATABASE, kể cả khi ghi bằng SQL thô | trigger `ledger_entry_must_balance` (migration 000056) | `hang_rao_can_bang_test.go` |
 | Chi trả ≤ số dư phải trả nhà bán | `ErrInsufficientBalance` | `TestNoPayoutBeyondTheBalance` |
 | Ghi doanh thu idempotent theo đơn | khóa `revenue:<order>` | `TestPhatLaiEventKhongDemHaiLuot` (tầng event) · `TestRevenuePostingIsIdempotentPerOrder` (tầng use case) |
-| Tổng tiền KHÔNG cộng thuế (giá đã gồm VAT) | `Checkout.Total()` | `TestThueTinhTrenCaPhiVanChuyen` · `TestTongKhongCongThue` |
+| Tổng tiền KHÔNG cộng thuế (giá đã gồm VAT) | `Checkout.Total()` | `TestTaxCoversTheShippingFeeToo` · `TestTheSubtotalExcludesTax` |
 | Số lượng trả ≤ số đã mua | `ErrQuantityExceeded` | `TestSoLuongVuotThiTuChoi` |
 | Giảm giá chưa phân bổ → từ chối hoàn tự động | `ErrGiamGiaChuaPhanBo` | `TestGiamGiaChuaPhanBoThiTuChoiHoan` |
 | Một dòng hàng không xin trả hai lần | `ErrDuplicateLine` | `TestMotDongKhongXinTraHaiLan` ← **thêm 24/09**, trước đó KHÔNG ai gác |

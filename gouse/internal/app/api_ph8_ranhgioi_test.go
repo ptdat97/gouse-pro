@@ -135,7 +135,7 @@ func TestPH8_HangChetPhaiDemDuoc(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	truoc, err := a.mods.checkout.CountHoanTatKetLai(ctx)
+	truoc, err := a.mods.checkout.CountStuckCompletions(ctx)
 	if err != nil {
 		t.Fatalf("đếm phiên kẹt: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestPH8_HangChetPhaiDemDuoc(t *testing.T) {
 		t.Fatalf("đẩy phiên quá hạn: %v", err)
 	}
 
-	sau, err := a.mods.checkout.CountHoanTatKetLai(ctx)
+	sau, err := a.mods.checkout.CountStuckCompletions(ctx)
 	if err != nil {
 		t.Fatalf("đếm phiên kẹt: %v", err)
 	}

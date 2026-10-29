@@ -430,7 +430,7 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := h.svc.CompleteCheckout(r.Context(),
-		ids.ID(r.PathValue("checkout_id")), key, req.PaymentMethod, luotTruyCap(r))
+		ids.ID(r.PathValue("checkout_id")), key, req.PaymentMethod, visitFrom(r))
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
@@ -487,7 +487,7 @@ func (h *Handler) placeOrder(w http.ResponseWriter, r *http.Request) {
 	// có `checkout_id`, nên đường này thật sự KHÔNG biết khách chọn gì.
 	// Bịa "COD" cho gọn sẽ khiến kho đi thu tiền một đơn đã trả trước.
 	res, err := h.svc.CompleteCheckout(
-		r.Context(), ids.ID(req.CheckoutID), key, "", luotTruyCap(r))
+		r.Context(), ids.ID(req.CheckoutID), key, "", visitFrom(r))
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return
@@ -507,12 +507,12 @@ func (h *Handler) placeOrder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// luotTruyCap lấy mã lượt truy cập của request, rỗng nếu không có.
+// visitFrom lấy mã lượt truy cập của request, rỗng nếu không có.
 //
 // Rỗng là chuyện bình thường: client cũ không gửi header, và máy chủ
 // KHÔNG bịa mã thay — một mã bịa ra ở đây sẽ thành một "lượt truy cập"
 // không bao giờ xem sản phẩm nào, tức làm hỏng đúng tỷ lệ nó phục vụ.
-func luotTruyCap(r *http.Request) string {
+func visitFrom(r *http.Request) string {
 	sh, ok := httpserver.ShopperFrom(r.Context())
 	if !ok {
 		return ""
@@ -648,14 +648,14 @@ func toJSON(c *domain.Checkout) checkoutJSON {
 		})
 	}
 
-	for _, g := range c.NhomGiaoHang() {
+	for _, g := range c.ShippingGroup() {
 		out.ShippingGroups = append(out.ShippingGroups, shippingGroupJSON{
 			Seller: sellerRefJSON{
 				ID:   g.SellerID.String(),
 				Name: g.SellerName,
 			},
-			EstimatedDeliveryDate: g.NgayGiaoDuKien.Format(time.DateOnly),
-			ShippingFee:           toMoney(g.PhiVanChuyen),
+			EstimatedDeliveryDate: g.EstimatedDelivery.Format(time.DateOnly),
+			ShippingFee:           toMoney(g.ShippingFee),
 		})
 	}
 

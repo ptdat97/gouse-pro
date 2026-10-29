@@ -100,7 +100,7 @@ func New(cfg Config) (*Module, error) {
 		return nil, errors.New("checkout: bắt buộc phải có kết nối database")
 	}
 
-	for _, dep := range []struct {
+	for _, wiring := range []struct {
 		name string
 		ok   bool
 	}{
@@ -110,8 +110,8 @@ func New(cfg Config) (*Module, error) {
 		{"order", cfg.Order != nil},
 		{"seller", cfg.Seller != nil},
 	} {
-		if !dep.ok {
-			return nil, errors.New("checkout: bắt buộc phải có module " + dep.name)
+		if !wiring.ok {
+			return nil, errors.New("checkout: bắt buộc phải có module " + wiring.name)
 		}
 	}
 
@@ -137,7 +137,7 @@ func New(cfg Config) (*Module, error) {
 		deps.Shipping = &shippingAdapter{api: cfg.Fulfillment}
 	}
 	if cfg.OpsConfig != nil {
-		deps.ChinhSach = &chinhSachAdapter{cfg: cfg.OpsConfig}
+		deps.Policy = &policyAdapter{cfg: cfg.OpsConfig}
 	}
 
 	return &Module{svc: application.NewService(deps)}, nil
@@ -330,8 +330,8 @@ func (m *Module) CountExpiredPending(ctx context.Context) (int, error) {
 	return n, translateErr(err)
 }
 
-func (m *Module) CountHoanTatKetLai(ctx context.Context) (int, error) {
-	n, err := m.svc.CountHoanTatKetLai(ctx)
+func (m *Module) CountStuckCompletions(ctx context.Context) (int, error) {
+	n, err := m.svc.CountStuckCompletions(ctx)
 	return n, translateErr(err)
 }
 
@@ -456,7 +456,7 @@ var _ application.PromotionPort = (*promotionAdapter)(nil)
 func (a *promotionAdapter) ValidateCoupon(
 	ctx context.Context, code, customerID string, sellerID ids.ID,
 	orderTotal money.Money,
-) (application.KetQuaMaGiam, error) {
+) (application.PromoResult, error) {
 	res, err := a.api.ValidateCoupon(ctx, promotion.ValidateRequest{
 		Code:       code,
 		CustomerID: customerID,
@@ -469,51 +469,51 @@ func (a *promotionAdapter) ValidateCoupon(
 		Currency:   string(orderTotal.Currency()),
 	})
 	if err != nil {
-		return application.KetQuaMaGiam{}, err
+		return application.PromoResult{}, err
 	}
 
 	discount, err := money.New(res.Discount, money.Currency(res.Currency))
 	if err != nil {
-		return application.KetQuaMaGiam{}, err
+		return application.PromoResult{}, err
 	}
 
-	phanBo, err := phanBoTu(res.CostAllocations, money.Currency(res.Currency))
+	allocations, err := allocationsFrom(res.CostAllocations, money.Currency(res.Currency))
 	if err != nil {
-		return application.KetQuaMaGiam{}, err
+		return application.PromoResult{}, err
 	}
 
-	return application.KetQuaMaGiam{
-		Giam:        discount,
-		MienPhiShip: res.FreeShipping,
-		BenChiu:     benChiuTu(res.CostAllocations),
-		PhanBo:      phanBo,
+	return application.PromoResult{
+		Discount:     discount,
+		FreeShipping: res.FreeShipping,
+		Bearer:       discountBearerFrom(res.CostAllocations),
+		Allocations:  allocations,
 	}, nil
 }
 
-// phanBoTu đổi bảng phân bổ của promotion sang từ vựng của checkout.
+// allocationsFrom đổi bảng phân bổ của promotion sang từ vựng của checkout.
 //
 // Giữ NGUYÊN từng dòng, không gộp: chương trình chia đôi có hai dòng và
 // mỗi dòng là một khoản tiền thật phải trừ vào một bên cụ thể. Gộp lại là
 // đúng chỗ khiến phần của nhà bán biến mất trước khi tới sổ cái.
-func phanBoTu(
-	ds []promotion.CostAllocationView, donVi money.Currency,
-) ([]checkoutdomain.PhanBoChiPhiGiam, error) {
-	out := make([]checkoutdomain.PhanBoChiPhiGiam, 0, len(ds))
+func allocationsFrom(
+	ds []promotion.CostAllocationView, unit money.Currency,
+) ([]checkoutdomain.DiscountCostAllocation, error) {
+	out := make([]checkoutdomain.DiscountCostAllocation, 0, len(ds))
 	for _, d := range ds {
-		soTien, err := money.New(d.Amount, donVi)
+		amount, err := money.New(d.Amount, unit)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, checkoutdomain.PhanBoChiPhiGiam{
-			BenChiu:  checkoutdomain.BenChiuGiamGia(d.Bearer).HoacMacDinh(),
+		out = append(out, checkoutdomain.DiscountCostAllocation{
+			Bearer:   checkoutdomain.DiscountBearer(d.Bearer).OrDefault(),
 			SellerID: ids.ID(d.SellerID),
-			SoTien:   soTien,
+			Amount:   amount,
 		})
 	}
 	return out, nil
 }
 
-// benChiuTu rút gọn danh sách phân bổ thành MỘT bên chịu.
+// discountBearerFrom rút gọn danh sách phân bổ thành MỘT bên chịu.
 //
 // `CostAllocations` là danh sách vì chương trình chia đôi có hai dòng.
 // Checkout chỉ cần biết con số nào đi vào `cost_bearer` của khoản điều
@@ -523,13 +523,13 @@ func phanBoTu(
 // bị vứt đi và giá trị ghi vào luôn là "PLATFORM". Khi sổ cái cần chia
 // tiền theo từng bên thì nó phải đọc `CostAllocations` đầy đủ, không đọc
 // con số rút gọn này.
-func benChiuTu(ds []promotion.CostAllocationView) string {
+func discountBearerFrom(ds []promotion.CostAllocationView) string {
 	switch len(ds) {
 	case 0:
-		return string(checkoutdomain.BenChiuNenTang)
+		return string(checkoutdomain.BearerPlatform)
 	case 1:
 		return ds[0].Bearer
 	default:
-		return string(checkoutdomain.BenChiuChiaDoi)
+		return string(checkoutdomain.BearerShared)
 	}
 }

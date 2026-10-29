@@ -50,7 +50,7 @@ type Repository interface {
 	// đang KHÓA HÀNG mà không ai dùng tới.
 	FindExpired(ctx context.Context, now time.Time, limit int) ([]*Checkout, error)
 
-	// GiuDeHoanTat giành quyền hoàn tất một phiên, bằng MỘT câu lệnh
+	// ClaimForCompletion giành quyền hoàn tất một phiên, bằng MỘT câu lệnh
 	// nguyên tử.
 	//
 	// # Vì sao cần
@@ -70,11 +70,11 @@ type Repository interface {
 	// tạo đơn: phiên hết hạn bình thường, hàng nhả về kho, không ai mất gì.
 	//
 	// Chết SAU lúc tạo đơn thì ngược lại — hết hạn là việc tệ nhất có thể
-	// làm, vì nó nhả hàng của một đơn đã tồn tại. `GhiNhanDaTaoDon` bên
+	// làm, vì nó nhả hàng của một đơn đã tồn tại. `MarkOrderPlaced` bên
 	// dưới đóng khe hở đó.
-	GiuDeHoanTat(ctx context.Context, id ids.ID, now time.Time, anHan time.Duration) error
+	ClaimForCompletion(ctx context.Context, id ids.ID, now time.Time, grace time.Duration) error
 
-	// GhiNhanDaTaoDon ghi mã đơn lên phiên NGAY khi đơn vừa được tạo.
+	// MarkOrderPlaced ghi mã đơn lên phiên NGAY khi đơn vừa được tạo.
 	//
 	// # Vì sao cần một lượt ghi riêng, chứ không đợi Save
 	//
@@ -102,15 +102,15 @@ type Repository interface {
 	// Đó là đánh đổi CÓ CHỦ Ý và cùng hướng với lựa chọn ở kiểm định hàng
 	// hoàn: thà HÀNG CHẾT còn hơn HÀNG MA. Hàng chết đếm được, tìm được,
 	// và sửa được; hàng ma thì bán hai lần cho hai người rồi mới lộ.
-	GhiNhanDaTaoDon(ctx context.Context, id ids.ID, orderID ids.ID) error
+	MarkOrderPlaced(ctx context.Context, id ids.ID, orderID ids.ID) error
 
-	// CountHoanTatKetLai đếm phiên đã tạo đơn mà chưa hoàn tất xong.
+	// CountStuckCompletions đếm phiên đã tạo đơn mà chưa hoàn tất xong.
 	//
-	// Chỉ báo cho cái giá của GhiNhanDaTaoDon: những phiên này không bao
+	// Chỉ báo cho cái giá của MarkOrderPlaced: những phiên này không bao
 	// giờ bị dọn tự động, nên hàng của chúng phải đếm được.
-	CountHoanTatKetLai(ctx context.Context, now time.Time) (int, error)
+	CountStuckCompletions(ctx context.Context, now time.Time) (int, error)
 
-	// GiuDeDonHan giành quyền DỌN một phiên quá hạn, bằng MỘT câu lệnh
+	// ClaimForExpiry giành quyền DỌN một phiên quá hạn, bằng MỘT câu lệnh
 	// nguyên tử.
 	//
 	// Trả về false khi phiên vừa được bên khác giành — đang hoàn tất, hoặc
@@ -119,7 +119,7 @@ type Repository interface {
 	// Hai hàm giành quyền này loại trừ nhau: chúng cùng sửa một dòng bằng
 	// một câu lệnh, nên PostgreSQL xếp chúng nối đuôi, và điều kiện WHERE
 	// của bên thua không còn đúng nữa.
-	GiuDeDonHan(ctx context.Context, id ids.ID, now time.Time) (bool, error)
+	ClaimForExpiry(ctx context.Context, id ids.ID, now time.Time) (bool, error)
 
 	// CountExpiredPending đếm số phiên quá hạn chưa dọn.
 	//

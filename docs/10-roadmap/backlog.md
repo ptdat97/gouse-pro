@@ -625,7 +625,7 @@ thuế      = tổng × r / (10000 + r)       phần VAT nằm TRONG tổng
 
 Ba con số PHỤ THUỘC NHAU theo đúng thứ tự đó. Giảm giá đổi thì ngưỡng miễn
 phí ship phải xét lại, và phí ship đổi thì thuế phải tính lại. Nên chỉ có
-MỘT hàm đặt cả hai (`Checkout.ApDungPhiVaThue`), và cả ba đường ghi tiền —
+MỘT hàm đặt cả hai (`Checkout.ApplyFeesAndTax`), và cả ba đường ghi tiền —
 chọn cách giao, áp mã, gỡ mã — đều gọi lại nó. Để mỗi đường tự cập nhật
 một mảnh là cách chắc chắn để ba con số lệch nhau.
 
@@ -1226,21 +1226,21 @@ KHOẢNG TRỐNG giữa hai giao dịch liền nhau.
 **Chuỗi hoàn tất phiên đi qua ba giao dịch, có chủ ý:**
 
 ```text
-1. GiuDeHoanTat       giành quyền, gia hạn expires_at   (giao dịch riêng)
+1. ClaimForCompletion       giành quyền, gia hạn expires_at   (giao dịch riêng)
 2. orders.PlaceOrder  TẠO ĐƠN                            (giao dịch riêng)
 3. SaveWithEvents     trạng thái phiên + event outbox    (một giao dịch)
 ```
 
 Bước 3 gộp phiên và event — đúng. Nhưng giữa bước 2 và bước 3 có một
 khoảng mà **đơn đã tồn tại còn phiên vẫn `STARTED`**, tức vẫn nằm trong
-tầm quét của `FindExpired`. Ân hạn 30 giây của `GiuDeHoanTat` rồi cũng hết.
+tầm quét của `FindExpired`. Ân hạn 30 giây của `ClaimForCompletion` rồi cũng hết.
 
 Nếu bước 3 hỏng và khách không thử lại: job dọn nhặt phiên lên và **nhả
 toàn bộ hàng của một đơn có thật**. Hàng bán tiếp cho người khác, đơn cũ
 thành đơn không có hàng.
 
 Chú thích ở `inventory.CommitOnCheckoutCompleted` đã gọi đúng tên mối nguy
-này và nói nó "không thể để làm sau". `GiuDeHoanTat` sinh ra để chặn nó —
+này và nói nó "không thể để làm sau". `ClaimForCompletion` sinh ra để chặn nó —
 nhưng chỉ chặn được cuộc ĐUA ĐỒNG THỜI, không chặn được hoàn tất HỎNG GIỮA
 CHỪNG. Chú thích của chính cổng ấy ghi giả định sai: *"tiến trình chết
 giữa chừng thì phiên hết hạn bình thường, không có trạng thái nào kẹt
@@ -1252,7 +1252,7 @@ chứ không chặn cả bảng là điểm mấu chốt — `PlaceOrder` cũng 
 nên chặn cả bảng làm bước 2 hỏng trước và khe hở không bao giờ mở ra. Lần
 chạy đầu đã hỏng đúng kiểu đó và suýt kết luận "không có khe hở".
 
-**Bản sửa:** ghi mã đơn lên phiên NGAY sau bước 2 (`GhiNhanDaTaoDon`), và
+**Bản sửa:** ghi mã đơn lên phiên NGAY sau bước 2 (`MarkOrderPlaced`), và
 `FindExpired` loại phiên đã có mã đơn. Sự kiện "đơn đã tồn tại" trở thành
 sự thật bền vững mà job dọn đọc được, thay vì một biến trong bộ nhớ của
 tiến trình có thể chết bất cứ lúc nào.
@@ -1264,7 +1264,7 @@ kiểm định hàng hoàn. Hàng chết đếm được, tìm được, sửa �
 hai lần cho hai người rồi mới lộ.
 
 Đánh đổi đó chỉ đứng vững nếu hàng chết ĐẾM ĐƯỢC, nên kèm
-`CountHoanTatKetLai` (chỉ báo riêng, log lỗi lúc khởi động) và sửa
+`CountStuckCompletions` (chỉ báo riêng, log lỗi lúc khởi động) và sửa
 `CountExpiredPending` dùng CÙNG điều kiện với `FindExpired` — lệch nhau thì
 cảnh báo "job dọn đã chết" kêu sai mãi, và cảnh báo kêu sai vài lần là
 cảnh báo không ai đọc nữa.
@@ -1640,7 +1640,7 @@ Nay có ĐỦ hai nửa:
 
 | Bài | Chứng minh tới đâu |
 |---|---|
-| `TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc` | `Reserve` an toàn với hai giao dịch PostgreSQL song song |
+| `TestTenBuyersRacingForFiveUnitsLeaveExactlyFiveHolders` | `Reserve` an toàn với hai giao dịch PostgreSQL song song |
 | `TestMuoiKhachTranhBaMonKhongAiMuaQua` | `StartCheckout` an toàn — đúng 3/10 khách giữ được |
 | **`TestHoanTatDongThoiKhongSinhHangTuKhongKhi`** | **cả chuỗi**: hoàn tất → đơn → outbox → Reserved→Committed |
 | **`TestVetOutboxHaiLanKhongTruKhoHaiLan`** | phát lại event KHÔNG trừ kho lần hai |
@@ -2702,7 +2702,7 @@ NGUỒN, không theo số món. `SellerIDs()` đã lọc trùng sẵn.
 Hai bên kiểm hai câu khác nhau: checkout kiểm tập giá trị API nhận từ
 khách (chuỗi lạ → 400 ngay tại cửa), fulfillment kiểm tập giá trị nó có
 biểu phí. Bỏ chốt ở checkout thì chuỗi lạ đi xuống tận fulfillment rồi
-quay lên thành 500 — `TestPhuongThucVanChuyenPhaiHopLe` bắt được đúng lúc
+quay lên thành 500 — `TestTheShippingMethodMustBeValid` bắt được đúng lúc
 tôi bỏ nó.
 
 **Thiếu cổng ước tính thì `SetShippingMethod` TỪ CHỐI**, không rơi về số
@@ -3557,12 +3557,12 @@ lên hàng của B nghĩa là A trả tiền giảm giá cho người khác. Mod
 promotion tự từ chối những mã cần biết gian hàng.
 
 **Và lần thứ HAI dính đúng một lỗi.** `withLines` bên checkout dựng lại
-thực thể bằng cách liệt kê từng trường; tôi quên `BenChiuGiamGia`, nên giá
+thực thể bằng cách liệt kê từng trường; tôi quên `DiscountBearer`, nên giá
 trị ghi đúng xuống DB rồi bị XÓA TRẮNG ở lần đọc kế tiếp và ghi đè ngược.
 Y hệt `withLineIDs` bên fulfillment quên `AwaitingPayment` hôm 07/09 — nhưng
 bên đó có chú thích cảnh báo, bên này không.
 
-Sửa tận gốc thay vì thêm một dòng: `Checkout.KemDongHang` **sao chép cả
+Sửa tận gốc thay vì thêm một dòng: `Checkout.WithLines` **sao chép cả
 struct** (`ban := *c`) nên không còn trường nào để quên. Chỉ làm được từ
 trong package, vì các trường không xuất khẩu.
 
@@ -4333,8 +4333,8 @@ tương lai; dựng lại quá khứ thì ghi thẳng vào nơi cần dữ liệ
 |---|---|---|
 | `TestLuotDungMaDuocGhi…` | `phatEvent` chỉ phát MỘT mẻ 100; số event tăng gấp đôi nên event của bài nằm ngoài mẻ | phát TỚI CẠN |
 | `TestBenNhanHongThiCuonNguoc…` | `drain()` tình cờ dừng sau vòng hỏng vì vòng đó không phát thành công event nào | phát ĐÚNG MỘT mẻ, nói rõ ý định |
-| `TestDatHangXongThiHangChuyenSangCommitted` | đếm TỔNG số event | đếm theo LOẠI |
-| `TestTaoDonThatBaiThiKhongPhatEvent` | cấm MỌI event khi tạo đơn hỏng | chỉ cấm `checkout.completed` |
+| `TestPlacingTheOrderMovesStockToCommitted` | đếm TỔNG số event | đếm theo LOẠI |
+| `TestAFailedOrderEmitsNoEvent` | cấm MỌI event khi tạo đơn hỏng | chỉ cấm `checkout.completed` |
 
 Ba trong bốn là ràng buộc **quá rộng**: chúng đỏ khi hệ thống phát thêm một
 event chẳng liên quan, và xanh nếu event phát ra là loại khác nhưng đúng số
@@ -4395,7 +4395,7 @@ trường. Hai thiết kế làm nó không tự mắc lại chính lỗi nó ca
    hồi được" — quên xử lý thì test ĐỎ, không phải xanh.
 
 Ba lần cùng lớp lỗi trước đó: `withLineIDs` quên `AwaitingPayment`, `withLines`
-quên `BenChiuGiamGia`, và lần này. Hai lần đầu chữa bằng cách sao chép
+quên `DiscountBearer`, và lần này. Hai lần đầu chữa bằng cách sao chép
 struct thay vì liệt kê trường; lần này không chữa được như thế vì SQL buộc
 phải liệt kê — nên chữa bằng hàng rào.
 

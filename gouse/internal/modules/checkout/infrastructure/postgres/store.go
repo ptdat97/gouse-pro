@@ -102,8 +102,8 @@ func (s *CheckoutStore) SaveWithEvents(
 		c.TaxAmount().Amount(), c.CouponCode(),
 		string(c.Status()), c.ExpiresAt(), c.ExtendedTimes(),
 		c.OrderID().String(), c.CompletionKey(),
-		c.CreatedAt(), c.UpdatedAt(), string(c.BenChiuGiamGia()),
-		phanBoJSON(c.PhanBoGiam()))
+		c.CreatedAt(), c.UpdatedAt(), string(c.DiscountBearer()),
+		allocationJSON(c.DiscountAllocations()))
 	if err != nil {
 		// Giỏ này đã có phiên đang chạy. Mở phiên thứ hai sẽ giữ hàng lần
 		// thứ hai cho cùng một giỏ.
@@ -213,7 +213,7 @@ func (s *CheckoutStore) FindExpired(
 	//
 	// Không có điều kiện này, một phiên mà chuỗi hoàn tất hỏng giữa chừng
 	// (đơn đã tạo, giao dịch ghi phiên chưa xong) sẽ bị dọn như phiên bỏ
-	// dở — và nhả toàn bộ hàng của một đơn có thật. Xem `GhiNhanDaTaoDon`.
+	// dở — và nhả toàn bộ hàng của một đơn có thật. Xem `MarkOrderPlaced`.
 	rows, err := s.pool.Query(ctx, `SELECT`+checkoutCols+`
 		  FROM checkout
 		 WHERE status IN ('STARTED','PENDING_PAYMENT')
@@ -273,7 +273,7 @@ func (s *CheckoutStore) CountExpiredPending(ctx context.Context, now time.Time) 
 	return n, nil
 }
 
-// CountHoanTatKetLai đếm phiên ĐÃ TẠO ĐƠN nhưng chưa hoàn tất xong.
+// CountStuckCompletions đếm phiên ĐÃ TẠO ĐƠN nhưng chưa hoàn tất xong.
 //
 // Đây là mặt trái của việc loại chúng khỏi job dọn: hàng của chúng nằm
 // giữ vô thời hạn. Đánh đổi ấy chỉ chấp nhận được nếu số hàng chết ĐẾM
@@ -282,7 +282,7 @@ func (s *CheckoutStore) CountExpiredPending(ctx context.Context, now time.Time) 
 //
 // Con số này bình thường phải là 0. Khác 0 nghĩa là có chuỗi hoàn tất
 // dừng giữa chừng: đơn đã tồn tại, phiên chưa đóng, và cần người đối soát.
-func (s *CheckoutStore) CountHoanTatKetLai(ctx context.Context, now time.Time) (int, error) {
+func (s *CheckoutStore) CountStuckCompletions(ctx context.Context, now time.Time) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FROM checkout
@@ -296,11 +296,11 @@ func (s *CheckoutStore) CountHoanTatKetLai(ctx context.Context, now time.Time) (
 	return n, nil
 }
 
-// GhiNhanDaTaoDon ghi mã đơn lên phiên ngay sau khi đơn được tạo.
+// MarkOrderPlaced ghi mã đơn lên phiên ngay sau khi đơn được tạo.
 //
 // Xem chú thích ở cổng (domain/repository.go) về vì sao cần một lượt ghi
 // riêng thay vì đợi Save.
-func (s *CheckoutStore) GhiNhanDaTaoDon(
+func (s *CheckoutStore) MarkOrderPlaced(
 	ctx context.Context, id ids.ID, orderID ids.ID,
 ) error {
 	// Chỉ ghi khi phiên CHƯA có mã đơn: lần gọi lại (khách thử lại, đơn
@@ -419,8 +419,8 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 		shippingFee, discount, tax    int64
 		coupon, orderID, completedKey string
 		extendedTimes                 int
-		benChiu                       string
-		phanBoRaw                     []byte
+		bearer                        string
+		allocationRaw                 []byte
 	)
 	if err := row.Scan(
 		&id, &cartID, &customerID, &email, &phone, &currency,
@@ -428,7 +428,7 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 		&addr.District, &addr.Province, &addr.CountryCode, &method,
 		&shippingFee, &discount, &tax, &coupon,
 		&status, &p.ExpiresAt, &extendedTimes, &orderID, &completedKey,
-		&p.CreatedAt, &p.UpdatedAt, &benChiu, &phanBoRaw,
+		&p.CreatedAt, &p.UpdatedAt, &bearer, &allocationRaw,
 	); err != nil {
 		return nil, err
 	}
@@ -446,12 +446,12 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 	p.DiscountAmount = mustMoney(discount, cur)
 	p.TaxAmount = mustMoney(tax, cur)
 	p.CouponCode = coupon
-	p.BenChiuGiamGia = domain.BenChiuGiamGia(benChiu)
-	phanBo, errPhanBo := phanBoTuJSON(phanBoRaw, cur)
-	if errPhanBo != nil {
-		return nil, errPhanBo
+	p.DiscountBearer = domain.DiscountBearer(bearer)
+	allocations, allocErr := allocationsFromJSON(allocationRaw, cur)
+	if allocErr != nil {
+		return nil, allocErr
 	}
-	p.PhanBoGiam = phanBo
+	p.DiscountAllocations = allocations
 	p.Status = domain.Status(status)
 	p.ExtendedTimes = extendedTimes
 	p.OrderID = ids.ID(orderID)
@@ -463,10 +463,10 @@ func scanCheckout(row scanner) (*domain.Checkout, error) {
 // withLines gắn dòng hàng vào phiên.
 //
 // Ủy quyền cho domain: dựng lại thực thể bằng cách liệt kê từng trường là
-// chỗ đã quên `BenChiuGiamGia` một lần, và không có gì báo lỗi khi quên.
-// Xem `domain.Checkout.KemDongHang`.
+// chỗ đã quên `DiscountBearer` một lần, và không có gì báo lỗi khi quên.
+// Xem `domain.Checkout.WithLines`.
 func withLines(c *domain.Checkout, lines []*domain.Line) *domain.Checkout {
-	return c.KemDongHang(lines)
+	return c.WithLines(lines)
 }
 
 func mustMoney(amount int64, c money.Currency) money.Money {
@@ -497,10 +497,10 @@ func isUnique(err error, constraint string) bool {
 	return errors.As(err, &pgErr) && pgErr.ConstraintName == constraint
 }
 
-// GiuDeHoanTat đẩy hạn phiên lên trước một quãng ân hạn, nếu phiên còn
+// ClaimForCompletion đẩy hạn phiên lên trước một quãng ân hạn, nếu phiên còn
 // hiệu lực. Xem domain.Repository để biết vì sao cần.
-func (s *CheckoutStore) GiuDeHoanTat(
-	ctx context.Context, id ids.ID, now time.Time, anHan time.Duration,
+func (s *CheckoutStore) ClaimForCompletion(
+	ctx context.Context, id ids.ID, now time.Time, grace time.Duration,
 ) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE checkout
@@ -509,7 +509,7 @@ func (s *CheckoutStore) GiuDeHoanTat(
 		 WHERE id = $1
 		   AND status IN ('STARTED','PENDING_PAYMENT')
 		   AND expires_at > $2`,
-		id.String(), now, anHan.String())
+		id.String(), now, grace.String())
 	if err != nil {
 		return fmt.Errorf("checkout: giữ phiên để hoàn tất: %w", err)
 	}
@@ -541,8 +541,8 @@ func (s *CheckoutStore) GiuDeHoanTat(
 	return domain.ErrExpired
 }
 
-// GiuDeDonHan đánh dấu một phiên quá hạn là EXPIRED, nếu chưa ai giành.
-func (s *CheckoutStore) GiuDeDonHan(
+// ClaimForExpiry đánh dấu một phiên quá hạn là EXPIRED, nếu chưa ai giành.
+func (s *CheckoutStore) ClaimForExpiry(
 	ctx context.Context, id ids.ID, now time.Time,
 ) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
@@ -558,26 +558,26 @@ func (s *CheckoutStore) GiuDeDonHan(
 	return tag.RowsAffected() == 1, nil
 }
 
-// phanBoDong là dạng lưu trữ của một dòng phân bổ chi phí.
+// allocationLines là dạng lưu trữ của một dòng phân bổ chi phí.
 //
 // Kiểu riêng cho tầng kho: domain không mang thẻ JSON, vì cách LƯU không
 // phải chuyện của domain và đổi cách lưu không được kéo theo đổi domain.
-type phanBoDong struct {
+type allocationLines struct {
 	Bearer   string `json:"bearer"`
 	SellerID string `json:"seller_id"`
 	Amount   int64  `json:"amount"`
 }
 
-func phanBoJSON(ds []domain.PhanBoChiPhiGiam) []byte {
+func allocationJSON(ds []domain.DiscountCostAllocation) []byte {
 	if len(ds) == 0 {
 		return []byte("[]")
 	}
-	out := make([]phanBoDong, 0, len(ds))
+	out := make([]allocationLines, 0, len(ds))
 	for _, d := range ds {
-		out = append(out, phanBoDong{
-			Bearer:   string(d.BenChiu),
+		out = append(out, allocationLines{
+			Bearer:   string(d.Bearer),
 			SellerID: d.SellerID.String(),
-			Amount:   d.SoTien.Amount(),
+			Amount:   d.Amount.Amount(),
 		})
 	}
 	raw, err := json.Marshal(out)
@@ -589,26 +589,26 @@ func phanBoJSON(ds []domain.PhanBoChiPhiGiam) []byte {
 	return raw
 }
 
-func phanBoTuJSON(
-	raw []byte, donVi money.Currency,
-) ([]domain.PhanBoChiPhiGiam, error) {
+func allocationsFromJSON(
+	raw []byte, unit money.Currency,
+) ([]domain.DiscountCostAllocation, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
-	var ds []phanBoDong
+	var ds []allocationLines
 	if err := json.Unmarshal(raw, &ds); err != nil {
 		return nil, fmt.Errorf("checkout: đọc bảng phân bổ chi phí: %w", err)
 	}
-	out := make([]domain.PhanBoChiPhiGiam, 0, len(ds))
+	out := make([]domain.DiscountCostAllocation, 0, len(ds))
 	for _, d := range ds {
-		soTien, err := money.New(d.Amount, donVi)
+		amount, err := money.New(d.Amount, unit)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, domain.PhanBoChiPhiGiam{
-			BenChiu:  domain.BenChiuGiamGia(d.Bearer),
+		out = append(out, domain.DiscountCostAllocation{
+			Bearer:   domain.DiscountBearer(d.Bearer),
 			SellerID: ids.ID(d.SellerID),
-			SoTien:   soTien,
+			Amount:   amount,
 		})
 	}
 	return out, nil

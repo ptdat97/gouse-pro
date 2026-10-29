@@ -120,9 +120,9 @@ cần kiểm khi review, vì archcheck không bắt được loại vi phạm n�
 Ba test hồi quy, mỗi test được xác nhận ĐỎ khi bỏ đúng phần nó canh:
 
 ```text
-TestGiuHangDungChuSoHuu             bỏ lọc chủ → "hàng của A bị trừ cho đơn của B: 10 → 7"
-TestKhongMuonKhoNguoiKhacKhiHetHang bỏ lọc chủ → phiên mở được dù chỉ còn 1/5
-TestOwnBrandLayHangCuaNenTang       bỏ quy tắc INTERNAL → own brand không mua được hàng nền tảng
+TestStockIsHeldForTheRightOwner             bỏ lọc chủ → "hàng của A bị trừ cho đơn của B: 10 → 7"
+TestNeverBorrowsAnotherOwnersStockWhenOutOfStock bỏ lọc chủ → phiên mở được dù chỉ còn 1/5
+TestOwnBrandTakesPlatformStock       bỏ quy tắc INTERNAL → own brand không mua được hàng nền tảng
 ```
 
 Test thứ ba XANH cả khi có lỗi gốc, vì nó canh việc khác — phải phá đúng

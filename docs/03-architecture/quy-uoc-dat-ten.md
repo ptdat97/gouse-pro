@@ -209,6 +209,31 @@ Thước đo đúng không phải ĐỘ DÀI mà là: tên cũ có phải một 
 hợp lệ không. Danh sách phải loại tay: `ghi doc tra lai moc sau truoc den
 cho khong gia tien ky phan nhan dau bao cong dao don goc lech dong huy buoc`.
 
+### Danh sách từ Việt KHÔNG DẤU phải ĐẦY, không gần đầy
+
+Lượt `checkout` loại sẵn 29 tên theo bài học hai lượt trước, nhưng quên
+`nguong` ("ngưỡng"). Một chú thích viết `// TestMienPhiShipKhiDAT nguong`
+— tác giả cố ý bỏ dấu để nhấn — thành `KhiDAT threshold`.
+
+Chuỗi ba lượt: `Ghi` (payment), `GiaTri` (fulfillment), `nguong` (checkout).
+Mỗi lượt loại thêm một tên và lượt sau lại sót một tên khác, vì danh sách
+được dựng bằng cách NHỚ. Dựng bằng cách ĐO thì không sót:
+
+```bash
+# tên cũ nào xuất hiện trong chú thích TRƯỚC khi áp luật?
+grep -rn '^\s*//' internal/modules/<m> | grep -w "<ten_cu>"
+```
+
+Tên nào có mặt trong chú thích mà KHÔNG nằm trong backtick thì là văn xuôi,
+và phải loại khỏi lượt quét.
+
+### Một ĐÍCH đặt sai không làm gì đỏ
+
+`UocTinhPhiGiao` là HÀM ở `fulfillment` nhưng là KIỂU ở `checkout`. Tái dùng
+đích `EstimateShippingFees` cho cả hai làm `checkoutapp.EstimateShippingFees{}`
+— một kiểu mang tên động từ. Biên dịch được, test xanh, chỉ đọc mới thấy.
+Cùng một từ Việt ở hai module có thể là hai loại định danh khác nhau.
+
 ### Lượt quét chú thích cũng đụng MÃ của gói khác
 
 Nó là `sed` văn bản trên CẢ tệp, nên nó không phân biệt chú thích với mã.
@@ -494,7 +519,9 @@ XONG   modules/cart                     52   (kernel)
 XONG   modules/order                    91   (kernel) + 2 method của customer
 XONG   modules/payment                 216   (kernel) + 1 method của checkout
 XONG   modules/fulfillment             248   (kernel)
-CÒN    checkout 152 — rồi `internal/platform`, `internal/app`, `cmd`
+XONG   modules/checkout                170   (kernel, GỐC) — HẾT 21 MODULE
+CÒN    internal/platform 217 · cmd 360 · internal/e2e 105 ·
+       internal/kernel 38 · internal/app 57
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

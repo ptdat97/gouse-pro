@@ -9,22 +9,22 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 )
 
-// PhiTheoNguon là phí và thời gian vận chuyển ước tính cho MỘT nguồn hàng.
+// SourceFee là phí và thời gian vận chuyển ước tính cho MỘT nguồn hàng.
 //
 // Domain nhận nó vào chứ không tự tính: biểu phí và số ngày vận chuyển
 // thuộc về hãng vận chuyển, và module `fulfillment` mới là nơi biết.
-type PhiTheoNguon struct {
+type SourceFee struct {
 	SellerID ids.ID
 
 	// Phi là phí GỐC của nguồn này, trước khi xét miễn phí ship.
 	Phi money.Money
 
-	// SoNgay là thời gian VẬN CHUYỂN, KHÔNG gồm thời gian nhà bán chuẩn
+	// Days là thời gian VẬN CHUYỂN, KHÔNG gồm thời gian nhà bán chuẩn
 	// bị hàng — xem `fulfillment/domain.FeeTier`.
-	SoNgay int
+	Days int
 }
 
-// NhomGiaoHang là MỘT KIỆN: hàng của một nhà bán, đi riêng và tới riêng.
+// ShippingGroup là MỘT KIỆN: hàng của một nhà bán, đi riêng và tới riêng.
 //
 // # Vì sao khách phải thấy từng nhóm, không thấy một con số gộp
 //
@@ -32,19 +32,19 @@ type PhiTheoNguon struct {
 // từng nhóm hàng, không gộp thành một con số. Khách cần biết món nào đến
 // trước." Một đơn trộn hàng ba nhà bán đi thành ba kiện, tốn ba lần phí và
 // tới vào ba ngày khác nhau; gộp lại thành một dòng là giấu cả ba sự thật.
-type NhomGiaoHang struct {
+type ShippingGroup struct {
 	SellerID   ids.ID
 	SellerName string
 
-	// PhiVanChuyen là phần phí của kiện này SAU khi đã xét miễn phí ship.
+	// ShippingFee là phần phí của kiện này SAU khi đã xét miễn phí ship.
 	// Tổng các nhóm luôn ĐÚNG BẰNG `Checkout.ShippingFee()`.
-	PhiVanChuyen money.Money
+	ShippingFee money.Money
 
-	// NgayGiaoDuKien = ngày chuẩn bị xong + số ngày vận chuyển.
-	NgayGiaoDuKien time.Time
+	// EstimatedDelivery = ngày chuẩn bị xong + số ngày vận chuyển.
+	EstimatedDelivery time.Time
 }
 
-// DatNhomGiaoHang dựng lại bảng kê theo nhà bán từ phí HIỆN TẠI của phiên.
+// SetShippingGroups dựng lại bảng kê theo nhà bán từ phí HIỆN TẠI của phiên.
 //
 // # Vì sao là trạng thái DẪN XUẤT, không phải trạng thái được lưu
 //
@@ -55,14 +55,14 @@ type NhomGiaoHang struct {
 //
 // Và nó KHÔNG chia lại phí ước tính mà chia phí THỰC THU, nên tổng các
 // nhóm luôn đúng bằng số khách trả kể cả khi biểu phí đổi giữa chừng.
-func (c *Checkout) DatNhomGiaoHang(
-	theoNguon []PhiTheoNguon, gioChuanBiMacDinh int, now time.Time,
+func (c *Checkout) SetShippingGroups(
+	perSource []SourceFee, defaultHandlingHours int, now time.Time,
 ) {
-	c.nhomGiaoHang = dungNhomGiaoHang(
-		c.lines, c.shippingFee, theoNguon, gioChuanBiMacDinh, now)
+	c.shippingGroups = buildShippingGroups(
+		c.lines, c.shippingFee, perSource, defaultHandlingHours, now)
 }
 
-// dungNhomGiaoHang gom dòng hàng theo nhà bán rồi tính phí và ngày cho
+// buildShippingGroups gom dòng hàng theo nhà bán rồi tính phí và ngày cho
 // từng nhóm.
 //
 // # Thứ tự nhóm theo lần xuất hiện đầu của nhà bán trong giỏ
@@ -74,49 +74,49 @@ func (c *Checkout) DatNhomGiaoHang(
 //
 // Kiện chỉ đi khi món chậm nhất đã sẵn sàng. Lấy trung bình hay lấy món
 // đầu tiên đều cho một lời hứa sớm hơn sự thật.
-func dungNhomGiaoHang(
+func buildShippingGroups(
 	lines []*Line,
-	phi money.Money,
-	theoNguon []PhiTheoNguon,
-	gioChuanBiMacDinh int,
+	fee money.Money,
+	perSource []SourceFee,
+	defaultHandlingHours int,
 	now time.Time,
-) []NhomGiaoHang {
+) []ShippingGroup {
 	if len(lines) == 0 {
 		return nil
 	}
 
-	type gom struct {
+	type group struct {
 		sellerID ids.ID
-		ten      string
-		gioMax   int
+		name     string
+		maxHours int
 	}
 
-	var thuTu []ids.ID
-	nhom := map[ids.ID]*gom{}
+	var sellerOrder []ids.ID
+	groups := map[ids.ID]*group{}
 	for _, l := range lines {
 		if !l.HasStock() {
 			continue
 		}
-		g, co := nhom[l.SellerID()]
+		g, co := groups[l.SellerID()]
 		if !co {
-			g = &gom{sellerID: l.SellerID(), ten: l.SellerName()}
-			nhom[l.SellerID()] = g
-			thuTu = append(thuTu, l.SellerID())
+			g = &group{sellerID: l.SellerID(), name: l.SellerName()}
+			groups[l.SellerID()] = g
+			sellerOrder = append(sellerOrder, l.SellerID())
 		}
 		if l.SellerName() != "" {
-			g.ten = l.SellerName()
+			g.name = l.SellerName()
 		}
-		if h := l.HandlingTimeHours(); h > g.gioMax {
-			g.gioMax = h
+		if h := l.HandlingTimeHours(); h > g.maxHours {
+			g.maxHours = h
 		}
 	}
-	if len(thuTu) == 0 {
+	if len(sellerOrder) == 0 {
 		return nil
 	}
 
-	uoc := map[ids.ID]PhiTheoNguon{}
-	for _, p := range theoNguon {
-		uoc[p.SellerID] = p
+	estimate := map[ids.ID]SourceFee{}
+	for _, p := range perSource {
+		estimate[p.SellerID] = p
 	}
 
 	// Chia phí THỰC THU, không dùng thẳng phí ước tính.
@@ -124,41 +124,41 @@ func dungNhomGiaoHang(
 	// Miễn phí ship (do ngưỡng hoặc do mã) đưa tổng về 0, và khi đó từng
 	// nhóm cũng phải hiện 0. Chia từ con số thực thu khiến tổng các nhóm
 	// LUÔN bằng số khách trả, kể cả khi biểu phí đổi giữa chừng.
-	trongSo := make([]int64, len(thuTu))
-	for i, id := range thuTu {
-		trongSo[i] = uoc[id].Phi.Amount()
+	weights := make([]int64, len(sellerOrder))
+	for i, id := range sellerOrder {
+		weights[i] = estimate[id].Phi.Amount()
 	}
-	phanBo := chiaTheoTrongSo(phi.Amount(), trongSo)
+	allocations := splitByWeight(fee.Amount(), weights)
 
-	out := make([]NhomGiaoHang, 0, len(thuTu))
-	for i, id := range thuTu {
-		g := nhom[id]
+	out := make([]ShippingGroup, 0, len(sellerOrder))
+	for i, id := range sellerOrder {
+		g := groups[id]
 
-		gio := g.gioMax
-		if gio <= 0 {
-			gio = gioChuanBiMacDinh
+		hours := g.maxHours
+		if hours <= 0 {
+			hours = defaultHandlingHours
 		}
 
 		// Ngày chuẩn bị xong, quy về ĐẦU NGÀY theo giờ nghiệp vụ: lời hứa
 		// giao hàng là một NGÀY, không phải một mốc giờ.
-		xongChuanBi := types.DauNgay(now.Add(time.Duration(gio) * time.Hour))
+		readyAt := types.DauNgay(now.Add(time.Duration(hours) * time.Hour))
 
-		tien, err := money.New(phanBo[i], phi.Currency())
+		fee, err := money.New(allocations[i], fee.Currency())
 		if err != nil {
-			tien = money.Zero(phi.Currency())
+			fee = money.Zero(fee.Currency())
 		}
 
-		out = append(out, NhomGiaoHang{
-			SellerID:       id,
-			SellerName:     g.ten,
-			PhiVanChuyen:   tien,
-			NgayGiaoDuKien: xongChuanBi.AddDate(0, 0, uoc[id].SoNgay),
+		out = append(out, ShippingGroup{
+			SellerID:          id,
+			SellerName:        g.name,
+			ShippingFee:       fee,
+			EstimatedDelivery: readyAt.AddDate(0, 0, estimate[id].Days),
 		})
 	}
 	return out
 }
 
-// chiaTheoTrongSo chia `tong` thành `len(trongSo)` phần theo tỷ lệ.
+// splitByWeight chia `total` thành `len(weights)` phần theo tỷ lệ.
 //
 // # Vì sao dùng PHẦN DƯ LỚN NHẤT
 //
@@ -169,51 +169,51 @@ func dungNhomGiaoHang(
 //
 // Trọng số bằng 0 hết (không ước tính được nguồn nào) thì chia ĐỀU: thà
 // mỗi nhóm gánh một phần bằng nhau còn hơn dồn tất cả vào nhóm đầu.
-func chiaTheoTrongSo(tong int64, trongSo []int64) []int64 {
-	n := len(trongSo)
+func splitByWeight(total int64, weights []int64) []int64 {
+	n := len(weights)
 	out := make([]int64, n)
-	if n == 0 || tong == 0 {
+	if n == 0 || total == 0 {
 		return out
 	}
 
 	var sum int64
-	for _, w := range trongSo {
+	for _, w := range weights {
 		if w > 0 {
 			sum += w
 		}
 	}
 	if sum == 0 {
 		for i := range out {
-			out[i] = tong / int64(n)
+			out[i] = total / int64(n)
 		}
-		for i := int64(0); i < tong%int64(n); i++ {
+		for i := int64(0); i < total%int64(n); i++ {
 			out[i]++
 		}
 		return out
 	}
 
-	type du struct {
-		i  int
-		le int64
+	type remainder struct {
+		i    int
+		frac int64
 	}
-	con := tong
-	les := make([]du, 0, n)
-	for i, w := range trongSo {
+	rest := total
+	fracs := make([]remainder, 0, n)
+	for i, w := range weights {
 		if w <= 0 {
 			continue
 		}
-		phan := tong * w / sum
-		out[i] = phan
-		con -= phan
-		les = append(les, du{i: i, le: (tong * w) % sum})
+		share := total * w / sum
+		out[i] = share
+		rest -= share
+		fracs = append(fracs, remainder{i: i, frac: (total * w) % sum})
 	}
 
 	// Phần lẻ lớn hơn được cộng trước; hòa thì nhóm đứng trước được ưu
 	// tiên, để kết quả KHÔNG đổi giữa hai lần chạy cùng đầu vào.
-	sort.SliceStable(les, func(a, b int) bool { return les[a].le > les[b].le })
-	for i := 0; con > 0 && i < len(les); i++ {
-		out[les[i].i]++
-		con--
+	sort.SliceStable(fracs, func(a, b int) bool { return fracs[a].frac > fracs[b].frac })
+	for i := 0; rest > 0 && i < len(fracs); i++ {
+		out[fracs[i].i]++
+		rest--
 	}
 	return out
 }

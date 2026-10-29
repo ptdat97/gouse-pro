@@ -194,7 +194,7 @@ func TestPH32_GiuDeHoanTatChanJobDonHan(t *testing.T) {
 
 	// Khách bấm "Đặt hàng": phiên được giữ lại thêm một quãng ân hạn.
 	kho := checkoutpg.NewCheckoutStore(a.db.Pool())
-	if err := kho.GiuDeHoanTat(
+	if err := kho.ClaimForCompletion(
 		ctx, ids.ID(maPhien), types.BayGio(), 30*time.Second); err != nil {
 		t.Fatalf("giữ để hoàn tất: %v", err)
 	}

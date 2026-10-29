@@ -149,7 +149,7 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			// DiscountAllocations: mỗi bên gánh bao nhiêu đồng. Thay cho
 			// `discount_seller_id` của v5, vì mã gian hàng không diễn tả
 			// được chương trình CHIA ĐÔI. Làm payload lên PHIÊN BẢN 6.
-			DiscountAllocations []phanBoPayload `json:"discount_allocations"`
+			DiscountAllocations []allocationPayload `json:"discount_allocations"`
 
 			// ShippingAddress để SELLER in được phiếu giao hàng.
 			//
@@ -175,7 +175,7 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 			CouponCode:          in.CouponCode,
 			ShippingMethod:      in.ShippingMethod,
 			VisitID:             in.VisitID,
-			DiscountAllocations: phanBoPayloadTu(in.PhanBoGiam),
+			DiscountAllocations: allocationPayloadFrom(in.DiscountAllocations),
 			ShippingAddress: addressPayload{
 				RecipientName: in.ShippingAddress.RecipientName,
 				Phone:         in.ShippingAddress.Phone,
@@ -224,42 +224,42 @@ func (p *eventPublisher) PublishCheckoutCompleted(
 	return p.outbox.PublishTx(ctx, tx, e)
 }
 
-// phanBoPayload là một dòng phân bổ chi phí trong payload event.
-type phanBoPayload struct {
+// allocationPayload là một dòng phân bổ chi phí trong payload event.
+type allocationPayload struct {
 	Bearer   string `json:"bearer"`
 	SellerID string `json:"seller_id"`
 	Amount   int64  `json:"amount"`
 }
 
-func phanBoPayloadTu(ds []checkoutdomain.PhanBoChiPhiGiam) []phanBoPayload {
-	out := make([]phanBoPayload, 0, len(ds))
+func allocationPayloadFrom(ds []checkoutdomain.DiscountCostAllocation) []allocationPayload {
+	out := make([]allocationPayload, 0, len(ds))
 	for _, d := range ds {
-		out = append(out, phanBoPayload{
-			Bearer:   string(d.BenChiu),
+		out = append(out, allocationPayload{
+			Bearer:   string(d.Bearer),
 			SellerID: d.SellerID.String(),
-			Amount:   d.SoTien.Amount(),
+			Amount:   d.Amount.Amount(),
 		})
 	}
 	return out
 }
 
-// phienPayload là dữ liệu chung của `checkout.started` và `checkout.expired`.
+// checkoutPayload là dữ liệu chung của `checkout.started` và `checkout.expired`.
 //
 // Hai event mang CÙNG một bộ trường vì chúng là hai đầu của một khoảng:
 // analytics ghép chúng theo `checkout_id` để biết phiên sống bao lâu rồi
 // chết, và `subtotal` cho biết bỏ dở bao nhiêu tiền. Tách thành hai kiểu
 // khác nhau chỉ để "cho riêng biệt" sẽ khiến bên nhận phải viết hai đường
 // đọc giống hệt nhau.
-type phienPayload struct {
+type checkoutPayload struct {
 	CheckoutID string `json:"checkout_id"`
 	CartID     string `json:"cart_id"`
 
 	// CustomerID rỗng với khách vãng lai — phần lớn lưu lượng.
 	CustomerID string `json:"customer_id"`
 
-	SoDong   int    `json:"line_count"`
-	Subtotal int64  `json:"subtotal"`
-	Currency string `json:"currency"`
+	LineCount int    `json:"line_count"`
+	Subtotal  int64  `json:"subtotal"`
+	Currency  string `json:"currency"`
 }
 
 // PublishCheckoutStarted ghi event mở phiên vào outbox.
@@ -283,11 +283,11 @@ func (p *eventPublisher) PublishCheckoutStarted(
 		eventbus.TypeCheckoutStarted,
 		eventbus.AggregateCheckout,
 		in.CheckoutID,
-		phienPayload{
+		checkoutPayload{
 			CheckoutID: in.CheckoutID.String(),
 			CartID:     in.CartID.String(),
 			CustomerID: in.CustomerID.String(),
-			SoDong:     in.SoDong,
+			LineCount:  in.LineCount,
 			Subtotal:   in.Subtotal.Amount(),
 			Currency:   string(in.Subtotal.Currency()),
 		})
@@ -328,11 +328,11 @@ func (p *eventPublisher) PublishCheckoutExpired(
 		eventbus.TypeCheckoutExpired,
 		eventbus.AggregateCheckout,
 		in.CheckoutID,
-		phienPayload{
+		checkoutPayload{
 			CheckoutID: in.CheckoutID.String(),
 			CartID:     in.CartID.String(),
 			CustomerID: in.CustomerID.String(),
-			SoDong:     in.SoDong,
+			LineCount:  in.LineCount,
 			Subtotal:   in.Subtotal.Amount(),
 			Currency:   string(in.Subtotal.Currency()),
 		})

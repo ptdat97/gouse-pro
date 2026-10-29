@@ -81,7 +81,7 @@ func testAddress() domain.Address {
 //
 //	Không đóng băng: khách thấy 299.000đ nhưng bị trừ 350.000đ
 //	Đóng băng:       khách trả đúng 299.000đ như đã thấy
-func TestDongBangGiaTaiThoiDiemBatDauCheckout(t *testing.T) {
+func TestPricesAreFrozenWhenCheckoutStarts(t *testing.T) {
 	// 14:00 — bắt đầu checkout với giá 299.000đ.
 	line := newLine(t, 299000, 1)
 	c := newCheckout(t, line)
@@ -101,11 +101,11 @@ func TestDongBangGiaTaiThoiDiemBatDauCheckout(t *testing.T) {
 	}
 
 	// 14:10 — khách hoàn tất. Con số phải là con số khách ĐÃ THẤY.
-	at1410 := testNow.Add(10 * time.Minute)
-	if err := c.SetShippingAddress(testAddress(), at1410); err != nil {
+	at1410h := testNow.Add(10 * time.Minute)
+	if err := c.SetShippingAddress(testAddress(), at1410h); err != nil {
 		t.Fatalf("SetShippingAddress: %v", err)
 	}
-	if err := c.MarkPendingPayment(at1410); err != nil {
+	if err := c.MarkPendingPayment(at1410h); err != nil {
 		t.Fatalf("MarkPendingPayment: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestDongBangGiaTaiThoiDiemBatDauCheckout(t *testing.T) {
 // QUY TẮC 1: BẮT BUỘC GIỮ TỒN KHO trước khi cho checkout.
 //
 // Đây là khác biệt cốt lõi với giỏ hàng: phiên này KHÓA hàng thật.
-func TestMoiDongPhaiGiuDuocHang(t *testing.T) {
+func TestEveryLineMustSecureItsStock(t *testing.T) {
 	withStock := newLine(t, 299000, 1)
 	if !withStock.HasStock() {
 		t.Error("dòng có mã giữ hàng phải báo HasStock")
@@ -148,7 +148,7 @@ func TestMoiDongPhaiGiuDuocHang(t *testing.T) {
 // PHIÊN SỐNG NGẮN — 15 phút, khác hẳn 30 ngày của giỏ.
 //
 // Lý do khác nhau là điều duy nhất cần nhớ: phiên này đang KHÓA hàng.
-func TestPhienSongNganHonGioRatNhieu(t *testing.T) {
+func TestACheckoutLivesFarShorterThanACart(t *testing.T) {
 	c := newCheckout(t)
 
 	if got := c.ExpiresAt().Sub(testNow); got != domain.DefaultTTL {
@@ -181,7 +181,7 @@ func TestPhienSongNganHonGioRatNhieu(t *testing.T) {
 // thật" và "được đánh dấu EXPIRED". Trong khoảng đó phiên vẫn mang trạng
 // thái STARTED, và nếu chỉ nhìn trạng thái thì khách vẫn thanh toán được
 // một phiên mà hàng có thể đã bị nhả.
-func TestQuaHanTheoDongHoChanNgayKhongDoiTienTrinhNen(t *testing.T) {
+func TestExpiryUsesABlockingClockWithoutChangingTheFlow(t *testing.T) {
 	c := newCheckout(t)
 	late := testNow.Add(20 * time.Minute)
 
@@ -196,7 +196,7 @@ func TestQuaHanTheoDongHoChanNgayKhongDoiTienTrinhNen(t *testing.T) {
 	}{
 		{"đặt địa chỉ", c.SetShippingAddress(testAddress(), late)},
 		{"đặt phí ship", c.SetShipping("giao nhanh", vnd(30000), late)},
-		{"áp mã giảm giá", c.ApplyDiscount("THUDONG20", vnd(50000), domain.BenChiuNenTang, nil, late)},
+		{"áp mã giảm giá", c.ApplyDiscount("THUDONG20", vnd(50000), domain.BearerPlatform, nil, late)},
 		{"chuyển chờ thanh toán", c.MarkPendingPayment(late)},
 	} {
 		if !errors.Is(tc.err, domain.ErrExpired) {
@@ -212,7 +212,7 @@ func TestQuaHanTheoDongHoChanNgayKhongDoiTienTrinhNen(t *testing.T) {
 //
 // Có giới hạn vì gia hạn vô hạn nghĩa là khóa hàng vô hạn — đúng thứ mà
 // việc tách checkout khỏi giỏ sinh ra để tránh.
-func TestGiaHanCoGioiHan(t *testing.T) {
+func TestExtensionsAreCapped(t *testing.T) {
 	c := newCheckout(t)
 
 	for i := 1; i <= domain.MaxExtends; i++ {
@@ -243,7 +243,7 @@ func TestGiaHanCoGioiHan(t *testing.T) {
 // Hàng có thể đã bị nhả và bán cho người khác. Khách phải bắt đầu phiên
 // mới, nơi việc giữ hàng được kiểm tra lại từ đầu — gia hạn một phiên đã
 // chết là hứa với khách thứ hệ thống không còn nắm giữ.
-func TestHetHanRoiThiKhongGiaHanDuoc(t *testing.T) {
+func TestAnExpiredCheckoutCannotBeExtended(t *testing.T) {
 	c := newCheckout(t)
 	if err := c.Extend(0, testNow.Add(20*time.Minute)); !errors.Is(err, domain.ErrExpired) {
 		t.Errorf("lỗi = %v, mong ErrExpired", err)
@@ -254,7 +254,7 @@ func TestHetHanRoiThiKhongGiaHanDuoc(t *testing.T) {
 //
 // Không có địa chỉ thì không tính được phí ship, và đơn tạo ra không giao
 // được — phát hiện lúc đó thì tiền đã thu rồi.
-func TestPhaiCoDiaChiTruocKhiChoThanhToan(t *testing.T) {
+func TestAnAddressIsRequiredBeforePayment(t *testing.T) {
 	c := newCheckout(t)
 
 	if err := c.MarkPendingPayment(testNow); !errors.Is(err, domain.ErrNoAddress) {
@@ -278,7 +278,7 @@ func TestPhaiCoDiaChiTruocKhiChoThanhToan(t *testing.T) {
 // TỔNG TIỀN = hàng + ship + thuế − giảm giá.
 //
 // Đây là CON SỐ KHÁCH NHÌN THẤY, và nó phải bằng đúng con số vào đơn hàng.
-func TestTongTienLaConSoKhachNhinThay(t *testing.T) {
+func TestTheTotalIsTheNumberTheCustomerSees(t *testing.T) {
 	c := newCheckout(t,
 		newLine(t, 299000, 2), // 598.000
 		newLine(t, 450000, 1), // 450.000
@@ -293,7 +293,7 @@ func TestTongTienLaConSoKhachNhinThay(t *testing.T) {
 	if err := c.SetShipping("giao nhanh", vnd(30000), testNow); err != nil {
 		t.Fatalf("SetShipping: %v", err)
 	}
-	if err := c.ApplyDiscount("THUDONG20", vnd(100000), domain.BenChiuNenTang, nil, testNow); err != nil {
+	if err := c.ApplyDiscount("THUDONG20", vnd(100000), domain.BearerPlatform, nil, testNow); err != nil {
 		t.Fatalf("ApplyDiscount: %v", err)
 	}
 	if err := c.SetTax(vnd(0), testNow); err != nil {
@@ -321,7 +321,7 @@ func TestTongTienLaConSoKhachNhinThay(t *testing.T) {
 //
 // Sót một cái là khóa hàng vĩnh viễn cho tới khi có người phát hiện thủ
 // công — và không ai đi tìm hàng bị khóa cho tới khi hết hàng bán.
-func TestLayDuocMoiMaGiuHangDeNha(t *testing.T) {
+func TestEveryReservationIDIsRetrievableForRelease(t *testing.T) {
 	a, b, cLine := newLine(t, 299000, 1), newLine(t, 450000, 1), newLine(t, 199000, 1)
 	c := newCheckout(t, a, b, cLine)
 
@@ -343,10 +343,10 @@ func TestLayDuocMoiMaGiuHangDeNha(t *testing.T) {
 }
 
 // PHIÊN CÒN GIỮ HÀNG hay không quyết định khi nào phải nhả.
-func TestBietDuocKhiNaoPhienConGiuHang(t *testing.T) {
+func TestKnowsWhenACheckoutStillHoldsStock(t *testing.T) {
 	for _, tc := range []struct {
 		status domain.Status
-		giu    bool
+		held   bool
 	}{
 		{domain.StatusStarted, true},
 		{domain.StatusPendingPayment, true},
@@ -354,14 +354,14 @@ func TestBietDuocKhiNaoPhienConGiuHang(t *testing.T) {
 		{domain.StatusCancelled, false},
 		{domain.StatusExpired, false},
 	} {
-		if got := tc.status.IsHoldingStock(); got != tc.giu {
-			t.Errorf("%s.IsHoldingStock() = %v, mong %v", tc.status, got, tc.giu)
+		if got := tc.status.IsHoldingStock(); got != tc.held {
+			t.Errorf("%s.IsHoldingStock() = %v, mong %v", tc.status, got, tc.held)
 		}
 	}
 }
 
 // QUY TẮC 6: KHÁCH VÃNG LAI được checkout, nhưng phải liên hệ được.
-func TestKhachVangLaiCheckoutDuoc(t *testing.T) {
+func TestGuestsCanCheckOut(t *testing.T) {
 	c, err := domain.NewCheckout(domain.NewCheckoutParams{
 		CartID:     ids.MustNew(ids.PrefixCart),
 		GuestEmail: "khach@example.com",
@@ -391,7 +391,7 @@ func TestKhachVangLaiCheckoutDuoc(t *testing.T) {
 }
 
 // HOÀN TẤT RỒI thì không hoàn tất lần nữa — nền tảng của idempotency.
-func TestHoanTatHaiLanBiChan(t *testing.T) {
+func TestCompletingTwiceIsBlocked(t *testing.T) {
 	c := newCheckout(t)
 	orderID := ids.MustNew(ids.PrefixOrder)
 
@@ -418,7 +418,7 @@ func TestHoanTatHaiLanBiChan(t *testing.T) {
 }
 
 // PHIÊN ĐÃ KẾT THÚC thì không sửa được nữa.
-func TestPhienDaKetThucThiKhoaLai(t *testing.T) {
+func TestAFinishedCheckoutIsLocked(t *testing.T) {
 	for _, tc := range []struct {
 		ten  string
 		kill func(*domain.Checkout) error
@@ -451,7 +451,7 @@ func TestPhienDaKetThucThiKhoaLai(t *testing.T) {
 // NHÓM THEO NGUỒN HÀNG để tính phí ship và hiển thị thời gian giao riêng.
 //
 // Quy tắc 7: khách cần biết món nào đến trước.
-func TestNhomTheoNguonHang(t *testing.T) {
+func TestGroupedByStockSource(t *testing.T) {
 	sellerA := ids.MustNew(ids.PrefixSeller)
 	sellerB := ids.MustNew(ids.PrefixSeller)
 

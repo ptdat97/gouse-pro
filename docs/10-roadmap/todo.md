@@ -1085,7 +1085,7 @@ có code VÀ test chứng minh.
 | Offer · Pricing | `marketplace` 23 test · `pricing` 67 test |
 | Seller · Marketplace | `seller` 23 test · 3 endpoint offer của nhà bán |
 | Tồn kho của NHÀ BÁN | `inventory` 33 test · `FindOwnedItem` lọc theo chủ |
-| Tồn kho NỀN TẢNG / Own Brand | `inventory.OwnerForSeller` · `TestOwnBrandLayHangCuaNenTang` |
+| Tồn kho NỀN TẢNG / Own Brand | `inventory.OwnerForSeller` · `TestOwnBrandTakesPlatformStock` |
 | Cart | `cart` 33 test · gộp giỏ khi đăng nhập |
 | Checkout | `checkout` 37 test · giữ hàng 15 phút · đóng băng giá |
 | Customer · tài khoản · địa chỉ · wishlist | `customer` 41 test · 6 endpoint |

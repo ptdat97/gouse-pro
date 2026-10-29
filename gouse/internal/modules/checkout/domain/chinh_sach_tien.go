@@ -7,26 +7,26 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/types"
 )
 
-// ChinhSachTien là hai con số kinh doanh quyết định phí ship và thuế.
+// MoneyPolicy là hai con số kinh doanh quyết định phí ship và thuế.
 //
 // Truyền VÀO domain chứ không đọc từ đâu: domain không biết `opsconfig`
 // tồn tại, và một hàm nhận đủ đầu vào thì kiểm chứng được bằng bảng giá
 // trị thay vì phải dựng cấu hình.
-type ChinhSachTien struct {
-	// ThueSuat theo phần vạn: 800 = 8%. Một tầng, áp cho mọi mặt hàng.
-	ThueSuat types.BasisPoints
+type MoneyPolicy struct {
+	// TaxRate theo phần vạn: 800 = 8%. Một tầng, áp cho mọi mặt hàng.
+	TaxRate types.BasisPoints
 
-	// NguongMienPhiShip là TIỀN HÀNG tối thiểu để được miễn phí vận
+	// FreeShippingThreshold là TIỀN HÀNG tối thiểu để được miễn phí vận
 	// chuyển. Ngưỡng 0 nghĩa là mọi đơn được miễn.
-	NguongMienPhiShip money.Money
+	FreeShippingThreshold money.Money
 
-	// GioChuanBiMacDinh dùng cho dòng hàng KHÔNG biết thời gian chuẩn bị
+	// DefaultHandlingHours dùng cho dòng hàng KHÔNG biết thời gian chuẩn bị
 	// của nhà bán — dòng cũ có trước migration 000054, hoặc offer không
 	// khai. Rơi về 0 nghĩa là hứa nhà bán đóng gói xong tức thì.
-	GioChuanBiMacDinh int
+	DefaultHandlingHours int
 }
 
-// ApDungPhiVaThue đặt phí vận chuyển (đã xét miễn phí) và thuế.
+// ApplyFeesAndTax đặt phí vận chuyển (đã xét miễn phí) và thuế.
 //
 // # THỨ TỰ TÍNH, và vì sao nó phải nằm ở MỘT chỗ
 //
@@ -68,24 +68,24 @@ type ChinhSachTien struct {
 // `money.RoundHalfUp` — chú thích của chính kernel ghi "dùng cho thuế theo
 // quy định". Hoa hồng và phí thì làm tròn XUỐNG; hai quy tắc khác nhau cho
 // hai loại số khác nhau, và trộn chúng làm đối soát ra hai kết quả.
-func (c *Checkout) ApDungPhiVaThue(
-	phiGoc money.Money, cs ChinhSachTien, now time.Time,
+func (c *Checkout) ApplyFeesAndTax(
+	baseFee money.Money, cs MoneyPolicy, now time.Time,
 ) error {
 	if err := c.mutable(now); err != nil {
 		return err
 	}
 
-	tienHang, err := c.Subtotal().Sub(c.discountAmount)
+	goodsTotal, err := c.Subtotal().Sub(c.discountAmount)
 	if err != nil {
 		return err
 	}
 
-	phi := phiGoc
+	phi := baseFee
 	if phi.Currency() == "" {
 		phi = money.Zero(c.currency)
 	}
 	if phi.Currency() != c.currency {
-		return ErrKhacDonViTienTe
+		return ErrDifferentCurrency
 	}
 
 	// Miễn phí ship khi tiền hàng ĐẠT ngưỡng.
@@ -94,21 +94,21 @@ func (c *Checkout) ApDungPhiVaThue(
 	// 499.000đ ĐƯỢC miễn. Khách nhìn con số quảng cáo và mua vừa đúng
 	// bằng nó là hành vi phổ biến; để họ trượt vì một đồng là cách chắc
 	// chắn để nhận một khiếu nại đúng.
-	if !cs.NguongMienPhiShip.IsZero() || cs.NguongMienPhiShip.Currency() != "" {
-		if !tienHang.LessThan(cs.NguongMienPhiShip) {
+	if !cs.FreeShippingThreshold.IsZero() || cs.FreeShippingThreshold.Currency() != "" {
+		if !goodsTotal.LessThan(cs.FreeShippingThreshold) {
 			phi = money.Zero(c.currency)
 		}
 	}
 
 	// Tổng khách trả — và thuế nằm SẴN TRONG con số này.
-	khachTra, err := tienHang.Add(phi)
+	customerPays, err := goodsTotal.Add(phi)
 	if err != nil {
 		return err
 	}
 
 	c.shippingFee = phi
 	// TÁCH ngược, không CỘNG thêm: giá niêm yết đã gồm VAT.
-	c.taxAmount = khachTra.ExtractRate(cs.ThueSuat, money.RoundHalfUp)
+	c.taxAmount = customerPays.ExtractRate(cs.TaxRate, money.RoundHalfUp)
 	c.touch(now)
 	return nil
 }

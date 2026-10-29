@@ -218,7 +218,7 @@ Cài ở `money.ExtractRate`, nhân bằng 128 bit để không tràn — tràn 
 
 **Làm tròn NỬA LÊN** (`money.RoundHalfUp`), khác hoa hồng và phí vốn làm tròn xuống. Hai quy tắc cho hai loại số khác nhau; trộn chúng làm đối soát ra hai kết quả cho cùng một đơn.
 
-**Ba con số phụ thuộc nhau theo đúng thứ tự trên**, nên chỉ có MỘT hàm đặt cả phí lẫn thuế (`Checkout.ApDungPhiVaThue`), và mọi đường ghi tiền — chọn cách giao, áp mã, gỡ mã — đều gọi lại nó. Để mỗi đường tự cập nhật một mảnh là cách chắc chắn để ba con số lệch nhau, và lệch ở đây nghĩa là khách bị thu sai tiền.
+**Ba con số phụ thuộc nhau theo đúng thứ tự trên**, nên chỉ có MỘT hàm đặt cả phí lẫn thuế (`Checkout.ApplyFeesAndTax`), và mọi đường ghi tiền — chọn cách giao, áp mã, gỡ mã — đều gọi lại nó. Để mỗi đường tự cập nhật một mảnh là cách chắc chắn để ba con số lệch nhau, và lệch ở đây nghĩa là khách bị thu sai tiền.
 
 **Đổi thuế suất KHÔNG sửa lại đơn cũ.** Đơn đã đặt giữ số thuế tại thời điểm đặt — tiền trên đơn là hợp đồng đã đóng băng.
 

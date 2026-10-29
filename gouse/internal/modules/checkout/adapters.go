@@ -163,7 +163,7 @@ func (a *inventoryAdapter) Reserve(
 		// "tranh chấp" với "hết hàng" thì phải giữ, vì hai thứ dẫn tới
 		// hai hành động khác nhau.
 		if errors.Is(err, inventory.ErrConflict) {
-			return "", fmt.Errorf("%w: %v", application.ErrTranhChapTonKho, err)
+			return "", fmt.Errorf("%w: %v", application.ErrStockConflict, err)
 		}
 		return "", err
 	}
@@ -221,32 +221,31 @@ func (a *commissionAdapter) RateForSeller(
 	return types.NewBasisPoints(raw)
 }
 
-// PhanBoGiamGia chuyển tiếp sang module promotion.
+// AllocateDiscount chuyển tiếp sang module promotion.
 //
 // Quy tắc chia — theo tỷ lệ, phần dư được rải — nằm ở promotion, một chỗ
 // duy nhất. Chia lại ở đây nghĩa là hai nơi cùng tính một con số tiền, và
 // sớm muộn hai nơi ra hai kết quả.
-func (a *promotionAdapter) PhanBoGiamGia(
-	ctx context.Context, giam money.Money, dong []application.DongPhanBo,
-) (map[ids.ID]money.Money, error) {
+func (a *promotionAdapter) AllocateDiscount(
+	ctx context.Context, discount money.Money, placedLines []application.AllocationLine) (map[ids.ID]money.Money, error) {
 	req := promotion.AllocateRequest{
-		Discount: giam.Amount(),
-		Currency: string(giam.Currency()),
+		Discount: discount.Amount(),
+		Currency: string(discount.Currency()),
 	}
-	for _, d := range dong {
+	for _, d := range placedLines {
 		req.Lines = append(req.Lines, promotion.AllocateLine{
 			LineID: d.LineID.String(), Total: d.Total.Amount(),
 		})
 	}
 
-	phan, err := a.api.AllocateDiscount(ctx, req)
+	share, err := a.api.AllocateDiscount(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make(map[ids.ID]money.Money, len(phan))
-	for _, p := range phan {
-		m, err := money.New(p.Discount, giam.Currency())
+	out := make(map[ids.ID]money.Money, len(share))
+	for _, p := range share {
+		m, err := money.New(p.Discount, discount.Currency())
 		if err != nil {
 			return nil, err
 		}
@@ -303,7 +302,7 @@ func (a *orderAdapter) PlaceOrder(
 			AttributedCreatorID: l.AttributedCreatorID.String(),
 			AttributedContentID: l.AttributedContentID.String(),
 
-			Adjustments: khoanGiam(l),
+			Adjustments: adjustments(l),
 		})
 	}
 
@@ -334,9 +333,9 @@ func (a *orderAdapter) PlaceOrder(
 	}
 
 	// Dòng của ĐƠN, để checkout ghép được mã dòng vào event.
-	dong := make([]application.PlacedOrderLine, 0, len(res.Order.Lines))
+	placedLines := make([]application.PlacedOrderLine, 0, len(res.Order.Lines))
 	for _, l := range res.Order.Lines {
-		dong = append(dong, application.PlacedOrderLine{
+		placedLines = append(placedLines, application.PlacedOrderLine{
 			OfferID: ids.ID(l.OfferID),
 			LineID:  ids.ID(l.ID),
 		})
@@ -345,7 +344,7 @@ func (a *orderAdapter) PlaceOrder(
 	return application.PlacedOrder{
 		OrderID:     ids.ID(res.Order.ID),
 		OrderNumber: res.Order.OrderNumber,
-		Lines:       dong,
+		Lines:       placedLines,
 		// Từ ĐƠN, không phải từ `in.PaymentMethod`: lần thử lại phải nhận
 		// về phương thức của đơn đã tạo, không phải cái vừa gửi.
 		PaymentMethod: res.Order.PaymentMethod,
@@ -353,8 +352,8 @@ func (a *orderAdapter) PlaceOrder(
 	}, nil
 }
 
-// LayDon đọc lại một đơn đã tạo, cho đường THỬ LẠI của CompleteCheckout.
-func (a *orderAdapter) LayDon(
+// GetOrder đọc lại một đơn đã tạo, cho đường THỬ LẠI của CompleteCheckout.
+func (a *orderAdapter) GetOrder(
 	ctx context.Context, orderID ids.ID,
 ) (application.PlacedOrder, error) {
 	v, err := a.api.GetOrder(ctx, orderID.String())
@@ -375,7 +374,7 @@ func toOrderAmount(m money.Money) order.Amount {
 	return order.Amount{Value: m.Amount(), Currency: string(m.Currency())}
 }
 
-// khoanGiam đổi phần giảm đã phân bổ thành khoản điều chỉnh của dòng hàng.
+// adjustments đổi phần giảm đã phân bổ thành khoản điều chỉnh của dòng hàng.
 //
 // Số ÂM: khoản điều chỉnh dùng dấu để phân biệt giảm với tăng, và đảo dấu
 // ở đây một lần thay vì bắt mọi nơi đọc phải nhớ quy ước riêng.
@@ -388,19 +387,19 @@ func toOrderAmount(m money.Money) order.Amount {
 // `CostBearer: SELLER`), nên nó không còn là chuyện tương lai — và tệ hơn
 // dự đoán: mã của nhà bán không chỉ bị ghi nhầm bên chịu, nó trả 500 cho
 // khách vì `AllocateCost` không có `sellerID` để chia.
-func khoanGiam(l application.PlaceOrderLine) []order.AdjustmentInput {
-	if !l.GiamGia.IsPositive() {
+func adjustments(l application.PlaceOrderLine) []order.AdjustmentInput {
+	if !l.Discount.IsPositive() {
 		return nil
 	}
 	return []order.AdjustmentInput{{
 		Type:  order.AdjustmentPromotion,
 		Label: "Giảm giá đã phân bổ",
 		Amount: order.Amount{
-			Value:    -l.GiamGia.Amount(),
-			Currency: string(l.GiamGia.Currency()),
+			Value:    -l.Discount.Amount(),
+			Currency: string(l.Discount.Currency()),
 		},
 		SourceType: "COUPON",
-		CostBearer: l.BenChiuGiamGia,
+		CostBearer: l.DiscountBearer,
 	}}
 }
 
@@ -421,18 +420,18 @@ type PaymentAPI interface {
 var _ application.PaymentPort = (*paymentAdapter)(nil)
 
 func (a *paymentAdapter) NewIntent(
-	ctx context.Context, orderID ids.ID, soTien money.Money, phuongThuc string,
+	ctx context.Context, orderID ids.ID, amount money.Money, payMethod string,
 ) error {
 	_, err := a.api.NewIntent(ctx, payment.NewIntentRequest{
 		OrderID:  orderID.String(),
-		Amount:   soTien.Amount(),
-		Currency: string(soTien.Currency()),
-		Method:   phuongThuc,
+		Amount:   amount.Amount(),
+		Currency: string(amount.Currency()),
+		Method:   payMethod,
 	})
 	return err
 }
 
-func (a *paymentAdapter) LaKhongCanIntent(err error) bool {
+func (a *paymentAdapter) IsIntentNotNeeded(err error) bool {
 	return payment.IsNotPrepaidMethod(err)
 }
 
@@ -451,7 +450,7 @@ var _ application.ShippingPort = (*shippingAdapter)(nil)
 
 func (a *shippingAdapter) EstimateShipping(
 	ctx context.Context, method string, sellerIDs []string, currency string,
-) (application.UocTinhPhiGiao, error) {
+) (application.ShippingEstimate, error) {
 	sources := make([]fulfillment.SourceInput, 0, len(sellerIDs))
 	for _, id := range sellerIDs {
 		sources = append(sources, fulfillment.SourceInput{SellerID: id})
@@ -461,33 +460,33 @@ func (a *shippingAdapter) EstimateShipping(
 		Method: method, Sources: sources, Currency: currency,
 	})
 	if err != nil {
-		return application.UocTinhPhiGiao{}, err
+		return application.ShippingEstimate{}, err
 	}
-	nguon := make([]application.PhiMotNguon, 0, len(res.PerSource))
+	feesPerSource := make([]application.FeePerSource, 0, len(res.PerSource))
 	for _, p := range res.PerSource {
-		nguon = append(nguon, application.PhiMotNguon{
-			SellerID: p.SellerID, Amount: p.Amount, SoNgay: p.EstimatedDays,
+		feesPerSource = append(feesPerSource, application.FeePerSource{
+			SellerID: p.SellerID, Amount: p.Amount, Days: p.EstimatedDays,
 		})
 	}
-	return application.UocTinhPhiGiao{Total: res.Total, TheoNguon: nguon}, nil
+	return application.ShippingEstimate{Total: res.Total, PerSource: feesPerSource}, nil
 }
 
-// chinhSachAdapter đọc thuế suất và ngưỡng miễn phí ship từ `opsconfig`.
+// policyAdapter đọc thuế suất và ngưỡng miễn phí ship từ `opsconfig`.
 //
 // Tầng application KHÔNG import `opsconfig` — nó chỉ biết mình cần hai con
 // số. Cùng mẫu với `nguongAdapter` của fulfillment.
-type chinhSachAdapter struct{ cfg *opsconfig.Store }
+type policyAdapter struct{ cfg *opsconfig.Store }
 
-var _ application.ChinhSachPort = (*chinhSachAdapter)(nil)
+var _ application.PolicyPort = (*policyAdapter)(nil)
 
-func (a *chinhSachAdapter) GioChuanBiMacDinh() int {
+func (a *policyAdapter) DefaultHandlingHours() int {
 	return int(a.cfg.Doc(opsconfig.KeyGioChuanBiMacDinh))
 }
 
-func (a *chinhSachAdapter) ThueSuatBP() int32 {
+func (a *policyAdapter) TaxRateBP() int32 {
 	return int32(a.cfg.Doc(opsconfig.KeyThueSuat))
 }
 
-func (a *chinhSachAdapter) NguongMienPhiShip() int64 {
+func (a *policyAdapter) FreeShippingThreshold() int64 {
 	return int64(a.cfg.Doc(opsconfig.KeyNguongMienPhiShip))
 }

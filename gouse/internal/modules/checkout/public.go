@@ -90,11 +90,11 @@ type API interface {
 	// chạy, và hàng đang bị khóa mà không ai biết.
 	CountExpiredPending(ctx context.Context) (int, error)
 
-	// CountHoanTatKetLai đếm phiên đã tạo đơn mà chuỗi hoàn tất chưa xong.
+	// CountStuckCompletions đếm phiên đã tạo đơn mà chuỗi hoàn tất chưa xong.
 	//
 	// Khác 0 nghĩa là có đơn hàng tồn tại với phiên chưa đóng, và hàng của
 	// nó nằm giữ cho tới khi có người đối soát.
-	CountHoanTatKetLai(ctx context.Context) (int, error)
+	CountStuckCompletions(ctx context.Context) (int, error)
 }
 
 // ---------------------------------------------------------------- DTO

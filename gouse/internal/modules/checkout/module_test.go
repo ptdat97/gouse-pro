@@ -217,16 +217,16 @@ func (r *realOrder) PlaceOrder(
 	}
 	// Ghép dòng phiên ↔ dòng đơn, y như adapter thật: event
 	// `checkout.completed` mang mã dòng của ĐƠN.
-	dong := make([]application.PlacedOrderLine, 0, len(res.Order.Lines))
+	placedLines := make([]application.PlacedOrderLine, 0, len(res.Order.Lines))
 	for _, l := range res.Order.Lines {
-		dong = append(dong, application.PlacedOrderLine{
+		placedLines = append(placedLines, application.PlacedOrderLine{
 			OfferID: ids.ID(l.OfferID), LineID: ids.ID(l.ID),
 		})
 	}
 	return application.PlacedOrder{
 		OrderID:     ids.ID(res.Order.ID),
 		OrderNumber: res.Order.OrderNumber,
-		Lines:       dong,
+		Lines:       placedLines,
 		Replayed:    res.Replayed,
 	}, nil
 }
@@ -269,11 +269,11 @@ func newHarness(t *testing.T) *harness {
 		}
 	}
 
-	invModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: db})
+	inventoryModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: db})
 	if err != nil {
 		t.Fatalf("inventory.New: %v", err)
 	}
-	ordModule, err := order.New(order.Config{Storage: "postgres", DB: db})
+	orderModule, err := order.New(order.Config{Storage: "postgres", DB: db})
 	if err != nil {
 		t.Fatalf("order.New: %v", err)
 	}
@@ -284,15 +284,15 @@ func newHarness(t *testing.T) *harness {
 	svc := application.NewService(application.Deps{
 		Checkouts:   checkoutpg.NewCheckoutStore(db.Pool()),
 		Carts:       fc,
-		Inventory:   &realInventory{api: invModule},
+		Inventory:   &realInventory{api: inventoryModule},
 		Commissions: &fakeCommission{rate: 1000},
 		Sellers:     owners,
-		Orders:      &realOrder{api: ordModule},
+		Orders:      &realOrder{api: orderModule},
 		Clock:       clock,
 	})
 
 	return &harness{
-		svc: svc, cart: fc, inv: invModule, ord: ordModule,
+		svc: svc, cart: fc, inv: inventoryModule, ord: orderModule,
 		db: db, clock: clock, owners: owners,
 	}
 }
@@ -444,7 +444,7 @@ func (h *harness) available(t *testing.T, skuID ids.ID) int {
 //
 // Đây là việc checkout làm mà giỏ hàng không làm, và là lý do nó tồn tại
 // riêng. Kiểm chứng bằng inventory THẬT: số hàng khả dụng phải giảm ngay.
-func TestBatDauCheckoutThiHangBiKhoaThat(t *testing.T) {
+func TestStartingCheckoutReallyHoldsTheStock(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -481,7 +481,7 @@ func TestBatDauCheckoutThiHangBiKhoaThat(t *testing.T) {
 // Đây là nhánh dễ bỏ quên nhất của cả module: giữ được hàng cho hai món
 // rồi món thứ ba hết hàng thì HAI reservation kia phải được nhả. Không nhả
 // thì hàng bị khóa 15 phút cho một phiên chưa từng tồn tại.
-func TestThatBaiGiuaChungThiNhaLaiMoiThuDaGiu(t *testing.T) {
+func TestAMidwayFailureReleasesEverythingItHeld(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -521,7 +521,7 @@ func TestThatBaiGiuaChungThiNhaLaiMoiThuDaGiu(t *testing.T) {
 //
 // Đơn hàng phải ghi 299.000đ. Kiểm chứng qua ĐƠN THẬT trong database, không
 // phải qua phiên trong bộ nhớ.
-func TestGiaDongBangDiTuCheckoutSangDonHang(t *testing.T) {
+func TestTheFrozenPriceTravelsFromCheckoutToOrder(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -564,7 +564,7 @@ func TestGiaDongBangDiTuCheckoutSangDonHang(t *testing.T) {
 }
 
 // HOÀN TẤT HAI LẦN chỉ tạo MỘT đơn (quy tắc 5).
-func TestHoanTatHaiLanChiTaoMotDon(t *testing.T) {
+func TestCompletingTwiceCreatesOneOrder(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -611,7 +611,7 @@ func TestHoanTatHaiLanChiTaoMotDon(t *testing.T) {
 // Kiểm tra trạng thái phiên ở tầng ứng dụng không chặn được: mười request
 // đến cùng lúc đều thấy phiên còn STARTED. Ràng buộc UNIQUE trên khóa
 // idempotency ở module order là thứ chặn thật.
-func TestHoanTatSongSongChiRaMotDon(t *testing.T) {
+func TestConcurrentCompletesYieldOneOrder(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -669,7 +669,7 @@ func TestHoanTatSongSongChiRaMotDon(t *testing.T) {
 // Đây là hàm giữ cho lời hứa "giữ hàng có thời hạn" thành sự thật. Không
 // có nó thì mọi phiên bỏ dở đều khóa hàng cho tới khi có người phát hiện
 // thủ công — và không ai đi tìm cho tới lúc hết hàng bán.
-func TestHetHanThiNhaHangVaKhongDatDonDuoc(t *testing.T) {
+func TestOnExpiryStockIsReleasedAndNoOrderCanBePlaced(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -730,7 +730,7 @@ func TestHetHanThiNhaHangVaKhongDatDonDuoc(t *testing.T) {
 }
 
 // HỦY PHIÊN thì NHẢ HÀNG ngay.
-func TestHuyPhienThiNhaHangNgay(t *testing.T) {
+func TestCancellingACheckoutReleasesStockAtOnce(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -760,7 +760,7 @@ func TestHuyPhienThiNhaHangNgay(t *testing.T) {
 //
 // Khách bấm "Thanh toán", quay lại giỏ, bấm lần nữa: phiên thứ hai sẽ giữ
 // hàng LẦN THỨ HAI cho cùng một giỏ, tức là khóa gấp đôi số hàng thật cần.
-func TestMotGioChiCoMotPhienDangChay(t *testing.T) {
+func TestOneCartHasOneRunningCheckout(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -792,7 +792,7 @@ func TestMotGioChiCoMotPhienDangChay(t *testing.T) {
 //
 // Kho có 5 sản phẩm, 10 khách cùng checkout mỗi người 1 món. Đúng 5 người
 // giữ được hàng — khóa lạc quan ở inventory là thứ quyết định điều đó.
-func TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc(t *testing.T) {
+func TestTenBuyersRacingForFiveUnitsLeaveExactlyFiveHolders(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -868,7 +868,7 @@ func TestMuoiKhachTranhNamSanPhamThiDungNamNguoiGiuDuoc(t *testing.T) {
 //
 // Phiên sống lâu hơn reservation thì tới lúc đặt hàng mới phát hiện hàng
 // đã bị nhả và bán cho người khác — đúng lúc khách vừa chuyển khoản xong.
-func TestGiaHanGiaHanCaHangDangGiu(t *testing.T) {
+func TestExtendingAlsoExtendsTheHeldStock(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -905,7 +905,7 @@ func TestGiaHanGiaHanCaHangDangGiu(t *testing.T) {
 //
 // Cho khách thử lại phương thức thanh toán khác trong thời gian TTL còn
 // lại. Hủy ngay là trải nghiệm tệ và làm mất đơn hàng.
-func TestTaoDonThatBaiThiGiuNguyenPhienChoKhachThuLai(t *testing.T) {
+func TestAFailedOrderKeepsTheCheckoutForARetry(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -946,7 +946,7 @@ func TestTaoDonThatBaiThiGiuNguyenPhienChoKhachThuLai(t *testing.T) {
 	}
 }
 
-// TestGiuHangDungChuSoHuu là test hồi quy cho P3-18.
+// TestStockIsHeldForTheRightOwner là test hồi quy cho P3-18.
 //
 // # Tình huống
 //
@@ -961,7 +961,7 @@ func TestTaoDonThatBaiThiGiuNguyenPhienChoKhachThuLai(t *testing.T) {
 // bất kể của ai. Bán được cho B lại trừ kho của A: A hụt hàng vì những đơn
 // chưa bao giờ nhận, còn B giao hàng từ số tồn hệ thống tưởng vẫn nguyên.
 // Không bên nào thấy lỗi — hai sổ sách cùng sai và cùng im lặng.
-func TestGiuHangDungChuSoHuu(t *testing.T) {
+func TestStockIsHeldForTheRightOwner(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -999,12 +999,12 @@ func TestGiuHangDungChuSoHuu(t *testing.T) {
 	}
 }
 
-// TestKhongMuonKhoNguoiKhacKhiHetHang khóa chặt quy tắc KHÔNG có đường lùi.
+// TestNeverBorrowsAnotherOwnersStockWhenOutOfStock khóa chặt quy tắc KHÔNG có đường lùi.
 //
 // Nhà bán B hết hàng nhưng A còn. Đơn của B phải THẤT BẠI, không được lặng
 // lẽ lấy hàng của A. "Mượn tạm cho đơn chạy được" là đúng lỗi P3-18, chỉ
 // khác là có chủ đích — và nó vẫn trừ hàng của người không bán món đó.
-func TestKhongMuonKhoNguoiKhacKhiHetHang(t *testing.T) {
+func TestNeverBorrowsAnotherOwnersStockWhenOutOfStock(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -1031,12 +1031,12 @@ func TestKhongMuonKhoNguoiKhacKhiHetHang(t *testing.T) {
 	}
 }
 
-// TestOwnBrandLayHangCuaNenTang: own brand là seller NỘI BỘ, và hàng của
+// TestOwnBrandTakesPlatformStock: own brand là seller NỘI BỘ, và hàng của
 // nó là tài sản NỀN TẢNG (own-brand.md mục 7).
 //
 // Nếu quy tắc chủ sở hữu chỉ đơn giản là "chủ = seller", đơn own brand sẽ
 // không bao giờ tìm thấy hàng — toàn bộ hàng 1P nằm dưới `own_platform`.
-func TestOwnBrandLayHangCuaNenTang(t *testing.T) {
+func TestOwnBrandTakesPlatformStock(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -1059,8 +1059,8 @@ func TestOwnBrandLayHangCuaNenTang(t *testing.T) {
 	}
 }
 
-// LayDon đọc lại đơn đã tạo — dùng ở đường THỬ LẠI của CompleteCheckout.
-func (r *realOrder) LayDon(
+// GetOrder đọc lại đơn đã tạo — dùng ở đường THỬ LẠI của CompleteCheckout.
+func (r *realOrder) GetOrder(
 	ctx context.Context, orderID ids.ID,
 ) (application.PlacedOrder, error) {
 	v, err := r.api.GetOrder(ctx, orderID.String())

@@ -37,7 +37,7 @@ var (
 	// ErrOutOfStock khi không giữ đủ hàng cho giỏ.
 	ErrOutOfStock = errors.New("checkout: không đủ hàng")
 
-	// ErrTranhChapTonKho khi KHÔNG giữ được hàng vì tranh chấp đồng thời,
+	// ErrStockConflict khi KHÔNG giữ được hàng vì tranh chấp đồng thời,
 	// chứ không phải vì hết hàng.
 	//
 	// # Vì sao phải tách khỏi ErrOutOfStock
@@ -58,7 +58,7 @@ var (
 	// Module inventory ĐÃ tách sẵn (ErrInsufficientStock vs ErrConflict)
 	// và ghi rõ chúng "khác hoàn toàn"; chỗ này chỉ giữ lại phân biệt đó
 	// thay vì làm mất nó.
-	ErrTranhChapTonKho = errors.New("checkout: tranh chấp tồn kho, thử lại được")
+	ErrStockConflict = errors.New("checkout: tranh chấp tồn kho, thử lại được")
 
 	// ErrEmptyCart khi giỏ không có món nào mua được.
 	ErrEmptyCart = errors.New("checkout: giỏ hàng không có món nào mua được")
@@ -138,9 +138,9 @@ type InventoryPort interface {
 	// Reserve giữ hàng. Đây là nơi DUY NHẤT trong hệ thống khóa tồn kho
 	// cho khách hàng.
 	//
-	// Cài đặt PHẢI trả ErrTranhChapTonKho khi không giữ được vì tranh
+	// Cài đặt PHẢI trả ErrStockConflict khi không giữ được vì tranh
 	// chấp đồng thời, và một lỗi khác khi thật sự hết hàng. Trộn hai thứ
-	// làm chỉ số nói dối — xem chú thích ở ErrTranhChapTonKho.
+	// làm chỉ số nói dối — xem chú thích ở ErrStockConflict.
 	Reserve(ctx context.Context, itemID, checkoutID ids.ID, qty int, ttl time.Duration) (ids.ID, error)
 
 	Release(ctx context.Context, reservationID ids.ID) error
@@ -217,10 +217,10 @@ type CheckoutStarted struct {
 	CartID     ids.ID
 	CustomerID ids.ID
 
-	// SoDong và Subtotal cho phép analytics đo giá trị phiên bỏ dở mà
+	// LineCount và Subtotal cho phép analytics đo giá trị phiên bỏ dở mà
 	// không phải gọi ngược lại checkout.
-	SoDong   int
-	Subtotal money.Money
+	LineCount int
+	Subtotal  money.Money
 }
 
 // CheckoutExpired là sự thật "phiên hết hạn, hàng ĐÃ được nhả".
@@ -233,8 +233,8 @@ type CheckoutExpired struct {
 	CartID     ids.ID
 	CustomerID ids.ID
 
-	SoDong   int
-	Subtotal money.Money
+	LineCount int
+	Subtotal  money.Money
 }
 
 // CheckoutCompleted là sự thật "phiên thanh toán đã tạo đơn thành công".
@@ -316,14 +316,14 @@ type CheckoutCompleted struct {
 	// chưa khai giá, và không chú thích nào nói ra.
 	ShippingMethod string
 
-	// PhanBoGiam là bảng chia chi phí khoản giảm — THÊM Ở PHIÊN BẢN 6.
+	// DiscountAllocations là bảng chia chi phí khoản giảm — THÊM Ở PHIÊN BẢN 6.
 	//
 	// Thay cho `discount_seller_id` của phiên bản 5: một mã gian hàng chỉ
 	// nói được "ai chịu TRỌN", không nói được chương trình CHIA ĐÔI mỗi
 	// bên gánh bao nhiêu đồng. Payment ghi một dòng NỢ cho mỗi phần.
 	//
 	// Rỗng nghĩa là nền tảng gánh trọn.
-	PhanBoGiam []domain.PhanBoChiPhiGiam
+	DiscountAllocations []domain.DiscountCostAllocation
 
 	// ShippingAddress là nơi hàng phải đến.
 	//
@@ -392,13 +392,13 @@ type OrderPort interface {
 	// phải thiếu sót.
 	PlaceOrder(ctx context.Context, in PlaceOrderInput) (PlacedOrder, error)
 
-	// LayDon đọc lại một đơn ĐÃ tạo, cho đường THỬ LẠI.
+	// GetOrder đọc lại một đơn ĐÃ tạo, cho đường THỬ LẠI.
 	//
 	// Phiên đã hoàn tất thì `CompleteCheckout` thoát sớm và không đi qua
 	// `PlaceOrder`, nên nó không có gì trong tay ngoài mã đơn cất trên
 	// phiên. Thiếu hàm này thì lần thử lại trả về mã đơn RỖNG — xem chú
 	// thích ở nhánh "Lớp 1".
-	LayDon(ctx context.Context, orderID ids.ID) (PlacedOrder, error)
+	GetOrder(ctx context.Context, orderID ids.ID) (PlacedOrder, error)
 }
 
 // ShippingPort là những gì checkout CẦN từ fulfillment: một con số phí.
@@ -416,40 +416,40 @@ type ShippingPort interface {
 	// bảng kê theo nhóm không tồn tại ở bất kỳ đâu.
 	EstimateShipping(
 		ctx context.Context, method string, sellerIDs []string, currency string,
-	) (UocTinhPhiGiao, error)
+	) (ShippingEstimate, error)
 }
 
-// UocTinhPhiGiao là kết quả ước tính mà checkout cần.
-type UocTinhPhiGiao struct {
+// ShippingEstimate là kết quả ước tính mà checkout cần.
+type ShippingEstimate struct {
 	Total int64
 
 	// TheoNguon là phí và số ngày vận chuyển của TỪNG nguồn hàng.
-	TheoNguon []PhiMotNguon
+	PerSource []FeePerSource
 }
 
-// PhiMotNguon là ước tính cho một kiện.
-type PhiMotNguon struct {
+// FeePerSource là ước tính cho một kiện.
+type FeePerSource struct {
 	SellerID string
 	Amount   int64
 
-	// SoNgay là thời gian VẬN CHUYỂN, không gồm thời gian chuẩn bị hàng.
-	SoNgay int
+	// Days là thời gian VẬN CHUYỂN, không gồm thời gian chuẩn bị hàng.
+	Days int
 }
 
-// ChinhSachPort cấp hai con số kinh doanh sửa được lúc chạy (ADR-0015).
+// PolicyPort cấp hai con số kinh doanh sửa được lúc chạy (ADR-0015).
 //
 // Khai ở đây thay vì đọc thẳng `opsconfig`: tầng application không cần
 // biết cấu hình nằm ở đâu, và bản giả trong test đặt được giá trị mà không
 // phải dựng cả một kho cấu hình.
-type ChinhSachPort interface {
-	// GioChuanBiMacDinh dùng cho dòng hàng không biết thời gian chuẩn bị.
-	GioChuanBiMacDinh() int
+type PolicyPort interface {
+	// DefaultHandlingHours dùng cho dòng hàng không biết thời gian chuẩn bị.
+	DefaultHandlingHours() int
 
-	// ThueSuatBP là thuế suất theo phần vạn (800 = 8%).
-	ThueSuatBP() int32
+	// TaxRateBP là thuế suất theo phần vạn (800 = 8%).
+	TaxRateBP() int32
 
-	// NguongMienPhiShip là tiền hàng tối thiểu để miễn phí vận chuyển.
-	NguongMienPhiShip() int64
+	// FreeShippingThreshold là tiền hàng tối thiểu để miễn phí vận chuyển.
+	FreeShippingThreshold() int64
 }
 
 // PaymentPort là những gì checkout CẦN từ payment.
@@ -459,21 +459,21 @@ type PaymentPort interface {
 	// IDEMPOTENT theo đơn. Phương thức KHÔNG trả trước (COD, hoặc rỗng)
 	// trả lỗi mà `LaPhuongThucKhongTraTruoc` nhận ra được — bên gọi BỎ
 	// QUA, vì đó là câu trả lời đúng chứ không phải hỏng.
-	NewIntent(ctx context.Context, orderID ids.ID, soTien money.Money, phuongThuc string) error
+	NewIntent(ctx context.Context, orderID ids.ID, amount money.Money, payMethod string) error
 
-	// LaKhongCanIntent phân biệt "COD, không cần intent" với "hỏng thật".
-	LaKhongCanIntent(err error) bool
+	// IsIntentNotNeeded phân biệt "COD, không cần intent" với "hỏng thật".
+	IsIntentNotNeeded(err error) bool
 }
 
-// anHanHoanTat là quãng thời gian phiên được giữ thêm trong lúc tạo đơn.
+// completionGrace là quãng thời gian phiên được giữ thêm trong lúc tạo đơn.
 //
 // Chọn 30 giây vì việc còn lại chỉ là hai lượt ghi database. Rộng rãi so
 // với thực tế nhưng vẫn đủ ngắn để hàng không bị khóa lâu nếu tiến trình
 // chết giữa chừng — và nó TỰ hết, không để lại trạng thái nào phải dọn.
-const anHanHoanTat = 30 * time.Second
+const completionGrace = 30 * time.Second
 
-// DongPhanBo là một dòng hàng đưa đi phân bổ giảm giá.
-type DongPhanBo struct {
+// AllocationLine là một dòng hàng đưa đi phân bổ giảm giá.
+type AllocationLine struct {
 	LineID ids.ID
 
 	// Total là giá trị dòng, dùng làm TỶ LỆ phân bổ.
@@ -537,17 +537,17 @@ type PlaceOrderLine struct {
 	// `attribution.content_id` của affiliate luôn rỗng (P3-84).
 	AttributedContentID ids.ID
 
-	// BenChiuGiamGia là bên gánh phần giảm của dòng này.
+	// DiscountBearer là bên gánh phần giảm của dòng này.
 	//
 	// Đóng băng từ phiên thanh toán (xem migration 000046). Trước đây tầng
 	// adapter gán cứng "PLATFORM", nên chương trình do nhà bán tự chạy vẫn
 	// bị ghi là nền tảng gánh — và đối soát cuối kỳ trừ nhầm bên.
-	BenChiuGiamGia string
+	DiscountBearer string
 
 	// GiamGia là phần giảm ĐÃ PHÂN BỔ cho dòng này, số DƯƠNG.
 	//
 	// Đóng băng vào đơn hàng để việc trả hàng tính đúng giá thực trả.
-	GiamGia money.Money
+	Discount money.Money
 }
 
 // PlacedOrder là kết quả tạo đơn.
@@ -599,7 +599,7 @@ type Service struct {
 	orders      OrderPort
 	payments    PaymentPort
 	shipping    ShippingPort
-	chinhSach   ChinhSachPort
+	policy      PolicyPort
 	promotions  PromotionPort
 	clock       Clock
 	events      EventPublisher
@@ -616,7 +616,7 @@ type PromotionPort interface {
 	// Đây là đường ĐỌC: KHÔNG ghi nhận lượt dùng. Khách gõ mã rồi bỏ giỏ
 	// hàng là chuyện thường, và ghi nhận ngay sẽ làm mã hết lượt vì những
 	// người chưa mua gì.
-	// PhanBoGiamGia chia số tiền giảm xuống từng dòng hàng THEO TỶ LỆ.
+	// AllocateDiscount chia số tiền giảm xuống từng dòng hàng THEO TỶ LỆ.
 	//
 	// Kết quả PHẢI được đóng băng vào đơn hàng: khi khách trả lại một món,
 	// số tiền hoàn là giá dòng TRỪ phần giảm đã phân bổ cho nó. Không lưu
@@ -625,9 +625,8 @@ type PromotionPort interface {
 	//
 	// Tổng các phần luôn bằng ĐÚNG số tiền giảm; phần dư của phép chia
 	// được rải chứ không biến mất.
-	PhanBoGiamGia(
-		ctx context.Context, giam money.Money, dong []DongPhanBo,
-	) (map[ids.ID]money.Money, error)
+	AllocateDiscount(
+		ctx context.Context, discount money.Money, placedLines []AllocationLine) (map[ids.ID]money.Money, error)
 
 	// ValidateCoupon kiểm tra mã, trả số tiền giảm VÀ bên phải chịu.
 	//
@@ -643,19 +642,19 @@ type PromotionPort interface {
 	ValidateCoupon(
 		ctx context.Context, code, customerID string, sellerID ids.ID,
 		orderTotal money.Money,
-	) (res KetQuaMaGiam, err error)
+	) (res PromoResult, err error)
 }
 
-// KetQuaMaGiam là kết quả kiểm tra một mã giảm giá.
+// PromoResult là kết quả kiểm tra một mã giảm giá.
 //
 // Gộp thành struct thay vì bốn giá trị trả về: danh sách đã dài tới mức
-// gọi sai thứ tự vẫn biên dịch được, và `benChiu` với `phanBo` nói cùng
+// gọi sai thứ tự vẫn biên dịch được, và `benChiu` với `allocations` nói cùng
 // một chuyện ở hai mức chi tiết nên chúng phải đi cùng nhau.
-type KetQuaMaGiam struct {
-	Giam        money.Money
-	MienPhiShip bool
-	BenChiu     string
-	PhanBo      []domain.PhanBoChiPhiGiam
+type PromoResult struct {
+	Discount     money.Money
+	FreeShipping bool
+	Bearer       string
+	Allocations  []domain.DiscountCostAllocation
 }
 
 type Deps struct {
@@ -678,12 +677,12 @@ type Deps struct {
 	// TỪ CHỐI thay vì đoán một con số.
 	Shipping ShippingPort
 
-	// ChinhSach cấp thuế suất và ngưỡng miễn phí ship. Thiếu nó thì dùng
+	// Policy cấp thuế suất và ngưỡng miễn phí ship. Thiếu nó thì dùng
 	// MẶC ĐỊNH trong `opsconfig` — không phải 0.
 	//
 	// Rơi về 0 sẽ làm mọi đơn không có thuế và mọi đơn được miễn phí ship,
 	// im lặng. Thà dùng con số mặc định đã được cân nhắc.
-	ChinhSach ChinhSachPort
+	Policy PolicyPort
 
 	// Promotions có thể nil: phiên thanh toán vẫn chạy, chỉ là không áp
 	// được mã giảm giá. Không chặn cả luồng mua hàng vì một tính năng phụ.
@@ -710,7 +709,7 @@ func NewService(d Deps) *Service {
 		orders:      d.Orders,
 		payments:    d.Payments,
 		shipping:    d.Shipping,
-		chinhSach:   d.ChinhSach,
+		policy:      d.Policy,
 		promotions:  d.Promotions,
 		clock:       clock,
 		events:      d.Events,
@@ -793,7 +792,7 @@ func (s *Service) StartCheckout(
 		// Đếm ở đây chứ không ở tầng HTTP: tầng HTTP chỉ thấy "500" hoặc
 		// "409", còn chỗ này biết bước nào hỏng và vì sao. Một hệ thống có
 		// thể trả 200 cho mọi request trong khi không ai đặt được đơn.
-		metrics.RecordFailure(metrics.StageReservation, lyDoThatBai(err))
+		metrics.RecordFailure(metrics.StageReservation, failureReason(err))
 
 		// Nhả MỌI thứ đã giữ được. Đây là nhánh dễ bỏ quên nhất của cả
 		// module, và bỏ quên nó nghĩa là mỗi lần một món hết hàng thì các
@@ -829,7 +828,7 @@ func (s *Service) StartCheckout(
 			CheckoutID: c.ID(),
 			CartID:     c.CartID(),
 			CustomerID: c.CustomerID(),
-			SoDong:     len(c.Lines()),
+			LineCount:  len(c.Lines()),
 			Subtotal:   c.Subtotal(),
 		})
 	}); err != nil {
@@ -1007,11 +1006,11 @@ func (s *Service) GetCheckout(ctx context.Context, id ids.ID) (*domain.Checkout,
 	if err != nil {
 		return nil, err
 	}
-	s.kemNhomGiaoHang(ctx, c)
+	s.attachShippingGroups(ctx, c)
 	return c, nil
 }
 
-// kemNhomGiaoHang dựng bảng kê phí và ngày giao theo TỪNG nhà bán.
+// attachShippingGroups dựng bảng kê phí và ngày giao theo TỪNG nhà bán.
 //
 // # Vì sao gắn ở đây chứ không lưu vào database
 //
@@ -1024,7 +1023,7 @@ func (s *Service) GetCheckout(ctx context.Context, id ids.ID) (*domain.Checkout,
 //
 // Thiếu bảng kê làm trang thanh toán mất một khối hiển thị; chặn lại làm
 // khách không thanh toán được. Hai hậu quả không cùng hạng.
-func (s *Service) kemNhomGiaoHang(ctx context.Context, c *domain.Checkout) {
+func (s *Service) attachShippingGroups(ctx context.Context, c *domain.Checkout) {
 	if c == nil || s.shipping == nil || c.ShippingMethod() == "" {
 		return
 	}
@@ -1037,30 +1036,30 @@ func (s *Service) kemNhomGiaoHang(ctx context.Context, c *domain.Checkout) {
 		return
 	}
 
-	uoc, err := s.shipping.EstimateShipping(
+	estimate, err := s.shipping.EstimateShipping(
 		ctx, c.ShippingMethod(), sellers, string(c.Currency()))
 	if err != nil {
 		return
 	}
 
-	theoNguon := make([]domain.PhiTheoNguon, 0, len(uoc.TheoNguon))
-	for _, n := range uoc.TheoNguon {
+	perSource := make([]domain.SourceFee, 0, len(estimate.PerSource))
+	for _, n := range estimate.PerSource {
 		tien, err := money.New(n.Amount, c.Currency())
 		if err != nil {
 			return
 		}
-		theoNguon = append(theoNguon, domain.PhiTheoNguon{
-			SellerID: ids.ID(n.SellerID), Phi: tien, SoNgay: n.SoNgay,
+		perSource = append(perSource, domain.SourceFee{
+			SellerID: ids.ID(n.SellerID), Phi: tien, Days: n.Days,
 		})
 	}
 
 	// Dùng CÙNG đường giải nghĩa chính sách với phép tính phí, để giờ
 	// chuẩn bị mặc định không có hai nguồn.
-	cs, err := s.chinhSachTien(c.Currency())
+	cs, err := s.moneyPolicy(c.Currency())
 	if err != nil {
 		return
 	}
-	c.DatNhomGiaoHang(theoNguon, cs.GioChuanBiMacDinh, s.clock.Now())
+	c.SetShippingGroups(perSource, cs.DefaultHandlingHours, s.clock.Now())
 }
 
 // SetShippingAddress đặt địa chỉ giao hàng.
@@ -1092,11 +1091,11 @@ const (
 // ErrUnknownShippingMethod khi phương thức không nằm trong danh sách.
 var ErrUnknownShippingMethod = errors.New("checkout: phương thức vận chuyển không hợp lệ")
 
-// ErrChuaNoiUocTinhPhi: bản dựng này chưa nối cổng ước tính phí vận chuyển.
+// ErrShippingEstimateNotWired: bản dựng này chưa nối cổng ước tính phí vận chuyển.
 //
 // Báo lỗi rõ thay vì rơi về một con số mặc định: đoán phí vận chuyển là
 // đoán tiền khách phải trả.
-var ErrChuaNoiUocTinhPhi = errors.New("checkout: chưa nối ước tính phí vận chuyển")
+var ErrShippingEstimateNotWired = errors.New("checkout: chưa nối ước tính phí vận chuyển")
 
 // SetShippingMethod chọn phương thức vận chuyển và ÁP phí tương ứng.
 //
@@ -1127,7 +1126,7 @@ func (s *Service) SetShippingMethod(
 	// một câu hỏi khác.
 	//
 	// Bỏ chốt này thì chuỗi lạ đi xuống tận fulfillment rồi quay lên
-	// thành 500 — đúng lỗi bài `TestPhuongThucVanChuyenPhaiHopLe` bắt được.
+	// thành 500 — đúng lỗi bài `TestTheShippingMethodMustBeValid` bắt được.
 	switch method {
 	case ShippingStandard, ShippingExpress:
 	default:
@@ -1137,7 +1136,7 @@ func (s *Service) SetShippingMethod(
 	if s.shipping == nil {
 		// KHÔNG rơi về một con số mặc định: đoán phí vận chuyển là đoán
 		// tiền khách phải trả. Thà hỏng ồn ào còn hơn thu sai im lặng.
-		return nil, ErrChuaNoiUocTinhPhi
+		return nil, ErrShippingEstimateNotWired
 	}
 
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
@@ -1145,13 +1144,13 @@ func (s *Service) SetShippingMethod(
 			return ErrEmptyCart
 		}
 
-		// Ghi phương thức TRƯỚC, rồi để `apDungTien` tính cả phí lẫn
+		// Ghi phương thức TRƯỚC, rồi để `applyMoney` tính cả phí lẫn
 		// thuế: nó đọc phương thức từ chính phiên, nên hai đường (chọn
 		// cách giao, đổi mã giảm giá) đi qua đúng một phép tính.
 		if err := c.SetShipping(string(method), money.Money{}, now); err != nil {
 			return err
 		}
-		return s.apDungTien(ctx, c, false, now)
+		return s.applyMoney(ctx, c, false, now)
 	})
 }
 
@@ -1163,7 +1162,7 @@ func (s *Service) ApplyDiscount(
 		// Giảm giá đặt tay (không qua mã) thì nền tảng chịu: không có
 		// chương trình nào để tra bên chịu, và đoán sang nhà bán là lấy
 		// tiền của người ngoài công ty.
-		return c.ApplyDiscount(code, amount, domain.BenChiuNenTang, nil, now)
+		return c.ApplyDiscount(code, amount, domain.BearerPlatform, nil, now)
 	})
 }
 
@@ -1205,15 +1204,15 @@ func (s *Service) ApplyCouponCode(
 	if err != nil {
 		return nil, err
 	}
-	discount, freeShipping := res.Giam, res.MienPhiShip
+	discount, freeShipping := res.Discount, res.FreeShipping
 
 	// Bảng phân bổ phải cộng ĐÚNG số tiền giảm.
 	//
 	// Chặn tại đây chứ không để đi tiếp: lệch một đồng là một khoản KHÔNG
 	// AI CHỊU, nó xuất hiện ở mọi đơn dùng mã và chỉ lộ ra ở kỳ đối soát —
 	// lúc đó không còn truy được đơn nào sinh ra nó.
-	if len(res.PhanBo) > 0 {
-		tong, err := domain.TongPhanBo(res.PhanBo, discount.Currency())
+	if len(res.Allocations) > 0 {
+		tong, err := domain.TotalAllocated(res.Allocations, discount.Currency())
 		if err != nil {
 			return nil, err
 		}
@@ -1235,11 +1234,11 @@ func (s *Service) ApplyCouponCode(
 	// ngưỡng. Cùng kết quả, hai lý do; hóa đơn cần phân biệt được.
 	return s.mutate(ctx, id, func(c *domain.Checkout, now time.Time) error {
 		if err := c.ApplyDiscount(
-			code, discount, domain.BenChiuGiamGia(res.BenChiu),
-			res.PhanBo, now); err != nil {
+			code, discount, domain.DiscountBearer(res.Bearer),
+			res.Allocations, now); err != nil {
 			return err
 		}
-		return s.apDungTien(ctx, c, freeShipping, now)
+		return s.applyMoney(ctx, c, freeShipping, now)
 	})
 }
 
@@ -1255,7 +1254,7 @@ func (s *Service) RemoveDiscount(ctx context.Context, id ids.ID) (*domain.Checko
 		// Gỡ mã làm tiền hàng TĂNG lại — đơn có thể vừa vượt qua ngưỡng
 		// miễn phí ship, và thuế chắc chắn đổi. Không tính lại là để lại
 		// số thuế của một đơn không còn tồn tại.
-		return s.apDungTien(ctx, c, false, now)
+		return s.applyMoney(ctx, c, false, now)
 	})
 }
 
@@ -1292,7 +1291,7 @@ func (s *Service) Extend(ctx context.Context, id ids.ID) (*domain.Checkout, erro
 		return nil, err
 	}
 	// Gia hạn cũng trả phiên ra ngoài, nên cũng phải kèm bảng kê.
-	s.kemNhomGiaoHang(ctx, c)
+	s.attachShippingGroups(ctx, c)
 	return c, nil
 }
 
@@ -1331,7 +1330,7 @@ func (s *Service) mutate(
 
 	// Bảng kê theo nhóm dựng SAU khi lưu: mọi đường ghi đều đi qua đây,
 	// nên không đường nào trả về phiên thiếu nó.
-	s.kemNhomGiaoHang(ctx, c)
+	s.attachShippingGroups(ctx, c)
 	return c, nil
 }
 
@@ -1373,13 +1372,13 @@ type CompleteResult struct {
 // cụ) không có trình duyệt nào để hỏi. Máy chủ KHÔNG bịa mã thay.
 func (s *Service) CompleteCheckout(
 	ctx context.Context, id ids.ID, idempotencyKey, paymentMethod, visitID string,
-) (_ *CompleteResult, ketQua error) {
+) (_ *CompleteResult, result error) {
 	// Bọc để mọi đường THOÁT SỚM đều được đếm. Rải lời gọi ở từng nhánh
 	// `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh bị sót
 	// thường là nhánh hiếm — tức là nhánh đáng quan tâm nhất.
 	defer func() {
-		if ketQua != nil {
-			metrics.RecordFailure(metrics.StageCheckout, lyDoThatBai(ketQua))
+		if result != nil {
+			metrics.RecordFailure(metrics.StageCheckout, failureReason(result))
 		}
 	}()
 	if idempotencyKey == "" {
@@ -1415,12 +1414,12 @@ func (s *Service) CompleteCheckout(
 		// `metrics.RecordFailure` ở đầu hàm đếm, nên nó không im lặng.
 		//
 		// Thử lại an toàn: nhánh này idempotent, lần gọi sau vào đúng đây.
-		don, err := s.orders.LayDon(ctx, c.OrderID())
+		ord, err := s.orders.GetOrder(ctx, c.OrderID())
 		if err != nil {
 			return nil, fmt.Errorf("đọc lại đơn đã tạo: %w", err)
 		}
-		res.OrderNumber = don.OrderNumber
-		res.PaymentMethod = don.PaymentMethod
+		res.OrderNumber = ord.OrderNumber
+		res.PaymentMethod = ord.PaymentMethod
 		return res, nil
 	}
 
@@ -1447,7 +1446,7 @@ func (s *Service) CompleteCheckout(
 	//
 	// Câu lệnh nguyên tử này là chỗ DUY NHẤT trạng thái thật được hỏi tới.
 	// Thua thì dừng ở đây — chưa có đơn hàng nào được tạo.
-	if err := s.checkouts.GiuDeHoanTat(ctx, id, now, anHanHoanTat); err != nil {
+	if err := s.checkouts.ClaimForCompletion(ctx, id, now, completionGrace); err != nil {
 		return nil, err
 	}
 
@@ -1456,7 +1455,7 @@ func (s *Service) CompleteCheckout(
 	// Không làm bước này thì đơn chỉ có tổng giảm ở cấp đơn, và lúc khách
 	// trả một món không ai tính được họ đã thực trả bao nhiêu cho món đó.
 	// Hoàn theo giá niêm yết khi ấy là trả nhiều hơn đã thu.
-	giamTheoDong, err := s.phanBoGiamGia(ctx, c)
+	discountPerLine, err := s.allocateDiscount(ctx, c)
 	if err != nil {
 		return nil, err
 	}
@@ -1483,8 +1482,8 @@ func (s *Service) CompleteCheckout(
 			AttributedCreatorID: l.SourceCreatorID(),
 			AttributedContentID: l.SourceContentID(),
 
-			GiamGia:        giamTheoDong[l.ID()],
-			BenChiuGiamGia: string(c.BenChiuGiamGia()),
+			Discount:       discountPerLine[l.ID()],
+			DiscountBearer: string(c.DiscountBearer()),
 		})
 	}
 
@@ -1513,7 +1512,7 @@ func (s *Service) CompleteCheckout(
 	//
 	// Từ dòng trên, đơn hàng ĐÃ TỒN TẠI trong database. Nhưng phiên vẫn
 	// mang trạng thái `STARTED`, tức vẫn nằm trong tầm quét của job dọn
-	// hạn — và ân hạn 30 giây mà `GiuDeHoanTat` cấp sẽ hết.
+	// hạn — và ân hạn 30 giây mà `ClaimForCompletion` cấp sẽ hết.
 	//
 	// Nếu tiến trình chết ở đây, hoặc `SaveWithEvents` bên dưới hỏng, và
 	// khách không thử lại: job dọn nhặt phiên này lên và NHẢ TOÀN BỘ hàng
@@ -1526,7 +1525,7 @@ func (s *Service) CompleteCheckout(
 	// Lỗi ở đây thì DỪNG: chưa ghi được dấu thì đi tiếp nghĩa là bước vào
 	// đúng khoảng trống vừa mô tả. Khách thử lại được — `PlaceOrder`
 	// idempotent theo cùng khóa nên không sinh đơn thứ hai.
-	if err := s.checkouts.GhiNhanDaTaoDon(ctx, c.ID(), placed.OrderID); err != nil {
+	if err := s.checkouts.MarkOrderPlaced(ctx, c.ID(), placed.OrderID); err != nil {
 		return nil, err
 	}
 
@@ -1544,7 +1543,7 @@ func (s *Service) CompleteCheckout(
 		err := s.payments.NewIntent(ctx, placed.OrderID, c.Total(), paymentMethod)
 		// COD (và đơn qua `placeOrder`, không có phương thức) KHÔNG có
 		// intent — đó là câu trả lời đúng, không phải hỏng. Xem ADR-0017.
-		if err != nil && !s.payments.LaKhongCanIntent(err) {
+		if err != nil && !s.payments.IsIntentNotNeeded(err) {
 			return nil, fmt.Errorf("tạo ý định thanh toán: %w", err)
 		}
 	}
@@ -1588,15 +1587,15 @@ func (s *Service) CompleteCheckout(
 	}, nil
 }
 
-// phanBoGiamGia chia số tiền giảm của phiên xuống từng dòng hàng.
+// allocateDiscount chia số tiền giảm của phiên xuống từng dòng hàng.
 //
 // Trả bản đồ RỖNG khi phiên không có giảm giá — đường đi phổ biến nhất,
 // và nó không được trả lỗi chỉ vì module promotion chưa nối.
-func (s *Service) phanBoGiamGia(
+func (s *Service) allocateDiscount(
 	ctx context.Context, c *domain.Checkout,
 ) (map[ids.ID]money.Money, error) {
-	giam := c.DiscountAmount()
-	if !giam.IsPositive() {
+	discount := c.DiscountAmount()
+	if !discount.IsPositive() {
 		return nil, nil
 	}
 	if s.promotions == nil {
@@ -1605,11 +1604,11 @@ func (s *Service) phanBoGiamGia(
 		return nil, ErrPromotionUnavailable
 	}
 
-	dong := make([]DongPhanBo, 0, len(c.Lines()))
+	placedLines := make([]AllocationLine, 0, len(c.Lines()))
 	for _, l := range c.Lines() {
-		dong = append(dong, DongPhanBo{LineID: l.ID(), Total: l.LineTotal()})
+		placedLines = append(placedLines, AllocationLine{LineID: l.ID(), Total: l.LineTotal()})
 	}
-	return s.promotions.PhanBoGiamGia(ctx, giam, dong)
+	return s.promotions.AllocateDiscount(ctx, discount, placedLines)
 }
 
 // completedEvent dựng dữ liệu event từ phiên đã hoàn tất.
@@ -1624,9 +1623,9 @@ func (s *Service) completedEvent(
 	// `fulfillment_order_line.order_line_id` trong hệ thống đều mang
 	// `cln_…`, nên phép ghép mà trường ấy tồn tại để phục vụ — trang đơn
 	// hàng nối kiện với dòng hàng — KHÔNG khớp một dòng nào.
-	dongDon := make(map[ids.ID]ids.ID, len(placed.Lines))
+	orderLineByOffer := make(map[ids.ID]ids.ID, len(placed.Lines))
 	for _, l := range placed.Lines {
-		dongDon[l.OfferID] = l.LineID
+		orderLineByOffer[l.OfferID] = l.LineID
 	}
 
 	lines := c.Lines()
@@ -1641,7 +1640,7 @@ func (s *Service) completedEvent(
 		// Bên nhận không có cách nào biết mã họ nhận thuộc không gian
 		// nào; phát bừa nghĩa là ghi sai vào database của họ và im lặng.
 		// Giao dịch chưa commit ở đây nên dừng lại là an toàn.
-		maDongDon, co := dongDon[l.OfferID()]
+		orderLineID, co := orderLineByOffer[l.OfferID()]
 		if !co {
 			return CheckoutCompleted{}, fmt.Errorf(
 				"checkout: đơn %s không có dòng cho offer %s",
@@ -1656,7 +1655,7 @@ func (s *Service) completedEvent(
 		reservations = append(reservations, ReservedLine{
 			ReservationID:      l.ReservationID(),
 			InventoryItemID:    l.InventoryItemID(),
-			LineID:             maDongDon,
+			LineID:             orderLineID,
 			SKUID:              l.SKUID(),
 			SellerID:           l.SellerID(),
 			Quantity:           l.Quantity(),
@@ -1683,10 +1682,10 @@ func (s *Service) completedEvent(
 		CouponCode:     c.CouponCode(),
 		ShippingMethod: c.ShippingMethod(),
 
-		PhanBoGiam:      c.PhanBoGiam(),
-		ShippingAddress: c.ShippingAddress(),
-		Currency:        c.Currency(),
-		Reservations:    reservations,
+		DiscountAllocations: c.DiscountAllocations(),
+		ShippingAddress:     c.ShippingAddress(),
+		Currency:            c.Currency(),
+		Reservations:        reservations,
 	}, nil
 }
 
@@ -1715,13 +1714,13 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 		// đang được khách hoàn tất ngay lúc này; nhả hàng của nó nghĩa là
 		// đơn hàng vừa tạo mất chỗ dựa (PH-32).
 		//
-		// Câu lệnh nguyên tử này và GiuDeHoanTat cùng sửa một dòng, nên
+		// Câu lệnh nguyên tử này và ClaimForCompletion cùng sửa một dòng, nên
 		// chúng loại trừ nhau: chỉ một bên thắng.
-		duoc, err := s.checkouts.GiuDeDonHan(ctx, c.ID(), now)
+		claimed, err := s.checkouts.ClaimForExpiry(ctx, c.ID(), now)
 		if err != nil {
 			return done, err
 		}
-		if !duoc {
+		if !claimed {
 			// Bên khác vừa giành — đang hoàn tất, hoặc đã kết thúc.
 			continue
 		}
@@ -1742,7 +1741,7 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 				CheckoutID: c.ID(),
 				CartID:     c.CartID(),
 				CustomerID: c.CustomerID(),
-				SoDong:     len(c.Lines()),
+				LineCount:  len(c.Lines()),
 				Subtotal:   c.Subtotal(),
 			})
 		}); err != nil {
@@ -1753,7 +1752,7 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 	return done, nil
 }
 
-// CountHoanTatKetLai đếm phiên ĐÃ TẠO ĐƠN nhưng chuỗi hoàn tất chưa xong.
+// CountStuckCompletions đếm phiên ĐÃ TẠO ĐƠN nhưng chuỗi hoàn tất chưa xong.
 //
 // Chỉ báo giám sát, và là mặt trái của việc loại những phiên này khỏi job
 // dọn: hàng của chúng nằm giữ vô thời hạn. Đánh đổi "thà hàng chết còn hơn
@@ -1761,8 +1760,8 @@ func (s *Service) ExpireStale(ctx context.Context, limit int) (int, error) {
 // là cách nói khác của việc giấu vấn đề đi.
 //
 // Bình thường phải là 0.
-func (s *Service) CountHoanTatKetLai(ctx context.Context) (int, error) {
-	return s.checkouts.CountHoanTatKetLai(ctx, s.clock.Now())
+func (s *Service) CountStuckCompletions(ctx context.Context) (int, error) {
+	return s.checkouts.CountStuckCompletions(ctx, s.clock.Now())
 }
 
 // CountExpiredPending đếm số phiên quá hạn chưa dọn.
@@ -1772,16 +1771,16 @@ func (s *Service) CountExpiredPending(ctx context.Context) (int, error) {
 	return s.checkouts.CountExpiredPending(ctx, s.clock.Now())
 }
 
-// lyDoThatBai phân loại lỗi thành một nhãn có tập giá trị ĐÓNG.
+// failureReason phân loại lỗi thành một nhãn có tập giá trị ĐÓNG.
 //
 // Không truyền thông điệp lỗi thô vào nhãn: nó chứa tên sản phẩm và số
 // lượng, nên mỗi lần lỗi là một chuỗi thời gian mới.
-func lyDoThatBai(err error) string {
+func failureReason(err error) string {
 	switch {
 	// Kiểm TRANH CHẤP trước: lỗi giữ hàng gói cả hai, và thứ tự ở đây
 	// quyết định nhãn nào được ghi. Để ErrOutOfStock trước thì mọi tranh
 	// chấp lại chui vào nhãn "hết hàng" — đúng chỗ đã sai trước đây.
-	case errors.Is(err, ErrTranhChapTonKho):
+	case errors.Is(err, ErrStockConflict):
 		return "version_conflict"
 	case errors.Is(err, ErrOutOfStock):
 		return "out_of_stock"

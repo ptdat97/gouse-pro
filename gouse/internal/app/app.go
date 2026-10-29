@@ -541,7 +541,7 @@ func Build(
 		//
 		// Khác 0 nghĩa là có đơn hàng với phiên chưa đóng: cần đối soát,
 		// không phải chờ nó tự khỏi.
-		ketLai, err := checkoutModule.CountHoanTatKetLai(ctx)
+		ketLai, err := checkoutModule.CountStuckCompletions(ctx)
 		if err != nil {
 			return Modules{}, fmt.Errorf("kiểm tra phiên kẹt sau khi tạo đơn: %w", err)
 		}

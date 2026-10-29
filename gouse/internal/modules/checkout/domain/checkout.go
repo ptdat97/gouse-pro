@@ -44,14 +44,14 @@ var (
 	ErrInvalidStatus = errors.New("checkout: chuyển trạng thái không hợp lệ")
 	ErrNoAddress     = errors.New("checkout: phải có địa chỉ giao hàng")
 
-	// ErrKhacDonViTienTe: một khoản tiền khác đơn vị tiền tệ của phiên.
+	// ErrDifferentCurrency: một khoản tiền khác đơn vị tiền tệ của phiên.
 	//
 	// Cộng hai con số khác đơn vị ra một số vô nghĩa, và nó vô nghĩa một
 	// cách IM LẶNG — phép cộng vẫn chạy.
-	ErrKhacDonViTienTe = errors.New("checkout: khác đơn vị tiền tệ của phiên")
-	ErrTooManyExtends  = errors.New("checkout: đã hết số lần gia hạn")
-	ErrMissingIdemKey  = errors.New("checkout: thiếu khóa idempotency")
-	ErrAlreadyComplete = errors.New("checkout: phiên thanh toán đã hoàn tất")
+	ErrDifferentCurrency = errors.New("checkout: khác đơn vị tiền tệ của phiên")
+	ErrTooManyExtends    = errors.New("checkout: đã hết số lần gia hạn")
+	ErrMissingIdemKey    = errors.New("checkout: thiếu khóa idempotency")
+	ErrAlreadyComplete   = errors.New("checkout: phiên thanh toán đã hoàn tất")
 )
 
 // Status là trạng thái của phiên thanh toán.
@@ -135,9 +135,9 @@ type Checkout struct {
 
 	lines []*Line
 
-	// nhomGiaoHang là bảng kê phí và ngày giao theo từng nhà bán, dựng
-	// lại mỗi lần `ApDungPhiVaThue` chạy.
-	nhomGiaoHang []NhomGiaoHang
+	// shippingGroups là bảng kê phí và ngày giao theo từng nhà bán, dựng
+	// lại mỗi lần `ApplyFeesAndTax` chạy.
+	shippingGroups []ShippingGroup
 
 	// Các khoản ở mức phiên. shippingFee tính sau khi có địa chỉ.
 	shippingFee    money.Money
@@ -145,16 +145,16 @@ type Checkout struct {
 	taxAmount      money.Money
 	couponCode     string
 
-	// benChiuGiamGia là bên phải gánh khoản giảm, ĐÓNG BĂNG lúc áp mã.
+	// discountBearer là bên phải gánh khoản giảm, ĐÓNG BĂNG lúc áp mã.
 	//
 	// Xem migration 000046 về lý do đóng băng thay vì tra lại lúc đặt đơn.
-	benChiuGiamGia BenChiuGiamGia
+	discountBearer DiscountBearer
 
-	// phanBoGiam là bảng chia chi phí khoản giảm, ĐÓNG BĂNG lúc áp mã.
+	// discountAllocations là bảng chia chi phí khoản giảm, ĐÓNG BĂNG lúc áp mã.
 	//
 	// Rỗng nghĩa là nền tảng gánh trọn — đúng với mọi phiên không dùng mã,
 	// và với dữ liệu cũ trước migration 000047.
-	phanBoGiam []PhanBoChiPhiGiam
+	discountAllocations []DiscountCostAllocation
 
 	status Status
 
@@ -259,32 +259,32 @@ func NewCheckout(p NewCheckoutParams) (*Checkout, error) {
 
 // RestoreCheckoutParams dựng lại từ kho lưu trữ.
 type RestoreCheckoutParams struct {
-	ID              ids.ID
-	CartID          ids.ID
-	CustomerID      ids.ID
-	GuestEmail      string
-	GuestPhone      string
-	Currency        money.Currency
-	ShippingAddress Address
-	ShippingMethod  string
-	Lines           []*Line
-	ShippingFee     money.Money
-	DiscountAmount  money.Money
-	TaxAmount       money.Money
-	CouponCode      string
-	BenChiuGiamGia  BenChiuGiamGia
-	PhanBoGiam      []PhanBoChiPhiGiam
-	Status          Status
-	ExpiresAt       time.Time
-	ExtendedTimes   int
-	OrderID         ids.ID
-	CompletionKey   string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                  ids.ID
+	CartID              ids.ID
+	CustomerID          ids.ID
+	GuestEmail          string
+	GuestPhone          string
+	Currency            money.Currency
+	ShippingAddress     Address
+	ShippingMethod      string
+	Lines               []*Line
+	ShippingFee         money.Money
+	DiscountAmount      money.Money
+	TaxAmount           money.Money
+	CouponCode          string
+	DiscountBearer      DiscountBearer
+	DiscountAllocations []DiscountCostAllocation
+	Status              Status
+	ExpiresAt           time.Time
+	ExtendedTimes       int
+	OrderID             ids.ID
+	CompletionKey       string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // RestoreCheckout dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
-// KemDongHang trả về BẢN SAO của phiên, gắn danh sách dòng hàng.
+// WithLines trả về BẢN SAO của phiên, gắn danh sách dòng hàng.
 //
 // # Vì sao là phương thức trong domain chứ không dựng lại ở tầng kho
 //
@@ -294,40 +294,40 @@ type RestoreCheckoutParams struct {
 // tiếp. Lỗi chỉ lộ ra ở bài test ghi-rồi-đọc-lại, không lộ ra lúc ghi.
 //
 // Đúng lỗi đó đã xảy ra hai lần: `withLineIDs` bên fulfillment quên
-// `ChoThanhToan`, và `withLines` ở đây quên `BenChiuGiamGia`.
+// `ChoThanhToan`, và `withLines` ở đây quên `DiscountBearer`.
 //
 // Sao chép cả struct thì không có trường nào để quên. Chỉ làm được từ
 // TRONG package, vì các trường đều không xuất khẩu.
-func (c *Checkout) KemDongHang(lines []*Line) *Checkout {
-	ban := *c
-	ban.lines = lines
-	return &ban
+func (c *Checkout) WithLines(lines []*Line) *Checkout {
+	initial := *c
+	initial.lines = lines
+	return &initial
 }
 
 func RestoreCheckout(p RestoreCheckoutParams) *Checkout {
 	return &Checkout{
-		id:              p.ID,
-		cartID:          p.CartID,
-		customerID:      p.CustomerID,
-		guestEmail:      p.GuestEmail,
-		guestPhone:      p.GuestPhone,
-		currency:        p.Currency,
-		shippingAddress: p.ShippingAddress,
-		shippingMethod:  p.ShippingMethod,
-		lines:           p.Lines,
-		shippingFee:     p.ShippingFee,
-		discountAmount:  p.DiscountAmount,
-		taxAmount:       p.TaxAmount,
-		couponCode:      p.CouponCode,
-		benChiuGiamGia:  p.BenChiuGiamGia,
-		phanBoGiam:      p.PhanBoGiam,
-		status:          p.Status,
-		expiresAt:       p.ExpiresAt,
-		extendedAt:      p.ExtendedTimes,
-		orderID:         p.OrderID,
-		completionKey:   p.CompletionKey,
-		createdAt:       p.CreatedAt,
-		updatedAt:       p.UpdatedAt,
+		id:                  p.ID,
+		cartID:              p.CartID,
+		customerID:          p.CustomerID,
+		guestEmail:          p.GuestEmail,
+		guestPhone:          p.GuestPhone,
+		currency:            p.Currency,
+		shippingAddress:     p.ShippingAddress,
+		shippingMethod:      p.ShippingMethod,
+		lines:               p.Lines,
+		shippingFee:         p.ShippingFee,
+		discountAmount:      p.DiscountAmount,
+		taxAmount:           p.TaxAmount,
+		couponCode:          p.CouponCode,
+		discountBearer:      p.DiscountBearer,
+		discountAllocations: p.DiscountAllocations,
+		status:              p.Status,
+		expiresAt:           p.ExpiresAt,
+		extendedAt:          p.ExtendedTimes,
+		orderID:             p.OrderID,
+		completionKey:       p.CompletionKey,
+		createdAt:           p.CreatedAt,
+		updatedAt:           p.UpdatedAt,
 	}
 }
 
@@ -341,20 +341,20 @@ func (c *Checkout) ShippingAddress() Address { return c.shippingAddress }
 func (c *Checkout) ShippingMethod() string   { return c.shippingMethod }
 func (c *Checkout) ShippingFee() money.Money { return c.shippingFee }
 
-// NhomGiaoHang trả bảng kê theo từng kiện. Rỗng khi chưa chọn cách giao.
-func (c *Checkout) NhomGiaoHang() []NhomGiaoHang { return c.nhomGiaoHang }
-func (c *Checkout) DiscountAmount() money.Money  { return c.discountAmount }
-func (c *Checkout) TaxAmount() money.Money       { return c.taxAmount }
-func (c *Checkout) CouponCode() string           { return c.couponCode }
+// ShippingGroup trả bảng kê theo từng kiện. Rỗng khi chưa chọn cách giao.
+func (c *Checkout) ShippingGroup() []ShippingGroup { return c.shippingGroups }
+func (c *Checkout) DiscountAmount() money.Money    { return c.discountAmount }
+func (c *Checkout) TaxAmount() money.Money         { return c.taxAmount }
+func (c *Checkout) CouponCode() string             { return c.couponCode }
 
-// BenChiuGiamGia là bên phải gánh khoản giảm, đóng băng lúc áp mã.
-func (c *Checkout) BenChiuGiamGia() BenChiuGiamGia {
-	return c.benChiuGiamGia.HoacMacDinh()
+// DiscountBearer là bên phải gánh khoản giảm, đóng băng lúc áp mã.
+func (c *Checkout) DiscountBearer() DiscountBearer {
+	return c.discountBearer.OrDefault()
 }
 
-// PhanBoGiam trả BẢN SAO bảng chia chi phí khoản giảm.
-func (c *Checkout) PhanBoGiam() []PhanBoChiPhiGiam {
-	return append([]PhanBoChiPhiGiam(nil), c.phanBoGiam...)
+// DiscountAllocations trả BẢN SAO bảng chia chi phí khoản giảm.
+func (c *Checkout) DiscountAllocations() []DiscountCostAllocation {
+	return append([]DiscountCostAllocation(nil), c.discountAllocations...)
 }
 func (c *Checkout) Status() Status        { return c.status }
 func (c *Checkout) ExpiresAt() time.Time  { return c.expiresAt }
@@ -489,8 +489,8 @@ func (c *Checkout) SetShipping(method string, fee money.Money, now time.Time) er
 
 // ApplyDiscount áp một khoản giảm giá ở mức phiên.
 func (c *Checkout) ApplyDiscount(
-	code string, amount money.Money, benChiu BenChiuGiamGia,
-	phanBo []PhanBoChiPhiGiam, now time.Time,
+	code string, amount money.Money, bearer DiscountBearer,
+	allocations []DiscountCostAllocation, now time.Time,
 ) error {
 	if err := c.mutable(now); err != nil {
 		return err
@@ -500,8 +500,8 @@ func (c *Checkout) ApplyDiscount(
 	}
 	c.couponCode = strings.TrimSpace(code)
 	c.discountAmount = amount
-	c.benChiuGiamGia = benChiu.HoacMacDinh()
-	c.phanBoGiam = append([]PhanBoChiPhiGiam(nil), phanBo...)
+	c.discountBearer = bearer.OrDefault()
+	c.discountAllocations = append([]DiscountCostAllocation(nil), allocations...)
 	c.touch(now)
 	return nil
 }
@@ -513,8 +513,8 @@ func (c *Checkout) RemoveDiscount(now time.Time) error {
 	}
 	c.couponCode = ""
 	c.discountAmount = money.Zero(c.currency)
-	c.benChiuGiamGia = BenChiuNenTang
-	c.phanBoGiam = nil
+	c.discountBearer = BearerPlatform
+	c.discountAllocations = nil
 	c.touch(now)
 	return nil
 }

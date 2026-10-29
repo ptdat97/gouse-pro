@@ -11,42 +11,41 @@ import (
 	checkoutpg "github.com/fashion-commerce/platform/internal/modules/checkout/infrastructure/postgres"
 )
 
-// promoThat phân bổ giảm giá THEO TỶ LỆ, rải phần dư.
+// realPromo phân bổ giảm giá THEO TỶ LỆ, rải phần dư.
 //
 // Dùng bản riêng thay vì gọi module promotion để bài này đo ĐÚNG một thứ:
 // checkout CÓ gọi phân bổ và CÓ đóng băng kết quả vào đơn không. Quy tắc
 // chia đã có bài test riêng ở module promotion.
-type promoThat struct{ goi int }
+type realPromo struct{ call int }
 
-func (p *promoThat) ValidateCoupon(
+func (p *realPromo) ValidateCoupon(
 	_ context.Context, _, _ string, _ ids.ID, _ money.Money,
-) (application.KetQuaMaGiam, error) {
-	return application.KetQuaMaGiam{}, nil
+) (application.PromoResult, error) {
+	return application.PromoResult{}, nil
 }
 
-func (p *promoThat) PhanBoGiamGia(
-	_ context.Context, giam money.Money, dong []application.DongPhanBo,
-) (map[ids.ID]money.Money, error) {
-	p.goi++
+func (p *realPromo) AllocateDiscount(
+	_ context.Context, discount money.Money, placedLines []application.AllocationLine) (map[ids.ID]money.Money, error) {
+	p.call++
 
 	tong := int64(0)
-	for _, d := range dong {
+	for _, d := range placedLines {
 		tong += d.Total.Amount()
 	}
 
 	out := map[ids.ID]money.Money{}
 	daChia := int64(0)
-	for i, d := range dong {
-		var phan int64
-		if i == len(dong)-1 {
+	for i, d := range placedLines {
+		var share int64
+		if i == len(placedLines)-1 {
 			// Dòng cuối nhận phần CÒN LẠI: tổng các phần phải bằng ĐÚNG
 			// số tiền giảm, phần dư của phép chia không được biến mất.
-			phan = giam.Amount() - daChia
+			share = discount.Amount() - daChia
 		} else {
-			phan = giam.Amount() * d.Total.Amount() / tong
-			daChia += phan
+			share = discount.Amount() * d.Total.Amount() / tong
+			daChia += share
 		}
-		m, err := money.New(phan, giam.Currency())
+		m, err := money.New(share, discount.Currency())
 		if err != nil {
 			return nil, err
 		}
@@ -55,7 +54,7 @@ func (p *promoThat) PhanBoGiamGia(
 	return out, nil
 }
 
-// TestGiamGiaDuocDongBangXuongTungDongHang.
+// TestTheDiscountIsFrozenOntoEachLine.
 //
 // # Vì sao bất biến này quan trọng
 //
@@ -66,13 +65,13 @@ func (p *promoThat) PhanBoGiamGia(
 //
 // Module returns hiện TỪ CHỐI hoàn tự động những đơn có giảm giá chưa phân
 // bổ. Bài này khóa mắt xích khiến việc từ chối đó không còn cần thiết.
-func TestGiamGiaDuocDongBangXuongTungDongHang(t *testing.T) {
+func TestTheDiscountIsFrozenOntoEachLine(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
 	// Dựng service RIÊNG có cổng khuyến mãi: harness mặc định không có,
 	// và thêm setter chỉ để test là làm bẩn mã production.
-	promo := &promoThat{}
+	promo := &realPromo{}
 	svc := application.NewService(application.Deps{
 		Checkouts:   checkoutpg.NewCheckoutStore(h.db.Pool()),
 		Carts:       h.cart,
@@ -115,23 +114,23 @@ func TestGiamGiaDuocDongBangXuongTungDongHang(t *testing.T) {
 		t.Fatalf("CompleteCheckout: %v", err)
 	}
 
-	if promo.goi == 0 {
+	if promo.call == 0 {
 		t.Fatal("checkout KHÔNG gọi phân bổ giảm giá — đơn tạo ra sẽ không " +
 			"trả hàng tự động được")
 	}
 
 	// Tổng khoản điều chỉnh trên các dòng phải bằng ĐÚNG số tiền giảm.
-	var tongDieuChinh int64
+	var totalAdjustments int64
 	if err := h.db.Pool().QueryRow(ctx, `
 		SELECT coalesce(sum(a.amount), 0)
 		  FROM order_line_adjustment a
 		  JOIN order_line l ON l.id = a.order_line_id
-		 WHERE l.order_id = $1`, res.OrderID.String()).Scan(&tongDieuChinh); err != nil {
+		 WHERE l.order_id = $1`, res.OrderID.String()).Scan(&totalAdjustments); err != nil {
 		t.Fatalf("đọc khoản điều chỉnh: %v", err)
 	}
 
-	if tongDieuChinh != -50_000 {
+	if totalAdjustments != -50_000 {
 		t.Errorf("tổng khoản điều chỉnh là %d, cần -50000 — phần giảm không "+
-			"được đóng băng đủ xuống dòng hàng", tongDieuChinh)
+			"được đóng băng đủ xuống dòng hàng", totalAdjustments)
 	}
 }

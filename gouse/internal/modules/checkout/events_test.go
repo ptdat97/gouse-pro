@@ -36,7 +36,7 @@ func (h *harness) quantities(t *testing.T, skuID ids.ID) (available, reserved, c
 // hạn sẽ NHẢ hàng còn ở trạng thái Reserved. Nếu đơn đã thanh toán mà hàng
 // vẫn Reserved, tiến trình đó biến một đơn đã thu tiền thành đơn không có
 // hàng — và bán hàng đó cho khách khác.
-func TestDatHangXongThiHangChuyenSangCommitted(t *testing.T) {
+func TestPlacingTheOrderMovesStockToCommitted(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -44,11 +44,11 @@ func TestDatHangXongThiHangChuyenSangCommitted(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus := eventbus.NewDispatcher(h.db.Pool(), log)
 
-	invModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: h.db})
+	inventoryModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: h.db})
 	if err != nil {
 		t.Fatalf("inventory.New: %v", err)
 	}
-	bus.Subscribe(inventory.NewCommitHandler(invModule, log))
+	bus.Subscribe(inventory.NewCommitHandler(inventoryModule, log))
 
 	// Dựng lại service checkout CÓ bộ phát event.
 	svc := application.NewService(application.Deps{
@@ -110,7 +110,7 @@ func TestDatHangXongThiHangChuyenSangCommitted(t *testing.T) {
 	// Đếm tổng là ràng buộc sai: nó đỏ mỗi lần hệ thống phát thêm một
 	// event chẳng liên quan (đã xảy ra khi thêm `checkout.started`), và
 	// nó XANH nếu event phát ra là loại khác nhưng đúng số lượng.
-	if k := demTheoLoai(t, h, "checkout.completed"); k != 1 {
+	if k := countByType(t, h, "checkout.completed"); k != 1 {
 		t.Fatalf("có %d event checkout.completed, mong 1", k)
 	}
 
@@ -127,18 +127,18 @@ func TestDatHangXongThiHangChuyenSangCommitted(t *testing.T) {
 //
 // Mô hình at-least-once nghĩa là event SẼ được phát lại. Cam kết hai lần
 // nghĩa là trừ tồn kho gấp đôi cho một đơn.
-func TestPhatLaiEventKhongCamKetHaiLan(t *testing.T) {
+func TestARedeliveredEventDoesNotCommitTwice(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	bus := eventbus.NewDispatcher(h.db.Pool(), log)
 
-	invModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: h.db})
+	inventoryModule, err := inventory.New(inventory.Config{Storage: "postgres", DB: h.db})
 	if err != nil {
 		t.Fatalf("inventory.New: %v", err)
 	}
-	bus.Subscribe(inventory.NewCommitHandler(invModule, log))
+	bus.Subscribe(inventory.NewCommitHandler(inventoryModule, log))
 
 	svc := application.NewService(application.Deps{
 		Checkouts:   checkoutpg.NewCheckoutStore(h.db.Pool()),
@@ -194,7 +194,7 @@ func TestPhatLaiEventKhongCamKetHaiLan(t *testing.T) {
 //
 // Nửa còn lại của Transactional Outbox: bên nhận không được xử lý một sự
 // thật chưa từng xảy ra.
-func TestTaoDonThatBaiThiKhongPhatEvent(t *testing.T) {
+func TestAFailedOrderEmitsNoEvent(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 
@@ -229,21 +229,21 @@ func TestTaoDonThatBaiThiKhongPhatEvent(t *testing.T) {
 	// `checkout.started` ĐÃ được phát và đúng như vậy: phiên thật sự đã
 	// mở, hàng thật sự đã giữ. Cấm mọi event là ràng buộc quá rộng — nó
 	// biến "phiên mở thành công" thành lỗi.
-	if k := demTheoLoai(t, h, "checkout.completed"); k != 0 {
+	if k := countByType(t, h, "checkout.completed"); k != 0 {
 		t.Errorf("có %d event checkout.completed, mong 0 — đơn chưa tạo mà "+
 			"event đã phát nghĩa là tồn kho bị cam kết cho một đơn không "+
 			"tồn tại", k)
 	}
 }
 
-// demTheoLoai đếm event của MỘT loại trong outbox, kể cả đã phát.
-func demTheoLoai(t *testing.T, h *harness, loai string) int {
+// countByType đếm event của MỘT loại trong outbox, kể cả đã phát.
+func countByType(t *testing.T, h *harness, kind string) int {
 	t.Helper()
 	var n int
 	if err := h.db.Pool().QueryRow(context.Background(),
-		`SELECT count(*) FROM event_outbox WHERE event_type = $1`, loai,
+		`SELECT count(*) FROM event_outbox WHERE event_type = $1`, kind,
 	).Scan(&n); err != nil {
-		t.Fatalf("đếm event loại %s: %v", loai, err)
+		t.Fatalf("đếm event loại %s: %v", kind, err)
 	}
 	return n
 }
