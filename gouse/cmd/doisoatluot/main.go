@@ -50,20 +50,20 @@ func main() {
 	}
 }
 
-// luotThieu là một đơn đã dùng mã nhưng không có lượt nào được ghi.
-type luotThieu struct {
+// missingVisit là một đơn đã dùng mã nhưng không có lượt nào được ghi.
+type missingVisit struct {
 	orderID    string
 	customerID string
 	code       string
 	discount   int64
 	currency   string
-	trangThai  string
+	status     string
 }
 
 func chay() error {
-	ghi := flag.Bool("ghi", false,
+	write := flag.Bool("ghi", false,
 		"THỰC SỰ ghi lượt còn thiếu (mặc định chỉ báo cáo)")
-	gioiHan := flag.Int("gioihan", 500, "số đơn xử lý mỗi lượt")
+	limit := flag.Int("gioihan", 500, "số đơn xử lý mỗi lượt")
 	flag.Parse()
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -83,38 +83,38 @@ func chay() error {
 	// Chiều này chỉ báo cáo. Giải phóng nhầm thì mã được dùng thêm một
 	// lượt ngoài dự tính — rẻ hơn ghi nhầm, nhưng vẫn là quyết định của
 	// người, vì một đơn hủy rồi đặt lại là chuyện có thật.
-	if err := raSoatDonDaHuy(ctx, db.Pool()); err != nil {
+	if err := auditCancelledOrders(ctx, db.Pool()); err != nil {
 		return err
 	}
 
-	thieu, err := timLuotThieu(ctx, db.Pool(), *gioiHan)
+	missing, err := findMissingVisits(ctx, db.Pool(), *limit)
 	if err != nil {
 		return err
 	}
 
-	if len(thieu) == 0 {
+	if len(missing) == 0 {
 		fmt.Println("Không có đơn nào dùng mã mà thiếu lượt.")
 		return nil
 	}
 
 	var tong int64
-	for _, t := range thieu {
+	for _, t := range missing {
 		tong += t.discount
 	}
 	fmt.Printf("Tìm thấy %d đơn đã dùng mã nhưng KHÔNG có lượt nào được ghi.\n",
-		len(thieu))
+		len(missing))
 	fmt.Printf("Tổng tiền đã giảm mà ngân sách khuyến mãi chưa tính: %d đ\n\n", tong)
 
-	for i, t := range thieu {
+	for i, t := range missing {
 		if i >= 5 {
-			fmt.Printf("  … và %d đơn nữa\n", len(thieu)-5)
+			fmt.Printf("  … và %d đơn nữa\n", len(missing)-5)
 			break
 		}
 		fmt.Printf("  %s  mã %-16s %-16s %10d đ\n",
-			t.orderID, t.code, t.trangThai, t.discount)
+			t.orderID, t.code, t.status, t.discount)
 	}
 
-	if !*ghi {
+	if !*write {
 		fmt.Println("\nCHỈ BÁO CÁO. Chạy lại với -ghi để ghi lượt còn thiếu.")
 		return nil
 	}
@@ -124,8 +124,8 @@ func chay() error {
 		return fmt.Errorf("dựng module promotion: %w", err)
 	}
 
-	var daGhi, boQua int
-	for _, t := range thieu {
+	var written, boQua int
+	for _, t := range missing {
 		// Đi qua module, KHÔNG chèn thẳng SQL: bộ đếm `used_count` và
 		// `used_budget` phải tăng cùng lúc với hàng lượt, và chỉ đường
 		// này làm đúng cả hai.
@@ -144,26 +144,26 @@ func chay() error {
 			boQua++
 			continue
 		}
-		daGhi++
+		written++
 	}
 
-	fmt.Printf("\nĐã ghi %d lượt, bỏ qua %d.\n", daGhi, boQua)
+	fmt.Printf("\nĐã ghi %d lượt, bỏ qua %d.\n", written, boQua)
 	if boQua > 0 {
 		return errors.New("có đơn không ghi được lượt — xem log ở trên")
 	}
 	return nil
 }
 
-// timLuotThieu tìm đơn CÓ giảm giá mà không có hàng nào trong coupon_usage.
+// findMissingVisits tìm đơn CÓ giảm giá mà không có hàng nào trong coupon_usage.
 //
 // Mã đọc từ PHIÊN THANH TOÁN, không từ đơn: đơn chỉ giữ SỐ TIỀN giảm, còn
 // mã nào tạo ra số đó thì chỉ phiên biết.
 //
 // Bỏ qua đơn ĐÃ HỦY: ghi lượt cho chúng rồi lại phải giải phóng ngay là
 // hai lần sai thay vì không lần nào.
-func timLuotThieu(
-	ctx context.Context, pool *pgxpool.Pool, gioiHan int,
-) ([]luotThieu, error) {
+func findMissingVisits(
+	ctx context.Context, pool *pgxpool.Pool, limit int,
+) ([]missingVisit, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT o.id, o.customer_id, c.coupon_code, o.discount_amount,
 		       o.currency, o.status
@@ -175,17 +175,17 @@ func timLuotThieu(
 		   AND NOT EXISTS (
 		       SELECT 1 FROM coupon_usage u WHERE u.order_id = o.id)
 		 ORDER BY o.created_at
-		 LIMIT $1`, gioiHan)
+		 LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("tìm lượt thiếu: %w", err)
 	}
 	defer rows.Close()
 
-	var out []luotThieu
+	var out []missingVisit
 	for rows.Next() {
-		var t luotThieu
+		var t missingVisit
 		if err := rows.Scan(&t.orderID, &t.customerID, &t.code,
-			&t.discount, &t.currency, &t.trangThai); err != nil {
+			&t.discount, &t.currency, &t.status); err != nil {
 			return nil, fmt.Errorf("đọc đơn: %w", err)
 		}
 		out = append(out, t)
@@ -193,11 +193,11 @@ func timLuotThieu(
 	return out, rows.Err()
 }
 
-// raSoatDonDaHuy báo các lượt còn hiệu lực thuộc về đơn đã hủy.
+// auditCancelledOrders báo các lượt còn hiệu lực thuộc về đơn đã hủy.
 //
 // Mỗi hàng ở đây là một khách đang bị giữ mất quyền dùng mã cho một đơn
 // không còn tồn tại.
-func raSoatDonDaHuy(ctx context.Context, pool *pgxpool.Pool) error {
+func auditCancelledOrders(ctx context.Context, pool *pgxpool.Pool) error {
 	rows, err := pool.Query(ctx, `
 		SELECT u.order_id, u.discount_amount
 		  FROM coupon_usage u
@@ -214,15 +214,15 @@ func raSoatDonDaHuy(ctx context.Context, pool *pgxpool.Pool) error {
 	var n int
 	for rows.Next() {
 		var id string
-		var tien int64
-		if err := rows.Scan(&id, &tien); err != nil {
+		var amountRaw int64
+		if err := rows.Scan(&id, &amountRaw); err != nil {
 			return fmt.Errorf("đọc lượt: %w", err)
 		}
 		if n == 0 {
 			fmt.Println("Lượt còn hiệu lực của đơn ĐÃ HỦY " +
 				"(khách đang mất quyền dùng mã):")
 		}
-		fmt.Printf("  %s  %10d đ\n", id, tien)
+		fmt.Printf("  %s  %10d đ\n", id, amountRaw)
 		n++
 	}
 	if err := rows.Err(); err != nil {

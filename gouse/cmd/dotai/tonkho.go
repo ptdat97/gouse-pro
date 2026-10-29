@@ -30,20 +30,20 @@ import (
 // tải, và trả 500 cho nó khiến người gọi không thử lại — trong khi thử
 // lại chính là việc đúng.
 
-func envStr(ten, macDinh string) string {
+func envStr(ten, fallback string) string {
 	if v := os.Getenv(ten); v != "" {
 		return v
 	}
-	return macDinh
+	return fallback
 }
 
-type demTheoMa struct {
+type countByCode struct {
 	mu sync.Mutex
 	m  map[int]int
 	ds []time.Duration
 }
 
-func (d *demTheoMa) ghi(code int, t time.Duration) {
+func (d *countByCode) write(code int, t time.Duration) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.m == nil {
@@ -55,7 +55,7 @@ func (d *demTheoMa) ghi(code int, t time.Duration) {
 	}
 }
 
-func (d *demTheoMa) coLoiMay() bool {
+func (d *countByCode) hasMachineError() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for code := range d.m {
@@ -66,7 +66,7 @@ func (d *demTheoMa) coLoiMay() bool {
 	return false
 }
 
-func chayTonKho() {
+func runStock() {
 	sku := envStr("SKU", "")
 	offer := envStr("OFFER", "")
 	tok := envStr("SELLER_TOKEN", "")
@@ -75,9 +75,9 @@ func chayTonKho() {
 		os.Exit(1)
 	}
 
-	khachN, _ := strconv.Atoi(os.Getenv("SONG_SONG"))
-	if khachN == 0 {
-		khachN = 50
+	concurrency, _ := strconv.Atoi(os.Getenv("SONG_SONG"))
+	if concurrency == 0 {
+		concurrency = 50
 	}
 	// SELLER_SONG_SONG=0 nghĩa là KHÔNG có nhà bán nào — kịch bản đối
 	// chứng. Phải phân biệt "đặt là 0" với "không đặt", nếu không thì
@@ -91,94 +91,94 @@ func chayTonKho() {
 		}
 		sellerN = n
 	}
-	moiNguoi, _ := strconv.Atoi(os.Getenv("MOI_NGUOI"))
-	if moiNguoi == 0 {
-		moiNguoi = 5
+	perUser, _ := strconv.Atoi(os.Getenv("MOI_NGUOI"))
+	if perUser == 0 {
+		perUser = 5
 	}
 
 	fmt.Printf("kịch bản=tồn kho trộn  sku=%s\n", sku)
 	fmt.Printf("khách=%d×%d  nhà bán=%d×%d  (cùng MỘT dòng tồn kho)\n\n",
-		khachN, moiNguoi, sellerN, moiNguoi)
+		concurrency, perUser, sellerN, perUser)
 
-	var khach, seller demTheoMa
-	var batDau, xong sync.WaitGroup
-	batDau.Add(1)
+	var client, seller countByCode
+	var start, done sync.WaitGroup
+	start.Add(1)
 
 	// Phía KHÁCH: mở phiên thanh toán, tức là GIỮ HÀNG.
 	//
 	// Chỉ chạy tới bước giữ hàng là đủ: đó là bước duy nhất chạm dòng tồn
 	// kho, và kéo dài chuỗi thêm sẽ pha loãng thứ đang đo.
-	for i := 0; i < khachN; i++ {
-		xong.Add(1)
+	for i := 0; i < concurrency; i++ {
+		done.Add(1)
 		go func() {
-			defer xong.Done()
-			batDau.Wait()
-			for j := 0; j < moiNguoi; j++ {
-				k := moKhach()
-				code, body, _ := k.goi(http.MethodPost, "/api/v1/cart/items",
+			defer done.Done()
+			start.Wait()
+			for j := 0; j < perUser; j++ {
+				k := newClient()
+				code, body, _ := k.parcel(http.MethodPost, "/api/v1/cart/items",
 					map[string]any{"offer_id": offer, "quantity": 1})
 				if code != http.StatusOK {
-					khach.ghi(code, 0)
+					client.write(code, 0)
 					continue
 				}
-				gio, _ := body["cart"].(map[string]any)
-				maGio, _ := gio["id"].(string)
+				cart, _ := body["cart"].(map[string]any)
+				cartID, _ := cart["id"].(string)
 
 				t0 := time.Now()
-				code, _, _ = k.goi(http.MethodPost, "/api/v1/checkout",
+				code, _, _ = k.parcel(http.MethodPost, "/api/v1/checkout",
 					map[string]any{
-						"cart_id":     maGio,
-						"guest_email": "tk-" + khoa() + "@dotai.local",
+						"cart_id":     cartID,
+						"guest_email": "tk-" + key() + "@dotai.local",
 						"guest_phone": "0900000002",
 					})
-				khach.ghi(code, time.Since(t0))
+				client.write(code, time.Since(t0))
 			}
 		}()
 	}
 
 	// Phía NHÀ BÁN: kiểm kê lại, con số tuyệt đối.
 	for i := 0; i < sellerN; i++ {
-		xong.Add(1)
+		done.Add(1)
 		go func(i int) {
-			defer xong.Done()
-			batDau.Wait()
-			for j := 0; j < moiNguoi; j++ {
-				k := moKhach()
-				k.them = map[string]string{"Authorization": "Bearer " + tok}
+			defer done.Done()
+			start.Wait()
+			for j := 0; j < perUser; j++ {
+				k := newClient()
+				k.add = map[string]string{"Authorization": "Bearer " + tok}
 				// Đổi qua lại hai con số để mỗi lượt là thay đổi THẬT:
 				// đặt đúng số đang có là việc không-làm-gì, và đo nó thì
 				// đo nhầm một đường không ghi database.
 				q := 40000 + (i*7+j)%2
 				t0 := time.Now()
-				code, _, _ := k.goi(http.MethodPut, "/api/v1/seller/inventory/"+sku,
+				code, _, _ := k.parcel(http.MethodPut, "/api/v1/seller/inventory/"+sku,
 					map[string]any{
 						"quantity_available": q,
 						"reason":             "kiểm kê định kỳ trong lúc đo tải",
 					})
-				seller.ghi(code, time.Since(t0))
+				seller.write(code, time.Since(t0))
 			}
 		}(i)
 	}
 
 	t0 := time.Now()
-	batDau.Done()
-	xong.Wait()
+	start.Done()
+	done.Wait()
 	tong := time.Since(t0)
 
-	inKetQua("khách  ", &khach)
+	printResult("khách  ", &client)
 	if sellerN > 0 {
-		inKetQua("nhà bán", &seller)
+		printResult("nhà bán", &seller)
 	} else {
 		fmt.Printf("%-8s (đối chứng: không có nhà bán nào ghi)\n", "nhà bán")
 	}
 	fmt.Printf("\ntổng %v\n", tong.Round(time.Millisecond))
 
-	if khach.coLoiMay() || seller.coLoiMay() {
+	if client.hasMachineError() || seller.hasMachineError() {
 		fmt.Println("\n!! CÓ mã 5xx — xung đột phiên bản KHÔNG được ra 5xx")
 	}
 }
 
-func inKetQua(ten string, d *demTheoMa) {
+func printResult(ten string, d *countByCode) {
 	d.mu.Lock()
 	m := map[int]int{}
 	for k, v := range d.m {

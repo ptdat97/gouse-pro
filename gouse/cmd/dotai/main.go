@@ -30,37 +30,37 @@ import (
 	"time"
 )
 
-const goc = "http://localhost:8080"
+const original = "http://localhost:8080"
 
-func khoa() string {
+func key() string {
 	b := make([]byte, 13)
 	_, _ = rand.Read(b)
 	return "req_" + hex.EncodeToString(b)
 }
 
-type khach struct {
-	cl  *http.Client
-	gio string
-	jar []*http.Cookie
+type client struct {
+	cl   *http.Client
+	cart string
+	jar  []*http.Cookie
 
 	// them là header thêm vào mọi request — dùng cho token nhà bán.
-	them map[string]string
+	add map[string]string
 }
 
-func moKhach() *khach {
-	return &khach{cl: &http.Client{Timeout: 20 * time.Second}}
+func newClient() *client {
+	return &client{cl: &http.Client{Timeout: 20 * time.Second}}
 }
 
-func (k *khach) goi(method, duong string, than any) (int, map[string]any, time.Duration) {
+func (k *client) parcel(method, path string, than any) (int, map[string]any, time.Duration) {
 	var r io.Reader
 	if than != nil {
 		b, _ := json.Marshal(than)
 		r = bytes.NewReader(b)
 	}
-	req, _ := http.NewRequest(method, goc+duong, r)
+	req, _ := http.NewRequest(method, original+path, r)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", khoa())
-	for k2, v := range k.them {
+	req.Header.Set("Idempotency-Key", key())
+	for k2, v := range k.add {
 		req.Header.Set(k2, v)
 	}
 	for _, c := range k.jar {
@@ -81,8 +81,8 @@ func (k *khach) goi(method, duong string, than any) (int, map[string]any, time.D
 	return res.StatusCode, body, d
 }
 
-func timOffer() string {
-	res, err := http.Get(goc + "/api/v1/products?limit=10")
+func pickOffer() string {
+	res, err := http.Get(original + "/api/v1/products?limit=10")
 	if err != nil {
 		return ""
 	}
@@ -92,7 +92,7 @@ func timOffer() string {
 	}
 	_ = json.NewDecoder(res.Body).Decode(&d)
 	for _, p := range d.Data {
-		r2, err := http.Get(goc + "/api/v1/products/" + p.ID + "/offers")
+		r2, err := http.Get(original + "/api/v1/products/" + p.ID + "/offers")
 		if err != nil {
 			continue
 		}
@@ -113,7 +113,7 @@ func timOffer() string {
 	return ""
 }
 
-func thongKe(ten string, ds []time.Duration, loi int) {
+func thongKe(ten string, ds []time.Duration, failure int) {
 	if len(ds) == 0 {
 		fmt.Printf("%-8s KHÔNG có lượt nào thành công\n", ten)
 		return
@@ -127,7 +127,7 @@ func thongKe(ten string, ds []time.Duration, loi int) {
 	fmt.Printf("%-8s n=%-4d  tb=%-8v  p50=%-8v  p95=%-8v  p99=%-8v  max=%-8v  lỗi=%d\n",
 		ten, len(ds), (tong / time.Duration(len(ds))).Round(time.Microsecond),
 		p(0.50).Round(time.Microsecond), p(0.95).Round(time.Microsecond),
-		p(0.99).Round(time.Microsecond), ds[len(ds)-1].Round(time.Microsecond), loi)
+		p(0.99).Round(time.Microsecond), ds[len(ds)-1].Round(time.Microsecond), failure)
 }
 
 func main() {
@@ -135,58 +135,58 @@ func main() {
 	if songSong == 0 {
 		songSong = 20
 	}
-	moiNguoi, _ := strconv.Atoi(os.Getenv("MOI_NGUOI"))
-	if moiNguoi == 0 {
-		moiNguoi = 10
+	perUser, _ := strconv.Atoi(os.Getenv("MOI_NGUOI"))
+	if perUser == 0 {
+		perUser = 10
 	}
 
 	// KICH_BAN chọn phép đo. Mặc định giữ nguyên kịch bản cũ để lệnh ghi
 	// trong docs/09-operations/do-tai.md vẫn chạy đúng như tài liệu nói.
 	switch os.Getenv("KICH_BAN") {
 	case "datdon":
-		chayDatDon()
+		runPlaceOrder()
 		return
 	case "tonkho":
-		chayTonKho()
+		runStock()
 		return
 	}
 
-	offer := timOffer()
+	offer := pickOffer()
 	if offer == "" {
 		fmt.Println("không tìm được offer bán được")
 		os.Exit(1)
 	}
-	fmt.Printf("offer=%s  song song=%d  mỗi người=%d lượt\n\n", offer, songSong, moiNguoi)
+	fmt.Printf("offer=%s  song song=%d  mỗi người=%d lượt\n\n", offer, songSong, perUser)
 
-	chay := func(ten string, chungGio bool) {
+	chay := func(ten string, sharedCart bool) {
 		// Mỗi kịch bản cần một giỏ có sẵn MỘT món để sửa số lượng.
-		dungGio := func() (*khach, string) {
-			k := moKhach()
-			code, body, _ := k.goi(http.MethodPost, "/api/v1/cart/items",
+		buildCart := func() (*client, string) {
+			k := newClient()
+			code, body, _ := k.parcel(http.MethodPost, "/api/v1/cart/items",
 				map[string]any{"offer_id": offer, "quantity": 1})
 			if code != 200 {
 				return nil, ""
 			}
-			gio, _ := body["cart"].(map[string]any)
-			nhom, _ := gio["groups"].([]any)
-			if len(nhom) == 0 {
+			cart, _ := body["cart"].(map[string]any)
+			group, _ := cart["groups"].([]any)
+			if len(group) == 0 {
 				return nil, ""
 			}
-			g0, _ := nhom[0].(map[string]any)
-			mon, _ := g0["items"].([]any)
-			if len(mon) == 0 {
+			g0, _ := group[0].(map[string]any)
+			item, _ := g0["items"].([]any)
+			if len(item) == 0 {
 				return nil, ""
 			}
-			m0, _ := mon[0].(map[string]any)
+			m0, _ := item[0].(map[string]any)
 			id, _ := m0["id"].(string)
 			return k, id
 		}
 
-		var chungK *khach
-		var chungMon string
-		if chungGio {
-			chungK, chungMon = dungGio()
-			if chungMon == "" {
+		var sharedCustomer *client
+		var sharedOffer string
+		if sharedCart {
+			sharedCustomer, sharedOffer = buildCart()
+			if sharedOffer == "" {
 				fmt.Printf("%s: không dựng được giỏ chung\n", ten)
 				return
 			}
@@ -194,70 +194,70 @@ func main() {
 
 		var mu sync.Mutex
 		var ds []time.Duration
-		var loi int
-		var viDu string
+		var failure int
+		var sample string
 
-		var batDau sync.WaitGroup
-		var xong sync.WaitGroup
-		batDau.Add(1)
+		var start sync.WaitGroup
+		var done sync.WaitGroup
+		start.Add(1)
 
-		type viec struct {
-			k   *khach
-			mon string
+		type job struct {
+			k    *client
+			item string
 		}
-		cong := make([]viec, songSong)
-		for i := range cong {
-			if chungGio {
-				k := moKhach()
-				k.jar = append(k.jar, chungK.jar...)
-				cong[i] = viec{k: k, mon: chungMon}
+		sum := make([]job, songSong)
+		for i := range sum {
+			if sharedCart {
+				k := newClient()
+				k.jar = append(k.jar, sharedCustomer.jar...)
+				sum[i] = job{k: k, item: sharedOffer}
 			} else {
-				k, m := dungGio()
+				k, m := buildCart()
 				if m == "" {
 					fmt.Printf("%s: không dựng được giỏ riêng\n", ten)
 					return
 				}
-				cong[i] = viec{k: k, mon: m}
+				sum[i] = job{k: k, item: m}
 			}
 		}
 
 		for i := 0; i < songSong; i++ {
-			xong.Add(1)
-			go func(v viec) {
-				defer xong.Done()
-				batDau.Wait()
-				for j := 0; j < moiNguoi; j++ {
+			done.Add(1)
+			go func(v job) {
+				defer done.Done()
+				start.Wait()
+				for j := 0; j < perUser; j++ {
 					// Đổi qua lại 1/2 để mỗi lượt là một thay đổi THẬT.
 					q := 1 + j%2
-					code, body, d := v.k.goi(http.MethodPatch,
-						"/api/v1/cart/items/"+v.mon,
+					code, body, d := v.k.parcel(http.MethodPatch,
+						"/api/v1/cart/items/"+v.item,
 						map[string]any{"quantity": q})
 					mu.Lock()
 					if code == 200 {
 						ds = append(ds, d)
 					} else {
-						loi++
-						if viDu == "" {
+						failure++
+						if sample == "" {
 							b, _ := json.Marshal(body)
-							viDu = fmt.Sprintf("HTTP %d %s", code, string(b))
+							sample = fmt.Sprintf("HTTP %d %s", code, string(b))
 						}
 					}
 					mu.Unlock()
 				}
-			}(cong[i])
+			}(sum[i])
 		}
 
 		t0 := time.Now()
-		batDau.Done()
-		xong.Wait()
+		start.Done()
+		done.Wait()
 		tong := time.Since(t0)
 
-		thongKe(ten, ds, loi)
+		thongKe(ten, ds, failure)
 		fmt.Printf("%-8s tổng %v  →  %.0f lượt/giây\n",
 			"", tong.Round(time.Millisecond),
-			float64(songSong*moiNguoi)/tong.Seconds())
-		if viDu != "" {
-			fmt.Printf("%-8s lỗi mẫu: %s\n", "", viDu[:min(len(viDu), 150)])
+			float64(songSong*perUser)/tong.Seconds())
+		if sample != "" {
+			fmt.Printf("%-8s lỗi mẫu: %s\n", "", sample[:min(len(sample), 150)])
 		}
 		fmt.Println()
 	}

@@ -45,14 +45,14 @@ import (
 )
 
 const (
-	emailNhaBan = "nhaban2@example.com"
+	sellerEmail = "nhaban2@example.com"
 
-	// matKhauNhaBan dùng chung cho cả bước tạo và bước đăng nhập. Trước
+	// sellerPassword dùng chung cho cả bước tạo và bước đăng nhập. Trước
 	// đây chỉ có ở chỗ đăng nhập, nên không ai thấy là tài khoản không
 	// tồn tại.
-	matKhauNhaBan = "mat-khau-du-dai-123"
-	tenNhaBan     = "Xưởng May Bảy"
-	slugNhaBan    = "xuong-may-bay"
+	sellerPassword = "mat-khau-du-dai-123"
+	sellerName     = "Xưởng May Bảy"
+	sellerSlug     = "xuong-may-bay"
 )
 
 func main() {
@@ -91,11 +91,11 @@ func main() {
 	// Rơi về một khóa cố định khi thiếu biến môi trường: công cụ chỉ chạy
 	// ở máy phát triển (đã chặn APP_ENV ở trên), và bắt người dùng tự sinh
 	// khóa cho một lệnh dựng dữ liệu mẫu là rào cản không đổi lấy gì.
-	maHoa, err := boMaHoa()
+	cipher, err := newCipher()
 	if err != nil {
 		panic(err)
 	}
-	sel, err := seller.New(seller.Config{Storage: "postgres", DB: db, Encrypted: maHoa})
+	sel, err := seller.New(seller.Config{Storage: "postgres", DB: db, Encrypted: cipher})
 	if err != nil {
 		panic(err)
 	}
@@ -121,7 +121,7 @@ func main() {
 
 	// Kiểm biến môi trường TRƯỚC khi ghi bản ghi đầu tiên.
 	//
-	// `dungSanPham` cần BRAND_ID_OPEN và panic khi thiếu. Panic ở đó là
+	// `buildProduct` cần BRAND_ID_OPEN và panic khi thiếu. Panic ở đó là
 	// panic GIỮA CHỪNG: nhà bán đã được tạo và duyệt xong, nên chạy lại
 	// sau khi khai biến sẽ đẻ thêm một nhà bán trùng tên.
 	if os.Getenv("BRAND_ID_OPEN") == "" {
@@ -131,29 +131,29 @@ func main() {
 		os.Exit(1)
 	}
 
-	sellerID := dungNhaBan(ctx, sel)
-	fmt.Println("nhà bán :", sellerID, tenNhaBan)
+	sellerID := buildSeller(ctx, sel)
+	fmt.Println("nhà bán :", sellerID, sellerName)
 
-	ganVaiTro(ctx, idm, sellerID)
+	grantRole(ctx, idm, sellerID)
 
-	skuID := dungSanPham(ctx, cat, prod)
+	skuID := buildProduct(ctx, cat, prod)
 	fmt.Println("sku     :", skuID)
 
 	dungOffer(ctx, mkt, inv, sellerID, skuID)
 }
 
-// dungNhaBan đưa nhà bán qua ĐỦ vòng đời tới ACTIVE.
+// buildSeller đưa nhà bán qua ĐỦ vòng đời tới ACTIVE.
 //
 // Bốn bước, không tắt bước nào: nộp hồ sơ → duyệt → xác minh ngân hàng →
 // kích hoạt. Ghi thẳng ACTIVE vào database sẽ tạo ra một nhà bán không
 // bao giờ tồn tại được ngoài đời, và test dựa trên nó sẽ nói dối.
-// boMaHoa lấy khóa từ ENCRYPTION_KEY, hoặc sinh một khóa dùng một lần.
+// newCipher lấy khóa từ ENCRYPTION_KEY, hoặc sinh một khóa dùng một lần.
 //
 // Khóa sinh ra ở đây KHÔNG đọc lại được ở lần chạy sau, nên số tài khoản
 // ngân hàng của nhà bán mẫu thành rác sau khi tiến trình kết thúc. Chấp
 // nhận được: dữ liệu mẫu tồn tại để bấm thử giao diện, không để đối soát.
 // Ai cần đọc lại thì đặt ENCRYPTION_KEY — cùng khóa mà `api` đang dùng.
-func boMaHoa() (*privacy.Cipher, error) {
+func newCipher() (*privacy.Cipher, error) {
 	if k := os.Getenv("ENCRYPTION_KEY"); k != "" {
 		return privacy.NewCipher(k)
 	}
@@ -166,21 +166,21 @@ func boMaHoa() (*privacy.Cipher, error) {
 	return privacy.NewCipher(base64.StdEncoding.EncodeToString(b[:]))
 }
 
-func dungNhaBan(ctx context.Context, sel *seller.Module) string {
+func buildSeller(ctx context.Context, sel *seller.Module) string {
 	// Đã có thì dùng lại — công cụ này chạy lại nhiều lần.
-	if cu, err := sel.Service().GetSellerBySlug(ctx, slugNhaBan); err == nil {
+	if cu, err := sel.Service().GetSellerBySlug(ctx, sellerSlug); err == nil {
 		fmt.Println("nhà bán đã có, dùng lại")
-		kichHoat(ctx, sel, cu.ID().String())
+		activate(ctx, sel, cu.ID().String())
 		return cu.ID().String()
 	}
 
 	v, err := sel.ApplyAsSeller(ctx, seller.ApplicationRequest{
-		Name:             tenNhaBan,
-		Slug:             slugNhaBan,
+		Name:             sellerName,
+		Slug:             sellerSlug,
 		SellerType:       "BUSINESS",
 		LegalName:        "Công ty TNHH Xưởng May Bảy",
 		TaxCode:          "0312345678",
-		Email:            emailNhaBan,
+		Email:            sellerEmail,
 		Phone:            "+84907070707",
 		CommissionRateBP: 1200,
 		BankAccount: seller.BankAccountInput{
@@ -192,12 +192,12 @@ func dungNhaBan(ctx context.Context, sel *seller.Module) string {
 	if err != nil {
 		panic(fmt.Sprintf("nộp hồ sơ: %v", err))
 	}
-	kichHoat(ctx, sel, v.ID)
+	activate(ctx, sel, v.ID)
 	return v.ID
 }
 
-// kichHoat đưa nhà bán tới ACTIVE nếu chưa.
-func kichHoat(ctx context.Context, sel *seller.Module, id string) {
+// activate đưa nhà bán tới ACTIVE nếu chưa.
+func activate(ctx context.Context, sel *seller.Module, id string) {
 	svc := sel.Service()
 	sid, err := ids.Parse(id, ids.PrefixSeller)
 	if err != nil {
@@ -224,12 +224,12 @@ func kichHoat(ctx context.Context, sel *seller.Module, id string) {
 	}
 }
 
-// ganVaiTro gắn vai trò SELLER_OWNER kèm PHẠM VI là gian hàng.
+// grantRole gắn vai trò SELLER_OWNER kèm PHẠM VI là gian hàng.
 //
 // Phạm vi là thứ quyết định: vai trò không có phạm vi nghĩa là người này
 // làm chủ MỌI gian hàng. Đó đúng là lỗ hổng mà cách ly giữa các nhà bán
 // tồn tại để chặn.
-func ganVaiTro(ctx context.Context, idm *identity.Module, sellerID string) {
+func grantRole(ctx context.Context, idm *identity.Module, sellerID string) {
 	// TẠO tài khoản nếu chưa có, đừng giả định ai đó đã tạo hộ.
 	//
 	// `taotaikhoan` dựng khách/quản trị/vận hành, KHÔNG dựng tài khoản nhà
@@ -238,35 +238,35 @@ func ganVaiTro(ctx context.Context, idm *identity.Module, sellerID string) {
 	// đăng nhập vào được, đúng thứ duy nhất công cụ này tồn tại để cho.
 	// Thấy khi chạy nó lần đầu trên Docker (16/09).
 	switch _, err := idm.Register(ctx, identity.RegisterRequest{
-		Email: emailNhaBan, Password: matKhauNhaBan,
+		Email: sellerEmail, Password: sellerPassword,
 	}); {
 	case err == nil:
-		fmt.Printf("tài khoản: đã tạo %s\n", emailNhaBan)
+		fmt.Printf("tài khoản: đã tạo %s\n", sellerEmail)
 	case errors.Is(err, identity.ErrDuplicateEmail):
 	default:
-		fmt.Printf("CẢNH BÁO tạo tài khoản %s: %v\n", emailNhaBan, err)
+		fmt.Printf("CẢNH BÁO tạo tài khoản %s: %v\n", sellerEmail, err)
 		return
 	}
 
 	res, err := idm.Login(ctx, identity.LoginRequest{
-		Email: emailNhaBan, Password: matKhauNhaBan,
+		Email: sellerEmail, Password: sellerPassword,
 	})
 	if err != nil {
-		fmt.Printf("CẢNH BÁO không đăng nhập được %s: %v\n", emailNhaBan, err)
+		fmt.Printf("CẢNH BÁO không đăng nhập được %s: %v\n", sellerEmail, err)
 		return
 	}
 	if err := idm.GrantRole(ctx, res.User.ID, "SELLER_OWNER", sellerID); err != nil {
 		fmt.Printf("CẢNH BÁO gán vai trò: %v\n", err)
 		return
 	}
-	fmt.Printf("vai trò : SELLER_OWNER cho %s, phạm vi %s\n", emailNhaBan, sellerID)
+	fmt.Printf("vai trò : SELLER_OWNER cho %s, phạm vi %s\n", sellerEmail, sellerID)
 }
 
-// dungSanPham tạo sản phẩm thuộc thương hiệu OPEN.
+// buildProduct tạo sản phẩm thuộc thương hiệu OPEN.
 //
 // KHÔNG dùng thương hiệu của dữ liệu mẫu: Lumière ở mức RESTRICTED nên chỉ
 // chủ thương hiệu bán được. Nhà bán ngoài cần hàng của thương hiệu mở.
-func dungSanPham(
+func buildProduct(
 	ctx context.Context, cat *catalog.Module, prod *product.Module,
 ) string {
 	const slug = "ao-thun-co-tron-basics"
@@ -290,7 +290,7 @@ func dungSanPham(
 	// Kiểm tra của domain là "thương hiệu này đã có bảng size cho loại
 	// hàng đó chưa", nên bảng phải tồn tại trước khi gửi duyệt — kể cả khi
 	// sản phẩm đã được tạo từ lần chạy trước.
-	chartID := dungBangSize(ctx, cat, brandID)
+	chartID := buildSizeChart(ctx, cat, brandID)
 
 	svc := prod.Service()
 
@@ -298,7 +298,7 @@ func dungSanPham(
 		if skus := cu.SKUs(); len(skus) > 0 {
 			// Đảm bảo ĐÃ DUYỆT, không chỉ đã tồn tại: lần chạy trước có
 			// thể dừng giữa chừng và để lại sản phẩm ở trạng thái nháp.
-			duyet(ctx, svc, cu.ID())
+			approve(ctx, svc, cu.ID())
 			fmt.Println("sản phẩm đã có, dùng lại")
 			return skus[0].ID().String()
 		}
@@ -340,7 +340,7 @@ func dungSanPham(
 		panic(fmt.Sprintf("thêm biến thể: %v", err))
 	}
 
-	duyet(ctx, svc, p.ID())
+	approve(ctx, svc, p.ID())
 
 	saved, err := svc.GetProduct(ctx, p.ID())
 	if err != nil {
@@ -353,11 +353,11 @@ func dungSanPham(
 	return skus[0].ID().String()
 }
 
-// dungBangSize tạo bảng size cho thương hiệu nếu chưa có.
+// buildSizeChart tạo bảng size cho thương hiệu nếu chưa có.
 //
 // Số đo THẬT, không chỉ ký hiệu S/M/L: sai size là nguyên nhân hoàn hàng
 // số một trong thời trang, và ký hiệu không nói được gì về vòng ngực.
-func dungBangSize(ctx context.Context, cat *catalog.Module, brandID string) string {
+func buildSizeChart(ctx context.Context, cat *catalog.Module, brandID string) string {
 	if sc, err := cat.GetSizeChartFor(ctx, brandID, "TOP"); err == nil && sc != nil {
 		return sc.ID
 	}
@@ -380,11 +380,11 @@ func dungBangSize(ctx context.Context, cat *catalog.Module, brandID string) stri
 	return sc.ID().String()
 }
 
-// duyet đưa sản phẩm tới trạng thái bán được.
+// approve đưa sản phẩm tới trạng thái bán được.
 //
 // Bỏ qua lỗi ở từng bước: chạy lại thì sản phẩm có thể đã ở bước sau, và
 // "chuyển trạng thái không hợp lệ" khi đó là bình thường.
-func duyet(ctx context.Context, svc *productapp.Service, id ids.ID) {
+func approve(ctx context.Context, svc *productapp.Service, id ids.ID) {
 	// GHI LẠI lỗi thay vì nuốt: nếu cả hai bước đều hỏng, sản phẩm ở lại
 	// DRAFT và lỗi hiện ra tận bước tạo offer với thông điệp "SKU không
 	// còn được kinh doanh" — chẳng liên quan gì tới nguyên nhân thật.
@@ -407,7 +407,7 @@ func dungOffer(
 	sid := ids.ID(sellerID)
 	sku := ids.ID(skuID)
 
-	gia, err := money.New(259_000, money.VND)
+	price, err := money.New(259_000, money.VND)
 	if err != nil {
 		panic(err)
 	}
@@ -415,7 +415,7 @@ func dungOffer(
 	o, err := mkt.Service().CreateOffer(ctx, marketapp.CreateOfferInput{
 		SKUID:             sku,
 		SellerID:          sid,
-		Price:             gia,
+		Price:             price,
 		Condition:         marketdom.ConditionNew,
 		HandlingTimeHours: 48,
 		MinOrderQuantity:  1,
@@ -431,14 +431,14 @@ func dungOffer(
 		panic(fmt.Sprintf("tạo offer: %v", err))
 	}
 
-	loc, err := inv.EnsureLocation(ctx,
-		"Kho "+tenNhaBan, "SELLER-"+sellerID, "SELLER")
+	filter, err := inv.EnsureLocation(ctx,
+		"Kho "+sellerName, "SELLER-"+sellerID, "SELLER")
 	if err != nil {
 		panic(err)
 	}
 	if _, err := inv.Receive(ctx, inventory.ReceiveRequest{
 		SKUID:       skuID,
-		LocationID:  loc,
+		LocationID:  filter,
 		OwnerID:     inventory.OwnerForSeller(sellerID, false),
 		Quantity:    40,
 		ReferenceID: "dev-tool",

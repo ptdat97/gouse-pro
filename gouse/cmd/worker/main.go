@@ -96,7 +96,7 @@ const (
 
 	completeDeliveredBatch = 200
 
-	// taoDoiSoatInterval là nhịp tạo đợt đối soát.
+	// createSettlementsInterval là nhịp tạo đợt đối soát.
 	//
 	// Một giờ chứ không phải một tuần: tài liệu nêu chu kỳ hàng tuần như
 	// VÍ DỤ về nhịp chi trả, còn việc GOM có thể chạy dày hơn — đợt tạo
@@ -104,54 +104,54 @@ const (
 	//
 	// Chạy dày cũng an toàn: mỗi bút toán chỉ vào được một đợt, cưỡng chế
 	// bằng UNIQUE ở settlement_line.
-	taoDoiSoatInterval = time.Hour
+	createSettlementsInterval = time.Hour
 
-	// taoDoiSoatKy là độ dài kỳ ghi trên đợt — chỉ để hiển thị.
-	taoDoiSoatKy = 7 * 24 * time.Hour
+	// settlementPeriod là độ dài kỳ ghi trên đợt — chỉ để hiển thị.
+	settlementPeriod = 7 * 24 * time.Hour
 
-	doiSoatBatch = 1000
+	reconcileBatch = 1000
 
-	// doiSoatThanhToanInterval là nhịp đối soát tiền đã thu với trạng thái
+	// reconcilePaymentsInterval là nhịp đối soát tiền đã thu với trạng thái
 	// đơn.
 	//
 	// Năm phút: bất nhất ở đây nghĩa là khách đã trả tiền mà vẫn thấy đơn
 	// chờ thanh toán, nên phát hiện muộn là để khách hoang mang lâu. Nhưng
 	// nó không cần dày như outbox — đây là lưới AN TOÀN cho một đường đã
 	// có xử lý đồng bộ, không phải đường chính.
-	doiSoatThanhToanInterval = 5 * time.Minute
+	reconcilePaymentsInterval = 5 * time.Minute
 
-	// doiSoatThanhToanCuaSo là bề rộng cửa sổ soi lại.
+	// reconcilePaymentsWindow là bề rộng cửa sổ soi lại.
 	//
 	// Một giờ, và có giới hạn CÓ CHỦ Ý: job quét lại toàn bộ lịch sử mỗi
 	// lượt sẽ nặng dần theo tuổi hệ thống cho tới lúc tự thành sự cố. Một
 	// giờ rộng gấp nhiều lần thời gian một bất nhất nên tồn tại — nếu nó
 	// sống lâu hơn thế thì đã có người phải xử lý rồi.
-	doiSoatThanhToanCuaSo = time.Hour
+	reconcilePaymentsWindow = time.Hour
 
-	doiSoatThanhToanBatch = 500
+	reconcilePaymentsBatch = 500
 
-	// doiSoatGiaoHangInterval là nhịp tìm gói hàng mất tin vận chuyển.
+	// reconcileDeliveriesInterval là nhịp tìm gói hàng mất tin vận chuyển.
 	//
 	// Một giờ, thưa hơn hẳn đối soát thanh toán, vì đại lượng đo được tính
 	// bằng NGÀY: ngưỡng mặc định là 168 giờ im lặng. Chạy dày hơn chỉ in
 	// lại cùng một danh sách nhanh hơn — và một cảnh báo lặp lại mỗi năm
 	// phút là cách chắc chắn nhất để người trực học cách bỏ qua nó.
-	doiSoatGiaoHangInterval = time.Hour
+	reconcileDeliveriesInterval = time.Hour
 
-	// doiSoatGiaoHangBatch chặn số dòng một lượt chạy in ra.
+	// reconcileDeliveriesBatch chặn số dòng một lượt chạy in ra.
 	//
 	// Nhỏ hơn hẳn các batch khác, có chủ ý: mỗi dòng ở đây là một việc
 	// cần NGƯỜI đi hỏi đơn vị vận chuyển, không phải một bản ghi được xử
 	// lý tự động. Một sự cố kéo dài mà đổ ra hàng nghìn dòng thì không ai
 	// xử lý nổi, và chỉ số gauge vẫn cho biết quy mô thật.
-	doiSoatGiaoHangBatch = 100
+	reconcileDeliveriesBatch = 100
 
-	// intentChoThuQuaHan là mốc coi một ý định thanh toán là "quá hạn".
+	// overduePendingIntents là mốc coi một ý định thanh toán là "quá hạn".
 	//
 	// 30 phút: rộng hơn hẳn mọi phiên thanh toán thật (TTL giữ hàng ngắn
 	// hơn nhiều), nên thứ còn lại sau mốc này gần như chắc chắn sẽ không
 	// bao giờ được trả.
-	intentChoThuQuaHan = 30 * time.Minute
+	overduePendingIntents = 30 * time.Minute
 
 	// dispatchEventsInterval là nhịp phát domain event từ outbox.
 	//
@@ -212,7 +212,7 @@ const (
 	// Xem docs/04-modules/analytics.md mục 4.
 	computeMetricsInterval = 5 * time.Minute
 
-	// gomLuotXemInterval là nhịp gom lượt xem thành tín hiệu nhu cầu.
+	// rollUpViewsInterval là nhịp gom lượt xem thành tín hiệu nhu cầu.
 	//
 	// Nửa giờ, không phải mỗi phút: đây là dữ liệu LẬP KẾ HOẠCH, và kế
 	// hoạch sản xuất không đổi theo từng phút. Chạy dày chỉ tốn truy vấn
@@ -220,7 +220,7 @@ const (
 	//
 	// Nhịp này là quyết định KỸ THUẬT, không phải chính sách kinh doanh,
 	// nên nó ở lại trong mã (ADR-0015).
-	gomLuotXemInterval = 30 * time.Minute
+	rollUpViewsInterval = 30 * time.Minute
 )
 
 func main() {
@@ -398,7 +398,7 @@ func run() error {
 	// thiếu thì bản sửa "khách đã đăng ký cũng nhận được thư" chỉ đúng
 	// trong test. Không truyền Identity/Notifier/Orders: đường ghi của
 	// module customer không chạy ở đây, và `New` chỉ bắt buộc DB.
-	khachModule, err := customer.New(customer.Config{
+	customerModule, err := customer.New(customer.Config{
 		Storage: "postgres",
 		DB:      db,
 	})
@@ -415,7 +415,7 @@ func run() error {
 		// event không mang địa chỉ của họ — xem `notification.KhachPort`.
 		Customer: notification.CustomerPortFunc{
 			Email: func(ctx context.Context, customerID string) (string, error) {
-				v, err := khachModule.GetCustomer(ctx, customerID)
+				v, err := customerModule.GetCustomer(ctx, customerID)
 				if err != nil {
 					return "", err
 				}
@@ -424,8 +424,8 @@ func run() error {
 
 			// Đồng ý hỏi LÚC GỬI, không tin payload event: khách rút đồng
 			// ý sau khi event được phát thì thư vẫn phải dừng lại.
-			Consent: func(ctx context.Context, customerID, loai string) (bool, error) {
-				return khachModule.HasConsent(ctx, customerID, loai)
+			Consent: func(ctx context.Context, customerID, kind string) (bool, error) {
+				return customerModule.HasConsent(ctx, customerID, kind)
 			},
 		},
 	})
@@ -602,14 +602,14 @@ func run() error {
 		},
 		{
 			name:     "tạo đợt đối soát cho nhà bán",
-			interval: taoDoiSoatInterval,
-			run:      taoDoiSoat(paymentModule, log),
+			interval: createSettlementsInterval,
+			run:      createSettlements(paymentModule, log),
 
 			// Nhịp này là CHÍNH SÁCH: nó quyết định nhà bán thấy khoản
 			// của mình sớm hay muộn — câu họ hỏi nhiều nhất. Việc CHI TRẢ
 			// vẫn do người duyệt, nên nới nhịp không nới một kiểm soát
 			// tiền nào.
-			nhipTu: func() time.Duration {
+			intervalFrom: func() time.Duration {
 				return opsConfigStore.ReadDuration(opsconfig.KeySettlementBatchInterval)
 			},
 		},
@@ -620,18 +620,18 @@ func run() error {
 		},
 		{
 			name:     "gom lượt xem thành tín hiệu nhu cầu",
-			interval: gomLuotXemInterval,
-			run:      gomLuotXem(analyticsModule, supplyModule, log),
+			interval: rollUpViewsInterval,
+			run:      rollUpViews(analyticsModule, supplyModule, log),
 		},
 		{
 			name:     "đối soát tiền đã thu với trạng thái đơn",
-			interval: doiSoatThanhToanInterval,
-			run:      doiSoatThanhToan(paymentModule, orderModule, log),
+			interval: reconcilePaymentsInterval,
+			run:      reconcilePayments(paymentModule, orderModule, log),
 		},
 		{
 			name:     "tìm gói hàng mất tin vận chuyển",
-			interval: doiSoatGiaoHangInterval,
-			run:      doiSoatGiaoHang(fulfillmentModule, log),
+			interval: reconcileDeliveriesInterval,
+			run:      reconcileDeliveries(fulfillmentModule, log),
 		},
 	}
 
@@ -701,13 +701,13 @@ func serveMetrics(ctx context.Context, port int, log *slog.Logger) {
 // event nằm mãi trong bảng và không việc gì xảy ra sau khi đặt hàng.
 func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
-		daPhat, err := vetOutbox(ctx, dispatchEventsBatch, dispatchEventsMaxLo,
+		published, err := vetOutbox(ctx, dispatchEventsBatch, dispatchEventsMaxLo,
 			bus.DispatchBatch)
 		if err != nil {
 			return fmt.Errorf("phát domain event: %w", err)
 		}
-		if daPhat > 0 {
-			log.Info("đã phát domain event", "số_lượng", daPhat)
+		if published > 0 {
+			log.Info("đã phát domain event", "số_lượng", published)
 		}
 
 		stats, err := bus.Outbox().Stats(ctx)
@@ -775,13 +775,13 @@ func computeMetrics(m *analytics.Module, log *slog.Logger) func(context.Context)
 	return func(ctx context.Context) error {
 		now := time.Now().UTC()
 
-		for _, ngay := range []time.Time{now, now.AddDate(0, 0, -1)} {
+		for _, day := range []time.Time{now, now.AddDate(0, 0, -1)} {
 			if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
-				PeriodStart: ngay,
+				PeriodStart: day,
 				Granularity: analytics.GranularityDay,
 			}); err != nil {
 				return fmt.Errorf("tính chỉ số ngày %s: %w",
-					ngay.Format("2006-01-02"), err)
+					day.Format("2006-01-02"), err)
 			}
 		}
 
@@ -804,19 +804,19 @@ func computeMetrics(m *analytics.Module, log *slog.Logger) func(context.Context)
 	}
 }
 
-// taoDoiSoat gom các khoản rút được thành đợt đối soát.
+// createSettlements gom các khoản rút được thành đợt đối soát.
 //
 // # Vì sao chạy theo chu kỳ chứ không theo event
 //
 // Đối soát là gom NHIỀU khoản thành một đợt. Tạo một đợt cho mỗi lần tiền
 // chuyển sang rút được nghĩa là mỗi đơn hàng một đợt chi trả — và mỗi lần
 // chuyển tiền qua ngân hàng đều tốn phí.
-func taoDoiSoat(m *payment.Module, log *slog.Logger) func(context.Context) error {
+func createSettlements(m *payment.Module, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
-		den := time.Now().UTC()
-		tu := den.Add(-taoDoiSoatKy)
+		until := time.Now().UTC()
+		tu := until.Add(-settlementPeriod)
 
-		n, err := m.NewSettlementForPeriod(ctx, tu, den, doiSoatBatch)
+		n, err := m.NewSettlementForPeriod(ctx, tu, until, reconcileBatch)
 		if err != nil {
 			return fmt.Errorf("tạo đợt đối soát: %w", err)
 		}
@@ -829,13 +829,13 @@ func taoDoiSoat(m *payment.Module, log *slog.Logger) func(context.Context) error
 
 func completeDelivered(m *fulfillment.Module, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
-		daHoanTat, err := m.CompleteDelivered(ctx, completeDeliveredBatch)
+		completed, err := m.CompleteDelivered(ctx, completeDeliveredBatch)
 		if err != nil {
 			return fmt.Errorf("hoàn tất đơn đã giao: %w", err)
 		}
-		if daHoanTat > 0 {
+		if completed > 0 {
 			log.Info("đã hoàn tất đơn quá hạn đổi trả — số dư seller chuyển Available",
-				"số_lượng", daHoanTat)
+				"số_lượng", completed)
 		}
 		return nil
 	}
@@ -848,22 +848,22 @@ func completeDelivered(m *fulfillment.Module, log *slog.Logger) func(context.Con
 // hiện thủ công — và không ai đi tìm cho tới lúc hết hàng bán dù kho đầy.
 func expireCheckouts(m *checkout.Module, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
-		daDon, err := m.ExpireStale(ctx, expireCheckoutsBatch)
+		cleaned, err := m.ExpireStale(ctx, expireCheckoutsBatch)
 		if err != nil {
 			return fmt.Errorf("dọn phiên thanh toán quá hạn: %w", err)
 		}
-		if daDon > 0 {
+		if cleaned > 0 {
 			log.Info("đã dọn phiên thanh toán quá hạn và nhả hàng",
-				"số_lượng", daDon)
+				"số_lượng", cleaned)
 		}
 
-		conLai, err := m.CountExpiredPending(ctx)
+		remaining, err := m.CountExpiredPending(ctx)
 		if err != nil {
 			return fmt.Errorf("đếm phiên thanh toán quá hạn: %w", err)
 		}
-		if conLai > expiredPendingAlert {
+		if remaining > expiredPendingAlert {
 			log.Warn("tồn đọng phiên thanh toán quá hạn vượt ngưỡng",
-				"còn_lại", conLai,
+				"còn_lại", remaining,
 				"ngưỡng", expiredPendingAlert,
 				"gợi_ý", "khách quay lại sẽ thấy phiên còn sống dù hàng đã bị nhả")
 		}
@@ -877,23 +877,23 @@ type job struct {
 	interval time.Duration
 	run      func(context.Context) error
 
-	// nhipTu đọc nhịp LÚC CHẠY, ghi đè `interval` nếu khác nil.
+	// intervalFrom đọc nhịp LÚC CHẠY, ghi đè `interval` nếu khác nil.
 	//
 	// Chỉ những job có nhịp là CHÍNH SÁCH KINH DOANH mới cần nó. Nhịp của
 	// job dọn dẹp là quyết định kỹ thuật và ở lại trong mã.
-	nhipTu func() time.Duration
+	intervalFrom func() time.Duration
 }
 
-// nhip trả nhịp đang hiệu lực của job.
+// effectiveInterval trả nhịp đang hiệu lực của job.
 //
 // Giá trị ngoài biên bị BỎ QUA thay vì làm job chết: một tham số hỏng
 // không được phép dừng một vòng lặp nền, và `interval` biên dịch sẵn luôn
 // là con số an toàn.
-func (j job) nhip() time.Duration {
-	if j.nhipTu == nil {
+func (j job) effectiveInterval() time.Duration {
+	if j.intervalFrom == nil {
 		return j.interval
 	}
-	if d := j.nhipTu(); d > 0 {
+	if d := j.intervalFrom(); d > 0 {
 		return d
 	}
 	return j.interval
@@ -913,18 +913,18 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 		go func(j job) {
 			defer func() { done <- struct{}{} }()
 
-			nhip := j.nhip()
-			ticker := time.NewTicker(nhip)
+			interval := j.effectiveInterval()
+			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 
 			jobLog := log.With("job", j.name)
-			jobLog.Info("job đã khởi động", "nhịp", nhip.String())
+			jobLog.Info("job đã khởi động", "nhịp", interval.String())
 
 			// Công bố nhịp để luật cảnh báo tự điều chỉnh ngưỡng theo
 			// từng job. Xem metrics.WorkerJobInterval: một ngưỡng cố định
 			// cho mọi job làm job chạy thưa bị báo là treo.
 			metrics.WorkerJobInterval.WithLabelValues(j.name).
-				Set(nhip.Seconds())
+				Set(interval.Seconds())
 
 			// Chạy NGAY một lượt lúc khởi động, không chờ hết nhịp đầu:
 			// nếu worker vừa khởi động lại sau sự cố, có thể đang có tồn
@@ -945,12 +945,12 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 					// treo" so thời gian im lặng với CHÍNH chỉ số này,
 					// nên nới nhịp mà không công bố lại sẽ tạo một cảnh
 					// báo luôn kêu — đúng thứ đã phải đi sửa một lần rồi.
-					if moi := j.nhip(); moi != nhip {
-						nhip = moi
-						ticker.Reset(nhip)
+					if moi := j.effectiveInterval(); moi != interval {
+						interval = moi
+						ticker.Reset(interval)
 						metrics.WorkerJobInterval.WithLabelValues(j.name).
-							Set(nhip.Seconds())
-						jobLog.Info("nhịp job đã đổi", "nhịp", nhip.String())
+							Set(interval.Seconds())
+						jobLog.Info("nhịp job đã đổi", "nhịp", interval.String())
 					}
 				}
 			}
@@ -1054,23 +1054,23 @@ func expireReservations(m *inventory.Module, log *slog.Logger) func(context.Cont
 	return func(ctx context.Context) error {
 		svc := m.Service()
 
-		daDon, err := svc.ExpireReservations(ctx, expireReservationsBatch)
+		cleaned, err := svc.ExpireReservations(ctx, expireReservationsBatch)
 		if err != nil {
 			return fmt.Errorf("dọn giữ hàng quá hạn: %w", err)
 		}
-		if daDon > 0 {
-			log.Info("đã giải phóng hàng giữ quá hạn", "số_lượng", daDon)
+		if cleaned > 0 {
+			log.Info("đã giải phóng hàng giữ quá hạn", "số_lượng", cleaned)
 		}
 
 		// Kiểm tra tồn đọng SAU khi dọn: nếu vẫn còn nhiều, nghĩa là tốc
 		// độ dọn không theo kịp hoặc có bản ghi bị kẹt.
-		conLai, err := svc.CountExpiredPending(ctx)
+		remaining, err := svc.CountExpiredPending(ctx)
 		if err != nil {
 			return fmt.Errorf("đếm giữ hàng quá hạn: %w", err)
 		}
-		if conLai > expiredPendingAlert {
+		if remaining > expiredPendingAlert {
 			log.Warn("tồn đọng giữ hàng quá hạn vượt ngưỡng — hàng đang bị khóa dần",
-				"còn_lại", conLai,
+				"còn_lại", remaining,
 				"ngưỡng", expiredPendingAlert,
 				"gợi_ý", "kiểm tra tốc độ dọn và bản ghi bị kẹt")
 		}
@@ -1121,11 +1121,11 @@ func (s *sellerOwner) InventoryOwnerID(
 // hơn một nhịp, và đó là cái giá đúng để trả.
 func vetOutbox(
 	ctx context.Context, coLo, maxLo int,
-	phat func(context.Context, int) (int, error),
+	emit func(context.Context, int) (int, error),
 ) (int, error) {
 	var tong int
 	for lo := 0; lo < maxLo; lo++ {
-		n, err := phat(ctx, coLo)
+		n, err := emit(ctx, coLo)
 		if err != nil {
 			return tong, err
 		}
@@ -1140,7 +1140,7 @@ func vetOutbox(
 	return tong, nil
 }
 
-// doiSoatThanhToan đối soát TIỀN ĐÃ THU với TRẠNG THÁI ĐƠN.
+// reconcilePayments đối soát TIỀN ĐÃ THU với TRẠNG THÁI ĐƠN.
 //
 // # Đây là NỬA làm được của yêu cầu 5, không phải cả yêu cầu
 //
@@ -1161,7 +1161,7 @@ func vetOutbox(
 // tiền bạc là thứ chạy lúc 3 giờ sáng không ai nhìn; nếu giả định của nó
 // sai thì nó sửa hàng loạt theo hướng sai, im lặng. Bất nhất tiền bạc cần
 // người quyết định.
-func doiSoatThanhToan(
+func reconcilePayments(
 	pay *payment.Module, ord *order.Module, log *slog.Logger,
 ) func(context.Context) error {
 	return func(ctx context.Context) error {
@@ -1169,8 +1169,8 @@ func doiSoatThanhToan(
 			return nil
 		}
 
-		lech, err := pay.ReconcileCaptured(ctx,
-			time.Now().Add(-doiSoatThanhToanCuaSo), doiSoatThanhToanBatch,
+		drift, err := pay.ReconcileCaptured(ctx,
+			time.Now().Add(-reconcilePaymentsWindow), reconcilePaymentsBatch,
 			func(ctx context.Context, orderID string) (string, error) {
 				v, err := ord.GetOrder(ctx, orderID)
 				if err != nil {
@@ -1182,11 +1182,11 @@ func doiSoatThanhToan(
 			return fmt.Errorf("đối soát tiền đã thu: %w", err)
 		}
 
-		metrics.PaymentReconcileDrift.Set(float64(len(lech)))
+		metrics.PaymentReconcileDrift.Set(float64(len(drift)))
 
 		// Mức ERROR: không có ca hợp lệ nào cho "đã thu tiền mà đơn vẫn
 		// chờ thanh toán". Chỉ số này không bao giờ kêu oan.
-		for _, l := range lech {
+		for _, l := range drift {
 			log.Error("ĐÃ THU TIỀN nhưng đơn chưa cập nhật — cần người xử lý",
 				"intent_id", l.IntentID, "order_id", l.OrderID,
 				"so_tien", l.Amount, "don_vi", l.Currency,
@@ -1199,18 +1199,18 @@ func doiSoatThanhToan(
 		// Phần lớn là khách bỏ giữa chừng — bình thường và nhiều. Cảnh báo
 		// ở đây sẽ luôn kêu, và một cảnh báo luôn kêu thì không ai đọc.
 		// Giá trị của nó là XU HƯỚNG: tăng vọt nghĩa là webhook thôi tới.
-		quaHan, err := pay.CountOverduePendingIntents(ctx,
-			time.Now().Add(-intentChoThuQuaHan))
+		overdue, err := pay.CountOverduePendingIntents(ctx,
+			time.Now().Add(-overduePendingIntents))
 		if err != nil {
 			return fmt.Errorf("đếm ý định thanh toán quá hạn: %w", err)
 		}
-		metrics.PaymentIntentOverdue.Set(float64(quaHan))
+		metrics.PaymentIntentOverdue.Set(float64(overdue))
 
 		return nil
 	}
 }
 
-// doiSoatGiaoHang tìm gói hàng đã bàn giao mà lâu rồi không có tin.
+// reconcileDeliveries tìm gói hàng đã bàn giao mà lâu rồi không có tin.
 //
 // Yêu cầu 5 của `api/paths/webhooks.yaml`, nửa nội bộ — xem
 // `fulfillment.API.DoiSoatGiaoHang`. Nửa còn lại (đi HỎI hãng vận chuyển)
@@ -1219,7 +1219,7 @@ func doiSoatThanhToan(
 // Job này KHÔNG sửa gì. Nó chỉ làm cho một webhook mất thôi không còn vô
 // hình: trước nó, thứ duy nhất phát hiện được là có người tình cờ mở đơn
 // ra xem.
-func doiSoatGiaoHang(
+func reconcileDeliveries(
 	ful *fulfillment.Module, log *slog.Logger,
 ) func(context.Context) error {
 	return func(ctx context.Context) error {
@@ -1227,13 +1227,13 @@ func doiSoatGiaoHang(
 			return nil
 		}
 
-		goi, err := ful.ReconcileDeliveries(ctx, doiSoatGiaoHangBatch)
+		parcel, err := ful.ReconcileDeliveries(ctx, reconcileDeliveriesBatch)
 		if err != nil {
 			return fmt.Errorf("đối soát giao hàng: %w", err)
 		}
 
-		metrics.DeliverySilence.Set(float64(len(goi)))
-		if len(goi) == 0 {
+		metrics.DeliverySilence.Set(float64(len(parcel)))
+		if len(parcel) == 0 {
 			return nil
 		}
 
@@ -1241,7 +1241,7 @@ func doiSoatGiaoHang(
 		// ca hợp lệ — một gói đi tuyến xa im lặng lâu hơn thường lệ. Dùng
 		// ERROR cho một thứ đôi khi kêu oan là cách làm hỏng ý nghĩa của
 		// ERROR ở mọi chỗ khác.
-		for _, g := range goi {
+		for _, g := range parcel {
 			log.Warn("gói hàng MẤT TIN vận chuyển — cần đi hỏi đơn vị vận chuyển",
 				"fulfillment_id", g.FulfillmentID, "fo_number", g.FONumber,
 				"order_id", g.OrderID, "seller_id", g.SellerID,
@@ -1256,8 +1256,8 @@ func doiSoatGiaoHang(
 		// Tiền đang bị giữ lại vì những gói này — nói ra bằng số, vì đó là
 		// thứ khiến việc được ưu tiên.
 		log.Warn("số gói mất tin vận chuyển",
-			"so_luong", len(goi),
-			"het_batch", len(goi) == doiSoatGiaoHangBatch,
+			"so_luong", len(parcel),
+			"het_batch", len(parcel) == reconcileDeliveriesBatch,
 			"anh_huong", "mỗi gói là một khoản phải trả nhà bán chưa chuyển "+
 				"sang khả dụng")
 		return nil
@@ -1275,11 +1275,11 @@ func carrierPriceFrom(cfg *opsconfig.Store) payment.CarrierPricePort {
 	return &carrierPrice{cfg: cfg}
 }
 
-func (g *carrierPrice) PricePerParcel(phuongThuc string) int64 {
+func (g *carrierPrice) PricePerParcel(shipMethod string) int64 {
 	if g.cfg == nil {
 		return 0
 	}
-	switch phuongThuc {
+	switch shipMethod {
 	case "EXPRESS":
 		return int64(g.cfg.ReadInt(opsconfig.KeyCarrierCostExpress))
 	case "STANDARD":
@@ -1291,7 +1291,7 @@ func (g *carrierPrice) PricePerParcel(phuongThuc string) int64 {
 	}
 }
 
-// gomLuotXem biến lượt xem sản phẩm thành tín hiệu nhu cầu loại VIEW.
+// rollUpViews biến lượt xem sản phẩm thành tín hiệu nhu cầu loại VIEW.
 //
 // # Mắt xích mà tầm nhìn gọi tên
 //
@@ -1318,7 +1318,7 @@ func (g *carrierPrice) PricePerParcel(phuongThuc string) int64 {
 // Gom theo NGÀY × SẢN PHẨM, và `RecordCoalescedSignals` CẬP NHẬT dòng của cùng ngày
 // thay vì thêm mới — nên chạy lại giữa ngày là an toàn và cho con số ĐÚNG,
 // không phải con số cộng dồn. Đó là lý do job này không cần con trỏ.
-func gomLuotXem(
+func rollUpViews(
 	a *analytics.Module, sc *supplychain.Module, log *slog.Logger,
 ) func(context.Context) error {
 	return func(ctx context.Context) error {
@@ -1328,43 +1328,43 @@ func gomLuotXem(
 		//
 		// Hôm qua vẫn phải gom lại vì lượt xem sát nửa đêm có thể tới sau
 		// lần chạy cuối của ngày đó — client gom lô rồi mới gửi.
-		for _, ngay := range []time.Time{now, now.AddDate(0, 0, -1)} {
-			dau := time.Date(ngay.Year(), ngay.Month(), ngay.Day(), 0, 0, 0, 0, time.UTC)
-			cuoi := dau.AddDate(0, 0, 1)
+		for _, day := range []time.Time{now, now.AddDate(0, 0, -1)} {
+			first := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
+			end := first.AddDate(0, 0, 1)
 
-			theoSP, err := a.RollUpViews(ctx, dau, cuoi)
+			theoSP, err := a.RollUpViews(ctx, first, end)
 			if err != nil {
 				return fmt.Errorf("gom lượt xem ngày %s: %w",
-					dau.Format("2006-01-02"), err)
+					first.Format("2006-01-02"), err)
 			}
 			if len(theoSP) == 0 {
 				continue
 			}
 
 			reqs := make([]supplychain.SignalRequest, 0, len(theoSP))
-			for productID, soPhien := range theoSP {
+			for productID, checkoutCount := range theoSP {
 				reqs = append(reqs, supplychain.SignalRequest{
 					Type:      supplychain.SignalView,
 					ProductID: productID,
-					Quantity:  soPhien,
+					Quantity:  checkoutCount,
 
 					// Mốc là ĐẦU NGÀY, không phải lúc chạy job: tín hiệu
 					// nói về nhu cầu của NGÀY ĐÓ, và đặt mốc theo lúc chạy
 					// sẽ dồn cả hai ngày vào thời điểm hiện tại.
-					OccurredAt: dau.Format(time.RFC3339),
+					OccurredAt: first.Format(time.RFC3339),
 
 					// SourceID là NGÀY — cũng chính là khóa chống trùng.
 					SourceType: "view_rollup",
-					SourceID:   dau.Format("2006-01-02"),
+					SourceID:   first.Format("2006-01-02"),
 				})
 			}
 
 			if err := sc.RecordCoalescedSignals(ctx, reqs); err != nil {
 				return fmt.Errorf("ghi tín hiệu lượt xem ngày %s: %w",
-					dau.Format("2006-01-02"), err)
+					first.Format("2006-01-02"), err)
 			}
 			log.InfoContext(ctx, "đã gom lượt xem thành tín hiệu nhu cầu",
-				"ngày", dau.Format("2006-01-02"), "số_sản_phẩm", len(reqs))
+				"ngày", first.Format("2006-01-02"), "số_sản_phẩm", len(reqs))
 		}
 		return nil
 	}

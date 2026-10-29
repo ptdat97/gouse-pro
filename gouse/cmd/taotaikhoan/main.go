@@ -18,13 +18,13 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/token"
 )
 
-type taiKhoan struct {
-	email   string
-	matKhau string
-	vaiTro  []string
-	moTa    string
+type account struct {
+	email       string
+	password    string
+	role        []string
+	description string
 
-	// muaHang: tài khoản này có MUA HÀNG không.
+	// buyGoods: tài khoản này có MUA HÀNG không.
 	//
 	// Khách mua hàng cần CẢ HAI: tài khoản đăng nhập (identity) và hồ sơ
 	// mua hàng (customer). Chỉ tạo tài khoản đăng nhập thì đăng nhập được
@@ -32,7 +32,7 @@ type taiKhoan struct {
 	// khách vãng lai dù đã đăng nhập.
 	//
 	// Nhân viên vận hành KHÔNG cần hồ sơ mua hàng.
-	muaHang bool
+	buyGoods bool
 }
 
 func main() {
@@ -85,37 +85,37 @@ func main() {
 		panic(err)
 	}
 
-	const matKhau = "Gouse@Test2026"
+	const password = "Gouse@Test2026"
 
-	danhSach := []taiKhoan{
-		{email: "khach@gouse.test", matKhau: matKhau,
-			moTa: "khách hàng thường", muaHang: true},
-		{email: "admin@gouse.test", matKhau: matKhau,
-			vaiTro: []string{"ADMIN"}, moTa: "quản trị"},
-		{email: "vanhanh@gouse.test", matKhau: matKhau,
-			vaiTro: []string{"OPS_MERCHANDISING", "OPS_FINANCE"},
-			moTa:   "vận hành"},
+	accounts := []account{
+		{email: "khach@gouse.test", password: password,
+			description: "khách hàng thường", buyGoods: true},
+		{email: "admin@gouse.test", password: password,
+			role: []string{"ADMIN"}, description: "quản trị"},
+		{email: "vanhanh@gouse.test", password: password,
+			role:        []string{"OPS_MERCHANDISING", "OPS_FINANCE"},
+			description: "vận hành"},
 	}
 
-	for _, tk := range danhSach {
+	for _, tk := range accounts {
 		// Khách mua hàng đăng ký qua module CUSTOMER, không phải identity.
 		//
 		// Đó là đường mà `POST /api/v1/auth/register` dùng, và nó tạo CẢ
 		// hồ sơ mua hàng. Gọi thẳng identity chỉ tạo tài khoản đăng nhập —
 		// đăng nhập được nhưng không đặt được đơn, và triệu chứng hiện ra
 		// tận bước gộp giỏ với thông điệp "Cần đăng nhập" khó hiểu.
-		if tk.muaHang {
+		if tk.buyGoods {
 			res, err := kh.RegisterShopper(ctx, customer.RegisterRequest{
 				Email:    tk.email,
-				Password: tk.matKhau,
+				Password: tk.password,
 			})
 			switch {
 			case err == nil:
 				fmt.Printf("đã tạo   %-22s %s (kèm hồ sơ mua hàng)\n",
-					tk.email, tk.moTa)
+					tk.email, tk.description)
 			case errors.Is(err, customer.ErrDuplicateEmail),
 				errors.Is(err, identity.ErrDuplicateEmail):
-				fmt.Printf("đã có    %-22s %s\n", tk.email, tk.moTa)
+				fmt.Printf("đã có    %-22s %s\n", tk.email, tk.description)
 			default:
 				fmt.Printf("LỖI tạo %s: %v\n", tk.email, err)
 			}
@@ -125,11 +125,11 @@ func main() {
 
 		v, err := m.Register(ctx, identity.RegisterRequest{
 			Email:    tk.email,
-			Password: tk.matKhau,
+			Password: tk.password,
 		})
 		switch {
 		case err == nil:
-			fmt.Printf("đã tạo   %-22s %s\n", tk.email, tk.moTa)
+			fmt.Printf("đã tạo   %-22s %s\n", tk.email, tk.description)
 		case errors.Is(err, identity.ErrDuplicateEmail):
 			// Chạy lại lần hai không được làm hỏng gì: script này sẽ được
 			// gọi lại mỗi khi nạp lại dữ liệu mẫu.
@@ -139,7 +139,7 @@ func main() {
 			// đúng như mong đợi. Tài khoản có thật mà mật khẩu khác thì
 			// script này phải nói ra, không được im lặng.
 			res, loginErr := m.Login(ctx, identity.LoginRequest{
-				Email: tk.email, Password: tk.matKhau,
+				Email: tk.email, Password: tk.password,
 			})
 			if loginErr != nil {
 				fmt.Printf("CẢNH BÁO %-22s đã tồn tại nhưng mật khẩu KHÁC: %v\n",
@@ -147,13 +147,13 @@ func main() {
 				continue
 			}
 			v = identity.UserView{ID: res.User.ID}
-			fmt.Printf("đã có    %-22s %s (mật khẩu đúng)\n", tk.email, tk.moTa)
+			fmt.Printf("đã có    %-22s %s (mật khẩu đúng)\n", tk.email, tk.description)
 		default:
 			fmt.Printf("LỖI tạo %s: %v\n", tk.email, err)
 			continue
 		}
 
-		for _, r := range tk.vaiTro {
+		for _, r := range tk.role {
 			if err := m.GrantRole(ctx, v.ID, r, ""); err != nil {
 				fmt.Printf("  LỖI gán %s: %v\n", r, err)
 				continue

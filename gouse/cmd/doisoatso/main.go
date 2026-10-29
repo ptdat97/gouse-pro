@@ -49,23 +49,23 @@ func main() {
 	}
 }
 
-// butToanSai là một bút toán ghi tiền mặt cho đơn chưa thu được tiền.
-type butToanSai struct {
-	entryID   string
-	orderID   string
-	trangThai string
-	soTien    int64
+// badEntry là một bút toán ghi tiền mặt cho đơn chưa thu được tiền.
+type badEntry struct {
+	entryID string
+	orderID string
+	status  string
+	amount  int64
 }
 
 func chay() error {
-	dao := flag.Bool("dao", false,
+	reverse := flag.Bool("dao", false,
 		"THỰC SỰ ghi bút toán đảo (mặc định chỉ báo cáo)")
-	lyDo := flag.String("lydo", "",
+	reason := flag.String("lydo", "",
 		"lý do đảo — BẮT BUỘC khi dùng -dao")
-	gioiHan := flag.Int("gioihan", 500, "số bút toán xử lý mỗi lượt")
+	limit := flag.Int("gioihan", 500, "số bút toán xử lý mỗi lượt")
 	flag.Parse()
 
-	if *dao && strings.TrimSpace(*lyDo) == "" {
+	if *reverse && strings.TrimSpace(*reason) == "" {
 		return fmt.Errorf("-dao BẮT BUỘC đi kèm -lydo: một khoản tiền biến " +
 			"mất khỏi sổ mà không ai giải thích được là đúng thứ kiểm toán " +
 			"tồn tại để chặn")
@@ -88,11 +88,11 @@ func chay() error {
 	// Nó CHỈ BÁO CÁO, không có đường sửa tự động — thêm một bút toán còn
 	// thiếu vào quá khứ là quyết định khác hẳn với đảo một bút toán sai,
 	// và nó cần người quyết cho từng đơn.
-	if err := raSoatPhaiThu(ctx, db.Pool()); err != nil {
+	if err := auditReceivable(ctx, db.Pool()); err != nil {
 		return err
 	}
 
-	sai, err := timButToanSai(ctx, db.Pool(), *gioiHan)
+	sai, err := findBadEntries(ctx, db.Pool(), *limit)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func chay() error {
 
 	var tong int64
 	for _, b := range sai {
-		tong += b.soTien
+		tong += b.amount
 	}
 	fmt.Printf("Tìm thấy %d bút toán ghi NỢ PLATFORM_CASH cho đơn chưa trả tiền.\n", len(sai))
 	fmt.Printf("Tổng: %d đ\n\n", tong)
@@ -115,10 +115,10 @@ func chay() error {
 			break
 		}
 		fmt.Printf("  %s  đơn %s  %-16s %12d đ\n",
-			b.entryID, b.orderID, b.trangThai, b.soTien)
+			b.entryID, b.orderID, b.status, b.amount)
 	}
 
-	if !*dao {
+	if !*reverse {
 		fmt.Println("\nCHỈ BÁO CÁO. Chạy lại với -dao -lydo=\"…\" để ghi bút toán đảo.")
 		return nil
 	}
@@ -128,32 +128,32 @@ func chay() error {
 		return fmt.Errorf("dựng module payment: %w", err)
 	}
 
-	var daDao, boQua int
+	var reversed, skipped int
 	for _, b := range sai {
-		if _, err := mod.ReverseEntry(ctx, b.entryID, *lyDo, "doisoatso"); err != nil {
+		if _, err := mod.ReverseEntry(ctx, b.entryID, *reason, "doisoatso"); err != nil {
 			// KHÔNG dừng cả lượt vì một bút toán hỏng: phần còn lại vẫn
 			// đảo được, và dừng giữa chừng để lại sổ ở trạng thái nửa vời
 			// khó đọc hơn hẳn.
 			fmt.Fprintf(os.Stderr, "  bỏ qua %s: %v\n", b.entryID, err)
-			boQua++
+			skipped++
 			continue
 		}
-		daDao++
+		reversed++
 	}
 
-	fmt.Printf("\nĐã đảo %d bút toán, bỏ qua %d.\n", daDao, boQua)
+	fmt.Printf("\nĐã đảo %d bút toán, bỏ qua %d.\n", reversed, skipped)
 	return nil
 }
 
-// timButToanSai tìm bút toán ghi NỢ tiền mặt cho đơn CHƯA thu được tiền.
+// findBadEntries tìm bút toán ghi NỢ tiền mặt cho đơn CHƯA thu được tiền.
 //
 // Điều kiện "chưa thu được tiền" đọc từ trạng thái ĐƠN, không từ sổ cái:
 // sổ cái chính là thứ đang sai, nên dùng nó làm căn cứ là đi vòng tròn.
 //
 // Bỏ qua bút toán ĐÃ đảo: `reverses_entry_id` trỏ về chúng.
-func timButToanSai(
-	ctx context.Context, pool *pgxpool.Pool, gioiHan int,
-) ([]butToanSai, error) {
+func findBadEntries(
+	ctx context.Context, pool *pgxpool.Pool, limit int,
+) ([]badEntry, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT e.id, o.id, o.status,
 		       COALESCE(SUM(l.amount) FILTER (
@@ -172,16 +172,16 @@ func timButToanSai(
 		           WHERE l.account_type = 'PLATFORM_CASH'
 		             AND l.direction = 'DEBIT'), 0) > 0
 		 ORDER BY e.created_at
-		 LIMIT $1`, gioiHan)
+		 LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("tìm bút toán sai: %w", err)
 	}
 	defer rows.Close()
 
-	var out []butToanSai
+	var out []badEntry
 	for rows.Next() {
-		var b butToanSai
-		if err := rows.Scan(&b.entryID, &b.orderID, &b.trangThai, &b.soTien); err != nil {
+		var b badEntry
+		if err := rows.Scan(&b.entryID, &b.orderID, &b.status, &b.amount); err != nil {
 			return nil, fmt.Errorf("đọc bút toán: %w", err)
 		}
 		out = append(out, b)
@@ -189,7 +189,7 @@ func timButToanSai(
 	return out, rows.Err()
 }
 
-// raSoatPhaiThu báo các đơn có khoản tiền KHÔNG nằm trong sổ cái.
+// auditReceivable báo các đơn có khoản tiền KHÔNG nằm trong sổ cái.
 //
 // # Vì sao cần lớp rà này
 //
@@ -205,7 +205,7 @@ func timButToanSai(
 // những đơn chưa thu.
 //
 // KHÔNG sửa tự động: xem chú thích ở chỗ gọi.
-func raSoatPhaiThu(ctx context.Context, pool *pgxpool.Pool) error {
+func auditReceivable(ctx context.Context, pool *pgxpool.Pool) error {
 	rows, err := pool.Query(ctx, `
 		SELECT o.id, o.shipping_fee, o.discount_amount
 		  FROM "order" o
@@ -233,32 +233,32 @@ func raSoatPhaiThu(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer rows.Close()
 
-	var soDon int
-	var tongShip, tongGiam int64
+	var orderCount int
+	var tongShip, totalDiscount int64
 	for rows.Next() {
 		var id string
-		var ship, giam int64
-		if err := rows.Scan(&id, &ship, &giam); err != nil {
+		var ship, discount int64
+		if err := rows.Scan(&id, &ship, &discount); err != nil {
 			return fmt.Errorf("đọc đơn: %w", err)
 		}
-		soDon++
+		orderCount++
 		tongShip += ship
-		tongGiam += giam
+		totalDiscount += discount
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 
-	if soDon == 0 {
+	if orderCount == 0 {
 		fmt.Println("Khoản phải thu: mọi đơn còn hiệu lực đều đã ghi đủ phí " +
 			"vận chuyển và giảm giá.")
 		fmt.Println()
 		return nil
 	}
 
-	fmt.Printf("CẢNH BÁO — %d đơn có khoản tiền KHÔNG nằm trong sổ cái:\n", soDon)
+	fmt.Printf("CẢNH BÁO — %d đơn có khoản tiền KHÔNG nằm trong sổ cái:\n", orderCount)
 	fmt.Printf("  phí vận chuyển chưa ghi: %d đ\n", tongShip)
-	fmt.Printf("  giảm giá chưa ghi:       %d đ\n", tongGiam)
+	fmt.Printf("  giảm giá chưa ghi:       %d đ\n", totalDiscount)
 	fmt.Println("  → đơn tạo TỪ ADR-0018 trở đi đã ghi đủ; đây là đơn cũ.")
 	fmt.Println("  → thêm bút toán còn thiếu vào quá khứ là quyết định riêng")
 	fmt.Println("    cho từng đơn, nên công cụ này KHÔNG tự sửa.")

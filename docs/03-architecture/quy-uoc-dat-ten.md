@@ -230,6 +230,61 @@ grep -rn '"<TenCu>"' cmd/           # ghim dạng chuỗi
 grep -rn 'Name != "<TenCu>"' cmd/   # ghim dạng AST
 ```
 
+### Lượt quét chú thích cũng đổi CHUỖI — rà bằng cách đếm literal
+
+`sed` không biết đâu là chú thích, đâu là chuỗi. Luật `chung -> shared` đổi
+`chay("chung", true)` thành `chay("shared", true)` — một nhãn tiếng Việt
+đứng cạnh `"riêng"`, và chẳng gì đỏ.
+
+Phép rà chạy SAU mỗi lượt quét, đọc chính diff:
+
+```python
+# chuỗi nào có trong các dòng BỊ XÓA mà không có trong các dòng THÊM VÀO?
+pre  = literals trong mọi dòng '-'
+post = literals trong mọi dòng '+'
+[s for s in pre if s not in post]      # phải RỖNG
+```
+
+Nó tìm ra bốn chuỗi: `"chung"`, `"khach@gouse.test"`, và hai câu tiếng Việt
+có chứa "dùng chung".
+
+### Phép ĐO cũng chết vì zsh không tách từ
+
+```bash
+DIRS="cmd/worker cmd/dotai ..."
+grep -rn '^\s*//' --include='*.go' $DIRS | grep -w "chung"   # 0 dòng!
+```
+
+Phép đo báo "không tên nào là văn xuôi", nên tôi cho `chung` vào lượt quét
+và nó hỏng ba chỗ. `grep` nhận cả danh sách làm MỘT đường dẫn và không khớp
+gì — rỗng trông giống hệt sạch.
+
+Dùng danh sách TỆP, như lượt quét:
+
+```bash
+while IFS= read -r f; do grep -h '^[[:space:]]*//' "$f"; done < files.txt \
+  | grep -w "$old" | grep -vc '`'
+```
+
+Đo lại đúng cách ra: `ghi` 46 dòng, `ngay` 8, `chung` 6, `xong` 5.
+
+### `collide.py` không thấy TRƯỜNG của struct
+
+Nó cắt tệp theo `^func `, nên khai `type X struct` nằm ngoài tầm. Lượt
+`cmd/worker` vì vậy lọt:
+
+```go
+type job struct { interval time.Duration; intervalFrom func() … }
+func (j job) nhip() time.Duration            // nhip -> interval
+```
+
+→ `field and method with the same name interval`. Cùng lớp lỗi với
+`fulfillment` (`han`/`hanDoiTra`), và lần đó cũng chỉ trình biên dịch bắt.
+
+`collide2.py` thêm lớp B: với mỗi `type X struct`, so tập TRƯỜNG với tập
+METHOD của chính kiểu ấy SAU khi áp luật. Chạy thử trên ca vừa gặp thì nó
+bắt đúng.
+
 ### Phép ĐO danh sách loại trừ — dùng từ lượt `internal/kernel`
 
 Thay vì nhớ, đếm: tên cũ nào xuất hiện trong chú thích NGOÀI backtick nhiều
@@ -559,7 +614,9 @@ XONG   modules/fulfillment             248   (kernel)
 XONG   modules/checkout                170   (kernel, GỐC) — HẾT 21 MODULE
 XONG   internal/kernel                  45   (ids, money, types)
 XONG   internal/platform               222   (13 gói, hai lượt)
-CÒN    cmd 360 · internal/e2e 105 · internal/app 57
+XONG   cmd (worker, dotai, doisoat*, tao*)  151
+CÒN    cmd/apicheck 116 · cmd/archcheck 68 · cmd/eventcheck 61 ·
+       internal/e2e 105 · internal/app 57
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

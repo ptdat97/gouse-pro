@@ -43,7 +43,7 @@ func main() {
 }
 
 func chay() error {
-	ghi := flag.Bool("ghi", false, "THỰC SỰ điền (mặc định chỉ báo cáo)")
+	write := flag.Bool("ghi", false, "THỰC SỰ điền (mặc định chỉ báo cáo)")
 	flag.Parse()
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -61,13 +61,13 @@ func chay() error {
 	// Nguồn sự thật là PHIÊN THANH TOÁN: khách chọn phương thức ở đó, và
 	// phí đã thu được tính theo đúng lựa chọn ấy. Suy ngược từ phí đã thu
 	// là đoán — hai phương thức có thể ra cùng số tiền sau khuyến mãi.
-	const truyVan = `
+	const query = `
 		SELECT f.id, c.shipping_method, f.shipped_at IS NOT NULL
 		  FROM fulfillment_order f
 		  JOIN checkout c ON c.order_id = f.order_id
 		 WHERE f.shipping_method = '' AND c.shipping_method <> ''`
 
-	rows, err := db.Pool().Query(ctx, truyVan)
+	rows, err := db.Pool().Query(ctx, query)
 	if err != nil {
 		return fmt.Errorf("tìm đơn thiếu phương thức giao: %w", err)
 	}
@@ -77,16 +77,16 @@ func chay() error {
 		phuongThuc string
 	}
 	var ds []can
-	var daBanGiao int
+	var handedOver int
 	for rows.Next() {
 		var c can
-		var xong bool
-		if err := rows.Scan(&c.id, &c.phuongThuc, &xong); err != nil {
+		var done bool
+		if err := rows.Scan(&c.id, &c.phuongThuc, &done); err != nil {
 			rows.Close()
 			return fmt.Errorf("đọc dòng: %w", err)
 		}
-		if xong {
-			daBanGiao++
+		if done {
+			handedOver++
 		}
 		ds = append(ds, c)
 	}
@@ -102,9 +102,9 @@ func chay() error {
 
 	fmt.Printf("Tìm thấy %d đơn thực hiện thiếu phương thức giao.\n", len(ds))
 	fmt.Printf("Trong đó %d đơn ĐÃ bàn giao (bút toán chi phí hãng của chúng "+
-		"đã lỡ), %d đơn CHƯA — số này còn kịp.\n\n", daBanGiao, len(ds)-daBanGiao)
+		"đã lỡ), %d đơn CHƯA — số này còn kịp.\n\n", handedOver, len(ds)-handedOver)
 
-	if !*ghi {
+	if !*write {
 		fmt.Println("CHỈ BÁO CÁO. Chạy lại với -ghi để điền.")
 		return nil
 	}

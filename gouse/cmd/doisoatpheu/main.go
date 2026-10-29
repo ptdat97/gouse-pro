@@ -53,23 +53,23 @@ func main() {
 	}
 }
 
-// phienCu là một phiên thanh toán chưa có mặt trong phễu.
-type phienCu struct {
+// oldCheckout là một phiên thanh toán chưa có mặt trong phễu.
+type oldCheckout struct {
 	checkoutID string
 	cartID     string
 	customerID string
-	trangThai  string
-	soDong     int
+	status     string
+	rowCount   int
 	subtotal   int64
 	currency   string
-	moLuc      time.Time
-	ketLuc     *time.Time
+	openedAt   time.Time
+	endedAt    *time.Time
 }
 
 func chay() error {
-	ghi := flag.Bool("ghi", false,
+	write := flag.Bool("ghi", false,
 		"THỰC SỰ dựng lại (mặc định chỉ báo cáo)")
-	gioiHan := flag.Int("gioihan", 20000, "số phiên xử lý mỗi lượt")
+	limit := flag.Int("gioihan", 20000, "số phiên xử lý mỗi lượt")
 	flag.Parse()
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -84,29 +84,29 @@ func chay() error {
 	}
 	defer db.Close()
 
-	thieu, err := timPhienThieu(ctx, db.Pool(), *gioiHan)
+	missing, err := findMissingCheckouts(ctx, db.Pool(), *limit)
 	if err != nil {
 		return err
 	}
 
-	if len(thieu) == 0 {
+	if len(missing) == 0 {
 		fmt.Println("Không có phiên nào thiếu khỏi phễu.")
 		return nil
 	}
 
-	var boDo int
-	var tienBoDo int64
-	for _, p := range thieu {
-		if p.trangThai == "EXPIRED" {
-			boDo++
-			tienBoDo += p.subtotal
+	var measured int
+	var measuredAmount int64
+	for _, p := range missing {
+		if p.status == "EXPIRED" {
+			measured++
+			measuredAmount += p.subtotal
 		}
 	}
-	fmt.Printf("Tìm thấy %d phiên chưa có mặt trong phễu.\n", len(thieu))
+	fmt.Printf("Tìm thấy %d phiên chưa có mặt trong phễu.\n", len(missing))
 	fmt.Printf("Trong đó %d phiên BỎ DỞ, tổng %d đ không đo được.\n\n",
-		boDo, tienBoDo)
+		measured, measuredAmount)
 
-	if !*ghi {
+	if !*write {
 		fmt.Println("CHỈ BÁO CÁO. Chạy lại với -ghi để dựng lại.")
 		return nil
 	}
@@ -116,71 +116,71 @@ func chay() error {
 		return fmt.Errorf("dựng module analytics: %w", err)
 	}
 
-	var daGhi, boQua int
-	for _, p := range thieu {
-		if err := ghiPhien(ctx, mod, p); err != nil {
+	var written, boQua int
+	for _, p := range missing {
+		if err := writeCheckout(ctx, mod, p); err != nil {
 			// KHÔNG dừng cả lượt vì một phiên hỏng.
 			fmt.Fprintf(os.Stderr, "  bỏ qua %s: %v\n", p.checkoutID, err)
 			boQua++
 			continue
 		}
-		daGhi++
+		written++
 	}
 
-	fmt.Printf("Đã dựng lại %d phiên, bỏ qua %d.\n", daGhi, boQua)
+	fmt.Printf("Đã dựng lại %d phiên, bỏ qua %d.\n", written, boQua)
 	return nil
 }
 
-// ghiPhien ghi bước MỞ, và bước HẾT HẠN nếu phiên đã bỏ dở.
+// writeCheckout ghi bước MỞ, và bước HẾT HẠN nếu phiên đã bỏ dở.
 //
 // EventID là mã phiên, KHÔNG phải mã ngẫu nhiên: chỉ mục chống trùng là
 // (event_id, event_name), nên chạy lệnh này lần thứ hai không nhân đôi dữ
 // liệu. Hai bước có tên khác nhau nên chúng không chặn nhau.
-func ghiPhien(ctx context.Context, mod *analytics.Module, p phienCu) error {
-	tien := p.subtotal
-	chung := analytics.EventInput{
+func writeCheckout(ctx context.Context, mod *analytics.Module, p oldCheckout) error {
+	amount2 := p.subtotal
+	shared := analytics.EventInput{
 		Category:    analytics.CategoryBusiness,
 		EventID:     p.checkoutID,
 		SessionID:   p.cartID,
 		CustomerID:  p.customerID,
 		SubjectType: "checkout",
 		SubjectID:   p.checkoutID,
-		Amount:      &tien,
+		Amount:      &amount2,
 		Currency:    p.currency,
-		Properties:  map[string]any{"line_count": p.soDong},
+		Properties:  map[string]any{"line_count": p.rowCount},
 	}
 
-	moi := chung
+	moi := shared
 	moi.Name = analytics.EventCheckoutStart
-	moi.OccurredAt = p.moLuc
+	moi.OccurredAt = p.openedAt
 	if err := mod.TrackEvent(ctx, moi); err != nil {
 		return fmt.Errorf("ghi bước mở phiên: %w", err)
 	}
 
-	if p.trangThai != "EXPIRED" {
+	if p.status != "EXPIRED" {
 		return nil
 	}
 
-	het := chung
-	het.Name = analytics.EventCheckoutExpired
-	het.OccurredAt = p.moLuc
-	if p.ketLuc != nil {
-		het.OccurredAt = *p.ketLuc
+	exhausted := shared
+	exhausted.Name = analytics.EventCheckoutExpired
+	exhausted.OccurredAt = p.openedAt
+	if p.endedAt != nil {
+		exhausted.OccurredAt = *p.endedAt
 	}
-	if err := mod.TrackEvent(ctx, het); err != nil {
+	if err := mod.TrackEvent(ctx, exhausted); err != nil {
 		return fmt.Errorf("ghi bước hết hạn: %w", err)
 	}
 	return nil
 }
 
-// timPhienThieu tìm phiên chưa có bản ghi `checkout_start` nào.
+// findMissingCheckouts tìm phiên chưa có bản ghi `checkout_start` nào.
 //
 // `subtotal` tính từ DÒNG HÀNG chứ không đọc cột tổng của phiên: phiên bỏ
 // dở có thể chưa kịp tính phí ship và thuế, nên cột tổng của chúng là 0 —
 // và khi đó "bỏ dở bao nhiêu tiền" luôn trả lời 0.
-func timPhienThieu(
-	ctx context.Context, pool *pgxpool.Pool, gioiHan int,
-) ([]phienCu, error) {
+func findMissingCheckouts(
+	ctx context.Context, pool *pgxpool.Pool, limit int,
+) ([]oldCheckout, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT c.id, c.cart_id, c.customer_id, c.status, c.currency,
 		       c.created_at, c.updated_at,
@@ -193,22 +193,22 @@ func timPhienThieu(
 		        WHERE e.event_id = c.id AND e.event_name = $1)
 		 GROUP BY c.id
 		 ORDER BY c.created_at
-		 LIMIT $2`, analytics.EventCheckoutStart, gioiHan)
+		 LIMIT $2`, analytics.EventCheckoutStart, limit)
 	if err != nil {
 		return nil, fmt.Errorf("tìm phiên thiếu: %w", err)
 	}
 	defer rows.Close()
 
-	var out []phienCu
+	var out []oldCheckout
 	for rows.Next() {
-		var p phienCu
-		var ketLuc *time.Time
+		var p oldCheckout
+		var endedAt *time.Time
 		if err := rows.Scan(&p.checkoutID, &p.cartID, &p.customerID,
-			&p.trangThai, &p.currency, &p.moLuc, &ketLuc,
-			&p.soDong, &p.subtotal); err != nil {
+			&p.status, &p.currency, &p.openedAt, &endedAt,
+			&p.rowCount, &p.subtotal); err != nil {
 			return nil, fmt.Errorf("đọc phiên: %w", err)
 		}
-		p.ketLuc = ketLuc
+		p.endedAt = endedAt
 		out = append(out, p)
 	}
 	return out, rows.Err()
