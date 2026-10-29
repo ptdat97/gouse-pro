@@ -86,7 +86,7 @@ func (s *LedgerStore) append(
 	// lồng. Mở thêm một giao dịch ở đây là quay lại đúng cái lỗi mà
 	// LedgerForTx sinh ra để tránh.
 	if s.pool == nil {
-		return s.ghi(ctx, s.q, e, fn)
+		return s.writeEntry(ctx, s.q, e, fn)
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -95,7 +95,7 @@ func (s *LedgerStore) append(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := s.ghi(ctx, tx, e, fn); err != nil {
+	if err := s.writeEntry(ctx, tx, e, fn); err != nil {
 		return err
 	}
 
@@ -106,7 +106,7 @@ func (s *LedgerStore) append(
 }
 
 // ghi ghi bút toán và các dòng bằng querier bên gọi đưa vào.
-func (s *LedgerStore) ghi(
+func (s *LedgerStore) writeEntry(
 	ctx context.Context, tx querier, e *domain.LedgerEntry, fn domain.TxFunc,
 ) error {
 	_, err := tx.Exec(ctx, `
@@ -172,12 +172,12 @@ func (s *LedgerStore) findOne(ctx context.Context, q string, args ...any) (*doma
 	var (
 		p                    domain.RestoreEntryParams
 		id, entryType, refID string
-		daoCua               *string
+		reversalOf           *string
 	)
 	err := s.q.QueryRow(ctx, q, args...).Scan(
 		&id, &entryType, &p.ReferenceType, &refID,
 		&p.Description, &p.IdempotencyKey, &p.CreatedBy, &p.CreatedAt,
-		&daoCua)
+		&reversalOf)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -188,8 +188,8 @@ func (s *LedgerStore) findOne(ctx context.Context, q string, args ...any) (*doma
 	p.ID = ids.ID(id)
 	p.Type = domain.EntryType(entryType)
 	p.ReferenceID = ids.ID(refID)
-	if daoCua != nil {
-		p.ReversesEntryID = ids.ID(*daoCua)
+	if reversalOf != nil {
+		p.ReversesEntryID = ids.ID(*reversalOf)
 	}
 
 	lines, err := s.linesFor(ctx, p.ID)
@@ -275,19 +275,19 @@ func (s *LedgerStore) findMany(
 		var (
 			h                    header
 			id, entryType, refID string
-			daoCua               *string
+			reversalOf           *string
 		)
 		if err := rows.Scan(&id, &entryType, &h.p.ReferenceType, &refID,
 			&h.p.Description, &h.p.IdempotencyKey, &h.p.CreatedBy, &h.p.CreatedAt,
-			&daoCua); err != nil {
+			&reversalOf); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("payment: đọc bút toán: %w", err)
 		}
 		h.p.ID = ids.ID(id)
 		h.p.Type = domain.EntryType(entryType)
 		h.p.ReferenceID = ids.ID(refID)
-		if daoCua != nil {
-			h.p.ReversesEntryID = ids.ID(*daoCua)
+		if reversalOf != nil {
+			h.p.ReversesEntryID = ids.ID(*reversalOf)
 		}
 		headers = append(headers, h)
 	}

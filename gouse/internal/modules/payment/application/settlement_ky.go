@@ -13,7 +13,7 @@ import (
 //
 // # Vì sao vòng đời này tới 01/10/2026 mới khép
 //
-// `DoiSoat.XacNhan` và `DoiSoat.DanhDauDaTra` có từ migration 000036 với đủ
+// `Settlement.Confirm` và `Settlement.MarkPaid` có từ migration 000036 với đủ
 // hàng rào trạng thái, và KHÔNG lời gọi nào. Mọi đợt nằm `DRAFT` vĩnh viễn —
 // nhà bán không bao giờ được chi.
 //
@@ -22,7 +22,7 @@ import (
 //
 // # Vì sao HAI bước chứ không một
 //
-//	DRAFT ──XacNhan──► CONFIRMED ──DanhDauDaTra──► PAID
+//	DRAFT ──Confirm──► CONFIRMED ──MarkPaid──► PAID
 //	       con số thành           tiền RỜI
 //	       CAM KẾT                nền tảng
 //
@@ -36,34 +36,33 @@ import (
 // tục: với đường tiền, "vì sao" là thứ duy nhất phân biệt một lần chi chính
 // đáng với một lần biển thủ — cùng lập luận đã viết cho bút toán điều chỉnh.
 
-// KyDoiSoatInput là dữ liệu ký một bước.
-type KyDoiSoatInput struct {
+// SignSettlementInput là dữ liệu ký một bước.
+type SignSettlementInput struct {
 	SettlementID ids.ID
 
-	// NguoiKy là người bấm. BẮT BUỘC.
-	NguoiKy ids.ID
+	// SignedBy là người bấm. BẮT BUỘC.
+	SignedBy ids.ID
 
 	// Reason BẮT BUỘC, tối thiểu 20 ký tự — `audit.WriteSensitive` kiểm.
 	Reason    string
 	RequestID string
 }
 
-// XacNhanDoiSoat chốt đợt đối soát, sẵn sàng chi trả.
+// ConfirmSettlement chốt đợt đối soát, sẵn sàng chi trả.
 //
 // IDEMPOTENT theo trạng thái, không theo khóa: gọi lại trên một đợt đã
 // `CONFIRMED` trả `ErrInvalidStatus`, và bên gọi HTTP dịch nó thành 409.
 // Đó là hành vi đúng cho một thao tác người bấm — khác với event, nơi lặp
 // lại là chuyện thường.
-func (s *Service) XacNhanDoiSoat(
-	ctx context.Context, in KyDoiSoatInput,
-) (*domain.DoiSoat, error) {
-	return s.kyDoiSoat(ctx, in, "confirm",
-		func(d *domain.DoiSoat) error {
-			return d.XacNhan(in.NguoiKy, s.clock.Now())
+func (s *Service) ConfirmSettlement(
+	ctx context.Context, in SignSettlementInput) (*domain.Settlement, error) {
+	return s.signSettlement(ctx, in, "confirm",
+		func(d *domain.Settlement) error {
+			return d.Confirm(in.SignedBy, s.clock.Now())
 		})
 }
 
-// DanhDauDoiSoatDaTra ghi nhận tiền đã chuyển cho nhà bán.
+// MarkSettlementPaid ghi nhận tiền đã chuyển cho nhà bán.
 //
 // Bước này KHÔNG chuyển tiền — việc chuyển xảy ra ngoài hệ thống (chuyển
 // khoản ngân hàng), và endpoint này ghi nhận rằng nó đã xảy ra.
@@ -71,23 +70,22 @@ func (s *Service) XacNhanDoiSoat(
 // Phân biệt ấy quan trọng: nếu một ngày có cổng chi trả tự động, bước này
 // thành bên NHẬN webhook của cổng ấy thay vì một nút người bấm — và hàng rào
 // trạng thái cùng vết kiểm toán ở đây không phải viết lại.
-func (s *Service) DanhDauDoiSoatDaTra(
-	ctx context.Context, in KyDoiSoatInput,
-) (*domain.DoiSoat, error) {
-	return s.kyDoiSoat(ctx, in, "mark_paid",
-		func(d *domain.DoiSoat) error {
-			return d.DanhDauDaTra(in.NguoiKy, s.clock.Now())
+func (s *Service) MarkSettlementPaid(
+	ctx context.Context, in SignSettlementInput) (*domain.Settlement, error) {
+	return s.signSettlement(ctx, in, "mark_paid",
+		func(d *domain.Settlement) error {
+			return d.MarkPaid(in.SignedBy, s.clock.Now())
 		})
 }
 
-// kyDoiSoat là phần chung của hai bước.
+// signSettlement là phần chung của hai bước.
 //
 // Dùng chung vì hai bước khác nhau ĐÚNG MỘT lời gọi miền; hai bản cài sẽ
 // lệch nhau ở phần đọc, kiểm và ghi vết — và phần ấy là phần dễ sai.
-func (s *Service) kyDoiSoat(
-	ctx context.Context, in KyDoiSoatInput, buoc string,
-	doiTrangThai func(*domain.DoiSoat) error,
-) (*domain.DoiSoat, error) {
+func (s *Service) signSettlement(
+	ctx context.Context, in SignSettlementInput, step string,
+	statusChanged func(*domain.Settlement) error,
+) (*domain.Settlement, error) {
 	if s.settlements == nil {
 		return nil, errors.New("payment: chưa nối kho đợt đối soát")
 	}
@@ -101,24 +99,24 @@ func (s *Service) kyDoiSoat(
 			"payment: chưa nối nhật ký kiểm toán — không ký đợt đối soát " +
 				"mà không ghi được ai ký")
 	}
-	if in.NguoiKy.IsZero() {
-		return nil, domain.ErrThieuNguoiKy
+	if in.SignedBy.IsZero() {
+		return nil, domain.ErrMissingSigner
 	}
 
-	d, err := s.settlements.TimTheoID(ctx, in.SettlementID)
+	d, err := s.settlements.FindByID(ctx, in.SettlementID)
 	if err != nil {
 		return nil, err
 	}
-	if err := doiTrangThai(d); err != nil {
+	if err := statusChanged(d); err != nil {
 		return nil, err
 	}
 
-	err = s.settlements.LuuKemAudit(ctx, d, func(txCtx context.Context) error {
+	err = s.settlements.SaveWithAudit(ctx, d, func(txCtx context.Context) error {
 		return s.audit.RecordSettlementSigned(txCtx, SettlementSignRecord{
 			SettlementID: d.ID(),
 			SellerID:     d.SellerID(),
-			Buoc:         buoc,
-			ActorID:      in.NguoiKy.String(),
+			Step:         step,
+			ActorID:      in.SignedBy.String(),
 			Reason:       in.Reason,
 			RequestID:    in.RequestID,
 			NetAmount:    d.Net().Amount(),
@@ -127,7 +125,7 @@ func (s *Service) kyDoiSoat(
 	})
 	if err != nil {
 		return nil, fmt.Errorf("payment: ký đợt đối soát %s (%s): %w",
-			in.SettlementID, buoc, err)
+			in.SettlementID, step, err)
 	}
 	return d, nil
 }

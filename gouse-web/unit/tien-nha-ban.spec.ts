@@ -16,7 +16,7 @@ import {
 test("ba trạng thái của backend đều có nhãn tiếng Việt", () => {
   /**
    * BA, không phải bốn. `PENDING_CONFIRMATION` từng nằm trong đặc tả mà
-   * chưa bao giờ có trong `domain.TrangThaiDoiSoat` — nếu có ai thêm lại,
+   * chưa bao giờ có trong `domain.SettlementStatus` — nếu có ai thêm lại,
    * bài này không bắt được, nhưng `apicheck` và đặc tả nay đã khớp mã.
    */
   for (const ma of ["DRAFT", "CONFIRMED", "PAID"]) {

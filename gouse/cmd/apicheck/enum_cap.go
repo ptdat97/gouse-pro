@@ -72,12 +72,12 @@ var capEnumDaKiem = []capEnum{
 	{"components/schemas.yaml#/LedgerLine/properties/direction", "modules/payment/domain", "Direction",
 		false, "hướng bút toán"},
 	{"paths/admin.yaml#/settlements/get/parameters/name/schema",
-		"modules/payment/domain", "TrangThaiDoiSoat",
+		"modules/payment/domain", "SettlementStatus",
 		false, "lọc danh sách đợt đối soát theo trạng thái — CÙNG tập với " +
 			"`Settlement/properties/status` ngay dưới, và ghép CẢ HAI chứ " +
 			"không chỉ một: tham số lọc khai một trạng thái mà miền không " +
 			"có là một ô lọc không bao giờ ra kết quả"},
-	{"components/schemas.yaml#/Settlement/properties/status", "modules/payment/domain", "TrangThaiDoiSoat",
+	{"components/schemas.yaml#/Settlement/properties/status", "modules/payment/domain", "SettlementStatus",
 		false, "trạng thái đợt đối soát — đã lệch một lần, xem P3-60"},
 	{"components/schemas.yaml#/ProductDetail/properties/product_type", "modules/catalog/domain", "ProductType",
 		false, "loại sản phẩm"},

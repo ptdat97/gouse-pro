@@ -130,7 +130,7 @@ func chay() error {
 
 	var daDao, boQua int
 	for _, b := range sai {
-		if _, err := mod.DaoButToan(ctx, b.entryID, *lyDo, "doisoatso"); err != nil {
+		if _, err := mod.ReverseEntry(ctx, b.entryID, *lyDo, "doisoatso"); err != nil {
 			// KHÔNG dừng cả lượt vì một bút toán hỏng: phần còn lại vẫn
 			// đảo được, và dừng giữa chừng để lại sổ ở trạng thái nửa vời
 			// khó đọc hơn hẳn.

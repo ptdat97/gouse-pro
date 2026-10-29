@@ -51,7 +51,7 @@ import (
 // Dòng còn lại nêu một ràng buộc KỸ THUẬT thật: nó cần dữ liệu mà bộ chung
 // không có cách cấp.
 var benNhanChiOWorker = map[string]string{
-	"payment.NewChiPhiVanChuyenHandler": "cần một nguồn GIÁ vận chuyển, nên " +
+	"payment.NewCarrierCostHandler": "cần một nguồn GIÁ vận chuyển, nên " +
 		"`api_chi_phi_van_chuyen_test.go` tự đăng ký kèm giá cố định qua " +
 		"`phatEventKemChiPhi`. Đăng ký vào bộ chung sẽ phải chọn một giá " +
 		"cho MỌI bài, và giá ấy là thứ bài kia đang kiểm",

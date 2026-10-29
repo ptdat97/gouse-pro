@@ -3618,7 +3618,7 @@ export interface components {
             seller_id: components["schemas"]["Id"];
             /**
              * @description BA trạng thái, không phải bốn. `PENDING_CONFIRMATION` của bản trước
-             *     chưa bao giờ tồn tại trong `domain.TrangThaiDoiSoat`.
+             *     chưa bao giờ tồn tại trong `domain.SettlementStatus`.
              * @enum {string}
              */
             status: "DRAFT" | "CONFIRMED" | "PAID";

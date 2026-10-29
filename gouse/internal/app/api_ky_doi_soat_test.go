@@ -15,7 +15,7 @@ import (
 //
 // # P3-89 — hai hàm khai ra mà không ai gọi
 //
-// `DoiSoat.XacNhan` và `DoiSoat.DanhDauDaTra` có từ migration 000036, với đủ
+// `Settlement.Confirm` và `Settlement.MarkPaid` có từ migration 000036, với đủ
 // hàng rào trạng thái và test đơn vị. Tới 01/10/2026 **không lời gọi nào** —
 // mọi đợt nằm `DRAFT` vĩnh viễn, và nhà bán không bao giờ được chi.
 //
@@ -239,7 +239,7 @@ func (a *apiTest) doiSoatNhap(t *testing.T) (string, nhaBanThu) {
 	}
 
 	den := types.BayGio().Add(time.Minute)
-	if _, err := a.mods.payment.TaoDoiSoatChoKy(
+	if _, err := a.mods.payment.NewSettlementForPeriod(
 		ctx, den.Add(-7*24*time.Hour), den, 1000); err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)
 	}
@@ -272,7 +272,7 @@ func (a *apiTest) trangThaiDoiSoat(t *testing.T, id string) string {
 // dạng, và khác nhau ở đúng một điều: đường của nhà bán lọc theo `seller_id`
 // lấy từ token, đường của quản trị cố ý KHÔNG lọc.
 //
-// Backend dùng HAI hàm kho khác nhau (`TimTheoNhaBan` / `TimTheoTrangThai`)
+// Backend dùng HAI hàm kho khác nhau (`BySeller` / `ByStatus`)
 // chứ không một hàm có tham số rỗng. Lý do: một chỗ quên truyền token sẽ trả
 // dữ liệu mọi gian hàng, và chỗ quên ấy không trông giống lỗi.
 //

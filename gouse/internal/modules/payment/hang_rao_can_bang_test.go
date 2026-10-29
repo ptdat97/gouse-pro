@@ -25,7 +25,7 @@ import (
 // không nằm trong Go.
 //
 // Vì thế mọi bài dưới đây ghi bằng SQL thô.
-func moSoCai(t *testing.T) *pgxpool.Pool {
+func openLedger(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	db := testdb.Open(t)
 	p := db.Pool()
@@ -40,20 +40,20 @@ func moSoCai(t *testing.T) *pgxpool.Pool {
 }
 
 // dong là một dòng sổ cái viết gọn cho bài test.
-type dong struct {
-	taiKhoan string
-	huong    string
-	soTien   int64
-	donVi    string
+type line struct {
+	account   string
+	direction string
+	amount    int64
+	unit      string
 }
 
-// ghiButToan ghi một bút toán kèm các dòng của nó trong MỘT giao dịch.
+// writeLedgerEntry ghi một bút toán kèm các dòng của nó trong MỘT giao dịch.
 //
 // Thứ tự — bút toán trước, dòng sau — CỐ TÌNH giống hệt
 // `payment/infrastructure/postgres/store.go`. Chính thứ tự này là lý do
 // hàng rào phải là constraint trigger HOÃN: một trigger thường sẽ chạy lúc
 // bảng dòng còn rỗng và từ chối cả bút toán đúng.
-func ghiButToan(t *testing.T, p *pgxpool.Pool, id string, dongs ...dong) error {
+func writeLedgerEntry(t *testing.T, p *pgxpool.Pool, id string, dongs ...line) error {
 	t.Helper()
 	ctx := context.Background()
 
@@ -75,30 +75,30 @@ func ghiButToan(t *testing.T, p *pgxpool.Pool, id string, dongs ...dong) error {
 		// `SELLER_PAYABLE` không biết của seller nào thì không đối soát
 		// được. Điền sẵn ở đây để bảng dữ liệu của từng bài chỉ còn
 		// những thứ bài ấy thật sự nói về.
-		chuSoHuu := ""
-		if strings.HasSuffix(d.taiKhoan, "_PAYABLE") {
-			chuSoHuu = "sel_TEST0000000000000000000001"
+		ownerID := ""
+		if strings.HasSuffix(d.account, "_PAYABLE") {
+			ownerID = "sel_TEST0000000000000000000001"
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO ledger_line (entry_id, account_type, account_owner_id,
 				direction, amount, currency, description)
 			VALUES ($1,$2,$3,$4,$5,$6,'')`,
-			id, d.taiKhoan, chuSoHuu, d.huong, d.soTien, d.donVi); err != nil {
+			id, d.account, ownerID, d.direction, d.amount, d.unit); err != nil {
 			return err
 		}
 	}
 	return tx.Commit(ctx)
 }
 
-// maSo dựng một id hợp lệ: `led_` + 26 ký tự, theo CHECK của bảng.
-func maSo(i int) string { return fmt.Sprintf("led_TEST%022d", i) }
+// entryID dựng một id hợp lệ: `led_` + 26 ký tự, theo CHECK của bảng.
+func entryID(i int) string { return fmt.Sprintf("led_TEST%022d", i) }
 
-func TestButToanCanBangThiGhiDuoc(t *testing.T) {
-	p := moSoCai(t)
+func TestABalancedEntryIsAccepted(t *testing.T) {
+	p := openLedger(t)
 
-	err := ghiButToan(t, p, maSo(1),
-		dong{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
-		dong{"PLATFORM_REVENUE", "CREDIT", 1000, "VND"},
+	err := writeLedgerEntry(t, p, entryID(1),
+		line{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
+		line{"PLATFORM_REVENUE", "CREDIT", 1000, "VND"},
 	)
 	if err != nil {
 		t.Fatalf("bút toán cân bằng bị từ chối: %v", err)
@@ -106,12 +106,12 @@ func TestButToanCanBangThiGhiDuoc(t *testing.T) {
 }
 
 // Ca này là lý do migration 000056 tồn tại.
-func TestButToanLechBiDatabaseTuChoi(t *testing.T) {
-	p := moSoCai(t)
+func TestTheDatabaseRejectsAnUnbalancedEntry(t *testing.T) {
+	p := openLedger(t)
 
-	err := ghiButToan(t, p, maSo(2),
-		dong{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
-		dong{"PLATFORM_REVENUE", "CREDIT", 999, "VND"},
+	err := writeLedgerEntry(t, p, entryID(2),
+		line{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
+		line{"PLATFORM_REVENUE", "CREDIT", 999, "VND"},
 	)
 	if err == nil {
 		t.Fatal("database CHO QUA một bút toán lệch nợ-có")
@@ -120,7 +120,7 @@ func TestButToanLechBiDatabaseTuChoi(t *testing.T) {
 	// Thông điệp phải nêu ĐỦ để người trực sự cố tài chính hành động ngay:
 	// bút toán nào, đơn vị nào, lệch bao nhiêu. "Ràng buộc bị vi phạm" thì
 	// đúng mà vô dụng lúc 3 giờ sáng.
-	for _, can := range []string{maSo(2), "VND", "1000", "999"} {
+	for _, can := range []string{entryID(2), "VND", "1000", "999"} {
 		if !strings.Contains(err.Error(), can) {
 			t.Errorf("thông điệp thiếu %q: %v", can, err)
 		}
@@ -133,10 +133,10 @@ func TestButToanLechBiDatabaseTuChoi(t *testing.T) {
 // CHO QUA bút toán không có dòng nào. Nó không sai số học — nó chỉ không
 // nói gì, và nó chiếm mất khóa idempotency, nên lần ghi lại ĐÚNG sẽ bị từ
 // chối là trùng.
-func TestButToanKhongCoDongNaoBiTuChoi(t *testing.T) {
-	p := moSoCai(t)
+func TestAnEntryWithNoLinesIsRejected(t *testing.T) {
+	p := openLedger(t)
 
-	err := ghiButToan(t, p, maSo(3))
+	err := writeLedgerEntry(t, p, entryID(3))
 	if err == nil {
 		t.Fatal("database CHO QUA một bút toán không có dòng nào")
 	}
@@ -149,12 +149,12 @@ func TestButToanKhongCoDongNaoBiTuChoi(t *testing.T) {
 //
 // Đây là lý do hàng rào gom theo `currency` thay vì cộng tất. Một phép
 // kiểm cộng tất sẽ cho 100 JPY NỢ đối 100 VND CÓ đi qua.
-func TestButToanLanDonViTienBiTuChoi(t *testing.T) {
-	p := moSoCai(t)
+func TestAnEntryMixingCurrenciesIsRejected(t *testing.T) {
+	p := openLedger(t)
 
-	err := ghiButToan(t, p, maSo(4),
-		dong{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
-		dong{"PLATFORM_REVENUE", "CREDIT", 1000, "JPY"},
+	err := writeLedgerEntry(t, p, entryID(4),
+		line{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
+		line{"PLATFORM_REVENUE", "CREDIT", 1000, "JPY"},
 	)
 	if err == nil {
 		t.Fatal("database CHO QUA bút toán lẫn hai đơn vị tiền")
@@ -167,13 +167,13 @@ func TestButToanLanDonViTienBiTuChoi(t *testing.T) {
 // vế thành hai — đảo hoa hồng nền tảng và đảo số dư nhà bán (returns/
 // application/service.go). Một hàng rào đòi đúng một dòng mỗi bên sẽ chặn
 // đúng luồng quan trọng nhất của module.
-func TestNhieuDongMoiBenVanCanBang(t *testing.T) {
-	p := moSoCai(t)
+func TestManyLinesPerSideStillBalance(t *testing.T) {
+	p := openLedger(t)
 
-	err := ghiButToan(t, p, maSo(5),
-		dong{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
-		dong{"PLATFORM_REVENUE", "CREDIT", 300, "VND"},
-		dong{"SELLER_PAYABLE", "CREDIT", 700, "VND"},
+	err := writeLedgerEntry(t, p, entryID(5),
+		line{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
+		line{"PLATFORM_REVENUE", "CREDIT", 300, "VND"},
+		line{"SELLER_PAYABLE", "CREDIT", 700, "VND"},
 	)
 	if err != nil {
 		t.Fatalf("bút toán ba dòng cân bằng bị từ chối: %v", err)
@@ -186,14 +186,14 @@ func TestNhieuDongMoiBenVanCanBang(t *testing.T) {
 // chạm hai đơn vị; nó chỉ đòi mỗi đơn vị tự cân. Ghi rõ ranh giới ấy ở đây
 // để lần sau không ai siết nhầm thành "một bút toán một đơn vị tiền" —
 // một quyết định khác hẳn, và nếu muốn thì phải quyết có chủ ý.
-func TestHaiDonViTienMoiBenTuCanThiChoQua(t *testing.T) {
-	p := moSoCai(t)
+func TestTwoCurrenciesEachSelfBalancedIsAccepted(t *testing.T) {
+	p := openLedger(t)
 
-	err := ghiButToan(t, p, maSo(6),
-		dong{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
-		dong{"PLATFORM_REVENUE", "CREDIT", 1000, "VND"},
-		dong{"PLATFORM_CASH", "DEBIT", 50, "JPY"},
-		dong{"PLATFORM_REVENUE", "CREDIT", 50, "JPY"},
+	err := writeLedgerEntry(t, p, entryID(6),
+		line{"PLATFORM_CASH", "DEBIT", 1000, "VND"},
+		line{"PLATFORM_REVENUE", "CREDIT", 1000, "VND"},
+		line{"PLATFORM_CASH", "DEBIT", 50, "JPY"},
+		line{"PLATFORM_REVENUE", "CREDIT", 50, "JPY"},
 	)
 	if err != nil {
 		t.Fatalf("mỗi đơn vị tự cân mà vẫn bị từ chối: %v", err)

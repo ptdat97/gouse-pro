@@ -18,7 +18,7 @@ import (
 // nhất giữa nền tảng và nhà bán."*
 //
 // `settlement_line` có từ migration 000041 và `doc()` nạp nó vào
-// `DoiSoat.Dong()` mỗi lần đọc. Tới 23/09/2026 tầng DTO VỨT nó đi, nên API
+// `Settlement.Lines()` mỗi lần đọc. Tới 23/09/2026 tầng DTO VỨT nó đi, nên API
 // chỉ trả ba con số tổng. Lần thứ tư của cùng dạng lỗi trong khu này —
 // `shipping_groups` (P3-50), `variants` (P3-64), trường sửa được của sản
 // phẩm (P3-65).
@@ -37,7 +37,7 @@ func TestChiTietDoiSoatNoiDuocNoGomNhungGi(t *testing.T) {
 	}
 
 	den := types.BayGio().Add(time.Minute)
-	if _, err := a.mods.payment.TaoDoiSoatChoKy(
+	if _, err := a.mods.payment.NewSettlementForPeriod(
 		ctx, den.Add(-7*24*time.Hour), den, 1000); err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)
 	}

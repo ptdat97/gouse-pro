@@ -174,6 +174,48 @@ chưa đổi tên — nên adapter giữ tên cũ kèm chú thích. Lượt `pro
 Quy tắc còn giá trị: khi bên khai cổng chưa tới lượt thì hoãn, và khi tới
 lượt thì đổi hai đầu cùng nhau.
 
+### `find` KHÔNG có đường dẫn mặc định về `.` — và quét CẢ REPO
+
+```bash
+D=internal/modules/payment            # gán trong MỘT lệnh Bash
+# ... lệnh khác, shell MỚI, D rỗng ...
+find $D -name '*.go' 2>/dev/null | xargs sed -i '' "s/old/new/"
+```
+
+`find -name '*.go'` không có đường dẫn: BSD find lấy `.`, nên 248 luật `sed`
+quét toàn bộ cây thay vì một module. `2>/dev/null` che mất lời cảnh báo duy
+nhất. `go vet` XANH — vì sed đổi nhất quán cả khai báo lẫn mọi chỗ dùng, nên
+nó vẫn biên dịch được: 59 tệp ngoài module bị đổi, trong đó `platform/webhook`
+và `fulfillment` bị đổi tên định danh của RIÊNG chúng.
+
+Chỉ `git diff --stat` ngoài module mới thấy. Hai cách phòng:
+
+```bash
+find internal/modules/payment -name '*.go' > /tmp/files.txt   # ĐƯỜNG DẪN ghi thẳng
+while IFS= read -r f; do sed -i '' "s/old/new/" "$f"; done < /tmp/files.txt
+```
+
+và sau MỖI lượt quét: `git diff --name-only -- . ':!<module>' | wc -l` phải
+bằng số tệp mình CHỦ Ý sửa ngoài module, không phải "ít thôi".
+
+### Từ Việt KHÔNG DẤU là từ duy nhất nguy hiểm khi quét chú thích
+
+Chú thích của dự án viết CÓ DẤU, nên `Dong`, `Huy`, `Buoc` không khớp văn
+xuôi ("dòng", "hủy", "bước"). Nhưng `Ghi` thì khớp: nó không dấu, và là động
+từ mở đầu câu rất thường gặp. Luật `Ghi -> Log` đã đổi 18 chỗ văn xuôi thành
+"Log vào vết", "Log hai lần", "Log sổ".
+
+Thước đo đúng không phải ĐỘ DÀI mà là: tên cũ có phải một từ Việt KHÔNG DẤU
+hợp lệ không. Danh sách phải loại tay: `ghi doc tra lai moc sau truoc den
+cho khong gia tien ky phan nhan dau bao cong dao don goc lech dong huy buoc`.
+
+### Cổng ngược: module KHÁC khai, `payment` cài
+
+`checkout.PaymentAPI` khai `TaoIntent`, `payment.Module` cài. Đổi tên ở
+`payment` làm `internal/app` không gán được — cùng dạng với
+`customer.OrderPort`, nhưng chiều NGƯỢC LẠI. Đổi tên method ở cổng của
+`checkout` trong cùng lượt là đủ; không phải đổi cả module `checkout`.
+
 ### Ba phép rà TRẢ LỜI "SẠCH" MÀ KHÔNG RÀ GÌ CẢ
 
 Cả ba đều xảy ra thật trong lượt `inventory`/`product`, và cả ba đều IM LẶNG
@@ -420,7 +462,8 @@ XONG   lượt DỌN SÓT                     140   ở 13 module đã ghi XONG
        (29 lượt một + 44 lượt hai + 47 lượt ba, sau khi sửa CẢ HAI công cụ)
 XONG   modules/cart                     52   (kernel)
 XONG   modules/order                    91   (kernel) + 2 method của customer
-CÒN    payment 260 · fulfillment 228 · checkout 153
+XONG   modules/payment                 216   (kernel) + 1 method của checkout
+CÒN    fulfillment 228 · checkout 153
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

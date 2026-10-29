@@ -57,8 +57,8 @@ type SettlementSignRecord struct {
 	SettlementID ids.ID
 	SellerID     ids.ID
 
-	// Buoc là "confirm" hoặc "mark_paid".
-	Buoc string
+	// Step là "confirm" hoặc "mark_paid".
+	Step string
 
 	ActorID   string
 	Reason    string
@@ -174,13 +174,13 @@ func (s *Service) RecordOrderRevenue(
 // postgres.LedgerForTx. Cùng khuôn với inventory.CommitInRepos.
 func (s *Service) RecordOrderRevenueWith(
 	ctx context.Context, ledger domain.LedgerRepository, in RecordOrderRevenueInput,
-) (_ *domain.LedgerEntry, ketQua error) {
+) (_ *domain.LedgerEntry, result error) {
 	// Bọc bằng defer để MỌI đường thoát sớm đều được đếm. Rải lời gọi ở
 	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
 	// bị sót thường là nhánh hiếm — tức nhánh đáng quan tâm nhất.
 	defer func() {
-		if ketQua != nil {
-			metrics.RecordFailure(metrics.StagePayment, lyDoThatBaiTien(ketQua))
+		if result != nil {
+			metrics.RecordFailure(metrics.StagePayment, paymentFailureReason(result))
 		}
 	}()
 
@@ -257,20 +257,20 @@ type RecordRefundInput struct {
 }
 
 // RecordRefund ghi sổ hoàn tiền — ĐẢO NGƯỢC chuỗi ghi sổ ban đầu.
-// ChuyenSangRutDuocInput là dữ liệu chuyển tiền nhà bán sang rút được.
-type ChuyenSangRutDuocInput struct {
+// ReleaseToAvailableInput là dữ liệu chuyển tiền nhà bán sang rút được.
+type ReleaseToAvailableInput struct {
 	FulfillmentID ids.ID
 	SellerID      ids.ID
 	Amount        money.Money
 	CreatedBy     string
 }
 
-// ChuyenSangRutDuocWith ghi bút toán chuyển ĐANG CHỜ → RÚT ĐƯỢC.
+// ReleaseToAvailableWith ghi bút toán chuyển ĐANG CHỜ → RÚT ĐƯỢC.
 //
 // IDEMPOTENT theo đơn thực hiện: outbox giao hàng ít nhất một lần, và
 // chuyển hai lần nghĩa là nhà bán rút được gấp đôi số tiền thật.
-func (s *Service) ChuyenSangRutDuocWith(
-	ctx context.Context, ledger domain.LedgerRepository, in ChuyenSangRutDuocInput,
+func (s *Service) ReleaseToAvailableWith(
+	ctx context.Context, ledger domain.LedgerRepository, in ReleaseToAvailableInput,
 ) error {
 	key := "seller-release:" + in.FulfillmentID.String()
 
@@ -301,13 +301,13 @@ func (s *Service) ChuyenSangRutDuocWith(
 
 func (s *Service) RecordRefund(
 	ctx context.Context, in RecordRefundInput,
-) (_ *domain.LedgerEntry, ketQua error) {
+) (_ *domain.LedgerEntry, result error) {
 	// Bọc bằng defer để MỌI đường thoát sớm đều được đếm. Rải lời gọi ở
 	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
 	// bị sót thường là nhánh hiếm — tức nhánh đáng quan tâm nhất.
 	defer func() {
-		if ketQua != nil {
-			metrics.RecordFailure(metrics.StagePayment, lyDoThatBaiTien(ketQua))
+		if result != nil {
+			metrics.RecordFailure(metrics.StagePayment, paymentFailureReason(result))
 		}
 	}()
 
@@ -448,13 +448,13 @@ type AdjustmentInput struct {
 //  3. Vết kiểm toán            — cùng giao dịch với bút toán
 func (s *Service) RecordAdjustmentWithAudit(
 	ctx context.Context, in AdjustmentInput,
-) (_ *domain.LedgerEntry, ketQua error) {
+) (_ *domain.LedgerEntry, result error) {
 	// Bọc bằng defer để MỌI đường thoát sớm đều được đếm. Rải lời gọi ở
 	// từng nhánh `return` là cách chắc chắn để bỏ sót một nhánh, và nhánh
 	// bị sót thường là nhánh hiếm — tức nhánh đáng quan tâm nhất.
 	defer func() {
-		if ketQua != nil {
-			metrics.RecordFailure(metrics.StagePayment, lyDoThatBaiTien(ketQua))
+		if result != nil {
+			metrics.RecordFailure(metrics.StagePayment, paymentFailureReason(result))
 		}
 	}()
 
@@ -538,16 +538,16 @@ func (s *Service) GetSellerBalance(ctx context.Context, sellerID ids.ID) (domain
 	})
 }
 
-// SoDuNhaBan là số dư nhà bán theo TỪNG TRẠNG THÁI.
-type SoDuNhaBan struct {
-	// DangCho: đơn đã giao, còn trong hạn đổi trả. CHƯA rút được.
-	DangCho money.Money
+// SellerBalance là số dư nhà bán theo TỪNG TRẠNG THÁI.
+type SellerBalance struct {
+	// Pending: đơn đã giao, còn trong hạn đổi trả. CHƯA rút được.
+	Pending money.Money
 
-	// RutDuoc: hết hạn đổi trả, sẵn sàng đưa vào đối soát.
-	RutDuoc money.Money
+	// Available: hết hạn đổi trả, sẵn sàng đưa vào đối soát.
+	Available money.Money
 }
 
-// GetSoDuNhaBan trả số dư nhà bán tách theo trạng thái.
+// GetSellerBalanceDetail trả số dư nhà bán tách theo trạng thái.
 //
 // # Vì sao chỉ hai trạng thái, trong khi đặc tả nêu năm
 //
@@ -559,22 +559,22 @@ type SoDuNhaBan struct {
 // khi tranh chấp, và chưa có chính sách reserve. Tầng HTTP trả 0 cho
 // chúng, và đó là con số ĐÚNG — thật sự không có đồng nào ở những trạng
 // thái ấy. Bịa ra số khác mới là nói dối.
-func (s *Service) GetSoDuNhaBan(
+func (s *Service) GetSellerBalanceDetail(
 	ctx context.Context, sellerID ids.ID,
-) (SoDuNhaBan, error) {
-	cho, err := s.balances.Balance(ctx, domain.Account{
+) (SellerBalance, error) {
+	pendingAcc, err := s.balances.Balance(ctx, domain.Account{
 		Type: domain.AccountSellerPayable, OwnerID: sellerID,
 	})
 	if err != nil {
-		return SoDuNhaBan{}, err
+		return SellerBalance{}, err
 	}
 	rut, err := s.balances.Balance(ctx, domain.Account{
 		Type: domain.AccountSellerAvailable, OwnerID: sellerID,
 	})
 	if err != nil {
-		return SoDuNhaBan{}, err
+		return SellerBalance{}, err
 	}
-	return SoDuNhaBan{DangCho: cho.Amount, RutDuoc: rut.Amount}, nil
+	return SellerBalance{Pending: pendingAcc.Amount, Available: rut.Amount}, nil
 }
 
 func (s *Service) GetEntriesForOrder(
@@ -636,43 +636,43 @@ func (s *Service) CheckIntegrity(ctx context.Context, from, to time.Time) (Integ
 
 // SettlementRepository là PORT cho kho lưu trữ đợt đối soát.
 type SettlementRepository interface {
-	// TaoChoNhaBan lập đợt cho MỘT nhà bán trong một giao dịch có khóa.
+	// CreateForSeller lập đợt cho MỘT nhà bán trong một giao dịch có khóa.
 	//
 	// `dung` nhận phần đang NỢ (dương; 0 nếu không nợ) đọc được SAU khi đã
 	// khóa nhà bán, rồi trả về đợt và bút toán thu hồi. Trả nil cho bút
 	// toán nghĩa là kỳ này không thu gì.
 	//
 	// Đọc nợ, dựng đợt và ghi sổ phải nằm cùng một giao dịch — xem chú
-	// thích ở `postgres.SettlementStore.TaoChoNhaBan`.
-	TaoChoNhaBan(
+	// thích ở `postgres.SettlementStore.CreateForSeller`.
+	CreateForSeller(
 		ctx context.Context, sellerID ids.ID,
-		dung func(noDangCho money.Money) (*domain.DoiSoat, *domain.LedgerEntry, error),
+		dung func(noDangCho money.Money) (*domain.Settlement, *domain.LedgerEntry, error),
 	) error
 
-	// LuuKemAudit ghi trạng thái mới và chạy `fn` trong CÙNG một giao dịch.
+	// SaveWithAudit ghi trạng thái mới và chạy `fn` trong CÙNG một giao dịch.
 	//
 	// Hai bước của vòng đời đợt đối soát là hai bước duy nhất biến một con
 	// số tính được thành TIỀN RỜI nền tảng, nên vết kiểm toán không được
-	// phép ghi rời — xem `postgres.SettlementStore.LuuKemAudit`.
-	LuuKemAudit(ctx context.Context, d *domain.DoiSoat, fn domain.TxFunc) error
+	// phép ghi rời — xem `postgres.SettlementStore.SaveWithAudit`.
+	SaveWithAudit(ctx context.Context, d *domain.Settlement, fn domain.TxFunc) error
 
-	TimTheoID(ctx context.Context, id ids.ID) (*domain.DoiSoat, error)
-	TimTheoNhaBan(ctx context.Context, sellerID ids.ID, limit int) ([]*domain.DoiSoat, error)
+	FindByID(ctx context.Context, id ids.ID) (*domain.Settlement, error)
+	BySeller(ctx context.Context, sellerID ids.ID, limit int) ([]*domain.Settlement, error)
 
-	// TimTheoTrangThai liệt kê đợt của MỌI nhà bán — mặt QUẢN TRỊ.
+	// ByStatus liệt kê đợt của MỌI nhà bán — mặt QUẢN TRỊ.
 	//
-	// Tách khỏi `TimTheoNhaBan` vì hai hàm có ranh giới bảo mật ngược
-	// nhau; xem chú thích ở `postgres.SettlementStore.TimTheoTrangThai`.
-	TimTheoTrangThai(ctx context.Context, trangThai string, limit int) ([]*domain.DoiSoat, error)
+	// Tách khỏi `BySeller` vì hai hàm có ranh giới bảo mật ngược
+	// nhau; xem chú thích ở `postgres.SettlementStore.ByStatus`.
+	ByStatus(ctx context.Context, status string, limit int) ([]*domain.Settlement, error)
 
-	// ButToanChuaGom trả các bút toán rút được chưa thuộc đợt nào, gom
+	// UnsettledEntries trả các bút toán rút được chưa thuộc đợt nào, gom
 	// theo nhà bán.
-	ButToanChuaGom(
-		ctx context.Context, denNgay time.Time, limit int,
-	) (map[ids.ID][]domain.DongDoiSoat, error)
+	UnsettledEntries(
+		ctx context.Context, toDate time.Time, limit int,
+	) (map[ids.ID][]domain.SettlementLine, error)
 }
 
-// TaoDoiSoatChoKy tạo đợt đối soát cho mọi nhà bán có khoản rút được.
+// NewSettlementForPeriod tạo đợt đối soát cho mọi nhà bán có khoản rút được.
 //
 // # Vì sao trừ phần ÂM của tài khoản đang chờ
 //
@@ -685,38 +685,38 @@ type SettlementRepository interface {
 //
 // Phần đang chờ DƯƠNG thì KHÔNG cộng vào: đó là tiền của đơn còn trong hạn
 // đổi trả, chưa được phép chi.
-func (s *Service) TaoDoiSoatChoKy(
-	ctx context.Context, tuNgay, denNgay time.Time, limitMoiLuot int,
+func (s *Service) NewSettlementForPeriod(
+	ctx context.Context, fromDate, toDate time.Time, limitPerRound int,
 ) (int, error) {
 	if s.settlements == nil {
 		return 0, errors.New("payment: chưa cấu hình kho lưu trữ đối soát")
 	}
-	if limitMoiLuot <= 0 || limitMoiLuot > 5000 {
-		limitMoiLuot = 1000
+	if limitPerRound <= 0 || limitPerRound > 5000 {
+		limitPerRound = 1000
 	}
 
-	theoNhaBan, err := s.settlements.ButToanChuaGom(ctx, denNgay, limitMoiLuot)
+	bySeller, err := s.settlements.UnsettledEntries(ctx, toDate, limitPerRound)
 	if err != nil {
 		return 0, err
 	}
 
-	daTao := 0
-	for sellerID, dong := range theoNhaBan {
-		if len(dong) == 0 {
+	created := 0
+	for sellerID, line := range bySeller {
+		if len(line) == 0 {
 			continue
 		}
 
-		err := s.settlements.TaoChoNhaBan(ctx, sellerID,
-			func(no money.Money) (*domain.DoiSoat, *domain.LedgerEntry, error) {
-				d, err := domain.TaoDoiSoat(domain.TaoDoiSoatParams{
-					SellerID: sellerID, PeriodStart: tuNgay, PeriodEnd: denNgay,
-					Dong: dong, Deficit: no, Now: s.clock.Now(),
+		err := s.settlements.CreateForSeller(ctx, sellerID,
+			func(no money.Money) (*domain.Settlement, *domain.LedgerEntry, error) {
+				d, err := domain.NewSettlement(domain.NewSettlementParams{
+					SellerID: sellerID, PeriodStart: fromDate, PeriodEnd: toDate,
+					Lines: line, Deficit: no, Now: s.clock.Now(),
 				})
 				if err != nil {
 					return nil, nil, err
 				}
 
-				// `TaoDoiSoat` KẸP phần bị trừ về không quá tổng đợt, nên
+				// `NewSettlement` KẸP phần bị trừ về không quá tổng đợt, nên
 				// `d.Deficit()` là phần THỰC SỰ thu được — không phải `no`.
 				// Ghi theo `no` sẽ thu nhiều hơn số đã trừ, và chênh lệch
 				// ấy là tiền biến mất khỏi tài khoản nhà bán mà không dòng
@@ -725,7 +725,7 @@ func (s *Service) TaoDoiSoatChoKy(
 					return d, nil, nil
 				}
 
-				thuHoi, err := domain.NewThuHoiNoEntry(domain.ThuHoiNoParams{
+				clawback, err := domain.NewClawbackEntry(domain.ClawbackParams{
 					SettlementID: d.ID(), SellerID: sellerID,
 					Amount:         d.Deficit(),
 					IdempotencyKey: "settlement-recovery:" + d.ID().String(),
@@ -735,7 +735,7 @@ func (s *Service) TaoDoiSoatChoKy(
 				if err != nil {
 					return nil, nil, err
 				}
-				return d, thuHoi, nil
+				return d, clawback, nil
 			})
 		if err != nil {
 			// Bút toán đã bị lượt khác gom mất: bỏ qua nhà bán này, lượt
@@ -743,18 +743,18 @@ func (s *Service) TaoDoiSoatChoKy(
 			if errors.Is(err, domain.ErrDuplicateEntry) {
 				continue
 			}
-			return daTao, err
+			return created, err
 		}
-		daTao++
+		created++
 	}
-	return daTao, nil
+	return created, nil
 }
 
-// LayDoiSoat đọc một đợt đối soát, KÈM kiểm chủ sở hữu.
-func (s *Service) LayDoiSoat(
+// GetSettlement đọc một đợt đối soát, KÈM kiểm chủ sở hữu.
+func (s *Service) GetSettlement(
 	ctx context.Context, id, sellerID ids.ID,
-) (*domain.DoiSoat, error) {
-	d, err := s.settlements.TimTheoID(ctx, id)
+) (*domain.Settlement, error) {
+	d, err := s.settlements.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -765,41 +765,41 @@ func (s *Service) LayDoiSoat(
 	return d, nil
 }
 
-// DanhSachDoiSoatQuanTri liệt kê đợt của MỌI nhà bán, lọc theo trạng thái.
+// ListSettlementsForAdmin liệt kê đợt của MỌI nhà bán, lọc theo trạng thái.
 //
 // Dành cho mặt QUẢN TRỊ. Hàm này cố ý KHÔNG nhận `sellerID`: nhận nó rồi để
 // rỗng nghĩa là có một đường gọi trả dữ liệu mọi gian hàng mà trông như
 // đường của nhà bán.
-func (s *Service) DanhSachDoiSoatQuanTri(
-	ctx context.Context, trangThai string, limit int,
-) ([]*domain.DoiSoat, error) {
+func (s *Service) ListSettlementsForAdmin(
+	ctx context.Context, status string, limit int,
+) ([]*domain.Settlement, error) {
 	if s.settlements == nil {
 		return nil, errors.New("payment: chưa nối kho đợt đối soát")
 	}
-	switch trangThai {
-	case "", string(domain.DoiSoatNhap), string(domain.DoiSoatXacNhan),
-		string(domain.DoiSoatDaTra):
+	switch status {
+	case "", string(domain.SettlementDraft), string(domain.SettlementConfirmed),
+		string(domain.SettlementPaid):
 	default:
 		// Trạng thái lạ trả RỖNG thay vì mọi đợt: một lỗi đánh máy ở tham
 		// số lọc không được biến thành "cho xem hết".
 		return nil, nil
 	}
-	return s.settlements.TimTheoTrangThai(ctx, trangThai, limit)
+	return s.settlements.ByStatus(ctx, status, limit)
 }
 
-// DanhSachDoiSoat trả các đợt của một nhà bán.
-func (s *Service) DanhSachDoiSoat(
+// ListSettlements trả các đợt của một nhà bán.
+func (s *Service) ListSettlements(
 	ctx context.Context, sellerID ids.ID, limit int,
-) ([]*domain.DoiSoat, error) {
-	return s.settlements.TimTheoNhaBan(ctx, sellerID, limit)
+) ([]*domain.Settlement, error) {
+	return s.settlements.BySeller(ctx, sellerID, limit)
 }
 
-// lyDoThatBaiTien phân loại lỗi đường tiền thành nhãn Prometheus.
+// paymentFailureReason phân loại lỗi đường tiền thành nhãn Prometheus.
 //
 // Tập giá trị phải ĐÓNG và nhỏ: mỗi giá trị nhãn là một chuỗi thời gian
 // riêng, nên truyền thẳng thông điệp lỗi — thứ thường chứa mã đơn — sẽ
 // làm nổ số chuỗi thời gian.
-func lyDoThatBaiTien(err error) string {
+func paymentFailureReason(err error) string {
 	switch {
 	case errors.Is(err, domain.ErrUnbalanced):
 		// Tách riêng, và là nhãn đáng theo dõi nhất ở đây: bút toán lệch
@@ -820,8 +820,8 @@ func lyDoThatBaiTien(err error) string {
 	}
 }
 
-// GhiThuTienInput là dữ liệu bút toán THU ĐƯỢC TIỀN.
-type GhiThuTienInput struct {
+// RecordPaymentInput là dữ liệu bút toán THU ĐƯỢC TIỀN.
+type RecordPaymentInput struct {
 	OrderID        ids.ID
 	Amount         money.Money
 	IdempotencyKey string
@@ -836,9 +836,8 @@ type GhiThuTienInput struct {
 //
 // Trùng khóa idempotency trả ErrDuplicateEntry, và bên gọi coi đó là
 // THÀNH CÔNG: event phát lại là chuyện bình thường.
-func (s *Service) GhiThuTienWith(
-	ctx context.Context, ledger domain.LedgerRepository, in GhiThuTienInput,
-) (*domain.LedgerEntry, error) {
+func (s *Service) RecordPaymentWith(
+	ctx context.Context, ledger domain.LedgerRepository, in RecordPaymentInput) (*domain.LedgerEntry, error) {
 	e, err := domain.NewPaymentReceivedEntry(domain.PaymentReceivedParams{
 		OrderID:        in.OrderID,
 		Amount:         in.Amount,
@@ -866,18 +865,18 @@ func (s *Service) GhiThuTienWith(
 	return e, nil
 }
 
-// DaoButToanInput là dữ liệu đảo một bút toán đã ghi sai.
-type DaoButToanInput struct {
+// ReverseEntryInput là dữ liệu đảo một bút toán đã ghi sai.
+type ReverseEntryInput struct {
 	// EntryID là bút toán GỐC cần đảo.
 	EntryID ids.ID
 
-	// LyDo BẮT BUỘC — xem domain.NewDaoNguocEntry.
-	LyDo string
+	// Reason BẮT BUỘC — xem domain.NewReversalEntry.
+	Reason string
 
-	SuaBoi string
+	ChangedBy string
 }
 
-// DaoButToan ghi bút toán ĐẢO cho một bút toán đã ghi sai.
+// ReverseEntry ghi bút toán ĐẢO cho một bút toán đã ghi sai.
 //
 // # Vì sao đây là thao tác NGUY HIỂM NHẤT trong hệ thống
 //
@@ -893,10 +892,9 @@ type DaoButToanInput struct {
 //
 // Idempotency key suy ra TỪ bút toán gốc, nên gọi lại hai lần cho cùng
 // một bút toán không sinh hai lần đảo.
-func (s *Service) DaoButToan(
-	ctx context.Context, in DaoButToanInput,
-) (*domain.LedgerEntry, error) {
-	goc, err := s.ledger.FindByID(ctx, in.EntryID)
+func (s *Service) ReverseEntry(
+	ctx context.Context, in ReverseEntryInput) (*domain.LedgerEntry, error) {
+	original, err := s.ledger.FindByID(ctx, in.EntryID)
 	if err != nil {
 		return nil, err
 	}
@@ -906,11 +904,11 @@ func (s *Service) DaoButToan(
 		return cu, nil
 	}
 
-	e, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
-		Goc:            goc,
-		LyDo:           in.LyDo,
+	e, err := domain.NewReversalEntry(domain.ReversalParams{
+		Original:       original,
+		Reason:         in.Reason,
 		IdempotencyKey: key,
-		CreatedBy:      in.SuaBoi,
+		CreatedBy:      in.ChangedBy,
 		Now:            s.clock.Now(),
 	})
 	if err != nil {
@@ -923,20 +921,19 @@ func (s *Service) DaoButToan(
 	return e, nil
 }
 
-// GhiPhiVanChuyenInput là dữ liệu bút toán phí vận chuyển.
-type GhiPhiVanChuyenInput struct {
+// RecordShippingFeeInput là dữ liệu bút toán phí vận chuyển.
+type RecordShippingFeeInput struct {
 	OrderID        ids.ID
 	Fee            money.Money
 	IdempotencyKey string
 }
 
-// GhiPhiVanChuyenWith ghi bút toán doanh thu PHÍ VẬN CHUYỂN.
+// RecordShippingFeeWith ghi bút toán doanh thu PHÍ VẬN CHUYỂN.
 //
 // Xem domain.NewShippingRevenueEntry. Trùng khóa idempotency là đường đi
 // bình thường của một event phát lại, nên tra TRƯỚC khi ghi.
-func (s *Service) GhiPhiVanChuyenWith(
-	ctx context.Context, ledger domain.LedgerRepository, in GhiPhiVanChuyenInput,
-) (*domain.LedgerEntry, error) {
+func (s *Service) RecordShippingFeeWith(
+	ctx context.Context, ledger domain.LedgerRepository, in RecordShippingFeeInput) (*domain.LedgerEntry, error) {
 	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
 		return cu, nil
 	}
@@ -957,24 +954,23 @@ func (s *Service) GhiPhiVanChuyenWith(
 	return e, nil
 }
 
-// GhiGiamGiaInput là dữ liệu bút toán khoản giảm giá.
-type GhiGiamGiaInput struct {
+// RecordDiscountInput là dữ liệu bút toán khoản giảm giá.
+type RecordDiscountInput struct {
 	OrderID  ids.ID
 	Discount money.Money
 
-	// PhanBo là bảng chia chi phí; rỗng = nền tảng gánh trọn.
-	PhanBo []domain.PhanBoChiPhi
+	// Allocation là bảng chia chi phí; rỗng = nền tảng gánh trọn.
+	Allocation []domain.AllocateCost
 
 	IdempotencyKey string
 }
 
-// GhiGiamGiaWith ghi bút toán khoản GIẢM GIÁ đã cho khách.
+// RecordDiscountWith ghi bút toán khoản GIẢM GIÁ đã cho khách.
 //
 // Xem domain.NewDiscountEntry. Tra idempotency TRƯỚC khi ghi, cùng lý do
-// với GhiThuTienWith: event phát lại là đường đi bình thường.
-func (s *Service) GhiGiamGiaWith(
-	ctx context.Context, ledger domain.LedgerRepository, in GhiGiamGiaInput,
-) (*domain.LedgerEntry, error) {
+// với RecordPaymentWith: event phát lại là đường đi bình thường.
+func (s *Service) RecordDiscountWith(
+	ctx context.Context, ledger domain.LedgerRepository, in RecordDiscountInput) (*domain.LedgerEntry, error) {
 	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
 		return cu, nil
 	}
@@ -982,7 +978,7 @@ func (s *Service) GhiGiamGiaWith(
 	e, err := domain.NewDiscountEntry(domain.DiscountParams{
 		OrderID:        in.OrderID,
 		Discount:       in.Discount,
-		PhanBo:         in.PhanBo,
+		Allocation:     in.Allocation,
 		IdempotencyKey: in.IdempotencyKey,
 		CreatedBy:      "payment.revenue_on_checkout_completed",
 		Now:            s.clock.Now(),
@@ -996,21 +992,21 @@ func (s *Service) GhiGiamGiaWith(
 	return e, nil
 }
 
-// GhiChiPhiVanChuyenInput là dữ liệu bút toán chi phí trả hãng.
-type GhiChiPhiVanChuyenInput struct {
+// RecordShippingCostInput là dữ liệu bút toán chi phí trả hãng.
+type RecordShippingCostInput struct {
 	FulfillmentID  ids.ID
 	ChiPhi         money.Money
 	IdempotencyKey string
 }
 
-// GhiChiPhiVanChuyenWith ghi nghĩa vụ trả hãng vận chuyển.
+// RecordShippingCostWith ghi nghĩa vụ trả hãng vận chuyển.
 //
 // Xem domain.NewShippingCostEntry. Tra idempotency TRƯỚC khi ghi: event
 // tiến độ được phát lại là đường đi bình thường, và ghi hai lần nghĩa là
 // tính chi phí gấp đôi cho một kiện hàng.
-func (s *Service) GhiChiPhiVanChuyenWith(
+func (s *Service) RecordShippingCostWith(
 	ctx context.Context, ledger domain.LedgerRepository,
-	in GhiChiPhiVanChuyenInput,
+	in RecordShippingCostInput,
 ) (*domain.LedgerEntry, error) {
 	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
 		return cu, nil

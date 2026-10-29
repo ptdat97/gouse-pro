@@ -28,7 +28,7 @@ const stlCols = `
 	created_at, confirmed_at, confirmed_by, paid_at, paid_by,
 	version, updated_at`
 
-// TaoChoNhaBan lập đợt đối soát cho MỘT nhà bán, trong một giao dịch.
+// CreateForSeller lập đợt đối soát cho MỘT nhà bán, trong một giao dịch.
 //
 // # Ba việc phải nằm CÙNG một giao dịch
 //
@@ -51,9 +51,9 @@ const stlCols = `
 //
 // `dung` nhận phần nợ đọc được và trả về đợt cùng bút toán thu hồi; trả
 // nil cho bút toán nghĩa là kỳ này không thu gì.
-func (s *SettlementStore) TaoChoNhaBan(
+func (s *SettlementStore) CreateForSeller(
 	ctx context.Context, sellerID ids.ID,
-	dung func(noDangCho money.Money) (*domain.DoiSoat, *domain.LedgerEntry, error),
+	dung func(noDangCho money.Money) (*domain.Settlement, *domain.LedgerEntry, error),
 ) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -84,16 +84,16 @@ func (s *SettlementStore) TaoChoNhaBan(
 		}
 	}
 
-	d, thuHoi, err := dung(no)
+	d, clawback, err := dung(no)
 	if err != nil {
 		return err
 	}
 
-	if err := s.ghi(ctx, tx, d); err != nil {
+	if err := s.writeEntry(ctx, tx, d); err != nil {
 		return err
 	}
-	if thuHoi != nil {
-		if err := LedgerForTx(tx).Append(ctx, thuHoi); err != nil {
+	if clawback != nil {
+		if err := LedgerForTx(tx).Append(ctx, clawback); err != nil {
 			return err
 		}
 	}
@@ -109,7 +109,7 @@ func (s *SettlementStore) TaoChoNhaBan(
 // Ràng buộc UNIQUE trên `ledger_entry_id` là thứ chặn một bút toán lọt vào
 // hai đợt. Hai lượt chạy job chồng nhau đều thấy "chưa gom" nếu chỉ kiểm ở
 // tầng ứng dụng — và khi đó nhà bán được trả tiền hai lần cho cùng một đơn.
-func (s *SettlementStore) ghi(ctx context.Context, tx pgx.Tx, d *domain.DoiSoat) error {
+func (s *SettlementStore) writeEntry(ctx context.Context, tx pgx.Tx, d *domain.Settlement) error {
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO settlement (`+stlCols+`)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
@@ -136,14 +136,14 @@ func (s *SettlementStore) ghi(ctx context.Context, tx pgx.Tx, d *domain.DoiSoat)
 		return domain.ErrVersionConflict
 	}
 
-	for _, dong := range d.Dong() {
+	for _, line := range d.Lines() {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO settlement_line (
 				id, settlement_id, ledger_entry_id, amount, currency
 			) VALUES ($1,$2,$3,$4,$5)
 			ON CONFLICT (id) DO NOTHING`,
-			dong.ID.String(), d.ID().String(), dong.LedgerEntryID.String(),
-			dong.Amount.Amount(), string(dong.Amount.Currency()))
+			line.ID.String(), d.ID().String(), line.LedgerEntryID.String(),
+			line.Amount.Amount(), string(line.Amount.Currency()))
 		if err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) &&
@@ -161,8 +161,8 @@ func (s *SettlementStore) ghi(ctx context.Context, tx pgx.Tx, d *domain.DoiSoat)
 	return nil
 }
 
-func (s *SettlementStore) TimTheoID(ctx context.Context, id ids.ID) (*domain.DoiSoat, error) {
-	ds, err := s.doc(ctx, `WHERE id = $1`, id.String())
+func (s *SettlementStore) FindByID(ctx context.Context, id ids.ID) (*domain.Settlement, error) {
+	ds, err := s.readOne(ctx, `WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, err
 	}
@@ -172,46 +172,46 @@ func (s *SettlementStore) TimTheoID(ctx context.Context, id ids.ID) (*domain.Doi
 	return ds[0], nil
 }
 
-// TimTheoTrangThai liệt kê đợt của MỌI nhà bán, lọc theo trạng thái.
+// ByStatus liệt kê đợt của MỌI nhà bán, lọc theo trạng thái.
 //
-// # Vì sao một hàm riêng thay vì nới `TimTheoNhaBan`
+// # Vì sao một hàm riêng thay vì nới `BySeller`
 //
-// Hai hàm trả lời hai câu có RANH GIỚI BẢO MẬT ngược nhau: `TimTheoNhaBan`
+// Hai hàm trả lời hai câu có RANH GIỚI BẢO MẬT ngược nhau: `BySeller`
 // lọc theo nhà bán lấy từ token, còn hàm này CỐ Ý không lọc. Gộp lại thành
 // một hàm có tham số `sellerID` rỗng nghĩa là một chỗ quên truyền token sẽ
 // trả dữ liệu của mọi gian hàng — và chỗ quên ấy không trông giống lỗi.
 //
-// `trangThai` rỗng = mọi trạng thái.
-func (s *SettlementStore) TimTheoTrangThai(
-	ctx context.Context, trangThai string, limit int,
-) ([]*domain.DoiSoat, error) {
+// `status` rỗng = mọi trạng thái.
+func (s *SettlementStore) ByStatus(
+	ctx context.Context, status string, limit int,
+) ([]*domain.Settlement, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
 	// `$1 = ''` chọn MỌI trạng thái. Một truy vấn thay vì hai nhánh chuỗi
 	// SQL nối tay — chuỗi nối tay là chỗ lỗ SQL injection hay xuất hiện.
-	return s.doc(ctx,
+	return s.readOne(ctx,
 		`WHERE ($1 = '' OR status = $1) ORDER BY created_at DESC LIMIT $2`,
-		trangThai, limit)
+		status, limit)
 }
 
-func (s *SettlementStore) TimTheoNhaBan(
+func (s *SettlementStore) BySeller(
 	ctx context.Context, sellerID ids.ID, limit int,
-) ([]*domain.DoiSoat, error) {
+) ([]*domain.Settlement, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	return s.doc(ctx,
+	return s.readOne(ctx,
 		`WHERE seller_id = $1 ORDER BY created_at DESC LIMIT $2`,
 		sellerID.String(), limit)
 }
 
-// ButToanChuaGom trả các bút toán SELLER_RELEASE chưa thuộc đợt nào.
+// UnsettledEntries trả các bút toán SELLER_RELEASE chưa thuộc đợt nào.
 //
 // Gom theo nhà bán để job tạo mỗi nhà bán một đợt.
-func (s *SettlementStore) ButToanChuaGom(
-	ctx context.Context, denNgay time.Time, limit int,
-) (map[ids.ID][]domain.DongDoiSoat, error) {
+func (s *SettlementStore) UnsettledEntries(
+	ctx context.Context, toDate time.Time, limit int,
+) (map[ids.ID][]domain.SettlementLine, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT l.account_owner_id, e.id, l.amount, l.currency
 		  FROM ledger_entry e
@@ -224,24 +224,24 @@ func (s *SettlementStore) ButToanChuaGom(
 		       SELECT 1 FROM settlement_line sl WHERE sl.ledger_entry_id = e.id
 		   )
 		 ORDER BY l.account_owner_id, e.created_at
-		 LIMIT $2`, denNgay, limit)
+		 LIMIT $2`, toDate, limit)
 	if err != nil {
 		return nil, fmt.Errorf("payment: tìm bút toán chưa gom: %w", err)
 	}
 	defer rows.Close()
 
-	out := map[ids.ID][]domain.DongDoiSoat{}
+	out := map[ids.ID][]domain.SettlementLine{}
 	for rows.Next() {
-		var owner, entryID, tienTe string
-		var soTien int64
-		if err := rows.Scan(&owner, &entryID, &soTien, &tienTe); err != nil {
+		var owner, entryID, currency string
+		var amount int64
+		if err := rows.Scan(&owner, &entryID, &amount, &currency); err != nil {
 			return nil, err
 		}
-		m, err := money.New(soTien, money.Currency(tienTe))
+		m, err := money.New(amount, money.Currency(currency))
 		if err != nil {
 			return nil, err
 		}
-		out[ids.ID(owner)] = append(out[ids.ID(owner)], domain.DongDoiSoat{
+		out[ids.ID(owner)] = append(out[ids.ID(owner)], domain.SettlementLine{
 			ID:            ids.MustNew(ids.PrefixSettlement),
 			LedgerEntryID: ids.ID(entryID),
 			Amount:        m,
@@ -250,9 +250,9 @@ func (s *SettlementStore) ButToanChuaGom(
 	return out, rows.Err()
 }
 
-func (s *SettlementStore) doc(
+func (s *SettlementStore) readOne(
 	ctx context.Context, where string, args ...any,
-) ([]*domain.DoiSoat, error) {
+) ([]*domain.Settlement, error) {
 	rows, err := s.pool.Query(ctx, `SELECT`+stlCols+` FROM settlement `+where, args...)
 	if err != nil {
 		return nil, fmt.Errorf("payment: đọc đợt đối soát: %w", err)
@@ -260,29 +260,29 @@ func (s *SettlementStore) doc(
 	defer rows.Close()
 
 	var ma []string
-	theoID := map[ids.ID]*domain.KhoiPhucDoiSoatParams{}
+	theoID := map[ids.ID]*domain.RestoreSettlementParams{}
 	for rows.Next() {
-		var p domain.KhoiPhucDoiSoatParams
-		var id, sellerID, status, tienTe string
+		var p domain.RestoreSettlementParams
+		var id, sellerID, status, currency string
 		var confirmedBy, paidBy string
 		var gross, deficit, net int64
 		var confirmed, paid *time.Time
 
 		if err := rows.Scan(&id, &sellerID, &p.PeriodStart, &p.PeriodEnd,
-			&status, &gross, &deficit, &net, &tienTe,
+			&status, &gross, &deficit, &net, &currency,
 			&p.CreatedAt, &confirmed, &confirmedBy, &paid, &paidBy,
 			&p.Version, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 
-		cur := money.Currency(tienTe)
+		cur := money.Currency(currency)
 		mk := func(v int64) money.Money {
 			m, _ := money.New(v, cur)
 			return m
 		}
 		p.ID = ids.ID(id)
 		p.SellerID = ids.ID(sellerID)
-		p.Status = domain.TrangThaiDoiSoat(status)
+		p.Status = domain.SettlementStatus(status)
 		p.Gross, p.Deficit, p.Net = mk(gross), mk(deficit), mk(net)
 		p.ConfirmedAt, p.PaidAt = deref(confirmed), deref(paid)
 		p.ConfirmedBy, p.PaidBy = ids.ID(confirmedBy), ids.ID(paidBy)
@@ -315,22 +315,22 @@ func (s *SettlementStore) doc(
 	defer lrows.Close()
 
 	for lrows.Next() {
-		var stlID, id, entryID, tienTe, refType, refID string
-		var soTien int64
-		var taoLuc time.Time
-		if err := lrows.Scan(&stlID, &id, &entryID, &soTien, &tienTe,
-			&refType, &refID, &taoLuc); err != nil {
+		var stlID, id, entryID, currency, refType, refID string
+		var amount int64
+		var createTime time.Time
+		if err := lrows.Scan(&stlID, &id, &entryID, &amount, &currency,
+			&refType, &refID, &createTime); err != nil {
 			return nil, err
 		}
-		m, err := money.New(soTien, money.Currency(tienTe))
+		m, err := money.New(amount, money.Currency(currency))
 		if err != nil {
 			return nil, err
 		}
 		if p := theoID[ids.ID(stlID)]; p != nil {
-			p.Dong = append(p.Dong, domain.DongDoiSoat{
+			p.Lines = append(p.Lines, domain.SettlementLine{
 				ID: ids.ID(id), LedgerEntryID: ids.ID(entryID), Amount: m,
 				ReferenceType: refType, ReferenceID: ids.ID(refID),
-				CreatedAt: taoLuc,
+				CreatedAt: createTime,
 			})
 		}
 	}
@@ -338,9 +338,9 @@ func (s *SettlementStore) doc(
 		return nil, err
 	}
 
-	out := make([]*domain.DoiSoat, 0, len(ma))
+	out := make([]*domain.Settlement, 0, len(ma))
 	for _, id := range ma {
-		out = append(out, domain.KhoiPhucDoiSoat(*theoID[ids.ID(id)]))
+		out = append(out, domain.RestoreSettlement(*theoID[ids.ID(id)]))
 	}
 	return out, nil
 }
@@ -353,7 +353,7 @@ func deref(t *time.Time) time.Time {
 	return *t
 }
 
-// LuuKemAudit ghi trạng thái mới của đợt đối soát và chạy `fn` trong CÙNG
+// SaveWithAudit ghi trạng thái mới của đợt đối soát và chạy `fn` trong CÙNG
 // một giao dịch.
 //
 // # Vì sao audit phải cùng giao dịch
@@ -368,8 +368,8 @@ func deref(t *time.Time) time.Time {
 //
 // Kiểm phiên bản của `ghi` vẫn là chốt chặn thật cho hai người bấm cùng lúc:
 // lượt thứ hai thấy `ErrVersionConflict` và không ghi gì.
-func (s *SettlementStore) LuuKemAudit(
-	ctx context.Context, d *domain.DoiSoat, fn domain.TxFunc,
+func (s *SettlementStore) SaveWithAudit(
+	ctx context.Context, d *domain.Settlement, fn domain.TxFunc,
 ) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -377,7 +377,7 @@ func (s *SettlementStore) LuuKemAudit(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := s.ghi(ctx, tx, d); err != nil {
+	if err := s.writeEntry(ctx, tx, d); err != nil {
 		return err
 	}
 

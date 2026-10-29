@@ -122,7 +122,7 @@ func NewOrderRevenueEntry(p OrderRevenueParams) (*LedgerEntry, error) {
 		Type:           EntryOrderRevenue,
 		ReferenceType:  "ORDER",
 		ReferenceID:    p.OrderID,
-		Description:    "Ghi nhận doanh thu đơn hàng",
+		Description:    "Log nhận doanh thu đơn hàng",
 		IdempotencyKey: p.IdempotencyKey,
 		Lines:          lines,
 		CreatedBy:      p.CreatedBy,
@@ -147,7 +147,7 @@ func NewCOGSEntry(
 		Type:          EntryCOGS,
 		ReferenceType: "ORDER",
 		ReferenceID:   orderID,
-		Description:   "Ghi nhận giá vốn hàng bán",
+		Description:   "Log nhận giá vốn hàng bán",
 		Lines: []Line{
 			{
 				Account:     Account{Type: AccountCOGS},
@@ -372,8 +372,8 @@ func NewSellerReleaseEntry(p SellerReleaseParams) (*LedgerEntry, error) {
 	})
 }
 
-// ThuHoiNoParams là dữ liệu bút toán THU HỒI khoản nhà bán đang nợ.
-type ThuHoiNoParams struct {
+// ClawbackParams là dữ liệu bút toán THU HỒI khoản nhà bán đang nợ.
+type ClawbackParams struct {
 	// SettlementID là đợt đối soát đã thu hồi khoản này.
 	//
 	// Bút toán trỏ về đợt chứ không về đơn nào: khoản nợ gộp từ nhiều lần
@@ -392,7 +392,7 @@ type ThuHoiNoParams struct {
 	Now            time.Time
 }
 
-// NewThuHoiNoEntry dựng bút toán thu khoản nhà bán nợ, khi lập đợt đối soát.
+// NewClawbackEntry dựng bút toán thu khoản nhà bán nợ, khi lập đợt đối soát.
 //
 //	DEBIT   SELLER_AVAILABLE  (giảm phần được chi)
 //	CREDIT  SELLER_PAYABLE    (đưa số âm đang chờ về gần 0)
@@ -410,7 +410,7 @@ type ThuHoiNoParams struct {
 // Bút toán này làm việc trừ ấy THẬT: sổ cái là nguồn sự thật, nên thu hồi
 // phải là một bút toán như mọi dòng tiền khác, không phải một phép tính
 // trong bộ nhớ.
-func NewThuHoiNoEntry(p ThuHoiNoParams) (*LedgerEntry, error) {
+func NewClawbackEntry(p ClawbackParams) (*LedgerEntry, error) {
 	if !p.Amount.IsPositive() {
 		return nil, fmt.Errorf(
 			"payment: số tiền thu hồi phải lớn hơn 0, nhận %s", p.Amount)
@@ -512,23 +512,23 @@ func NewPaymentReceivedEntry(p PaymentReceivedParams) (*LedgerEntry, error) {
 	})
 }
 
-// DaoNguocParams là dữ liệu bút toán ĐẢO.
-type DaoNguocParams struct {
+// ReversalParams là dữ liệu bút toán ĐẢO.
+type ReversalParams struct {
 	// Goc là bút toán bị đảo. Mọi dòng của nó được ghi NGƯỢC CHIỀU.
-	Goc *LedgerEntry
+	Original *LedgerEntry
 
 	// LyDo BẮT BUỘC và được ghi vào mô tả.
 	//
 	// Một bút toán đảo không có lý do là một con số biến mất khỏi sổ mà
 	// không ai giải thích được — đúng thứ kiểm toán tồn tại để chặn.
-	LyDo string
+	Reason string
 
 	IdempotencyKey string
 	CreatedBy      string
 	Now            time.Time
 }
 
-// NewDaoNguocEntry dựng bút toán ĐẢO một bút toán đã ghi sai.
+// NewReversalEntry dựng bút toán ĐẢO một bút toán đã ghi sai.
 //
 // Mọi dòng đổi chiều: DEBIT thành CREDIT và ngược lại, giữ nguyên tài
 // khoản và số tiền. Tổng hai bút toán cộng lại bằng 0 ở mọi tài khoản —
@@ -536,30 +536,30 @@ type DaoNguocParams struct {
 //
 // KHÔNG tự tính lại gì: một bút toán đảo mà con số khác bút toán gốc thì
 // không phải đảo, nó là một bút toán điều chỉnh khác và cần lý do khác.
-func NewDaoNguocEntry(p DaoNguocParams) (*LedgerEntry, error) {
-	if p.Goc == nil {
+func NewReversalEntry(p ReversalParams) (*LedgerEntry, error) {
+	if p.Original == nil {
 		return nil, errors.New("payment: không có bút toán gốc để đảo")
 	}
-	if strings.TrimSpace(p.LyDo) == "" {
+	if strings.TrimSpace(p.Reason) == "" {
 		return nil, errors.New("payment: bút toán đảo BẮT BUỘC phải nêu lý do")
 	}
-	if p.Goc.Type() == EntryReversal {
+	if p.Original.Type() == EntryReversal {
 		// Đảo một bút toán đảo là quay lại trạng thái ban đầu bằng con
 		// đường vòng — và nó làm chuỗi "cái nào còn hiệu lực" không đọc
 		// được nữa. Muốn ghi lại thì ghi một bút toán MỚI, không đảo ngược.
 		return nil, errors.New("payment: không đảo một bút toán đảo")
 	}
 
-	goc := p.Goc.Lines()
-	lines := make([]Line, 0, len(goc))
-	for _, l := range goc {
-		nguoc := Credit
+	original := p.Original.Lines()
+	lines := make([]Line, 0, len(original))
+	for _, l := range original {
+		opposite := Credit
 		if l.Direction == Credit {
-			nguoc = Debit
+			opposite = Debit
 		}
 		lines = append(lines, Line{
 			Account:     l.Account,
-			Direction:   nguoc,
+			Direction:   opposite,
 			Amount:      l.Amount,
 			Description: "Đảo: " + l.Description,
 		})
@@ -567,9 +567,9 @@ func NewDaoNguocEntry(p DaoNguocParams) (*LedgerEntry, error) {
 
 	e, err := NewLedgerEntry(NewEntryParams{
 		Type:           EntryReversal,
-		ReferenceType:  p.Goc.ReferenceType(),
-		ReferenceID:    p.Goc.ReferenceID(),
-		Description:    "Đảo bút toán " + p.Goc.ID().String() + " — " + p.LyDo,
+		ReferenceType:  p.Original.ReferenceType(),
+		ReferenceID:    p.Original.ReferenceID(),
+		Description:    "Đảo bút toán " + p.Original.ID().String() + " — " + p.Reason,
 		Lines:          lines,
 		IdempotencyKey: p.IdempotencyKey,
 		CreatedBy:      p.CreatedBy,
@@ -578,7 +578,7 @@ func NewDaoNguocEntry(p DaoNguocParams) (*LedgerEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.reversesEntryID = p.Goc.ID()
+	e.reversesEntryID = p.Original.ID()
 	return e, nil
 }
 
@@ -654,12 +654,12 @@ type DiscountParams struct {
 	OrderID  ids.ID
 	Discount money.Money
 
-	// PhanBo là bảng chia chi phí: mỗi phần một bên gánh.
+	// Allocation là bảng chia chi phí: mỗi phần một bên gánh.
 	//
 	// Rỗng nghĩa là nền tảng gánh trọn. Chương trình CHIA ĐÔI có hai phần,
 	// và tổng các phần PHẢI bằng `Discount` — kiểm ngay trong hàm dựng,
 	// vì lệch một đồng ở đây là một khoản không ai chịu.
-	PhanBo []PhanBoChiPhi
+	Allocation []AllocateCost
 
 	IdempotencyKey string
 	CreatedBy      string
@@ -699,7 +699,7 @@ func NewDiscountEntry(p DiscountParams) (*LedgerEntry, error) {
 			"payment: khoản giảm giá phải lớn hơn 0, nhận %s", p.Discount)
 	}
 
-	lines, err := dongNoKhoanGiam(p.PhanBo, p.Discount)
+	lines, err := discountDebitLines(p.Allocation, p.Discount)
 	if err != nil {
 		return nil, err
 	}
@@ -722,18 +722,18 @@ func NewDiscountEntry(p DiscountParams) (*LedgerEntry, error) {
 	})
 }
 
-// PhanBoChiPhi là MỘT phần của khoản giảm và bên phải gánh nó.
-type PhanBoChiPhi struct {
+// AllocateCost là MỘT phần của khoản giảm và bên phải gánh nó.
+type AllocateCost struct {
 	// Bearer: PLATFORM hoặc SELLER.
 	Bearer string
 
 	// SellerID chỉ có nghĩa khi Bearer là SELLER.
 	SellerID ids.ID
 
-	SoTien money.Money
+	Amount money.Money
 }
 
-// dongNoKhoanGiam dựng các vế GHI NỢ của bút toán giảm giá.
+// discountDebitLines dựng các vế GHI NỢ của bút toán giảm giá.
 //
 //	nhà bán chịu  → DEBIT SELLER_PAYABLE(gian hàng)  ta nợ họ ít đi
 //	nền tảng chịu → DEBIT PLATFORM_REVENUE           doanh thu ta giảm
@@ -748,24 +748,24 @@ type PhanBoChiPhi struct {
 // Tổng các phần phải bằng ĐÚNG số tiền giảm. Kiểm ở đây chứ không tin bên
 // gọi: `NewLedgerEntry` chỉ kiểm Σ NỢ = Σ CÓ, nên một bảng phân bổ cộng
 // thiếu vẫn cân bằng — nó chỉ làm khoản chênh lặng lẽ rơi vào vế còn lại.
-func dongNoKhoanGiam(ds []PhanBoChiPhi, giam money.Money) ([]Line, error) {
+func discountDebitLines(ds []AllocateCost, discount money.Money) ([]Line, error) {
 	if len(ds) == 0 {
 		return []Line{{
 			Account:     Account{Type: AccountPlatformRevenue},
 			Direction:   Debit,
-			Amount:      giam,
+			Amount:      discount,
 			Description: "Nền tảng chịu khoản giảm giá",
 		}}, nil
 	}
 
-	tong := money.Zero(giam.Currency())
+	tong := money.Zero(discount.Currency())
 	lines := make([]Line, 0, len(ds))
 	for _, d := range ds {
 		var err error
-		if tong, err = tong.Add(d.SoTien); err != nil {
+		if tong, err = tong.Add(d.Amount); err != nil {
 			return nil, err
 		}
-		if !d.SoTien.IsPositive() {
+		if !d.Amount.IsPositive() {
 			// Phần bằng 0 không tạo dòng: một dòng 0đ trong sổ cái là rác
 			// đọc được nhưng không nói gì.
 			continue
@@ -774,7 +774,7 @@ func dongNoKhoanGiam(ds []PhanBoChiPhi, giam money.Money) ([]Line, error) {
 			lines = append(lines, Line{
 				Account:     Account{Type: AccountSellerPayable, OwnerID: d.SellerID},
 				Direction:   Debit,
-				Amount:      d.SoTien,
+				Amount:      d.Amount,
 				Description: "Nhà bán chịu phần khoản giảm giá",
 			})
 			continue
@@ -782,15 +782,15 @@ func dongNoKhoanGiam(ds []PhanBoChiPhi, giam money.Money) ([]Line, error) {
 		lines = append(lines, Line{
 			Account:     Account{Type: AccountPlatformRevenue},
 			Direction:   Debit,
-			Amount:      d.SoTien,
+			Amount:      d.Amount,
 			Description: "Nền tảng chịu phần khoản giảm giá",
 		})
 	}
 
-	if !tong.Equal(giam) {
+	if !tong.Equal(discount) {
 		return nil, fmt.Errorf(
 			"payment: bảng phân bổ cộng ra %s, khác khoản giảm %s — "+
-				"chênh lệch này là khoản không ai chịu", tong, giam)
+				"chênh lệch này là khoản không ai chịu", tong, discount)
 	}
 	return lines, nil
 }

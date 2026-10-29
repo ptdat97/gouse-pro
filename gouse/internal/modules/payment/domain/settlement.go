@@ -22,27 +22,27 @@ var (
 	ErrSettlementNotPayable = errors.New(
 		"payment: đợt đối soát không có số dương để chi trả")
 
-	// ErrThieuNguoiKy khi một bước của vòng đời không nêu ai ký.
+	// ErrMissingSigner khi một bước của vòng đời không nêu ai ký.
 	//
 	// Tiền rời nền tảng thì phải có người chịu trách nhiệm, và vết kiểm
 	// toán không tạo ngược được. Ràng buộc tương ứng ở tầng database là
 	// `settlement_confirmed_needs_signer` — hàng rào này báo lỗi rõ
 	// hơn, ràng buộc kia là chốt chặn cuối.
-	ErrThieuNguoiKy = errors.New(
+	ErrMissingSigner = errors.New(
 		"payment: bước này của đợt đối soát bắt buộc phải nêu người ký")
 )
 
-// TrangThaiDoiSoat là trạng thái một đợt đối soát.
-type TrangThaiDoiSoat string
+// SettlementStatus là trạng thái một đợt đối soát.
+type SettlementStatus string
 
 const (
-	DoiSoatNhap    TrangThaiDoiSoat = "DRAFT"
-	DoiSoatXacNhan TrangThaiDoiSoat = "CONFIRMED"
-	DoiSoatDaTra   TrangThaiDoiSoat = "PAID"
+	SettlementDraft     SettlementStatus = "DRAFT"
+	SettlementConfirmed SettlementStatus = "CONFIRMED"
+	SettlementPaid      SettlementStatus = "PAID"
 )
 
-// DongDoiSoat là một bút toán rút được đã gom vào đợt.
-type DongDoiSoat struct {
+// SettlementLine là một bút toán rút được đã gom vào đợt.
+type SettlementLine struct {
 	ID            ids.ID
 	LedgerEntryID ids.ID
 	Amount        money.Money
@@ -63,8 +63,8 @@ type DongDoiSoat struct {
 	CreatedAt time.Time
 }
 
-// DoiSoat là một đợt đối soát của một nhà bán.
-type DoiSoat struct {
+// Settlement là một đợt đối soát của một nhà bán.
+type Settlement struct {
 	id       ids.ID
 	sellerID ids.ID
 
@@ -74,13 +74,13 @@ type DoiSoat struct {
 
 	periodStart time.Time
 	periodEnd   time.Time
-	status      TrangThaiDoiSoat
+	status      SettlementStatus
 
 	gross   money.Money
 	deficit money.Money
 	net     money.Money
 
-	dong []DongDoiSoat
+	line []SettlementLine
 
 	createdAt   time.Time
 	confirmedAt time.Time
@@ -89,14 +89,14 @@ type DoiSoat struct {
 	updatedAt   time.Time
 }
 
-// TaoDoiSoatParams là dữ liệu tạo một đợt đối soát.
-type TaoDoiSoatParams struct {
+// NewSettlementParams là dữ liệu tạo một đợt đối soát.
+type NewSettlementParams struct {
 	SellerID    ids.ID
 	PeriodStart time.Time
 	PeriodEnd   time.Time
 
-	// Dong là các bút toán RÚT ĐƯỢC chưa thuộc đợt nào.
-	Dong []DongDoiSoat
+	// Lines là các bút toán RÚT ĐƯỢC chưa thuộc đợt nào.
+	Lines []SettlementLine
 
 	// Deficit là phần ÂM của tài khoản đang chờ, số DƯƠNG.
 	//
@@ -108,19 +108,19 @@ type TaoDoiSoatParams struct {
 	Now time.Time
 }
 
-// TaoDoiSoat gom các khoản rút được thành một đợt.
-func TaoDoiSoat(p TaoDoiSoatParams) (*DoiSoat, error) {
-	if len(p.Dong) == 0 {
+// NewSettlement gom các khoản rút được thành một đợt.
+func NewSettlement(p NewSettlementParams) (*Settlement, error) {
+	if len(p.Lines) == 0 {
 		return nil, ErrNoSettleableAmount
 	}
 
-	gross := p.Dong[0].Amount
-	for _, d := range p.Dong[1:] {
-		cong, err := gross.Add(d.Amount)
+	gross := p.Lines[0].Amount
+	for _, d := range p.Lines[1:] {
+		sum, err := gross.Add(d.Amount)
 		if err != nil {
 			return nil, err
 		}
-		gross = cong
+		gross = sum
 	}
 
 	deficit := p.Deficit
@@ -150,43 +150,43 @@ func TaoDoiSoat(p TaoDoiSoatParams) (*DoiSoat, error) {
 		return nil, err
 	}
 
-	return &DoiSoat{
+	return &Settlement{
 		id: ids.MustNew(ids.PrefixSettlement), sellerID: p.SellerID,
 		periodStart: p.PeriodStart, periodEnd: p.PeriodEnd,
-		status: DoiSoatNhap,
+		status: SettlementDraft,
 		gross:  gross, deficit: deficit, net: net,
-		dong:      p.Dong,
+		line:      p.Lines,
 		createdAt: p.Now, updatedAt: p.Now,
 	}, nil
 }
 
-// XacNhan chốt đợt đối soát, sẵn sàng chi trả.
+// Confirm chốt đợt đối soát, sẵn sàng chi trả.
 //
-// `nguoiKy` BẮT BUỘC: đây là bước biến một con số tính được thành một CAM KẾT
+// `signedBy` BẮT BUỘC: đây là bước biến một con số tính được thành một CAM KẾT
 // với nhà bán, và một cam kết không ai ký là một cam kết không ai chịu trách
 // nhiệm. Xem P3-89 và migration 000061.
-func (d *DoiSoat) XacNhan(nguoiKy ids.ID, now time.Time) error {
-	if d.status != DoiSoatNhap {
+func (d *Settlement) Confirm(signedBy ids.ID, now time.Time) error {
+	if d.status != SettlementDraft {
 		return ErrInvalidStatus
 	}
-	if nguoiKy.IsZero() {
-		return ErrThieuNguoiKy
+	if signedBy.IsZero() {
+		return ErrMissingSigner
 	}
 	// KHÔNG cho xác nhận đợt không có gì để trả: xác nhận rồi mới phát
 	// hiện không trả được là bắt người vận hành làm hai lần.
 	if !d.net.IsPositive() {
 		return ErrSettlementNotPayable
 	}
-	d.status = DoiSoatXacNhan
-	d.confirmedBy = nguoiKy
+	d.status = SettlementConfirmed
+	d.confirmedBy = signedBy
 	d.confirmedAt = now
 	d.updatedAt = now
 	return nil
 }
 
-// DanhDauDaTra ghi nhận đã chuyển tiền.
+// MarkPaid ghi nhận đã chuyển tiền.
 //
-// `nguoiKy` BẮT BUỘC, cùng lý do với `XacNhan` — và ở bước này nặng hơn: tiền
+// `signedBy` BẮT BUỘC, cùng lý do với `Confirm` — và ở bước này nặng hơn: tiền
 // đã RỜI nền tảng, nên đây là bản ghi duy nhất nói ai quyết định chuyển nó.
 //
 // # Vì sao KHÔNG chặn người ký bước 1 ký bước 2
@@ -198,52 +198,52 @@ func (d *DoiSoat) XacNhan(nguoiKy ids.ID, now time.Time) error {
 //
 // Thêm nó là MỘT dòng ở đây khi cần:
 //
-//	if nguoiKy == d.confirmedBy { return ErrCanHaiNguoiKy }
+//	if signedBy == d.confirmedBy { return ErrCanHaiNguoiKy }
 //
 // Ghi ra để lần sau không ai phải suy lại, và để việc KHÔNG cài nó là một
 // lựa chọn đọc được chứ không phải một chỗ bị quên. Xem P3-89.
-func (d *DoiSoat) DanhDauDaTra(nguoiKy ids.ID, now time.Time) error {
-	if d.status != DoiSoatXacNhan {
+func (d *Settlement) MarkPaid(signedBy ids.ID, now time.Time) error {
+	if d.status != SettlementConfirmed {
 		return ErrInvalidStatus
 	}
-	if nguoiKy.IsZero() {
-		return ErrThieuNguoiKy
+	if signedBy.IsZero() {
+		return ErrMissingSigner
 	}
-	d.status = DoiSoatDaTra
-	d.paidBy = nguoiKy
+	d.status = SettlementPaid
+	d.paidBy = signedBy
 	d.paidAt = now
 	d.updatedAt = now
 	return nil
 }
 
-func (d *DoiSoat) ID() ids.ID               { return d.id }
-func (d *DoiSoat) SellerID() ids.ID         { return d.sellerID }
-func (d *DoiSoat) PeriodStart() time.Time   { return d.periodStart }
-func (d *DoiSoat) PeriodEnd() time.Time     { return d.periodEnd }
-func (d *DoiSoat) Status() TrangThaiDoiSoat { return d.status }
-func (d *DoiSoat) Gross() money.Money       { return d.gross }
-func (d *DoiSoat) Deficit() money.Money     { return d.deficit }
-func (d *DoiSoat) Net() money.Money         { return d.net }
-func (d *DoiSoat) CreatedAt() time.Time     { return d.createdAt }
-func (d *DoiSoat) ConfirmedAt() time.Time   { return d.confirmedAt }
-func (d *DoiSoat) ConfirmedBy() ids.ID      { return d.confirmedBy }
-func (d *DoiSoat) PaidBy() ids.ID           { return d.paidBy }
-func (d *DoiSoat) PaidAt() time.Time        { return d.paidAt }
-func (d *DoiSoat) Version() int64           { return d.version }
-func (d *DoiSoat) UpdatedAt() time.Time     { return d.updatedAt }
-func (d *DoiSoat) Dong() []DongDoiSoat      { return append([]DongDoiSoat(nil), d.dong...) }
+func (d *Settlement) ID() ids.ID               { return d.id }
+func (d *Settlement) SellerID() ids.ID         { return d.sellerID }
+func (d *Settlement) PeriodStart() time.Time   { return d.periodStart }
+func (d *Settlement) PeriodEnd() time.Time     { return d.periodEnd }
+func (d *Settlement) Status() SettlementStatus { return d.status }
+func (d *Settlement) Gross() money.Money       { return d.gross }
+func (d *Settlement) Deficit() money.Money     { return d.deficit }
+func (d *Settlement) Net() money.Money         { return d.net }
+func (d *Settlement) CreatedAt() time.Time     { return d.createdAt }
+func (d *Settlement) ConfirmedAt() time.Time   { return d.confirmedAt }
+func (d *Settlement) ConfirmedBy() ids.ID      { return d.confirmedBy }
+func (d *Settlement) PaidBy() ids.ID           { return d.paidBy }
+func (d *Settlement) PaidAt() time.Time        { return d.paidAt }
+func (d *Settlement) Version() int64           { return d.version }
+func (d *Settlement) UpdatedAt() time.Time     { return d.updatedAt }
+func (d *Settlement) Lines() []SettlementLine  { return append([]SettlementLine(nil), d.line...) }
 
-// KhoiPhucDoiSoatParams dựng lại từ kho lưu trữ.
-type KhoiPhucDoiSoatParams struct {
+// RestoreSettlementParams dựng lại từ kho lưu trữ.
+type RestoreSettlementParams struct {
 	ID          ids.ID
 	SellerID    ids.ID
 	PeriodStart time.Time
 	PeriodEnd   time.Time
-	Status      TrangThaiDoiSoat
+	Status      SettlementStatus
 	Gross       money.Money
 	Deficit     money.Money
 	Net         money.Money
-	Dong        []DongDoiSoat
+	Lines       []SettlementLine
 	CreatedAt   time.Time
 	ConfirmedAt time.Time
 	ConfirmedBy ids.ID
@@ -253,13 +253,13 @@ type KhoiPhucDoiSoatParams struct {
 	UpdatedAt   time.Time
 }
 
-// KhoiPhucDoiSoat dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
-func KhoiPhucDoiSoat(p KhoiPhucDoiSoatParams) *DoiSoat {
-	return &DoiSoat{
+// RestoreSettlement dựng lại mà không kiểm tra. CHỈ dùng ở infrastructure.
+func RestoreSettlement(p RestoreSettlementParams) *Settlement {
+	return &Settlement{
 		id: p.ID, sellerID: p.SellerID,
 		periodStart: p.PeriodStart, periodEnd: p.PeriodEnd,
 		status: p.Status, gross: p.Gross, deficit: p.Deficit, net: p.Net,
-		dong: p.Dong, createdAt: p.CreatedAt,
+		line: p.Lines, createdAt: p.CreatedAt,
 		confirmedAt: p.ConfirmedAt, confirmedBy: p.ConfirmedBy,
 		paidAt: p.PaidAt, paidBy: p.PaidBy,
 		version: p.Version, updatedAt: p.UpdatedAt,

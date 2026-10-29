@@ -44,13 +44,13 @@ type API interface {
 	// bút toán cân bằng · lý do có ý nghĩa · vết kiểm toán.
 	CreateLedgerAdjustment(ctx context.Context, req AdjustmentRequest) (*EntryView, error)
 
-	// DaoButToan ghi bút toán ĐẢO cho một bút toán đã ghi sai.
+	// ReverseEntry ghi bút toán ĐẢO cho một bút toán đã ghi sai.
 	//
 	// Sổ cái bất biến (ADR-0008) không cho xóa, nên đây là đường DUY NHẤT
 	// làm một con số ghi nhầm hết hiệu lực. Cũng vì vậy nó là thao tác
 	// nguy hiểm nhất trong hệ thống: lý do BẮT BUỘC, mỗi bút toán chỉ đảo
 	// được một lần, và không đảo một bút toán đảo.
-	DaoButToan(ctx context.Context, entryID, lyDo, suaBoi string) (*EntryView, error)
+	ReverseEntry(ctx context.Context, entryID, reason, changedBy string) (*EntryView, error)
 
 	// GetSellerBalance trả số dư của một nhà bán.
 	//
@@ -311,13 +311,13 @@ type IntentView struct {
 	CapturedAt string
 }
 
-// TaoIntentRequest là yêu cầu tạo ý định thanh toán.
-type TaoIntentRequest struct {
+// NewIntentRequest là yêu cầu tạo ý định thanh toán.
+type NewIntentRequest struct {
 	OrderID  string
 	Amount   int64
 	Currency string
 
 	// Method phải là phương thức TRẢ TRƯỚC. COD trả
-	// ErrPhuongThucKhongTraTruoc — bên gọi bỏ qua chứ không coi là hỏng.
+	// ErrMethodNotPrepaid — bên gọi bỏ qua chứ không coi là hỏng.
 	Method string
 }

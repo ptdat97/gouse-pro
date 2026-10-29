@@ -14,7 +14,7 @@ import (
 //
 // # Vì sao nó NHẠY với phương thức giao
 //
-// Bản cũ có chữ ký `GiaMotKien(string) int64` — VỨT BỎ tham số và luôn
+// Bản cũ có chữ ký `PricePerParcel(string) int64` — VỨT BỎ tham số và luôn
 // trả cùng một giá. Bài test vì thế xanh bất kể `shipping_method` của đơn
 // thực hiện có giá trị hay không, và nó rỗng trên CẢ 3.207 đơn thật: không
 // ai từng gán trường đó. Một bản giả bỏ qua đầu vào thì che mất đúng cái
@@ -23,7 +23,7 @@ import (
 // Nay phương thức rỗng trả 0, nên bài test đỏ ngay nếu dây bị đứt lại.
 type giaCoDinh int64
 
-func (g giaCoDinh) GiaMotKien(phuongThuc string) int64 {
+func (g giaCoDinh) PricePerParcel(phuongThuc string) int64 {
 	if phuongThuc == "" {
 		return 0
 	}
@@ -129,7 +129,7 @@ func (a *apiTest) phatEventKemChiPhi(t *testing.T, gia int64) {
 	log := logger.New("error", "text")
 	bus := eventbus.NewDispatcher(a.db.Pool(), log)
 	a.dangKyBenNhan(bus, log)
-	bus.Subscribe(payment.NewChiPhiVanChuyenHandler(
+	bus.Subscribe(payment.NewCarrierCostHandler(
 		a.mods.payment, giaCoDinh(gia), log))
 
 	if _, err := bus.DispatchBatch(context.Background(), 200); err != nil {

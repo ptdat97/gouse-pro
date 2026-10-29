@@ -307,7 +307,7 @@ DRAFT ──confirm──► CONFIRMED ──mark-paid──► PAID
        ADMIN | OPS_FINANCE     ADMIN | OPS_FINANCE
 ```
 
-`DoiSoat.XacNhan` và `DanhDauDaTra` có từ migration 000036 với đủ hàng rào
+`Settlement.Confirm` và `MarkPaid` có từ migration 000036 với đủ hàng rào
 trạng thái, và tới 01/10/2026 **không lời gọi nào** — mọi đợt nằm `DRAFT`
 vĩnh viễn, nhà bán không bao giờ được chi. Khép nó cần một quyết định không
 thuộc về mã: ai được ký chi (P3-89).
@@ -341,10 +341,10 @@ Người xác nhận hiện **được phép** đánh dấu đã trả. Nguyên 
 rào đúng cho một tổ chức có từ hai người vận hành tài chính, nhưng nó sẽ chặn
 hẳn đường chi trả của một đội một người.
 
-Thêm nó là MỘT dòng trong `DanhDauDaTra`:
+Thêm nó là MỘT dòng trong `MarkPaid`:
 
 ```go
-if nguoiKy == d.confirmedBy { return ErrCanHaiNguoiKy }
+if signedBy == d.confirmedBy { return ErrCanHaiNguoiKy }
 ```
 
 Ghi ra để việc KHÔNG cài nó là một lựa chọn đọc được, không phải một chỗ bị
@@ -557,16 +557,16 @@ với tiền thì phát hiện muộn không cứu được gì.
 
 | Bất biến | Chốt trong mã | Test gác |
 |---|---|---|
-| Σ DEBIT = Σ CREDIT mỗi bút toán | `domain.ErrUnbalanced` | `TestButToanKhongCanBangBiChan` |
+| Σ DEBIT = Σ CREDIT mỗi bút toán | `domain.ErrUnbalanced` | `TestAnUnbalancedEntryIsBlocked` |
 | …và ở tầng DATABASE, kể cả khi ghi bằng SQL thô | trigger `ledger_entry_must_balance` (migration 000056) | `hang_rao_can_bang_test.go` |
-| Chi trả ≤ số dư phải trả nhà bán | `ErrInsufficientBalance` | `TestKhongChiTraVuotSoDu` |
-| Ghi doanh thu idempotent theo đơn | khóa `revenue:<order>` | `TestPhatLaiEventKhongDemHaiLuot` (tầng event) · `TestGhiDoanhThuIdempotentTheoDon` (tầng use case) |
+| Chi trả ≤ số dư phải trả nhà bán | `ErrInsufficientBalance` | `TestNoPayoutBeyondTheBalance` |
+| Ghi doanh thu idempotent theo đơn | khóa `revenue:<order>` | `TestPhatLaiEventKhongDemHaiLuot` (tầng event) · `TestRevenuePostingIsIdempotentPerOrder` (tầng use case) |
 | Tổng tiền KHÔNG cộng thuế (giá đã gồm VAT) | `Checkout.Total()` | `TestThueTinhTrenCaPhiVanChuyen` · `TestTongKhongCongThue` |
 | Số lượng trả ≤ số đã mua | `ErrQuantityExceeded` | `TestSoLuongVuotThiTuChoi` |
 | Giảm giá chưa phân bổ → từ chối hoàn tự động | `ErrGiamGiaChuaPhanBo` | `TestGiamGiaChuaPhanBoThiTuChoiHoan` |
 | Một dòng hàng không xin trả hai lần | `ErrDuplicateLine` | `TestMotDongKhongXinTraHaiLan` ← **thêm 24/09**, trước đó KHÔNG ai gác |
-| Thực nhận của đợt đối soát không âm | kẹp trong `TaoDoiSoat` | `TestNoLonHonTongThiThucNhanBangKhong` · `TestPhanNoChuaThuHetChuyenSangKySau` |
-| Khoản nợ chỉ bị thu MỘT lần | bút toán `ADJUSTMENT` cùng giao dịch | `TestKhoanNoChiBiTruMotLan` |
+| Thực nhận của đợt đối soát không âm | kẹp trong `NewSettlement` | `TestADebtBiggerThanTheGrossLeavesNetZero` · `TestTheUnrecoveredDebtCarriesToTheNextPeriod` |
+| Khoản nợ chỉ bị thu MỘT lần | bút toán `ADJUSTMENT` cùng giao dịch | `TestADebtIsDeductedOnlyOnce` |
 | Miễn phí ship vẫn đặt được hàng | `shipping_method` trong phản hồi | `TestMienPhiShipVanBietDaChonCachGiao` |
 
 **Cách lặp lại phép rà này.** Xóa một chốt, chạy test của gói chứa nó VÀ

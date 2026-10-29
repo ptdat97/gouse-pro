@@ -14,8 +14,8 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
-// dungDoiSoat dựng service chỉ với kho intent — đối soát không đụng sổ cái.
-func dungDoiSoat(t *testing.T) (*application.Service, *paymentpg.IntentStore) {
+// newReconcileService dựng service chỉ với kho intent — đối soát không đụng sổ cái.
+func newReconcileService(t *testing.T) (*application.Service, *paymentpg.IntentStore) {
 	t.Helper()
 	db := testdb.Open(t)
 	if _, err := db.Pool().Exec(context.Background(),
@@ -26,25 +26,25 @@ func dungDoiSoat(t *testing.T) (*application.Service, *paymentpg.IntentStore) {
 	return application.NewService(application.Deps{Intents: store}), store
 }
 
-func intentDaThu(t *testing.T, svc *application.Service, orderID ids.ID, soTien int64) {
+func capturedIntent(t *testing.T, svc *application.Service, orderID ids.ID, amount int64) {
 	t.Helper()
 	ctx := context.Background()
 
-	m, err := money.New(soTien, money.VND)
+	m, err := money.New(amount, money.VND)
 	if err != nil {
 		t.Fatalf("money.New: %v", err)
 	}
-	if _, err := svc.TaoIntent(ctx, application.TaoIntentInput{
-		OrderID: orderID, Amount: m, PhuongThuc: "CARD",
+	if _, err := svc.NewIntent(ctx, application.NewIntentInput{
+		OrderID: orderID, Amount: m, Method: "CARD",
 	}); err != nil {
-		t.Fatalf("TaoIntent: %v", err)
+		t.Fatalf("NewIntent: %v", err)
 	}
-	if _, err := svc.DoiChieuVaThu(ctx, orderID, m, "psp", "pi_x"); err != nil {
-		t.Fatalf("DoiChieuVaThu: %v", err)
+	if _, err := svc.MatchAndCapture(ctx, orderID, m, "psp", "pi_x"); err != nil {
+		t.Fatalf("MatchAndCapture: %v", err)
 	}
 }
 
-// TestDoiSoatBatDuocDonDaThuTienMaChuaCapNhat khóa lưới an toàn cho một lỗ
+// TestReconcileCatchesCapturedOrdersThatNeverUpdated khóa lưới an toàn cho một lỗ
 // hổng ĐÃ BIẾT.
 //
 // Handler webhook, khi thu tiền xong mà `MarkOrderPaid` hỏng, cố ý KHÔNG
@@ -53,36 +53,36 @@ func intentDaThu(t *testing.T, svc *application.Service, orderID ids.ID, soTien 
 // thấy đơn chờ thanh toán.
 //
 // Trước job đối soát, thứ duy nhất bắt được là người đọc log.
-func TestDoiSoatBatDuocDonDaThuTienMaChuaCapNhat(t *testing.T) {
-	svc, _ := dungDoiSoat(t)
+func TestReconcileCatchesCapturedOrdersThatNeverUpdated(t *testing.T) {
+	svc, _ := newReconcileService(t)
 	ctx := context.Background()
 
-	donKet := ids.MustNew(ids.PrefixOrder) // đã thu tiền, đơn KHÔNG cập nhật
-	donTot := ids.MustNew(ids.PrefixOrder) // đã thu tiền, đơn đã PAID
-	intentDaThu(t, svc, donKet, 420_000)
-	intentDaThu(t, svc, donTot, 150_000)
+	stuckOrder := ids.MustNew(ids.PrefixOrder) // đã thu tiền, đơn KHÔNG cập nhật
+	goodOrder := ids.MustNew(ids.PrefixOrder)  // đã thu tiền, đơn đã PAID
+	capturedIntent(t, svc, stuckOrder, 420_000)
+	capturedIntent(t, svc, goodOrder, 150_000)
 
-	trangThai := func(_ context.Context, orderID string) (string, error) {
-		if orderID == donKet.String() {
+	status := func(_ context.Context, orderID string) (string, error) {
+		if orderID == stuckOrder.String() {
 			return "PENDING_PAYMENT", nil
 		}
 		return "PAID", nil
 	}
 
-	lech, err := svc.DoiSoatDaThu(ctx, time.Now().Add(-time.Hour), 100, trangThai)
+	discrepancies, err := svc.ReconcileCaptured(ctx, time.Now().Add(-time.Hour), 100, status)
 	if err != nil {
-		t.Fatalf("DoiSoatDaThu: %v", err)
+		t.Fatalf("ReconcileCaptured: %v", err)
 	}
 
-	if len(lech) != 1 {
-		t.Fatalf("tìm được %d bất nhất, cần đúng 1 — %+v", len(lech), lech)
+	if len(discrepancies) != 1 {
+		t.Fatalf("tìm được %d bất nhất, cần đúng 1 — %+v", len(discrepancies), discrepancies)
 	}
-	if lech[0].OrderID != donKet.String() {
-		t.Errorf("bất nhất trỏ tới đơn %s, cần %s", lech[0].OrderID, donKet)
+	if discrepancies[0].OrderID != stuckOrder.String() {
+		t.Errorf("bất nhất trỏ tới đơn %s, cần %s", discrepancies[0].OrderID, stuckOrder)
 	}
-	if lech[0].SoTien != 420_000 {
+	if discrepancies[0].Amount != 420_000 {
 		t.Errorf("số tiền = %d, cần 420000 — báo cáo phải nói RÕ bao nhiêu "+
-			"tiền đang treo, không chỉ 'có bất nhất'", lech[0].SoTien)
+			"tiền đang treo, không chỉ 'có bất nhất'", discrepancies[0].Amount)
 	}
 }
 
@@ -90,46 +90,46 @@ func TestDoiSoatBatDuocDonDaThuTienMaChuaCapNhat(t *testing.T) {
 //
 // Có tiền thu cho một mã đơn không đọc được là tình huống xấu hơn hẳn
 // "đơn chưa cập nhật". Nuốt lỗi ở đây làm nó biến mất khỏi báo cáo.
-func TestDonTraKhongRaVanBaoCaoLaBatNhat(t *testing.T) {
-	svc, _ := dungDoiSoat(t)
+func TestAnUnresolvableOrderIsStillReportedAsADiscrepancy(t *testing.T) {
+	svc, _ := newReconcileService(t)
 	ctx := context.Background()
 
-	don := ids.MustNew(ids.PrefixOrder)
-	intentDaThu(t, svc, don, 99_000)
+	ord := ids.MustNew(ids.PrefixOrder)
+	capturedIntent(t, svc, ord, 99_000)
 
-	lech, err := svc.DoiSoatDaThu(ctx, time.Now().Add(-time.Hour), 100,
+	discrepancies, err := svc.ReconcileCaptured(ctx, time.Now().Add(-time.Hour), 100,
 		func(context.Context, string) (string, error) {
 			return "", errors.New("không tìm thấy đơn")
 		})
 	if err != nil {
-		t.Fatalf("DoiSoatDaThu: %v", err)
+		t.Fatalf("ReconcileCaptured: %v", err)
 	}
-	if len(lech) != 1 {
+	if len(discrepancies) != 1 {
 		t.Fatalf("tìm được %d bất nhất, cần 1 — đơn tra không ra bị nuốt "+
-			"mất khỏi báo cáo", len(lech))
+			"mất khỏi báo cáo", len(discrepancies))
 	}
 }
 
-// TestCuaSoThoiGianGioiHanPhamViQuet — job quét lại toàn bộ lịch sử mỗi
+// TestTheTimeWindowBoundsTheScan — job quét lại toàn bộ lịch sử mỗi
 // lượt sẽ nặng dần theo tuổi hệ thống cho tới lúc tự thành sự cố.
-func TestCuaSoThoiGianGioiHanPhamViQuet(t *testing.T) {
-	svc, store := dungDoiSoat(t)
+func TestTheTimeWindowBoundsTheScan(t *testing.T) {
+	svc, store := newReconcileService(t)
 	ctx := context.Background()
 
-	don := ids.MustNew(ids.PrefixOrder)
-	intentDaThu(t, svc, don, 100_000)
+	ord := ids.MustNew(ids.PrefixOrder)
+	capturedIntent(t, svc, ord, 100_000)
 
 	// Cửa sổ bắt đầu SAU thời điểm thu tiền: bản ghi nằm ngoài tầm.
-	lech, err := svc.DoiSoatDaThu(ctx, time.Now().Add(time.Hour), 100,
+	discrepancies, err := svc.ReconcileCaptured(ctx, time.Now().Add(time.Hour), 100,
 		func(context.Context, string) (string, error) {
 			return "PENDING_PAYMENT", nil
 		})
 	if err != nil {
-		t.Fatalf("DoiSoatDaThu: %v", err)
+		t.Fatalf("ReconcileCaptured: %v", err)
 	}
-	if len(lech) != 0 {
+	if len(discrepancies) != 0 {
 		t.Errorf("cửa sổ không giới hạn được phạm vi: quét ra %d bản ghi "+
-			"nằm ngoài khoảng", len(lech))
+			"nằm ngoài khoảng", len(discrepancies))
 	}
 
 	_ = store
@@ -140,69 +140,69 @@ func TestCuaSoThoiGianGioiHanPhamViQuet(t *testing.T) {
 //
 // Intent ĐÃ THU lọt vào con số này sẽ làm nó tăng theo doanh số thay vì
 // theo sự cố, và khi đó biểu đồ nói ngược điều nó cần nói.
-func TestDemChoThuQuaHanChiDemDungLoai(t *testing.T) {
-	svc, store := dungDoiSoat(t)
+func TestTheOverduePendingCountCountsOnlyItsOwnKind(t *testing.T) {
+	svc, store := newReconcileService(t)
 	ctx := context.Background()
 
 	// Một intent ĐÃ THU — không được đếm.
-	intentDaThu(t, svc, ids.MustNew(ids.PrefixOrder), 100_000)
+	capturedIntent(t, svc, ids.MustNew(ids.PrefixOrder), 100_000)
 
 	// Hai intent CÒN CHỜ.
 	for i := 0; i < 2; i++ {
 		m, _ := money.New(50_000, money.VND)
-		if _, err := svc.TaoIntent(ctx, application.TaoIntentInput{
-			OrderID: ids.MustNew(ids.PrefixOrder), Amount: m, PhuongThuc: "CARD",
+		if _, err := svc.NewIntent(ctx, application.NewIntentInput{
+			OrderID: ids.MustNew(ids.PrefixOrder), Amount: m, Method: "CARD",
 		}); err != nil {
-			t.Fatalf("TaoIntent: %v", err)
+			t.Fatalf("NewIntent: %v", err)
 		}
 	}
 
 	// Mốc ở TƯƠNG LAI: mọi bản ghi đều "cũ hơn" nó.
-	n, err := store.DemChoThuQuaHan(ctx, time.Now().Add(time.Hour))
+	n, err := store.CountOverduePending(ctx, time.Now().Add(time.Hour))
 	if err != nil {
-		t.Fatalf("DemChoThuQuaHan: %v", err)
+		t.Fatalf("CountOverduePending: %v", err)
 	}
 	if n != 2 {
 		t.Errorf("đếm được %d, cần 2 — chỉ intent CÒN CHỜ THU mới được tính", n)
 	}
 
 	// Mốc ở QUÁ KHỨ: chưa bản ghi nào đủ cũ.
-	n, err = store.DemChoThuQuaHan(ctx, time.Now().Add(-time.Hour))
+	n, err = store.CountOverduePending(ctx, time.Now().Add(-time.Hour))
 	if err != nil {
-		t.Fatalf("DemChoThuQuaHan: %v", err)
+		t.Fatalf("CountOverduePending: %v", err)
 	}
 	if n != 0 {
 		t.Errorf("đếm được %d, cần 0 — mốc thời gian không lọc gì cả", n)
 	}
 }
 
-// TestIntentThatBaiKhongVaoDoiSoat — chỉ đơn ĐÃ THU mới cần đối soát.
-func TestIntentThatBaiKhongVaoDoiSoat(t *testing.T) {
-	svc, _ := dungDoiSoat(t)
+// TestAFailedIntentStaysOutOfReconciliation — chỉ đơn ĐÃ THU mới cần đối soát.
+func TestAFailedIntentStaysOutOfReconciliation(t *testing.T) {
+	svc, _ := newReconcileService(t)
 	ctx := context.Background()
 
-	don := ids.MustNew(ids.PrefixOrder)
+	ord := ids.MustNew(ids.PrefixOrder)
 	m, _ := money.New(70_000, money.VND)
-	if _, err := svc.TaoIntent(ctx, application.TaoIntentInput{
-		OrderID: don, Amount: m, PhuongThuc: "CARD",
+	if _, err := svc.NewIntent(ctx, application.NewIntentInput{
+		OrderID: ord, Amount: m, Method: "CARD",
 	}); err != nil {
-		t.Fatalf("TaoIntent: %v", err)
+		t.Fatalf("NewIntent: %v", err)
 	}
-	if _, err := svc.GhiThatBai(ctx, don, "the bi tu choi"); err != nil {
-		t.Fatalf("GhiThatBai: %v", err)
+	if _, err := svc.RecordFailure(ctx, ord, "the bi tu choi"); err != nil {
+		t.Fatalf("RecordFailure: %v", err)
 	}
 
-	lech, err := svc.DoiSoatDaThu(ctx, time.Now().Add(-time.Hour), 100,
+	discrepancies, err := svc.ReconcileCaptured(ctx, time.Now().Add(-time.Hour), 100,
 		func(context.Context, string) (string, error) {
 			return "PENDING_PAYMENT", nil
 		})
 	if err != nil {
-		t.Fatalf("DoiSoatDaThu: %v", err)
+		t.Fatalf("ReconcileCaptured: %v", err)
 	}
-	if len(lech) != 0 {
+	if len(discrepancies) != 0 {
 		t.Errorf("intent THẤT BẠI bị báo là bất nhất (%d) — đơn chờ thanh "+
-			"toán sau một lần trả tiền hỏng là ĐÚNG, không phải sự cố", len(lech))
+			"toán sau một lần trả tiền hỏng là ĐÚNG, không phải sự cố", len(discrepancies))
 	}
 
-	_ = domain.IntentThatBai
+	_ = domain.IntentFailed
 }

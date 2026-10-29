@@ -50,20 +50,20 @@ func biMatWebhook(bang map[string]string) fulfillmenthttp.BiMatNhaCungCap {
 // rẻ hơn cả hai lựa chọn đó.
 type ghiSuKienThanhToan struct{ r *webhook.Recorder }
 
-var _ paymenthttp.GhiSuKien = (*ghiSuKienThanhToan)(nil)
+var _ paymenthttp.WebhookLog = (*ghiSuKienThanhToan)(nil)
 
-func (g *ghiSuKienThanhToan) Ghi(
+func (g *ghiSuKienThanhToan) Log(
 	ctx context.Context, nhaCungCap, maSuKien, loaiSuKien string, than []byte,
-) (paymenthttp.SuKienDaGhi, error) {
+) (paymenthttp.LoggedEvent, error) {
 	su, err := g.r.Ghi(ctx, nhaCungCap, maSuKien, loaiSuKien, than)
-	return paymenthttp.SuKienDaGhi{
-		ID:            su.ID,
-		DaNhanTruocDo: su.DaNhanTruocDo,
-		DaXuLyXong:    su.DaXuLyXong,
+	return paymenthttp.LoggedEvent{
+		ID:              su.ID,
+		AlreadyReceived: su.DaNhanTruocDo,
+		AlreadyDone:     su.DaXuLyXong,
 	}, err
 }
 
-func (g *ghiSuKienThanhToan) DanhDauXong(ctx context.Context, id string, loi error) error {
+func (g *ghiSuKienThanhToan) MarkDone(ctx context.Context, id string, loi error) error {
 	return g.r.DanhDauXong(ctx, id, loi)
 }
 
@@ -72,6 +72,6 @@ func (g *ghiSuKienThanhToan) DanhDauXong(ctx context.Context, id string, loi err
 // Khóa tra theo mã nhà cung cấp, và một hãng vận chuyển không trùng tên
 // với một cổng thanh toán. Mặc định vẫn ĐÓNG: hãng chưa cấu hình thì chữ
 // ký không bao giờ hợp lệ.
-func biMatWebhookThanhToan(bang map[string]string) paymenthttp.BiMatNhaCungCap {
+func biMatWebhookThanhToan(bang map[string]string) paymenthttp.ProviderSecret {
 	return func(nhaCungCap string) string { return bang[nhaCungCap] }
 }

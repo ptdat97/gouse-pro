@@ -30,10 +30,10 @@ func NewSellerHandler(svc *application.Service, log *slog.Logger) *SellerHandler
 }
 
 func (h *SellerHandler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/seller/balance", http.HandlerFunc(h.soDu))
-	mux.Handle("GET /api/v1/seller/settlements", http.HandlerFunc(h.danhSachDoiSoat))
+	mux.Handle("GET /api/v1/seller/balance", http.HandlerFunc(h.balance))
+	mux.Handle("GET /api/v1/seller/settlements", http.HandlerFunc(h.listSettlements))
 	mux.Handle("GET /api/v1/seller/settlements/{settlement_id}",
-		http.HandlerFunc(h.motDoiSoat))
+		http.HandlerFunc(h.oneSettlement))
 }
 
 type moneyJSON struct {
@@ -57,40 +57,40 @@ type balanceJSON struct {
 	Available moneyJSON `json:"available"`
 
 	// Ba trạng thái dưới đây CHƯA được mô hình hóa — xem
-	// application.GetSoDuNhaBan.
+	// application.GetSellerBalanceDetail.
 	Processing  moneyJSON `json:"processing"`
 	OnHold      moneyJSON `json:"on_hold"`
 	ReserveHeld moneyJSON `json:"reserve_held"`
 }
 
-func (h *SellerHandler) soDu(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) balance(w http.ResponseWriter, r *http.Request) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	sd, err := h.svc.GetSoDuNhaBan(r.Context(), sellerID)
+	sd, err := h.svc.GetSellerBalanceDetail(r.Context(), sellerID)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	tienTe := string(money.VND)
-	if c := sd.RutDuoc.Currency(); c != "" {
-		tienTe = string(c)
-	} else if c := sd.DangCho.Currency(); c != "" {
-		tienTe = string(c)
+	currency := string(money.VND)
+	if c := sd.Available.Currency(); c != "" {
+		currency = string(c)
+	} else if c := sd.Pending.Currency(); c != "" {
+		currency = string(c)
 	}
 
-	khong := moneyJSON{Amount: 0, Currency: tienTe}
+	zero := moneyJSON{Amount: 0, Currency: currency}
 	body := balanceJSON{
-		Currency:    tienTe,
-		Pending:     moneyJSON{Amount: sd.DangCho.Amount(), Currency: tienTe},
-		Available:   moneyJSON{Amount: sd.RutDuoc.Amount(), Currency: tienTe},
-		Processing:  khong,
-		OnHold:      khong,
-		ReserveHeld: khong,
+		Currency:    currency,
+		Pending:     moneyJSON{Amount: sd.Pending.Amount(), Currency: currency},
+		Available:   moneyJSON{Amount: sd.Available.Amount(), Currency: currency},
+		Processing:  zero,
+		OnHold:      zero,
+		ReserveHeld: zero,
 	}
 
 	if err := apierror.WriteJSON(w, http.StatusOK, body); err != nil {
@@ -165,7 +165,7 @@ type settlementJSON struct {
 	// NGƯỜI KÝ — CHỈ điền ở mặt QUẢN TRỊ.
 	//
 	// `toSettlementJSON` để trống hai trường này, và
-	// `themNguoiKy` điền chúng cho mặt admin. Nhà bán không cần biết nhân
+	// `addSigner` điền chúng cho mặt admin. Nhà bán không cần biết nhân
 	// viên nào bấm nút, và định danh nhân viên lọt ra ngoài là một rò rỉ
 	// không cần thiết — cùng lý do `order` không có API nào cho seller
 	// (xem public.go của nó).
@@ -179,7 +179,7 @@ type settlementJSON struct {
 	// nhất giữa nền tảng và nhà bán.
 	//
 	// Dữ liệu này ĐÃ được nạp từ 000041 — `settlement_line` có sẵn và
-	// `doc()` đọc nó vào `DoiSoat.Dong()`. Tới 23/09/2026 nó bị vứt ở đúng
+	// `doc()` đọc nó vào `Settlement.Lines()`. Tới 23/09/2026 nó bị vứt ở đúng
 	// đây. Lần thứ tư trong cùng một khu vực: `shipping_groups` (P3-50),
 	// `variants` (P3-64), trường sửa được của sản phẩm (P3-65).
 	//
@@ -200,7 +200,7 @@ type settlementLineJSON struct {
 	ReleasedAt    string    `json:"released_at,omitempty"`
 }
 
-func toSettlementJSON(d *domain.DoiSoat) settlementJSON {
+func toSettlementJSON(d *domain.Settlement) settlementJSON {
 	m := func(x money.Money) moneyJSON {
 		return moneyJSON{Amount: x.Amount(), Currency: string(x.Currency())}
 	}
@@ -212,41 +212,41 @@ func toSettlementJSON(d *domain.DoiSoat) settlementJSON {
 		PeriodEnd:   d.PeriodEnd().Format(time.RFC3339),
 		Gross:       m(d.Gross()), Deficit: m(d.Deficit()), Net: m(d.Net()),
 		CreatedAt:   d.CreatedAt().Format(time.RFC3339),
-		ConfirmedAt: thoiDiem(d.ConfirmedAt()),
-		PaidAt:      thoiDiem(d.PaidAt()),
+		ConfirmedAt: at(d.ConfirmedAt()),
+		PaidAt:      at(d.PaidAt()),
 	}
 
-	out.Lines = make([]settlementLineJSON, 0, len(d.Dong()))
-	for _, dg := range d.Dong() {
+	out.Lines = make([]settlementLineJSON, 0, len(d.Lines()))
+	for _, dg := range d.Lines() {
 		out.Lines = append(out.Lines, settlementLineJSON{
 			ID:            dg.ID.String(),
 			Amount:        m(dg.Amount),
 			ReferenceType: dg.ReferenceType,
 			ReferenceID:   dg.ReferenceID.String(),
-			ReleasedAt:    thoiDiem(dg.CreatedAt),
+			ReleasedAt:    at(dg.CreatedAt),
 		})
 	}
 	return out
 }
 
-// thoiDiem trả chuỗi RFC3339, hoặc rỗng khi chưa có mốc.
+// at trả chuỗi RFC3339, hoặc rỗng khi chưa có mốc.
 //
 // Mốc rỗng định dạng thẳng sẽ ra "0001-01-01T00:00:00Z" — một ngày trông
 // như dữ liệu thật và sẽ được hiển thị như dữ liệu thật.
-func thoiDiem(t time.Time) string {
+func at(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
 	return t.Format(time.RFC3339)
 }
 
-func (h *SellerHandler) danhSachDoiSoat(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) listSettlements(w http.ResponseWriter, r *http.Request) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	ds, err := h.svc.DanhSachDoiSoat(r.Context(), sellerID, 50)
+	ds, err := h.svc.ListSettlements(r.Context(), sellerID, 50)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -261,14 +261,14 @@ func (h *SellerHandler) danhSachDoiSoat(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func (h *SellerHandler) motDoiSoat(w http.ResponseWriter, r *http.Request) {
+func (h *SellerHandler) oneSettlement(w http.ResponseWriter, r *http.Request) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	d, err := h.svc.LayDoiSoat(r.Context(),
+	d, err := h.svc.GetSettlement(r.Context(),
 		ids.ID(r.PathValue("settlement_id")), sellerID)
 	if err != nil {
 		if errors.Is(err, domain.ErrSettlementNotFound) {

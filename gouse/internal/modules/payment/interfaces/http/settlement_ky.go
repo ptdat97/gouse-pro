@@ -15,7 +15,7 @@ import (
 
 // Hai endpoint KÝ đợt đối soát — mắt xích cuối của đường tiền ra.
 //
-// Tới 01/10/2026 `DoiSoat.XacNhan` và `DanhDauDaTra` không có lời gọi nào,
+// Tới 01/10/2026 `Settlement.Confirm` và `MarkPaid` không có lời gọi nào,
 // nên mọi đợt nằm `DRAFT` vĩnh viễn và nhà bán không bao giờ được chi
 // (P3-89).
 //
@@ -28,12 +28,12 @@ import (
 //	Vết kiểm toán        — CÙNG giao dịch với trạng thái đợt
 //	Vai trò ADMIN/OPS_FINANCE + 2FA — nối ở tầng route
 
-// kySettlementRequest là thân của cả hai endpoint.
+// signSettlementRequest là thân của cả hai endpoint.
 //
 // CHỈ có `reason`: người ký lấy từ token, không nhận từ thân request. Nhận
 // từ thân nghĩa là ai gọi được endpoint cũng ghi được tên người khác vào vết
 // kiểm toán — và vết ấy là thứ duy nhất nói ai chịu trách nhiệm.
-type kySettlementRequest struct {
+type signSettlementRequest struct {
 	Reason string `json:"reason"`
 }
 
@@ -42,12 +42,12 @@ type settlementResponse struct {
 	Settlement settlementJSON `json:"settlement"`
 }
 
-// themNguoiKy điền hai trường NGƯỜI KÝ cho mặt quản trị.
+// addSigner điền hai trường NGƯỜI KÝ cho mặt quản trị.
 //
 // `toSettlementJSON` (seller.go) cố ý để trống chúng: nhà bán không cần biết
 // nhân viên nào bấm nút. Một hàm bọc thay vì một tham số cờ, vì cờ sẽ lan
 // vào mọi chỗ gọi và sớm muộn có chỗ truyền sai.
-func themNguoiKy(j settlementJSON, d *domain.DoiSoat) settlementJSON {
+func addSigner(j settlementJSON, d *domain.Settlement) settlementJSON {
 	j.ConfirmedBy = d.ConfirmedBy().String()
 	j.PaidBy = d.PaidBy().String()
 	return j
@@ -59,25 +59,25 @@ func themNguoiKy(j settlementJSON, d *domain.DoiSoat) settlementJSON {
 // hình vận hành cần danh sách trước khi cần nút. Một endpoint ghi mà không
 // có endpoint đọc là một nút không ai bấm được.
 func (h *Handler) listSettlements(w http.ResponseWriter, r *http.Request) {
-	ds, err := h.svc.DanhSachDoiSoatQuanTri(r.Context(),
-		r.URL.Query().Get("status"), docLimit(r))
+	ds, err := h.svc.ListSettlementsForAdmin(r.Context(),
+		r.URL.Query().Get("status"), readLimit(r))
 	if err != nil {
-		h.fail(w, r, translateDoiSoat(err))
+		h.fail(w, r, translateSettlement(err))
 		return
 	}
 
 	out := make([]settlementJSON, 0, len(ds))
 	for _, d := range ds {
-		out = append(out, themNguoiKy(toSettlementJSON(d), d))
+		out = append(out, addSigner(toSettlementJSON(d), d))
 	}
 	h.ok(w, r, map[string]any{"data": out})
 }
 
-// docLimit đọc `limit`, kẹp về khoảng hợp lệ.
+// readLimit đọc `limit`, kẹp về khoảng hợp lệ.
 //
 // Giá trị lạ rơi về mặc định thay vì báo lỗi: đây là tham số TRÌNH BÀY, và
 // một màn hình vận hành không nên trắng vì ai đó gõ `limit=abc`.
-func docLimit(r *http.Request) int {
+func readLimit(r *http.Request) int {
 	n, err := strconv.Atoi(r.URL.Query().Get("limit"))
 	if err != nil || n <= 0 || n > 100 {
 		return 50
@@ -86,26 +86,26 @@ func docLimit(r *http.Request) int {
 }
 
 func (h *Handler) confirmSettlement(w http.ResponseWriter, r *http.Request) {
-	h.kySettlement(w, r,
-		func(r *http.Request, in application.KyDoiSoatInput) (*domain.DoiSoat, error) {
-			return h.svc.XacNhanDoiSoat(r.Context(), in)
+	h.signSettlement(w, r,
+		func(r *http.Request, in application.SignSettlementInput) (*domain.Settlement, error) {
+			return h.svc.ConfirmSettlement(r.Context(), in)
 		})
 }
 
 func (h *Handler) markSettlementPaid(w http.ResponseWriter, r *http.Request) {
-	h.kySettlement(w, r,
-		func(r *http.Request, in application.KyDoiSoatInput) (*domain.DoiSoat, error) {
-			return h.svc.DanhDauDoiSoatDaTra(r.Context(), in)
+	h.signSettlement(w, r,
+		func(r *http.Request, in application.SignSettlementInput) (*domain.Settlement, error) {
+			return h.svc.MarkSettlementPaid(r.Context(), in)
 		})
 }
 
-// kySettlement là phần chung của hai bước.
+// signSettlement là phần chung của hai bước.
 //
 // Hai endpoint khác nhau ĐÚNG MỘT lời gọi; hai bản cài sẽ lệch nhau ở phần
 // đọc token, kiểm khóa idempotency và dịch lỗi — và phần ấy là phần dễ sai.
-func (h *Handler) kySettlement(
+func (h *Handler) signSettlement(
 	w http.ResponseWriter, r *http.Request,
-	ky func(*http.Request, application.KyDoiSoatInput) (*domain.DoiSoat, error),
+	period func(*http.Request, application.SignSettlementInput) (*domain.Settlement, error),
 ) {
 	ac, ok := httpserver.AuthContextFrom(r.Context())
 	if !ok {
@@ -133,34 +133,34 @@ func (h *Handler) kySettlement(
 		return
 	}
 
-	var req kySettlementRequest
+	var req signSettlementRequest
 	if err := decodeJSON(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	d, err := ky(r, application.KyDoiSoatInput{
+	d, err := period(r, application.SignSettlementInput{
 		SettlementID: ids.ID(id),
-		NguoiKy:      ids.ID(ac.UserID),
+		SignedBy:     ids.ID(ac.UserID),
 		Reason:       req.Reason,
 		RequestID:    logger.RequestIDFromContext(r.Context()),
 	})
 	if err != nil {
-		h.fail(w, r, translateDoiSoat(err))
+		h.fail(w, r, translateSettlement(err))
 		return
 	}
 
 	h.ok(w, r, settlementResponse{
-		Settlement: themNguoiKy(toSettlementJSON(d), d),
+		Settlement: addSigner(toSettlementJSON(d), d),
 	})
 }
 
-// translateDoiSoat dịch lỗi miền của đợt đối soát sang lỗi API.
+// translateSettlement dịch lỗi miền của đợt đối soát sang lỗi API.
 //
 // `ErrInvalidStatus` thành 409 chứ không 400: bên gọi gửi một request HỢP LỆ,
 // chỉ là đợt đã ở trạng thái khác — thường vì người khác vừa bấm. 400 sẽ
 // khiến giao diện bảo người dùng sửa dữ liệu, mà không có gì để sửa.
-func translateDoiSoat(err error) error {
+func translateSettlement(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrSettlementNotFound):
 		return apierror.New(apierror.CodeNotFound,
@@ -178,7 +178,7 @@ func translateDoiSoat(err error) error {
 		return apierror.New(apierror.CodeValidationFailed,
 			"Đợt đối soát không có số dương để chi trả")
 
-	case errors.Is(err, domain.ErrThieuNguoiKy):
+	case errors.Is(err, domain.ErrMissingSigner):
 		return apierror.New(apierror.CodeUnauthorized,
 			"Không xác định được người ký")
 

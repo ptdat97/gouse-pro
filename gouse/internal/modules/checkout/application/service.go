@@ -454,12 +454,12 @@ type ChinhSachPort interface {
 
 // PaymentPort là những gì checkout CẦN từ payment.
 type PaymentPort interface {
-	// TaoIntent ghi số tiền hệ thống CHỜ THU cho một đơn trả trước.
+	// NewIntent ghi số tiền hệ thống CHỜ THU cho một đơn trả trước.
 	//
 	// IDEMPOTENT theo đơn. Phương thức KHÔNG trả trước (COD, hoặc rỗng)
 	// trả lỗi mà `LaPhuongThucKhongTraTruoc` nhận ra được — bên gọi BỎ
 	// QUA, vì đó là câu trả lời đúng chứ không phải hỏng.
-	TaoIntent(ctx context.Context, orderID ids.ID, soTien money.Money, phuongThuc string) error
+	NewIntent(ctx context.Context, orderID ids.ID, soTien money.Money, phuongThuc string) error
 
 	// LaKhongCanIntent phân biệt "COD, không cần intent" với "hỏng thật".
 	LaKhongCanIntent(err error) bool
@@ -1538,10 +1538,10 @@ func (s *Service) CompleteCheckout(
 	//
 	// Lỗi thì DỪNG, cùng lý do với dòng trên: một đơn trả trước KHÔNG có
 	// intent thì không bao giờ thu được tiền, và không có gì đi dọn nó.
-	// Khách thử lại được — cả `PlaceOrder` lẫn `TaoIntent` đều idempotent
+	// Khách thử lại được — cả `PlaceOrder` lẫn `NewIntent` đều idempotent
 	// theo đơn nên không sinh bản ghi thứ hai.
 	if s.payments != nil {
-		err := s.payments.TaoIntent(ctx, placed.OrderID, c.Total(), paymentMethod)
+		err := s.payments.NewIntent(ctx, placed.OrderID, c.Total(), paymentMethod)
 		// COD (và đơn qua `placeOrder`, không có phương thức) KHÔNG có
 		// intent — đó là câu trả lời đúng, không phải hỏng. Xem ADR-0017.
 		if err != nil && !s.payments.LaKhongCanIntent(err) {

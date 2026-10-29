@@ -1210,7 +1210,7 @@ Settlement:
       type: string
       description: |
         BA trạng thái, không phải bốn. `PENDING_CONFIRMATION` của bản trước
-        chưa bao giờ tồn tại trong `domain.TrangThaiDoiSoat`.
+        chưa bao giờ tồn tại trong `domain.SettlementStatus`.
       enum: [DRAFT, CONFIRMED, PAID]
     currency:
       type: string

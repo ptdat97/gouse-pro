@@ -31,7 +31,7 @@ import (
 // đúng cái bẫy đã làm bộ middleware trong test này từng lệch với production.
 //
 // ĐỦ BỘ từ 01/10/2026, trừ ĐÚNG MỘT bên nhận có lý do kỹ thuật:
-// `payment.NewChiPhiVanChuyenHandler` cần một nguồn GIÁ vận chuyển, nên
+// `payment.NewCarrierCostHandler` cần một nguồn GIÁ vận chuyển, nên
 // `api_chi_phi_van_chuyen_test.go` tự đăng ký nó kèm giá cố định — đăng ký
 // vào bộ chung sẽ phải chọn một giá cho MỌI bài, và giá ấy là thứ bài kia
 // đang kiểm.
@@ -79,7 +79,7 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 
 	// Hai bên nhận của `order.paid` — ADR-0018. Thiếu chúng thì đơn trả
 	// trước bị khóa vĩnh viễn và tiền mặt không bao giờ được ghi nhận.
-	bus.Subscribe(payment.NewThuTienHandler(a.mods.payment, log))
+	bus.Subscribe(payment.NewPaymentHandler(a.mods.payment, log))
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(a.mods.fulfillment, log))
 	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(a.mods.fulfillment, log))
 

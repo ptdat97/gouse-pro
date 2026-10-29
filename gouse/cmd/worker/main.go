@@ -532,14 +532,14 @@ func run() error {
 	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(fulfillmentModule, log))
 
 	// Thu được tiền: khoản phải thu chuyển thành tiền mặt (ADR-0018 B1).
-	bus.Subscribe(payment.NewThuTienHandler(paymentModule, log))
+	bus.Subscribe(payment.NewPaymentHandler(paymentModule, log))
 
 	// Chi phí trả hãng vận chuyển, ghi lúc BÀN GIAO.
 	//
 	// Giá đọc từ cấu hình vận hành MỖI lần, không chụp lúc khởi động: đổi
 	// giá thỏa thuận với hãng phải có tác dụng ở kiện hàng kế tiếp.
-	bus.Subscribe(payment.NewChiPhiVanChuyenHandler(
-		paymentModule, giaHangTu(opsConfigStore), log))
+	bus.Subscribe(payment.NewCarrierCostHandler(
+		paymentModule, carrierPriceFrom(opsConfigStore), log))
 	bus.Subscribe(order.NewProgressHandler(orderModule, log))
 	bus.Subscribe(notification.NewOrderNotifier(notificationModule, log))
 	bus.Subscribe(analytics.NewEventRecorder(analyticsModule))
@@ -816,7 +816,7 @@ func taoDoiSoat(m *payment.Module, log *slog.Logger) func(context.Context) error
 		den := time.Now().UTC()
 		tu := den.Add(-taoDoiSoatKy)
 
-		n, err := m.TaoDoiSoatChoKy(ctx, tu, den, doiSoatBatch)
+		n, err := m.NewSettlementForPeriod(ctx, tu, den, doiSoatBatch)
 		if err != nil {
 			return fmt.Errorf("tạo đợt đối soát: %w", err)
 		}
@@ -1169,7 +1169,7 @@ func doiSoatThanhToan(
 			return nil
 		}
 
-		lech, err := pay.DoiSoatDaThu(ctx,
+		lech, err := pay.ReconcileCaptured(ctx,
 			time.Now().Add(-doiSoatThanhToanCuaSo), doiSoatThanhToanBatch,
 			func(ctx context.Context, orderID string) (string, error) {
 				v, err := ord.GetOrder(ctx, orderID)
@@ -1189,8 +1189,8 @@ func doiSoatThanhToan(
 		for _, l := range lech {
 			log.Error("ĐÃ THU TIỀN nhưng đơn chưa cập nhật — cần người xử lý",
 				"intent_id", l.IntentID, "order_id", l.OrderID,
-				"so_tien", l.SoTien, "don_vi", l.Currency,
-				"thu_luc", l.CapturedAt, "trang_thai_don", l.TrangThaiDon,
+				"so_tien", l.Amount, "don_vi", l.Currency,
+				"thu_luc", l.CapturedAt, "trang_thai_don", l.OrderStatus,
 				"goi_y", "kiểm tra vì sao MarkOrderPaid không chạy, rồi cập nhật tay")
 		}
 
@@ -1199,7 +1199,7 @@ func doiSoatThanhToan(
 		// Phần lớn là khách bỏ giữa chừng — bình thường và nhiều. Cảnh báo
 		// ở đây sẽ luôn kêu, và một cảnh báo luôn kêu thì không ai đọc.
 		// Giá trị của nó là XU HƯỚNG: tăng vọt nghĩa là webhook thôi tới.
-		quaHan, err := pay.DemIntentChoThuQuaHan(ctx,
+		quaHan, err := pay.CountOverduePendingIntents(ctx,
 			time.Now().Add(-intentChoThuQuaHan))
 		if err != nil {
 			return fmt.Errorf("đếm ý định thanh toán quá hạn: %w", err)
@@ -1267,15 +1267,15 @@ func doiSoatGiaoHang(
 // giaHangVanChuyen đọc giá nền tảng trả hãng từ cấu hình vận hành.
 //
 // Trả 0 khi CHƯA KHAI, và bên gọi không ghi bút toán nào — xem
-// `payment.GhiChiPhiHangVanChuyen`. Đặt một con số mặc định sẽ làm lãi
+// `payment.RecordCarrierCostOnHandover`. Đặt một con số mặc định sẽ làm lãi
 // vận chuyển trông như một sự thật đã đo, trong khi không ai đo cả.
-type giaHangVanChuyen struct{ cfg *opsconfig.Store }
+type carrierPrice struct{ cfg *opsconfig.Store }
 
-func giaHangTu(cfg *opsconfig.Store) payment.GiaHangVanChuyen {
-	return &giaHangVanChuyen{cfg: cfg}
+func carrierPriceFrom(cfg *opsconfig.Store) payment.CarrierPricePort {
+	return &carrierPrice{cfg: cfg}
 }
 
-func (g *giaHangVanChuyen) GiaMotKien(phuongThuc string) int64 {
+func (g *carrierPrice) PricePerParcel(phuongThuc string) int64 {
 	if g.cfg == nil {
 		return 0
 	}

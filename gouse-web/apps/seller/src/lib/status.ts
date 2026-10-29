@@ -192,7 +192,7 @@ export function returnReasonLabel(s: string | undefined): string {
  * Nhãn trạng thái đợt đối soát.
  *
  * BA trạng thái, không phải bốn — `PENDING_CONFIRMATION` từng nằm trong
- * đặc tả mà chưa bao giờ có trong `domain.TrangThaiDoiSoat`.
+ * đặc tả mà chưa bao giờ có trong `domain.SettlementStatus`.
  *
  * Mỗi nhãn nói TIỀN đang ở đâu, không nói bản ghi đang ở bước nào. Nhà bán
  * mở màn hình này để biết bao giờ nhận được tiền; "Đã xác nhận" trả lời

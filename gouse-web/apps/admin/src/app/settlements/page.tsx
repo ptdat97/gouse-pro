@@ -20,7 +20,7 @@ import { settlementTone } from "@/lib/status";
  *
  * # Vì sao trang này tồn tại
  *
- * `DoiSoat.XacNhan` và `DanhDauDaTra` có từ migration 000036 và tới
+ * `Settlement.Confirm` và `MarkPaid` có từ migration 000036 và tới
  * 01/10/2026 không lời gọi nào — mọi đợt nằm `DRAFT` vĩnh viễn, nhà bán
  * không bao giờ được chi (P3-89).
  *

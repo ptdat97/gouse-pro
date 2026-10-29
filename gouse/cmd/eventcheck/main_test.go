@@ -413,7 +413,7 @@ func TestBatSoR4DaMuc(t *testing.T) {
 // Lời gọi Subscribe NGOÀI `dangKyBenNhan` không được tính.
 //
 // `phatEvent` và các bài test riêng cũng gọi `Subscribe` cho bên nhận của
-// riêng chúng — ví dụ `payment.NewChiPhiVanChuyenHandler` kèm giá cố định.
+// riêng chúng — ví dụ `payment.NewCarrierCostHandler` kèm giá cố định.
 // Tính cả chúng sẽ làm sổ miễn trừ vô nghĩa, vì mọi thứ đều "có ở test".
 //
 // `boTestGia` luôn ghi thêm `rieng.NewChiOBaiNayHandler` ngoài hàm ấy, nên

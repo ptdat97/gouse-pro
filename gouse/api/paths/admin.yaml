@@ -1617,7 +1617,7 @@ admin_product_reject:
 # ---------------------------------------------------------------------
 # Hai bước KÝ đợt đối soát — mắt xích cuối của đường tiền ra nhà bán.
 #
-# Tới 01/10/2026 `DoiSoat.XacNhan` và `DanhDauDaTra` không có lời gọi nào,
+# Tới 01/10/2026 `Settlement.Confirm` và `MarkPaid` không có lời gọi nào,
 # nên mọi đợt nằm DRAFT vĩnh viễn. Xem P3-89.
 # ---------------------------------------------------------------------
 

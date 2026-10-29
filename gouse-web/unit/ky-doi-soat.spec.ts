@@ -73,7 +73,7 @@ test("mỗi trạng thái có ĐÚNG MỘT nút, không có nút làm cả hai b
 
 test("đợt không có số dương thì nút chốt phải MỜ, không để bấm rồi nhận lỗi", () => {
   /**
-   * `XacNhan` từ chối `net ≤ 0`: nhà bán đang nợ nền tảng nhiều hơn số kiếm
+   * `Confirm` từ chối `net ≤ 0`: nhà bán đang nợ nền tảng nhiều hơn số kiếm
    * được trong kỳ, và khoản nợ chuyển sang kỳ sau.
    *
    * Để nút sáng rồi trả lỗi là bắt người vận hành học quy tắc bằng cách gặp

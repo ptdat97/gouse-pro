@@ -102,11 +102,11 @@ type revenuePayload struct {
 	} `json:"discount_allocations"`
 }
 
-// phanCuaNhaBan là phần tiền của một nhà bán trong một đơn.
-type phanCuaNhaBan struct {
-	sellerID string
-	tong     int64
-	hoaHong  int64
+// sellerShare là phần tiền của một nhà bán trong một đơn.
+type sellerShare struct {
+	sellerID   string
+	tong       int64
+	commission int64
 }
 
 func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Event) error {
@@ -120,26 +120,26 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 
 	// Gom theo nhà bán, GIỮ THỨ TỰ xuất hiện: bút toán sinh ra theo thứ
 	// tự xác định thì hai lần chạy lại cho cùng kết quả, và log đọc được.
-	var thuTu []string
-	phan := map[string]*phanCuaNhaBan{}
+	var sellerIDsInOrder []string
+	shares := map[string]*sellerShare{}
 	for _, r := range p.Reservations {
-		g, co := phan[r.SellerID]
+		g, co := shares[r.SellerID]
 		if !co {
-			g = &phanCuaNhaBan{sellerID: r.SellerID}
-			phan[r.SellerID] = g
-			thuTu = append(thuTu, r.SellerID)
+			g = &sellerShare{sellerID: r.SellerID}
+			shares[r.SellerID] = g
+			sellerIDsInOrder = append(sellerIDsInOrder, r.SellerID)
 		}
 		g.tong += r.LineTotal
-		g.hoaHong += r.CommissionAmount
+		g.commission += r.CommissionAmount
 	}
 
-	for _, id := range thuTu {
-		g := phan[id]
+	for _, id := range sellerIDsInOrder {
+		g := shares[id]
 		if g.tong <= 0 {
 			continue
 		}
 
-		noiBo, err := h.laNoiBo(ctx, g.sellerID)
+		internal, err := h.isInternal(ctx, g.sellerID)
 		if err != nil {
 			return err
 		}
@@ -151,14 +151,14 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 			CreatedBy:   "payment.revenue_on_checkout_completed",
 		}
 
-		if noiBo {
+		if internal {
 			// Own brand: tiền thuộc về nền tảng toàn phần, không có ai để
 			// trả. SellerID vẫn giữ để truy được nguồn; NewOrderRevenueEntry
 			// bỏ dòng "phải trả nhà bán" khi số tiền bằng 0.
 			req.PlatformRevenue = Amount{Value: g.tong, Currency: p.Currency}
 		} else {
-			req.PlatformRevenue = Amount{Value: g.hoaHong, Currency: p.Currency}
-			req.SellerPayable = Amount{Value: g.tong - g.hoaHong, Currency: p.Currency}
+			req.PlatformRevenue = Amount{Value: g.commission, Currency: p.Currency}
+			req.SellerPayable = Amount{Value: g.tong - g.commission, Currency: p.Currency}
 		}
 
 		if err := h.module.RecordOrderRevenueInEventTx(ctx, req); err != nil {
@@ -172,7 +172,7 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 	// CẢ ĐƠN, và chia nó cho từng bên là một câu hỏi nghiệp vụ chưa có
 	// câu trả lời. Miễn phí vận chuyển (PH-40) thì phí bằng 0 và không có
 	// bút toán nào.
-	if err := h.module.GhiPhiVanChuyenInEventTx(
+	if err := h.module.RecordShippingFeeInEventTx(
 		ctx, p.OrderID, p.ShippingFee, p.Currency); err != nil {
 		return fmt.Errorf("ghi phí vận chuyển: %w", err)
 	}
@@ -181,29 +181,29 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 	//
 	// Doanh thu ghi theo giá GỐC, khách trả phần đã trừ. Không ghi thì
 	// khoản phải thu còn dư đúng bằng số đã giảm.
-	if err := h.module.GhiGiamGiaInEventTx(
+	if err := h.module.RecordDiscountInEventTx(
 		ctx, p.OrderID, p.DiscountAmount, p.Currency,
-		phanBoTuEvent(p)); err != nil {
+		allocationsFromEvent(p)); err != nil {
 		return fmt.Errorf("ghi khoản giảm giá: %w", err)
 	}
 
 	return nil
 }
 
-// laNoiBo hỏi bên gọi xem nhà bán có phải own brand không.
+// isInternal hỏi bên gọi xem nhà bán có phải own brand không.
 //
 // Thiếu port thì coi MỌI nhà bán là bên ngoài. Đó là hướng an toàn: ghi
 // thiếu doanh thu nền tảng còn sửa được bằng bút toán điều chỉnh, còn ghi
 // thừa tiền phải trả cho một nhà bán không tồn tại thì có thể đã chuyển
 // tiền đi trước khi ai kịp nhận ra.
-func (h *RevenueOnCheckoutCompleted) laNoiBo(ctx context.Context, sellerID string) (bool, error) {
+func (h *RevenueOnCheckoutCompleted) isInternal(ctx context.Context, sellerID string) (bool, error) {
 	if h.seller == nil || sellerID == "" {
 		return false, nil
 	}
 	return h.seller.IsInternal(ctx, sellerID)
 }
 
-// ChuyenSoDuKhiHetHanDoiTra nghe fulfillment_order.completed.
+// ReleaseBalanceOnReturnWindowPassed nghe fulfillment_order.completed.
 //
 // # Vì sao chuyển số dư phải là một BÚT TOÁN
 //
@@ -211,22 +211,22 @@ func (h *RevenueOnCheckoutCompleted) laNoiBo(ctx context.Context, sellerID strin
 // cột được cập nhật. Nên "chuyển trạng thái tiền" là ghi thêm một bút
 // toán, không phải sửa một con số — sửa thẳng số dư là phá bỏ chính thứ
 // khiến sổ đối chiếu được.
-type ChuyenSoDuKhiHetHanDoiTra struct {
+type ReleaseBalanceOnReturnWindowPassed struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewSellerReleaseHandler(m *Module, log *slog.Logger) *ChuyenSoDuKhiHetHanDoiTra {
-	return &ChuyenSoDuKhiHetHanDoiTra{module: m, log: log}
+func NewSellerReleaseHandler(m *Module, log *slog.Logger) *ReleaseBalanceOnReturnWindowPassed {
+	return &ReleaseBalanceOnReturnWindowPassed{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*ChuyenSoDuKhiHetHanDoiTra)(nil)
+var _ eventbus.Handler = (*ReleaseBalanceOnReturnWindowPassed)(nil)
 
-func (h *ChuyenSoDuKhiHetHanDoiTra) Name() string {
+func (h *ReleaseBalanceOnReturnWindowPassed) Name() string {
 	return "payment.seller_release_on_fulfillment_completed"
 }
 
-func (h *ChuyenSoDuKhiHetHanDoiTra) EventTypes() []string {
+func (h *ReleaseBalanceOnReturnWindowPassed) EventTypes() []string {
 	return []string{eventbus.TypeFulfillmentCompleted}
 }
 
@@ -237,7 +237,7 @@ type sellerReleasePayload struct {
 	Currency      string `json:"currency"`
 }
 
-func (h *ChuyenSoDuKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *ReleaseBalanceOnReturnWindowPassed) Handle(ctx context.Context, e eventbus.Event) error {
 	var p sellerReleasePayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
@@ -249,7 +249,7 @@ func (h *ChuyenSoDuKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event
 		return nil
 	}
 
-	return h.module.ChuyenSangRutDuocInEventTx(ctx, SellerReleaseRequest{
+	return h.module.ReleaseToAvailableInEventTx(ctx, SellerReleaseRequest{
 		FulfillmentID: p.FulfillmentID,
 		SellerID:      p.SellerID,
 		Amount:        Amount{Value: p.SellerPayable, Currency: p.Currency},
@@ -259,7 +259,7 @@ func (h *ChuyenSoDuKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event
 
 // ---------------------------------------------------- Thu được tiền
 
-// GhiThuTienKhiDonDaTra ghi bút toán chuyển KHOẢN PHẢI THU thành TIỀN MẶT.
+// RecordPaymentOnOrderPaid ghi bút toán chuyển KHOẢN PHẢI THU thành TIỀN MẶT.
 //
 // # Vì sao cần bên nhận này
 //
@@ -271,26 +271,26 @@ func (h *ChuyenSoDuKhiHetHanDoiTra) Handle(ctx context.Context, e eventbus.Event
 // Không có nó, mọi đơn nằm mãi ở dạng "khách nợ" và số dư tiền mặt của
 // nền tảng luôn bằng 0 — sai theo hướng ngược lại với lỗi cũ, nhưng vẫn
 // là sai.
-type GhiThuTienKhiDonDaTra struct {
+type RecordPaymentOnOrderPaid struct {
 	module *Module
 	log    *slog.Logger
 }
 
-func NewThuTienHandler(m *Module, log *slog.Logger) *GhiThuTienKhiDonDaTra {
-	return &GhiThuTienKhiDonDaTra{module: m, log: log}
+func NewPaymentHandler(m *Module, log *slog.Logger) *RecordPaymentOnOrderPaid {
+	return &RecordPaymentOnOrderPaid{module: m, log: log}
 }
 
-var _ eventbus.Handler = (*GhiThuTienKhiDonDaTra)(nil)
+var _ eventbus.Handler = (*RecordPaymentOnOrderPaid)(nil)
 
-func (h *GhiThuTienKhiDonDaTra) Name() string {
+func (h *RecordPaymentOnOrderPaid) Name() string {
 	return "payment.ghi_thu_tien_khi_don_da_tra"
 }
 
-func (h *GhiThuTienKhiDonDaTra) EventTypes() []string {
+func (h *RecordPaymentOnOrderPaid) EventTypes() []string {
 	return []string{eventbus.TypeOrderPaid}
 }
 
-type thuTienPayload struct {
+type paymentPayload struct {
 	OrderID  string `json:"order_id"`
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
@@ -301,8 +301,8 @@ type thuTienPayload struct {
 // Số tiền lấy từ payload chứ không tính lại: nó là con số `payment_intent`
 // đã đối chiếu tuyệt đối với nhà cung cấp (ADR-0017 phần 4). Tính lại ở
 // đây là mở đường cho hai con số khác nhau cùng nói về một lần thu tiền.
-func (h *GhiThuTienKhiDonDaTra) Handle(ctx context.Context, e eventbus.Event) error {
-	var p thuTienPayload
+func (h *RecordPaymentOnOrderPaid) Handle(ctx context.Context, e eventbus.Event) error {
+	var p paymentPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
 	}
@@ -313,14 +313,14 @@ func (h *GhiThuTienKhiDonDaTra) Handle(ctx context.Context, e eventbus.Event) er
 			"order_id", p.OrderID, "so_tien", p.Amount)
 		return nil
 	}
-	return h.module.GhiThuTienInEventTx(ctx, p.OrderID, p.Amount, p.Currency)
+	return h.module.RecordPaymentInEventTx(ctx, p.OrderID, p.Amount, p.Currency)
 }
 
-// phanBoTuEvent đổi bảng phân bổ trong payload sang đầu vào của module.
-func phanBoTuEvent(p revenuePayload) []PhanBoChiPhiInput {
-	out := make([]PhanBoChiPhiInput, 0, len(p.DiscountAllocations))
+// allocationsFromEvent đổi bảng phân bổ trong payload sang đầu vào của module.
+func allocationsFromEvent(p revenuePayload) []AllocateCostInput {
+	out := make([]AllocateCostInput, 0, len(p.DiscountAllocations))
 	for _, d := range p.DiscountAllocations {
-		out = append(out, PhanBoChiPhiInput{
+		out = append(out, AllocateCostInput{
 			Bearer: d.Bearer, SellerID: d.SellerID, Amount: d.Amount,
 		})
 	}
@@ -329,7 +329,7 @@ func phanBoTuEvent(p revenuePayload) []PhanBoChiPhiInput {
 
 // ---------------------------------------------------- Chi phí vận chuyển
 
-// GhiChiPhiHangVanChuyen ghi nghĩa vụ trả hãng khi kiện hàng được bàn giao.
+// RecordCarrierCostOnHandover ghi nghĩa vụ trả hãng khi kiện hàng được bàn giao.
 //
 // # Vì sao bên nhận này tồn tại
 //
@@ -348,44 +348,44 @@ func phanBoTuEvent(p revenuePayload) []PhanBoChiPhiInput {
 // Chưa khai thì KHÔNG ghi bút toán nào — và `cmd/doisoatso` báo số kiện
 // đang thiếu. Đặt một con số mặc định sẽ làm lãi vận chuyển trông như một
 // sự thật đã đo, trong khi không ai đo cả.
-type GhiChiPhiHangVanChuyen struct {
+type RecordCarrierCostOnHandover struct {
 	module *Module
-	gia    GiaHangVanChuyen
+	price  CarrierPricePort
 	log    *slog.Logger
 }
 
-// GiaHangVanChuyen tra giá nền tảng trả hãng cho MỘT kiện.
+// CarrierPricePort tra giá nền tảng trả hãng cho MỘT kiện.
 //
 // Trả 0 nghĩa là CHƯA KHAI — bên gọi không ghi bút toán.
-type GiaHangVanChuyen interface {
-	GiaMotKien(phuongThuc string) int64
+type CarrierPricePort interface {
+	PricePerParcel(payMethod string) int64
 }
 
-func NewChiPhiVanChuyenHandler(
-	m *Module, gia GiaHangVanChuyen, log *slog.Logger,
-) *GhiChiPhiHangVanChuyen {
-	return &GhiChiPhiHangVanChuyen{module: m, gia: gia, log: log}
+func NewCarrierCostHandler(
+	m *Module, price CarrierPricePort, log *slog.Logger,
+) *RecordCarrierCostOnHandover {
+	return &RecordCarrierCostOnHandover{module: m, price: price, log: log}
 }
 
-var _ eventbus.Handler = (*GhiChiPhiHangVanChuyen)(nil)
+var _ eventbus.Handler = (*RecordCarrierCostOnHandover)(nil)
 
-func (h *GhiChiPhiHangVanChuyen) Name() string {
+func (h *RecordCarrierCostOnHandover) Name() string {
 	return "payment.ghi_chi_phi_hang_van_chuyen"
 }
 
-func (h *GhiChiPhiHangVanChuyen) EventTypes() []string {
+func (h *RecordCarrierCostOnHandover) EventTypes() []string {
 	return []string{eventbus.TypeFulfillmentProgress}
 }
 
 // MaxEventVersion: cần phiên bản có `shipping_method`.
-func (h *GhiChiPhiHangVanChuyen) MaxEventVersion(eventType string) int {
+func (h *RecordCarrierCostOnHandover) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeFulfillmentProgress {
 		return 2
 	}
 	return eventbus.DefaultMaxEventVersion
 }
 
-type chiPhiVanChuyenPayload struct {
+type carrierCostPayload struct {
 	FulfillmentID  string `json:"fulfillment_id"`
 	NewStatus      string `json:"new_status"`
 	ShippingMethod string `json:"shipping_method"`
@@ -396,8 +396,8 @@ type chiPhiVanChuyenPayload struct {
 // CHỈ ở bước bàn giao: nghĩa vụ với hãng phát sinh khi hàng rời kho, và
 // các bước sau (đang giao, đã giao) không tạo thêm nghĩa vụ nào. Ghi ở mọi
 // bước sẽ tính chi phí nhiều lần cho một kiện hàng.
-func (h *GhiChiPhiHangVanChuyen) Handle(ctx context.Context, e eventbus.Event) error {
-	var p chiPhiVanChuyenPayload
+func (h *RecordCarrierCostOnHandover) Handle(ctx context.Context, e eventbus.Event) error {
+	var p carrierCostPayload
 	if err := e.Unmarshal(&p); err != nil {
 		return fmt.Errorf("đọc dữ liệu event: %w", err)
 	}
@@ -405,12 +405,12 @@ func (h *GhiChiPhiHangVanChuyen) Handle(ctx context.Context, e eventbus.Event) e
 		return nil
 	}
 
-	gia := h.gia.GiaMotKien(p.ShippingMethod)
-	if gia <= 0 {
+	price := h.price.PricePerParcel(p.ShippingMethod)
+	if price <= 0 {
 		// CHƯA KHAI giá hãng. Không ghi, và không coi là lỗi — nhưng cũng
 		// KHÔNG im lặng: `cmd/doisoatso` đếm số kiện thiếu bút toán này.
 		return nil
 	}
 
-	return h.module.GhiChiPhiVanChuyenInEventTx(ctx, p.FulfillmentID, gia, "VND")
+	return h.module.RecordShippingCostInEventTx(ctx, p.FulfillmentID, price, "VND")
 }

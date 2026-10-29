@@ -83,7 +83,7 @@ func (a *auditRecorder) RecordSettlementSigned(
 	return a.rec.WriteSensitive(ctx, tx, audit.Entry{
 		ActorType:    audit.ActorUser,
 		ActorID:      in.ActorID,
-		Action:       "settlement." + in.Buoc,
+		Action:       "settlement." + in.Step,
 		ResourceType: audit.ResourceSettlement,
 		ResourceID:   in.SettlementID.String(),
 		Reason:       in.Reason,

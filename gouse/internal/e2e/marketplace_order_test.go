@@ -128,7 +128,7 @@ func newWorld(t *testing.T) *world {
 	// Thiếu nó thì đơn trả trước bị khóa vĩnh viễn (ADR-0018 phần A2).
 	bus.Subscribe(fulfillment.NewMoKhoaHandler(fulModule, log))
 	bus.Subscribe(fulfillment.NewHuyTheoDonHandler(fulModule, log))
-	bus.Subscribe(payment.NewThuTienHandler(payModule, log))
+	bus.Subscribe(payment.NewPaymentHandler(payModule, log))
 
 	// Ghi doanh thu: KHOẢN PHẢI THU lúc đặt đơn, tiền mặt khi thu được.
 	// `w` tự đóng vai cổng "nhà bán nội bộ hay bên ngoài" — cùng nguồn cờ

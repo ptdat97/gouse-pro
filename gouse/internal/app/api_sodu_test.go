@@ -195,7 +195,7 @@ func TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan(t *testing.T) {
 	den := types.BayGio().Add(time.Minute)
 	tu := den.Add(-7 * 24 * time.Hour)
 
-	n, err := a.mods.payment.TaoDoiSoatChoKy(ctx, tu, den, 1000)
+	n, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, den, 1000)
 	if err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan(t *testing.T) {
 	}
 
 	// CHẠY LẠI job: KHÔNG được gom lần hai.
-	lai, err := a.mods.payment.TaoDoiSoatChoKy(ctx, tu, den, 1000)
+	lai, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, den, 1000)
 	if err != nil {
 		t.Fatalf("chạy lại job: %v", err)
 	}

@@ -415,15 +415,15 @@ type paymentAdapter struct{ api PaymentAPI }
 // và một interface rộng buộc mọi bản giả trong test phải cài hàng chục
 // phương thức nó không dùng.
 type PaymentAPI interface {
-	TaoIntent(ctx context.Context, req payment.TaoIntentRequest) (*payment.IntentView, error)
+	NewIntent(ctx context.Context, req payment.NewIntentRequest) (*payment.IntentView, error)
 }
 
 var _ application.PaymentPort = (*paymentAdapter)(nil)
 
-func (a *paymentAdapter) TaoIntent(
+func (a *paymentAdapter) NewIntent(
 	ctx context.Context, orderID ids.ID, soTien money.Money, phuongThuc string,
 ) error {
-	_, err := a.api.TaoIntent(ctx, payment.TaoIntentRequest{
+	_, err := a.api.NewIntent(ctx, payment.NewIntentRequest{
 		OrderID:  orderID.String(),
 		Amount:   soTien.Amount(),
 		Currency: string(soTien.Currency()),
@@ -433,7 +433,7 @@ func (a *paymentAdapter) TaoIntent(
 }
 
 func (a *paymentAdapter) LaKhongCanIntent(err error) bool {
-	return payment.LaPhuongThucKhongTraTruoc(err)
+	return payment.IsNotPrepaidMethod(err)
 }
 
 // ------------------------------------------------- Ước tính phí vận chuyển

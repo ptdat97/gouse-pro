@@ -83,16 +83,16 @@ func (m *Module) Service() *application.Service { return m.svc }
 // Bên gọi PHẢI bọc Auth và RequireRole("SELLER_OWNER", "SELLER_STAFF").
 // RegisterWebhookRoutes gắn endpoint webhook thanh toán.
 //
-// `danhDau` là cổng tới module order, khai ở BÊN GỌI: chiều phụ thuộc đã
+// `marked` là cổng tới module order, khai ở BÊN GỌI: chiều phụ thuộc đã
 // là order → payment, nên payment không được gọi ngược.
 func (m *Module) RegisterWebhookRoutes(
 	mux *http.ServeMux,
-	nhatKy paymenthttp.GhiSuKien,
-	biMat paymenthttp.BiMatNhaCungCap,
-	danhDau paymenthttp.DanhDauDaTra,
+	webhookLog paymenthttp.WebhookLog,
+	secretOf paymenthttp.ProviderSecret,
+	marked paymenthttp.MarkPaid,
 	log *slog.Logger,
 ) {
-	paymenthttp.NewWebhookHandler(m.svc, nhatKy, biMat, danhDau, log).Register(mux)
+	paymenthttp.NewWebhookHandler(m.svc, webhookLog, secretOf, marked, log).Register(mux)
 }
 
 func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {
@@ -143,12 +143,12 @@ func (m *Module) RecordOrderRevenueInEventTx(
 	return translateErr(err)
 }
 
-// GhiPhiVanChuyenInEventTx ghi bút toán doanh thu PHÍ VẬN CHUYỂN.
+// RecordShippingFeeInEventTx ghi bút toán doanh thu PHÍ VẬN CHUYỂN.
 //
 // Phí khách trả cho việc giao hàng trước nay KHÔNG nằm ở đâu trong sổ cái
 // — xem domain.NewShippingRevenueEntry.
-func (m *Module) GhiPhiVanChuyenInEventTx(
-	ctx context.Context, orderID string, phi int64, donVi string,
+func (m *Module) RecordShippingFeeInEventTx(
+	ctx context.Context, orderID string, phi int64, unit string,
 ) error {
 	if phi <= 0 {
 		// Miễn phí vận chuyển (PH-40) là chuyện bình thường: không có
@@ -159,7 +159,7 @@ func (m *Module) GhiPhiVanChuyenInEventTx(
 	if err != nil {
 		return ErrInvalidID
 	}
-	fee, err := money.New(phi, money.Currency(donVi))
+	fee, err := money.New(phi, money.Currency(unit))
 	if err != nil {
 		return err
 	}
@@ -169,8 +169,8 @@ func (m *Module) GhiPhiVanChuyenInEventTx(
 		return err
 	}
 
-	_, err = m.svc.GhiPhiVanChuyenWith(ctx, paymentpg.LedgerForTx(tx),
-		application.GhiPhiVanChuyenInput{
+	_, err = m.svc.RecordShippingFeeWith(ctx, paymentpg.LedgerForTx(tx),
+		application.RecordShippingFeeInput{
 			OrderID: id, Fee: fee,
 			IdempotencyKey: "phi-ship:" + id.String(),
 		})
@@ -180,15 +180,15 @@ func (m *Module) GhiPhiVanChuyenInEventTx(
 	return translateErr(err)
 }
 
-// GhiGiamGiaInEventTx ghi bút toán khoản GIẢM GIÁ.
+// RecordDiscountInEventTx ghi bút toán khoản GIẢM GIÁ.
 //
 // Xem domain.NewDiscountEntry: không ghi thì khoản phải thu còn dư đúng
 // bằng số đã giảm, và khách "nợ" vĩnh viễn một khoản không ai đòi.
-func (m *Module) GhiGiamGiaInEventTx(
-	ctx context.Context, orderID string, giam int64, donVi string,
-	phanBo []PhanBoChiPhiInput,
+func (m *Module) RecordDiscountInEventTx(
+	ctx context.Context, orderID string, discount int64, unit string,
+	allocation []AllocateCostInput,
 ) error {
-	if giam <= 0 {
+	if discount <= 0 {
 		// Đơn không dùng mã giảm là đường đi phổ biến nhất.
 		return nil
 	}
@@ -196,7 +196,7 @@ func (m *Module) GhiGiamGiaInEventTx(
 	if err != nil {
 		return ErrInvalidID
 	}
-	amount, err := money.New(giam, money.Currency(donVi))
+	amount, err := money.New(discount, money.Currency(unit))
 	if err != nil {
 		return err
 	}
@@ -206,10 +206,10 @@ func (m *Module) GhiGiamGiaInEventTx(
 		return err
 	}
 
-	_, err = m.svc.GhiGiamGiaWith(ctx, paymentpg.LedgerForTx(tx),
-		application.GhiGiamGiaInput{
+	_, err = m.svc.RecordDiscountWith(ctx, paymentpg.LedgerForTx(tx),
+		application.RecordDiscountInput{
 			OrderID: id, Discount: amount,
-			PhanBo:         phanBoDomain(phanBo, amount.Currency()),
+			Allocation:     toDomainAllocations(allocation, amount.Currency()),
 			IdempotencyKey: "giam-gia:" + id.String(),
 		})
 	if errors.Is(err, domain.ErrDuplicateEntry) {
@@ -218,19 +218,19 @@ func (m *Module) GhiGiamGiaInEventTx(
 	return translateErr(err)
 }
 
-// GhiChiPhiVanChuyenInEventTx ghi nghĩa vụ trả hãng vận chuyển.
+// RecordShippingCostInEventTx ghi nghĩa vụ trả hãng vận chuyển.
 //
 // Xem domain.NewShippingCostEntry. Khóa idempotency theo ĐƠN THỰC HIỆN:
 // một kiện hàng chỉ phát sinh nghĩa vụ một lần, dù event tiến độ được
 // phát lại bao nhiêu lần.
-func (m *Module) GhiChiPhiVanChuyenInEventTx(
-	ctx context.Context, fulfillmentID string, chiPhi int64, donVi string,
+func (m *Module) RecordShippingCostInEventTx(
+	ctx context.Context, fulfillmentID string, chiPhi int64, unit string,
 ) error {
 	id, err := ids.Parse(fulfillmentID, ids.PrefixFulfillmentOrder)
 	if err != nil {
 		return ErrInvalidID
 	}
-	amount, err := money.New(chiPhi, money.Currency(donVi))
+	amount, err := money.New(chiPhi, money.Currency(unit))
 	if err != nil {
 		return err
 	}
@@ -240,8 +240,8 @@ func (m *Module) GhiChiPhiVanChuyenInEventTx(
 		return err
 	}
 
-	_, err = m.svc.GhiChiPhiVanChuyenWith(ctx, paymentpg.LedgerForTx(tx),
-		application.GhiChiPhiVanChuyenInput{
+	_, err = m.svc.RecordShippingCostWith(ctx, paymentpg.LedgerForTx(tx),
+		application.RecordShippingCostInput{
 			FulfillmentID:  id,
 			ChiPhi:         amount,
 			IdempotencyKey: "chi-phi-ship:" + id.String(),
@@ -252,7 +252,7 @@ func (m *Module) GhiChiPhiVanChuyenInEventTx(
 	return translateErr(err)
 }
 
-// GhiThuTienInEventTx ghi bút toán THU ĐƯỢC TIỀN, bằng giao dịch dispatcher.
+// RecordPaymentInEventTx ghi bút toán THU ĐƯỢC TIỀN, bằng giao dịch dispatcher.
 //
 // ADR-0018 phần B1: bút toán doanh thu ghi NỢ `ACCOUNTS_RECEIVABLE` lúc
 // đơn phát sinh; bút toán này chuyển nó thành `PLATFORM_CASH` khi tiền
@@ -260,14 +260,14 @@ func (m *Module) GhiChiPhiVanChuyenInEventTx(
 //
 // Trùng khóa idempotency KHÔNG phải lỗi — event `order.paid` phát lại là
 // chuyện bình thường, và bút toán thứ hai sẽ ghi nhận tiền về hai lần.
-func (m *Module) GhiThuTienInEventTx(
-	ctx context.Context, orderID string, soTien int64, donVi string,
+func (m *Module) RecordPaymentInEventTx(
+	ctx context.Context, orderID string, amount int64, unit string,
 ) error {
 	id, err := ids.Parse(orderID, ids.PrefixOrder)
 	if err != nil {
 		return ErrInvalidID
 	}
-	amount, err := money.New(soTien, money.Currency(donVi))
+	received, err := money.New(amount, money.Currency(unit))
 	if err != nil {
 		return err
 	}
@@ -277,9 +277,9 @@ func (m *Module) GhiThuTienInEventTx(
 		return err
 	}
 
-	_, err = m.svc.GhiThuTienWith(ctx, paymentpg.LedgerForTx(tx),
-		application.GhiThuTienInput{
-			OrderID: id, Amount: amount,
+	_, err = m.svc.RecordPaymentWith(ctx, paymentpg.LedgerForTx(tx),
+		application.RecordPaymentInput{
+			OrderID: id, Amount: received,
 			// Khóa theo ĐƠN: một đơn chỉ thu tiền một lần.
 			IdempotencyKey: "thu-tien:" + id.String(),
 		})
@@ -289,13 +289,13 @@ func (m *Module) GhiThuTienInEventTx(
 	return translateErr(err)
 }
 
-// ChuyenSangRutDuocInEventTx chuyển tiền nhà bán sang rút được, bằng GIAO
+// ReleaseToAvailableInEventTx chuyển tiền nhà bán sang rút được, bằng GIAO
 // DỊCH của dispatcher.
 //
 // Cùng ràng buộc với RecordOrderRevenueInEventTx: ghi sổ thành công mà
 // đánh dấu event thất bại thì lần thử lại chuyển LẦN THỨ HAI, và nhà bán
 // rút được gấp đôi số tiền thật.
-func (m *Module) ChuyenSangRutDuocInEventTx(
+func (m *Module) ReleaseToAvailableInEventTx(
 	ctx context.Context, req SellerReleaseRequest,
 ) error {
 	foID, err := ids.Parse(req.FulfillmentID, ids.PrefixFulfillmentOrder)
@@ -316,20 +316,20 @@ func (m *Module) ChuyenSangRutDuocInEventTx(
 		return err
 	}
 
-	return translateErr(m.svc.ChuyenSangRutDuocWith(ctx, paymentpg.LedgerForTx(tx),
-		application.ChuyenSangRutDuocInput{
+	return translateErr(m.svc.ReleaseToAvailableWith(ctx, paymentpg.LedgerForTx(tx),
+		application.ReleaseToAvailableInput{
 			FulfillmentID: foID, SellerID: sellerID, Amount: amount,
 			CreatedBy: req.CreatedBy,
 		}))
 }
 
-// TaoDoiSoatChoKy tạo đợt đối soát cho mọi nhà bán có khoản rút được.
+// NewSettlementForPeriod tạo đợt đối soát cho mọi nhà bán có khoản rút được.
 //
 // Do tiến trình nền gọi theo chu kỳ. Trả số đợt đã tạo để job ghi log.
-func (m *Module) TaoDoiSoatChoKy(
-	ctx context.Context, tuNgay, denNgay time.Time, limit int,
+func (m *Module) NewSettlementForPeriod(
+	ctx context.Context, fromDate, toDate time.Time, limit int,
 ) (int, error) {
-	return m.svc.TaoDoiSoatChoKy(ctx, tuNgay, denNgay, limit)
+	return m.svc.NewSettlementForPeriod(ctx, fromDate, toDate, limit)
 }
 
 // toRevenueInput chuyển yêu cầu công khai thành đầu vào của tầng ứng dụng.
@@ -636,16 +636,16 @@ func translateErr(err error) error {
 	return err
 }
 
-// DaoButToan ghi bút toán ĐẢO cho một bút toán đã ghi sai.
-func (m *Module) DaoButToan(
-	ctx context.Context, entryID, lyDo, suaBoi string,
+// ReverseEntry ghi bút toán ĐẢO cho một bút toán đã ghi sai.
+func (m *Module) ReverseEntry(
+	ctx context.Context, entryID, reason, changedBy string,
 ) (*EntryView, error) {
 	id, err := ids.Parse(entryID, ids.PrefixLedgerEntry)
 	if err != nil {
 		return nil, ErrInvalidID
 	}
-	e, err := m.svc.DaoButToan(ctx, application.DaoButToanInput{
-		EntryID: id, LyDo: lyDo, SuaBoi: suaBoi,
+	e, err := m.svc.ReverseEntry(ctx, application.ReverseEntryInput{
+		EntryID: id, Reason: reason, ChangedBy: changedBy,
 	})
 	if err != nil {
 		return nil, translateErr(err)
@@ -654,30 +654,30 @@ func (m *Module) DaoButToan(
 	return &v, nil
 }
 
-// PhanBoChiPhiInput là một dòng phân bổ chi phí khoản giảm.
-type PhanBoChiPhiInput struct {
+// AllocateCostInput là một dòng phân bổ chi phí khoản giảm.
+type AllocateCostInput struct {
 	Bearer   string
 	SellerID string
 	Amount   int64
 }
 
-// phanBoDomain đổi dữ liệu event sang từ vựng domain.
+// toDomainAllocations đổi dữ liệu event sang từ vựng domain.
 //
 // Mã gian hàng SAI ĐỊNH DẠNG rơi về nền tảng chịu — phía AN TOÀN: đoán
 // nhầm sang nhà bán là trừ tiền của người ngoài công ty, còn đoán nhầm về
 // nền tảng thì chỉ nền tảng chịu thiệt. Số tiền vẫn giữ nguyên nên tổng
 // không đổi, và bất biến "tổng bằng đúng khoản giảm" không vỡ.
-func phanBoDomain(ds []PhanBoChiPhiInput, donVi money.Currency) []domain.PhanBoChiPhi {
-	out := make([]domain.PhanBoChiPhi, 0, len(ds))
+func toDomainAllocations(ds []AllocateCostInput, unit money.Currency) []domain.AllocateCost {
+	out := make([]domain.AllocateCost, 0, len(ds))
 	for _, d := range ds {
 		sid, err := ids.Parse(d.SellerID, ids.PrefixSeller)
 		if err != nil {
 			sid = ""
 		}
-		out = append(out, domain.PhanBoChiPhi{
+		out = append(out, domain.AllocateCost{
 			Bearer:   d.Bearer,
 			SellerID: sid,
-			SoTien:   money.MustNew(d.Amount, donVi),
+			Amount:   money.MustNew(d.Amount, unit),
 		})
 	}
 	return out

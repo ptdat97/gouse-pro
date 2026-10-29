@@ -91,12 +91,12 @@ type BalanceRepository interface {
 type IntentRepository interface {
 	// Create ghi một ý định thanh toán mới.
 	//
-	// Trả ErrIntentTrungDon khi đơn đã có intent — chỉ mục UNIQUE trên
+	// Trả ErrDuplicateIntentForOrder khi đơn đã có intent — chỉ mục UNIQUE trên
 	// order_id là thứ cưỡng chế, không phải một câu SELECT trước đó: hai
 	// request hoàn tất song song đều thấy "chưa có".
 	Create(ctx context.Context, p *PaymentIntent) error
 
-	// FindByOrder tra intent theo đơn. Trả ErrIntentKhongTim nếu không có.
+	// FindByOrder tra intent theo đơn. Trả ErrIntentNotFound nếu không có.
 	FindByOrder(ctx context.Context, orderID ids.ID) (*PaymentIntent, error)
 
 	// FindByID tra theo mã intent.
@@ -105,17 +105,17 @@ type IntentRepository interface {
 	// Update lưu trạng thái mới.
 	Update(ctx context.Context, p *PaymentIntent) error
 
-	// DaThuTuMoc trả các intent ĐÃ THU kể từ một mốc thời gian.
+	// CapturedSince trả các intent ĐÃ THU kể từ một mốc thời gian.
 	//
 	// Cửa sổ có giới hạn CÓ CHỦ Ý: đây là đầu vào của job đối soát, và một
 	// job quét lại toàn bộ lịch sử mỗi phút sẽ nặng dần theo tuổi hệ thống
 	// cho tới lúc nó tự trở thành sự cố.
-	DaThuTuMoc(ctx context.Context, moc time.Time, limit int) ([]*PaymentIntent, error)
+	CapturedSince(ctx context.Context, moc time.Time, limit int) ([]*PaymentIntent, error)
 
-	// DemChoThuQuaHan đếm intent còn CHỜ THU và cũ hơn một mốc.
+	// CountOverduePending đếm intent còn CHỜ THU và cũ hơn một mốc.
 	//
 	// Con số này KHÔNG dùng để cảnh báo: một intent chờ thu quá hạn phần
 	// lớn là khách bỏ giữa chừng, chuyện bình thường và nhiều. Nó là chỉ
 	// số để THEO DÕI — tăng vọt nghĩa là webhook thôi không tới nữa.
-	DemChoThuQuaHan(ctx context.Context, truoc time.Time) (int, error)
+	CountOverduePending(ctx context.Context, before time.Time) (int, error)
 }

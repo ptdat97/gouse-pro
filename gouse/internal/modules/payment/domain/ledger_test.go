@@ -39,7 +39,7 @@ func newEntry(t *testing.T, lines ...domain.Line) (*domain.LedgerEntry, error) {
 //
 // Bút toán không cân bằng nghĩa là tiền xuất hiện từ hư không hoặc biến
 // mất. Chỉ báo này phải LUÔN bằng 0.
-func TestButToanKhongCanBangBiChan(t *testing.T) {
+func TestAnUnbalancedEntryIsBlocked(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 
 	cases := []struct {
@@ -80,7 +80,7 @@ func TestButToanKhongCanBangBiChan(t *testing.T) {
 }
 
 // Bút toán kép cần ÍT NHẤT hai dòng: tiền đi từ đâu tới đâu.
-func TestButToanPhaiCoItNhatHaiDong(t *testing.T) {
+func TestAnEntryNeedsAtLeastTwoLines(t *testing.T) {
 	if _, err := newEntry(t); !errors.Is(err, domain.ErrNoLines) {
 		t.Errorf("không dòng nào: lỗi = %v, mong ErrNoLines", err)
 	}
@@ -93,7 +93,7 @@ func TestButToanPhaiCoItNhatHaiDong(t *testing.T) {
 
 // Cộng 300.000 VND với 20 USD ra một con số vô nghĩa nhưng trông vẫn
 // "cân bằng" — phải chặn tường minh.
-func TestKhongChoTronDonViTienTe(t *testing.T) {
+func TestLedgerCurrenciesAreNeverMixed(t *testing.T) {
 	_, err := domain.NewLedgerEntry(domain.NewEntryParams{
 		Type:           domain.EntryOrderRevenue,
 		ReferenceType:  "ORDER",
@@ -121,7 +121,7 @@ func TestKhongChoTronDonViTienTe(t *testing.T) {
 // Số tiền mỗi dòng LUÔN DƯƠNG — hướng nằm ở Direction.
 //
 // Một dấu trừ đặt sai chỗ làm bút toán vẫn "cân bằng" nhưng sai hoàn toàn.
-func TestSoTienMoiDongPhaiDuong(t *testing.T) {
+func TestEachLineAmountMustBePositive(t *testing.T) {
 	for _, amount := range []int64{0, -100000} {
 		_, err := newEntry(t,
 			line(domain.AccountPlatformCash, "", domain.Debit, amount),
@@ -137,7 +137,7 @@ func TestSoTienMoiDongPhaiDuong(t *testing.T) {
 //
 // SELLER_PAYABLE mà không biết seller nào thì vô nghĩa: không đối soát và
 // không chi trả được.
-func TestTaiKhoanPhaiTraBatBuocCoChuSoHuu(t *testing.T) {
+func TestAPayableAccountRequiresAnOwner(t *testing.T) {
 	for _, at := range []domain.AccountType{
 		domain.AccountSellerPayable,
 		domain.AccountCreatorPayable,
@@ -171,7 +171,7 @@ func TestTaiKhoanPhaiTraBatBuocCoChuSoHuu(t *testing.T) {
 //
 // Ghi hai lần cùng một sự kiện tài chính sẽ NHÂN ĐÔI số tiền — loại lỗi
 // tệ nhất có thể xảy ra ở module này.
-func TestKhoaIdempotencyBatBuoc(t *testing.T) {
+func TestLedgerIdempotencyKeyIsMandatory(t *testing.T) {
 	_, err := domain.NewLedgerEntry(domain.NewEntryParams{
 		Type:          domain.EntryOrderRevenue,
 		ReferenceType: "ORDER",
@@ -189,7 +189,7 @@ func TestKhoaIdempotencyBatBuoc(t *testing.T) {
 
 // Bút toán phải có tham chiếu nguồn gốc — không thì không truy vết được
 // tiền này từ đâu ra.
-func TestButToanPhaiCoThamChieuNguonGoc(t *testing.T) {
+func TestAnEntryNeedsASourceReference(t *testing.T) {
 	_, err := domain.NewLedgerEntry(domain.NewEntryParams{
 		Type:           domain.EntryOrderRevenue,
 		IdempotencyKey: "k1",
@@ -211,7 +211,7 @@ func TestButToanPhaiCoThamChieuNguonGoc(t *testing.T) {
 //	CREDIT  PLATFORM_REVENUE                   30.000
 //	CREDIT  CREATOR_PAYABLE (creator X)        15.000
 //	CREDIT  FEE_EXPENSE                         4.500
-func TestButToanDonMarketplaceKhopDacTa(t *testing.T) {
+func TestMarketplaceOrderEntryMatchesTheSpec(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 	creatorID := ids.MustNew(ids.PrefixCreator)
 
@@ -248,9 +248,9 @@ func TestButToanDonMarketplaceKhopDacTa(t *testing.T) {
 	// khách bấm xong phiên thanh toán; tiền chưa về, kể cả với đơn trả
 	// trước (webhook tới sau) lẫn COD (tiền về lúc giao).
 	balances := domain.ComputeBalances([]*domain.LedgerEntry{e})
-	phaiThu := balances[domain.Account{Type: domain.AccountAccountsReceivable}.Key()]
-	if phaiThu.Amount.Amount() != 300000 {
-		t.Errorf("khoản phải thu = %v, mong 300000", phaiThu.Amount)
+	receivable := balances[domain.Account{Type: domain.AccountAccountsReceivable}.Key()]
+	if receivable.Amount.Amount() != 300000 {
+		t.Errorf("khoản phải thu = %v, mong 300000", receivable.Amount)
 	}
 	cash := balances[domain.Account{Type: domain.AccountPlatformCash}.Key()]
 	if cash.Amount.Amount() != 0 {
@@ -266,7 +266,7 @@ func TestButToanDonMarketplaceKhopDacTa(t *testing.T) {
 //
 // Đây là chỗ phân biệt GMV với doanh thu ngay ở tầng ghi sổ: đơn
 // marketplace chỉ ghi HOA HỒNG là doanh thu, đơn own brand ghi toàn bộ.
-func TestDonOwnBrandGhiDoanhThuToanPhan(t *testing.T) {
+func TestAnOwnBrandOrderPostsTheFullRevenue(t *testing.T) {
 	orderID := ids.MustNew(ids.PrefixOrder)
 
 	revenue, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
@@ -310,7 +310,7 @@ func TestDonOwnBrandGhiDoanhThuToanPhan(t *testing.T) {
 //
 // Tài sản và chi phí tăng khi ghi NỢ; nợ phải trả và doanh thu tăng khi
 // ghi CÓ. Nhầm sẽ ra số âm ở chỗ lẽ ra phải dương.
-func TestSoDuDungDauTheoBanChatTaiKhoan(t *testing.T) {
+func TestTheBalanceSignFollowsTheAccountNature(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 
 	e, err := newEntry(t,
@@ -337,7 +337,7 @@ func TestSoDuDungDauTheoBanChatTaiKhoan(t *testing.T) {
 }
 
 // Chi trả cho seller làm GIẢM khoản phải trả.
-func TestChiTraLamGiamKhoanPhaiTra(t *testing.T) {
+func TestAPayoutReducesThePayable(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 	orderID := ids.MustNew(ids.PrefixOrder)
 
@@ -365,7 +365,7 @@ func TestChiTraLamGiamKhoanPhaiTra(t *testing.T) {
 	// Bút toán doanh thu chỉ ghi KHOẢN PHẢI THU. Không có bước này thì
 	// tiền mặt đi từ 0 xuống −200.000, và con số âm đó không phải lỗi
 	// tính: nó nói đúng rằng nền tảng đã chi tiền chưa hề thu được.
-	thuTien, err := domain.NewPaymentReceivedEntry(domain.PaymentReceivedParams{
+	collected, err := domain.NewPaymentReceivedEntry(domain.PaymentReceivedParams{
 		OrderID:        orderID,
 		Amount:         vnd(300000),
 		IdempotencyKey: "thu-tien-1",
@@ -376,7 +376,7 @@ func TestChiTraLamGiamKhoanPhaiTra(t *testing.T) {
 	}
 
 	balances := domain.ComputeBalances(
-		[]*domain.LedgerEntry{revenue, thuTien, payout})
+		[]*domain.LedgerEntry{revenue, collected, payout})
 	acc := domain.Account{Type: domain.AccountSellerPayable, OwnerID: sellerID}
 
 	// 270.000 phải trả − 200.000 đã trả = 70.000 còn lại.
@@ -391,16 +391,16 @@ func TestChiTraLamGiamKhoanPhaiTra(t *testing.T) {
 	}
 
 	// Khoản phải thu đã về 0: khách hết nợ.
-	phaiThu := balances[domain.Account{Type: domain.AccountAccountsReceivable}.Key()]
-	if phaiThu.Amount.Amount() != 0 {
-		t.Errorf("khoản phải thu = %v, mong 0 sau khi thu tiền", phaiThu.Amount)
+	receivable := balances[domain.Account{Type: domain.AccountAccountsReceivable}.Key()]
+	if receivable.Amount.Amount() != 0 {
+		t.Errorf("khoản phải thu = %v, mong 0 sau khi thu tiền", receivable.Amount)
 	}
 }
 
 // SỬA SAI bằng bút toán ĐIỀU CHỈNH, không sửa bút toán cũ (ADR-0008).
 //
 // Ví dụ: ghi nhầm hoa hồng 30.000đ, đúng phải 25.000đ.
-func TestSuaSaiBangButToanDieuChinh(t *testing.T) {
+func TestMistakesAreFixedWithAnAdjustmentEntry(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 	orderID := ids.MustNew(ids.PrefixOrder)
 
@@ -446,7 +446,7 @@ func TestSuaSaiBangButToanDieuChinh(t *testing.T) {
 }
 
 // Điều chỉnh KHÔNG có lý do bị chặn: điểm mù trong kiểm toán.
-func TestDieuChinhBatBuocCoLyDo(t *testing.T) {
+func TestAnAdjustmentMustGiveAReason(t *testing.T) {
 	_, err := domain.NewAdjustmentEntry("ORDER", ids.MustNew(ids.PrefixOrder),
 		[]domain.Line{
 			line(domain.AccountPlatformRevenue, "", domain.Debit, 5000),
@@ -458,7 +458,7 @@ func TestDieuChinhBatBuocCoLyDo(t *testing.T) {
 }
 
 // Kiểm tra toàn vẹn: chỉ báo phải LUÔN bằng 0.
-func TestKiemTraToanVenSoSach(t *testing.T) {
+func TestLedgerIntegrityCheck(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 
 	var entries []*domain.LedgerEntry
@@ -488,7 +488,7 @@ func TestKiemTraToanVenSoSach(t *testing.T) {
 }
 
 // Bút toán BẤT BIẾN: sửa lát cắt trả về không ảnh hưởng bản gốc.
-func TestButToanBatBien(t *testing.T) {
+func TestLedgerEntriesAreImmutable(t *testing.T) {
 	e, err := newEntry(t,
 		line(domain.AccountPlatformCash, "", domain.Debit, 100000),
 		line(domain.AccountPlatformRevenue, "", domain.Credit, 100000),
@@ -514,7 +514,7 @@ func TestButToanBatBien(t *testing.T) {
 // Tính chất thứ hai là hệ quả toán học của bút toán kép: mỗi đồng ghi nợ ở
 // đâu đó đều có một đồng ghi có ở chỗ khác. Nếu không bằng 0, có tiền xuất
 // hiện từ hư không.
-func TestTinhChatButToanKep(t *testing.T) {
+func TestDoubleEntryProperties(t *testing.T) {
 	rng := rand.New(rand.NewSource(20260813))
 	sellers := []ids.ID{
 		ids.MustNew(ids.PrefixSeller), ids.MustNew(ids.PrefixSeller),
@@ -567,16 +567,16 @@ func TestTinhChatButToanKep(t *testing.T) {
 	}
 }
 
-// TestDaoNguocLamButToanHetHieuLuc — ADR-0018, bước dọn dữ liệu cũ.
+// TestAReversalVoidsTheOriginalEntry — ADR-0018, bước dọn dữ liệu cũ.
 //
 // Sổ cái bất biến (ADR-0008) không cho xóa, nên "hủy" một bút toán ghi sai
 // là ghi một bút toán NGƯỢC CHIỀU. Kiểm chứng ở đây là: cộng cả hai lại,
 // MỌI tài khoản về đúng số dư trước đó.
-func TestDaoNguocLamButToanHetHieuLuc(t *testing.T) {
+func TestAReversalVoidsTheOriginalEntry(t *testing.T) {
 	sellerID := ids.MustNew(ids.PrefixSeller)
 	orderID := ids.MustNew(ids.PrefixOrder)
 
-	goc, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
+	original, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
 		OrderID:         orderID,
 		GrossAmount:     vnd(300000),
 		SellerID:        sellerID,
@@ -589,22 +589,22 @@ func TestDaoNguocLamButToanHetHieuLuc(t *testing.T) {
 		t.Fatalf("NewOrderRevenueEntry: %v", err)
 	}
 
-	dao, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
-		Goc:            goc,
-		LyDo:           "ghi tiền mặt cho đơn chưa thu được tiền",
-		IdempotencyKey: "dao:" + goc.ID().String(),
+	reversal, err := domain.NewReversalEntry(domain.ReversalParams{
+		Original:       original,
+		Reason:         "ghi tiền mặt cho đơn chưa thu được tiền",
+		IdempotencyKey: "dao:" + original.ID().String(),
 		Now:            testNow,
 	})
 	if err != nil {
-		t.Fatalf("NewDaoNguocEntry: %v", err)
+		t.Fatalf("NewReversalEntry: %v", err)
 	}
 
-	if dao.ReversesEntryID() != goc.ID() {
-		t.Errorf("bút toán đảo trỏ về %q, mong %q", dao.ReversesEntryID(), goc.ID())
+	if reversal.ReversesEntryID() != original.ID() {
+		t.Errorf("bút toán đảo trỏ về %q, mong %q", reversal.ReversesEntryID(), original.ID())
 	}
 
 	// MỌI tài khoản phải về 0 sau khi cộng cả hai.
-	balances := domain.ComputeBalances([]*domain.LedgerEntry{goc, dao})
+	balances := domain.ComputeBalances([]*domain.LedgerEntry{original, reversal})
 	for key, b := range balances {
 		if b.Amount.Amount() != 0 {
 			t.Errorf("tài khoản %s còn %v sau khi đảo, mong 0", key, b.Amount)
@@ -616,8 +616,8 @@ func TestDaoNguocLamButToanHetHieuLuc(t *testing.T) {
 //
 // Một khoản tiền biến mất khỏi sổ mà không ai giải thích được là đúng thứ
 // kiểm toán tồn tại để chặn.
-func TestDaoNguocBatBuocCoLyDo(t *testing.T) {
-	goc, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
+func TestAReversalMustGiveAReason(t *testing.T) {
+	original, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
 		OrderID:         ids.MustNew(ids.PrefixOrder),
 		GrossAmount:     vnd(100000),
 		PlatformRevenue: vnd(100000),
@@ -628,8 +628,8 @@ func TestDaoNguocBatBuocCoLyDo(t *testing.T) {
 		t.Fatalf("NewOrderRevenueEntry: %v", err)
 	}
 
-	if _, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
-		Goc: goc, LyDo: "   ", IdempotencyKey: "k", Now: testNow,
+	if _, err := domain.NewReversalEntry(domain.ReversalParams{
+		Original: original, Reason: "   ", IdempotencyKey: "k", Now: testNow,
 	}); err == nil {
 		t.Error("đảo bút toán KHÔNG có lý do phải bị chặn")
 	}
@@ -639,8 +639,8 @@ func TestDaoNguocBatBuocCoLyDo(t *testing.T) {
 //
 // Đảo một bút toán đảo là quay về trạng thái ban đầu bằng đường vòng, và
 // nó làm chuỗi "cái nào còn hiệu lực" không đọc được nữa.
-func TestKhongDaoMotButToanDao(t *testing.T) {
-	goc, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
+func TestAReversalCannotBeReversed(t *testing.T) {
+	original, err := domain.NewOrderRevenueEntry(domain.OrderRevenueParams{
 		OrderID:         ids.MustNew(ids.PrefixOrder),
 		GrossAmount:     vnd(100000),
 		PlatformRevenue: vnd(100000),
@@ -650,15 +650,15 @@ func TestKhongDaoMotButToanDao(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOrderRevenueEntry: %v", err)
 	}
-	dao, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
-		Goc: goc, LyDo: "sai", IdempotencyKey: "dao-1", Now: testNow,
+	reversal, err := domain.NewReversalEntry(domain.ReversalParams{
+		Original: original, Reason: "sai", IdempotencyKey: "dao-1", Now: testNow,
 	})
 	if err != nil {
-		t.Fatalf("NewDaoNguocEntry: %v", err)
+		t.Fatalf("NewReversalEntry: %v", err)
 	}
 
-	if _, err := domain.NewDaoNguocEntry(domain.DaoNguocParams{
-		Goc: dao, LyDo: "đổi ý", IdempotencyKey: "dao-2", Now: testNow,
+	if _, err := domain.NewReversalEntry(domain.ReversalParams{
+		Original: reversal, Reason: "đổi ý", IdempotencyKey: "dao-2", Now: testNow,
 	}); err == nil {
 		t.Error("đảo một bút toán ĐẢO phải bị chặn")
 	}

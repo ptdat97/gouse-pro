@@ -3579,7 +3579,7 @@ với `discount_allocations` thay cho `discount_seller_id` của v5, và sổ c�
 ghi MỘT dòng NỢ cho mỗi phần.
 
 Bất biến "tổng các phần bằng ĐÚNG số tiền giảm" được kiểm ở HAI chỗ —
-checkout lúc áp mã, và `dongNoKhoanGiam` lúc dựng bút toán. Không thừa:
+checkout lúc áp mã, và `discountDebitLines` lúc dựng bút toán. Không thừa:
 `NewLedgerEntry` chỉ kiểm Σ NỢ = Σ CÓ, nên một bảng phân bổ cộng thiếu vẫn
 cân bằng, nó chỉ lặng lẽ đẩy phần chênh sang vế còn lại.
 
@@ -4359,7 +4359,7 @@ chưa khai giá, và không biết phương thức — mà chú thích chỉ nó
 vẫn không có bút toán nào, và nhìn như cấu hình không ăn.
 
 **Bản giả trong test đã che đúng chỗ hỏng.** `giaCoDinh` có chữ ký
-`GiaMotKien(string) int64` — vứt bỏ tham số, luôn trả cùng một giá. Bài
+`PricePerParcel(string) int64` — vứt bỏ tham số, luôn trả cùng một giá. Bài
 test vì thế xanh bất kể phương thức rỗng hay không. Nay phương thức rỗng
 trả 0.
 
@@ -6533,7 +6533,7 @@ nhau:
 #### Dữ liệu đã nạp rồi vứt — LẦN THỨ TƯ
 
 `settlement_line` có từ migration 000041, và `doc()` nạp nó vào
-`DoiSoat.Dong()` mỗi lần đọc một đợt. Tầng DTO vứt đi.
+`Settlement.Lines()` mỗi lần đọc một đợt. Tầng DTO vứt đi.
 
 Cùng hình dạng với `shipping_groups` (P3-50), `variants` (P3-64) và các
 trường sửa được của sản phẩm (P3-65) — bốn lần trong cùng một khu, đều
@@ -6739,7 +6739,7 @@ khách trả hàng     DEBIT  SELLER_PAYABLE    50.000   → đang chờ = −50
 ```
 
 Số âm ấy đúng: nhà bán đang nợ 50.000 vì tiền đã chuyển đi rồi mới hoàn.
-`TaoDoiSoatChoKy` đọc nó và trừ ra khỏi số thực chi. Tới đây vẫn đúng.
+`NewSettlementForPeriod` đọc nó và trừ ra khỏi số thực chi. Tới đây vẫn đúng.
 
 Nhưng việc trừ ấy **chỉ nằm trong bộ nhớ**. Tạo đợt không ghi bút toán
 nào, nên sau khi trừ xong, `SELLER_PAYABLE` vẫn là −50.000.
@@ -6791,7 +6791,7 @@ một kho bám giao dịch mà còn hai hàm gọi `pool` là một nil-panic đ
 
 #### Thực nhận không bao giờ âm
 
-Nợ có thể lớn hơn tổng kỳ này. `TaoDoiSoat` KẸP phần bị trừ về mức
+Nợ có thể lớn hơn tổng kỳ này. `NewSettlement` KẸP phần bị trừ về mức
 `gross`, nên `net ≥ 0`. Phần chưa thu hết không mất đi: nó vẫn là số âm
 trên tài khoản đang chờ và kỳ sau thu tiếp.
 
@@ -6815,7 +6815,7 @@ trừ ở đợt thứ hai.
 
 #### Và hai hàm chưa ai gọi
 
-`DoiSoat.XacNhan` và `DoiSoat.DanhDauDaTra` khai ra mà **không lời gọi
+`Settlement.Confirm` và `Settlement.MarkPaid` khai ra mà **không lời gọi
 nào** — mọi đợt nằm `DRAFT` vĩnh viễn. Cùng dạng với `SELLER_RELEASE`,
 `AddImage`, `ListBrands`, `getBrand`, `FindExpiringAuthorizations`. Để
 riêng, vì khép vòng đời cần quyết định ai được ký chi và một màn hình
@@ -7046,7 +7046,7 @@ fulfillment/events.go      "Nghe `order.placed` sẽ phải gọi ngược modul
 Ai tin vào cái tên ấy mà viết một bên nhận sẽ có mã **không bao giờ
 chạy** — không lỗi, không log, không có gì để lần theo. Cùng dạng với
 `SELLER_RELEASE`, `AddImage`, `ListBrands`, `getBrand`,
-`FindExpiringAuthorizations`, `XacNhan`/`DanhDauDaTra`, và ba hàm
+`FindExpiringAuthorizations`, `Confirm`/`MarkPaid`, và ba hàm
 `chuanHoa*`. Dạng lỗi hay gặp NHẤT của dự án này, nay lan sang event.
 
 Bốn hằng số đã xóa. Sự thật mà `order.placed` định mang đã nằm trong
@@ -7773,7 +7773,7 @@ So với `cmd/worker/main.go`, nó thiếu ba:
 | Thiếu | Lý do |
 |---|---|
 | `supplychain.NewSignalHandler` | ĐÃ ghi trong chú thích: `supplychain` không nằm trong `Modules` của `internal/app` |
-| `payment.NewChiPhiVanChuyenHandler` | hợp lý: nó cần một nguồn GIÁ, nên `api_chi_phi_van_chuyen_test.go` tự đăng ký kèm giá cố định |
+| `payment.NewCarrierCostHandler` | hợp lý: nó cần một nguồn GIÁ, nên `api_chi_phi_van_chuyen_test.go` tự đăng ký kèm giá cố định |
 | `inventory.NewReleaseHandler` | **không lý do nào** |
 
 Cái thứ ba là **đường RA của kho**. Hệ quả: tới 01/10/2026 mọi bài test lớp
@@ -7943,13 +7943,13 @@ hình vận hành tiền.
 
 ### P3-89 — ĐÃ LÀM 01/10/2026 — khép vòng đời đợt đối soát: ai được ký chi
 
-`DoiSoat.XacNhan` và `DoiSoat.DanhDauDaTra` khai ra mà không lời gọi nào, nên
+`Settlement.Confirm` và `Settlement.MarkPaid` khai ra mà không lời gọi nào, nên
 mọi đợt nằm `DRAFT` **vĩnh viễn** — nhà bán không bao giờ được chi.
 
 **Quyết định: HAI BƯỚC, có người ký, quyền riêng.**
 
 ```text
-DRAFT  ──XacNhan──►  CONFIRMED  ──DanhDauDaTra──►  PAID
+DRAFT  ──Confirm──►  CONFIRMED  ──MarkPaid──►  PAID
          người ký                  người ký
          quyền `settlement:approve`
 ```
@@ -7970,13 +7970,13 @@ admin thường — ai xem được báo cáo không có nghĩa là ký được
 
 ```text
 migration 000061   settlement.confirmed_by / paid_by + HAI ràng buộc CHECK
-domain             XacNhan(nguoiKy, now) · DanhDauDaTra(nguoiKy, now)
-                   ErrThieuNguoiKy
-store              LuuKemAudit — trạng thái và vết kiểm toán CÙNG giao dịch
-application        XacNhanDoiSoat · DanhDauDoiSoatDaTra
+domain             Confirm(signedBy, now) · MarkPaid(signedBy, now)
+                   ErrMissingSigner
+store              SaveWithAudit — trạng thái và vết kiểm toán CÙNG giao dịch
+application        ConfirmSettlement · MarkSettlementPaid
 audit              RecordSettlementSigned, Action tách hai bước
 platform/audit     ResourceSettlement = "SETTLEMENT" (+ enum đặc tả)
-interfaces/http    hai endpoint + translateDoiSoat
+interfaces/http    hai endpoint + translateSettlement
 đặc tả             settlement_confirm · settlement_mark_paid
                    Settlement += confirmed_at/by, paid_at/by
 nối dây            cùng chuỗi middleware với điều chỉnh sổ cái
@@ -8014,7 +8014,7 @@ theo chuỗi mã là biến một thuộc tính thành một truy vấn.
 #### Nhà bán thấy MỐC, không thấy NGƯỜI
 
 `toSettlementJSON` (mặt nhà bán) điền `confirmed_at`/`paid_at` và để trống
-`confirmed_by`/`paid_by`; `themNguoiKy` điền chúng cho mặt admin.
+`confirmed_by`/`paid_by`; `addSigner` điền chúng cho mặt admin.
 
 Hai mốc là hai câu nhà bán hỏi nhiều nhất về một đợt. Nhân viên nào bấm nút
 là việc nội bộ, và định danh nhân viên lọt ra ngoài là một rò rỉ không cần
@@ -8029,14 +8029,14 @@ Người xác nhận hiện được phép đánh dấu đã trả. Bốn mắt 
 tổ chức có từ hai người vận hành tài chính, nhưng nó chặn hẳn đường chi trả
 của một đội một người.
 
-Thêm nó là MỘT dòng trong `DanhDauDaTra`, và dòng ấy được ghi sẵn trong chú
+Thêm nó là MỘT dòng trong `MarkPaid`, và dòng ấy được ghi sẵn trong chú
 thích của hàm. Việc KHÔNG cài nó là một lựa chọn đọc được, không phải một chỗ
 bị quên.
 
 #### Kiểm chứng bằng cách phá — năm phép
 
 ```text
-bỏ hàng rào trạng thái ở DanhDauDaTra  → "nhảy bước phải 409, nhận 200"
+bỏ hàng rào trạng thái ở MarkPaid  → "nhảy bước phải 409, nhận 200"
 người ký lấy từ thân thay vì token      → 401 "Không xác định được người ký"
 mặt nhà bán rò rỉ confirmed_by          → "định danh nhân viên không nên
                                            rời phạm vi quản trị"
@@ -8086,7 +8086,7 @@ chung chuỗi nghĩa là mọi lần đọc danh sách cũng đi qua nó.
 một thứ chưa cần ai nhìn. Với đợt đối soát nó nghĩa là **nhà bán chưa được
 chi**. Sắc thái trung tính làm nó lẫn vào danh sách.
 
-**Nút chốt MỜ khi `net ≤ 0`.** `XacNhan` từ chối trường hợp ấy; để nút sáng
+**Nút chốt MỜ khi `net ≤ 0`.** `Confirm` từ chối trường hợp ấy; để nút sáng
 rồi trả lỗi là bắt người vận hành học quy tắc bằng cách gặp lỗi — trên màn
 hình tiền.
 
@@ -8109,7 +8109,7 @@ hai chỗ phải cùng đúng mỗi lần đổi.
 #### Và chốt một chiều của apicheck bắt enum mới
 
 Thêm `status` vào tham số lọc đẩy số enum chưa gác từ 63 lên 64, vượt chốt.
-Ghép cặp nó với `domain.TrangThaiDoiSoat` — và ghép CẢ HAI chỗ (tham số lọc
+Ghép cặp nó với `domain.SettlementStatus` — và ghép CẢ HAI chỗ (tham số lọc
 và `Settlement/properties/status`) chứ không chỉ một: tham số lọc khai một
 trạng thái mà miền không có là một ô lọc không bao giờ ra kết quả.
 
@@ -8121,8 +8121,8 @@ admin dùng hàm kho của nhà bán   → "quản trị không thấy đợt n�
 route nới cho SELLER_OWNER       → "nhà bán gọi được đường quản trị: 200"
 ```
 
-Phép thứ hai là lý do backend có HAI hàm kho (`TimTheoNhaBan` /
-`TimTheoTrangThai`) chứ không một hàm với `sellerID` rỗng: một chỗ quên
+Phép thứ hai là lý do backend có HAI hàm kho (`BySeller` /
+`ByStatus`) chứ không một hàm với `sellerID` rỗng: một chỗ quên
 truyền token sẽ trả dữ liệu mọi gian hàng, và chỗ quên ấy không trông giống
 lỗi.
 
@@ -8140,7 +8140,7 @@ nhận của test tích hợp thiếu `supplychain.NewSignalHandler` — **tín 
 cầu cho sản xuất không có bài test nào đi qua**.
 
 Đây là miễn trừ duy nhất còn lại của `eventcheck` R4 mà không phải lý do kỹ
-thuật. (`payment.NewChiPhiVanChuyenHandler` có lý do thật: nó cần một nguồn
+thuật. (`payment.NewCarrierCostHandler` có lý do thật: nó cần một nguồn
 GIÁ, nên `api_chi_phi_van_chuyen_test.go` tự đăng ký kèm giá cố định.)
 
 **Quyết định: thêm vào `Modules`.**

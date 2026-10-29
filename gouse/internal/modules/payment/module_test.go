@@ -49,7 +49,7 @@ func newModule(t *testing.T) (*payment.Module, *database.DB) {
 // VÍ DỤ TỪ ĐẶC TẢ (mục 4.3): đơn marketplace 300.000đ.
 //
 // Kiểm chứng ĐẦU-CUỐI qua database thật: ghi sổ, đọc lại, tính số dư.
-func TestGhiSoDonMarketplace(t *testing.T) {
+func TestPostingAMarketplaceOrder(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -91,12 +91,12 @@ func TestGhiSoDonMarketplace(t *testing.T) {
 	//
 	// Đặt đơn xong chưa có đồng nào về. Tiền mặt chỉ tăng khi `order.paid`
 	// tới và bút toán PAYMENT_RECEIVED được ghi.
-	phaiThu, err := m.GetPlatformBalance(ctx, payment.AccountAccountsReceivable)
+	receivable, err := m.GetPlatformBalance(ctx, payment.AccountAccountsReceivable)
 	if err != nil {
 		t.Fatalf("GetPlatformBalance: %v", err)
 	}
-	if phaiThu.Amount.Value != 300000 {
-		t.Errorf("khoản phải thu = %d, mong 300000", phaiThu.Amount.Value)
+	if receivable.Amount.Value != 300000 {
+		t.Errorf("khoản phải thu = %d, mong 300000", receivable.Amount.Value)
 	}
 
 	cash, err := m.GetPlatformBalance(ctx, payment.AccountPlatformCash)
@@ -111,7 +111,7 @@ func TestGhiSoDonMarketplace(t *testing.T) {
 // Đơn own brand ghi doanh thu TOÀN PHẦN + giá vốn riêng.
 //
 // Đây là phân biệt GMV với doanh thu ngay ở tầng ghi sổ.
-func TestGhiSoDonOwnBrand(t *testing.T) {
+func TestPostingAnOwnBrandOrder(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 	orderID := ids.MustNew(ids.PrefixOrder).String()
@@ -155,7 +155,7 @@ func TestGhiSoDonOwnBrand(t *testing.T) {
 //
 // Đây là loại lỗi tệ nhất có thể xảy ra ở module này — nền tảng sẽ trả
 // seller gấp đôi số tiền thực nhận từ khách.
-func TestGhiSoHaiLanKhongNhanDoiSoTien(t *testing.T) {
+func TestPostingTwiceDoesNotDoubleTheAmount(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -204,7 +204,7 @@ func TestGhiSoHaiLanKhongNhanDoiSoTien(t *testing.T) {
 //
 // ADR-0008: kể cả khi có lỗi code hoặc thao tác thủ công nhầm, database
 // vẫn từ chối. Đây là lớp bảo vệ cuối cùng cho tiền của người khác.
-func TestSoCaiBatBienOTangDatabase(t *testing.T) {
+func TestTheLedgerIsImmutableAtTheDatabaseLayer(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -246,7 +246,7 @@ func TestSoCaiBatBienOTangDatabase(t *testing.T) {
 
 // Không chi trả vượt số dư: chi vượt tạo số dư âm, nghĩa là nền tảng đưa
 // tiền của mình cho seller mà không có cơ sở.
-func TestKhongChiTraVuotSoDu(t *testing.T) {
+func TestNoPayoutBeyondTheBalance(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -291,7 +291,7 @@ func TestKhongChiTraVuotSoDu(t *testing.T) {
 }
 
 // Hoàn tiền ĐẢO NGƯỢC chuỗi ghi sổ ban đầu.
-func TestHoanTienDaoNguocGhiSo(t *testing.T) {
+func TestARefundReversesThePosting(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -341,7 +341,7 @@ func TestHoanTienDaoNguocGhiSo(t *testing.T) {
 // TOÀN VẸN SỔ SÁCH: Σ DEBIT = Σ CREDIT toàn hệ thống.
 //
 // Chỉ số này phải LUÔN bằng 0. Lệch nghĩa là tiền xuất hiện từ hư không.
-func TestToanVenSoSach(t *testing.T) {
+func TestLedgerIntegrity(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -375,7 +375,7 @@ func TestToanVenSoSach(t *testing.T) {
 	}
 }
 
-func TestChiHoTroPostgres(t *testing.T) {
+func TestPaymentOnlyPostgresStorageSupported(t *testing.T) {
 	if _, err := payment.New(payment.Config{Storage: "memory"}); err == nil {
 		t.Error("mong lỗi với kho lưu trữ memory")
 	}
@@ -384,7 +384,7 @@ func TestChiHoTroPostgres(t *testing.T) {
 	}
 }
 
-func TestIDSaiDinhDangTraErrInvalidID(t *testing.T) {
+func TestMalformedPaymentIDReturnsErrInvalidID(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 
@@ -414,13 +414,13 @@ func adjustLines(sellerID string, amount int64) []payment.AdjustmentLine {
 // Điều chỉnh sổ cái ghi bút toán VÀ vết kiểm toán trong cùng giao dịch.
 //
 // Ví dụ từ đặc tả (admin-api.md mục 4): ghi nhầm hoa hồng 12% thay vì 10%.
-func TestDieuChinhSoCaiGhiVetKiemToan(t *testing.T) {
+func TestALedgerAdjustmentLeavesAnAuditTrail(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
 	orderID := ids.MustNew(ids.PrefixOrder).String()
 	sellerID := ids.MustNew(ids.PrefixSeller).String()
-	const reason = "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình ngày 09/08"
+	const reason = "Log nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình ngày 09/08"
 
 	entry, err := m.CreateLedgerAdjustment(ctx, payment.AdjustmentRequest{
 		ReferenceType:  "ORDER",
@@ -459,10 +459,10 @@ func TestDieuChinhSoCaiGhiVetKiemToan(t *testing.T) {
 	}
 }
 
-// TestDieuChinhKhongCanBangBiChan — bất biến cốt lõi của sổ cái.
+// TestAnUnbalancedAdjustmentIsBlocked — bất biến cốt lõi của sổ cái.
 //
 // Bút toán không cân nghĩa là tiền xuất hiện từ hư không hoặc biến mất.
-func TestDieuChinhKhongCanBangBiChan(t *testing.T) {
+func TestAnUnbalancedAdjustmentIsBlocked(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -475,7 +475,7 @@ func TestDieuChinhKhongCanBangBiChan(t *testing.T) {
 		ReferenceID:    ids.MustNew(ids.PrefixOrder).String(),
 		Lines:          lines,
 		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
-		Reason:         "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
+		Reason:         "Log nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
 		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
 	})
 	if err == nil {
@@ -493,11 +493,11 @@ func TestDieuChinhKhongCanBangBiChan(t *testing.T) {
 	}
 }
 
-// TestDieuChinhLyDoRacBiChanVaKhongGhiSo là bất biến của P0-6 áp cho sổ cái.
+// TestAJunkReasonIsBlockedAndNothingIsPosted là bất biến của P0-6 áp cho sổ cái.
 //
 // Lý do rác bị từ chối ở bộ ghi vết, và việc từ chối đó phải kéo theo hủy
 // CẢ bút toán — nếu không, sổ cái có một khoản tiền không ai giải thích được.
-func TestDieuChinhLyDoRacBiChanVaKhongGhiSo(t *testing.T) {
+func TestAJunkReasonIsBlockedAndNothingIsPosted(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -529,7 +529,7 @@ func TestDieuChinhLyDoRacBiChanVaKhongGhiSo(t *testing.T) {
 // Gọi lại cùng khóa idempotency KHÔNG ghi bút toán thứ hai.
 //
 // Nhân đôi một bút toán điều chỉnh là nhân đôi số tiền.
-func TestDieuChinhIdempotent(t *testing.T) {
+func TestAdjustmentsAreIdempotent(t *testing.T) {
 	m, db := newModule(t)
 	ctx := context.Background()
 
@@ -539,7 +539,7 @@ func TestDieuChinhIdempotent(t *testing.T) {
 		ReferenceID:    ids.MustNew(ids.PrefixOrder).String(),
 		Lines:          adjustLines(sellerID, 5980),
 		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
-		Reason:         "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
+		Reason:         "Log nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
 		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
 	}
 
@@ -568,7 +568,7 @@ func TestDieuChinhIdempotent(t *testing.T) {
 }
 
 // Thiếu đường ghi vết thì từ chối, không âm thầm ghi sổ.
-func TestThieuAuditThiTuChoiDieuChinh(t *testing.T) {
+func TestAMissingAuditRecorderRefusesTheAdjustment(t *testing.T) {
 	db := testdb.Open(t)
 
 	// KHÔNG truyền Audit.
@@ -582,7 +582,7 @@ func TestThieuAuditThiTuChoiDieuChinh(t *testing.T) {
 		ReferenceID:    ids.MustNew(ids.PrefixOrder).String(),
 		Lines:          adjustLines(ids.MustNew(ids.PrefixSeller).String(), 5980),
 		ActorID:        "usr_01J9XABC123DEF456GHJKMNPQR",
-		Reason:         "Ghi nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
+		Reason:         "Log nhầm tỷ lệ hoa hồng 12% thay vì 10% do lỗi cấu hình",
 		IdempotencyKey: ids.MustNew(ids.PrefixRequest).String(),
 	})
 	if err == nil {
