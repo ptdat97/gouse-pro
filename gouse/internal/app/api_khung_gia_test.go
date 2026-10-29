@@ -37,19 +37,19 @@ import (
 // `CreateOffer` của nhà bán chưa có route. Gọi service là đường production
 // thật hiện có — và nó vẫn đi qua đúng chỗ cần kiểm: adapter
 // marketplace → pricing.
-func TestGiaNgoaiKhungBiChanLucGhi(t *testing.T) {
+func TestAnOutOfFramePriceIsBlockedAtWriteTime(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	B := dungNhaBan(t, a, "khunggia"+ids.MustNew(ids.PrefixRequest).String()[24:])
-	skuID, khung := a.skuThuongHieuMoCoKhungGia(t)
+	B := buildSeller(t, a, "khunggia"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	skuID, frame := a.openBrandSKUWithPriceFrame(t)
 
-	taoOffer := func(gia int64) error {
+	createOffer := func(priceObj int64) error {
 		_, err := a.mods.marketplace.Service().CreateOffer(ctx,
 			marketapp.CreateOfferInput{
 				SKUID:             ids.ID(skuID),
 				SellerID:          ids.ID(B.sellerID),
-				Price:             money.MustNew(gia, money.VND),
+				Price:             money.MustNew(priceObj, money.VND),
 				Condition:         marketdom.ConditionNew,
 				HandlingTimeHours: 24,
 				MinOrderQuantity:  1,
@@ -60,35 +60,35 @@ func TestGiaNgoaiKhungBiChanLucGhi(t *testing.T) {
 	// ---- Dưới sàn: CHẶN ----
 	//
 	// Đây là trường hợp bán phá giá, và cũng là trường hợp gõ thiếu một số 0.
-	duoiSan := khung.min / 10
-	err := taoOffer(duoiSan)
-	var ngoaiKhung *marketapp.PriceOutOfFrameError
-	if !errors.As(err, &ngoaiKhung) {
+	belowFloor := frame.min / 10
+	err := createOffer(belowFloor)
+	var outsideFrame *marketapp.PriceOutOfFrameError
+	if !errors.As(err, &outsideFrame) {
 		t.Fatalf("giá %d (khung %d–%d) phải bị CHẶN, nhận err=%v — "+
 			"price_constraint lại không ai đọc",
-			duoiSan, khung.min, khung.max, err)
+			belowFloor, frame.min, frame.max, err)
 	}
-	if ngoaiKhung.Code == "" {
+	if outsideFrame.Code == "" {
 		t.Error("lỗi không mang MÃ máy đọc được — giao diện không biết chỉ " +
 			"vào đâu để nhà bán sửa")
 	}
 
 	// ---- Trên trần: CHẶN ----
-	tranCao := khung.max * 10
-	if err := taoOffer(tranCao); !errors.As(err, &ngoaiKhung) {
+	highCapValue := frame.max * 10
+	if err := createOffer(highCapValue); !errors.As(err, &outsideFrame) {
 		t.Fatalf("giá %d (khung %d–%d) phải bị CHẶN, nhận err=%v",
-			tranCao, khung.min, khung.max, err)
+			highCapValue, frame.min, frame.max, err)
 	}
 
 	// ---- Trong khung: ĐI QUA ----
 	//
 	// Khẳng định này quan trọng ngang hai cái trên: một hàng rào chặn mọi
 	// thứ cũng "xanh" ở hai bài đầu, và nó làm nhà bán không đăng được gì.
-	trongKhung := (khung.min + khung.max) / 2
-	if err := taoOffer(trongKhung); err != nil {
-		if errors.As(err, &ngoaiKhung) {
+	insideFrame := (frame.min + frame.max) / 2
+	if err := createOffer(insideFrame); err != nil {
+		if errors.As(err, &outsideFrame) {
 			t.Fatalf("giá %d NẰM TRONG khung %d–%d mà bị chặn — hàng rào "+
-				"chặn cả giá hợp lệ", trongKhung, khung.min, khung.max)
+				"chặn cả giá hợp lệ", insideFrame, frame.min, frame.max)
 		}
 		t.Fatalf("tạo offer giá hợp lệ: %v", err)
 	}
@@ -98,18 +98,18 @@ func TestGiaNgoaiKhungBiChanLucGhi(t *testing.T) {
 //
 // `UpdatePrice` là đường đi vào vùng ngoài khung DỄ NHẤT: tạo offer giá hợp
 // lệ rồi sửa xuống. Kiểm ở một chỗ mà bỏ chỗ kia là một hàng rào có cửa sau.
-func TestDoiGiaCungPhaiQuaKhungGia(t *testing.T) {
+func TestAPriceChangeAlsoGoesThroughThePriceFrame(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	B := dungNhaBan(t, a, "doigia"+ids.MustNew(ids.PrefixRequest).String()[24:])
-	skuID, khung := a.skuThuongHieuMoCoKhungGia(t)
+	B := buildSeller(t, a, "doigia"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	skuID, frame := a.openBrandSKUWithPriceFrame(t)
 
 	o, err := a.mods.marketplace.Service().CreateOffer(ctx,
 		marketapp.CreateOfferInput{
 			SKUID:             ids.ID(skuID),
 			SellerID:          ids.ID(B.sellerID),
-			Price:             money.MustNew((khung.min+khung.max)/2, money.VND),
+			Price:             money.MustNew((frame.min+frame.max)/2, money.VND),
 			Condition:         marketdom.ConditionNew,
 			HandlingTimeHours: 24,
 			MinOrderQuantity:  1,
@@ -119,31 +119,31 @@ func TestDoiGiaCungPhaiQuaKhungGia(t *testing.T) {
 	}
 
 	_, err = a.mods.marketplace.Service().UpdatePrice(ctx, o.ID(),
-		money.MustNew(khung.min/10, money.VND), money.Money{},
+		money.MustNew(frame.min/10, money.VND), money.Money{},
 		ids.ID(B.sellerID))
 
-	var ngoaiKhung *marketapp.PriceOutOfFrameError
-	if !errors.As(err, &ngoaiKhung) {
+	var outsideFrame *marketapp.PriceOutOfFrameError
+	if !errors.As(err, &outsideFrame) {
 		t.Fatalf("SỬA giá xuống %d (khung %d–%d) phải bị chặn, nhận err=%v — "+
 			"kiểm lúc tạo mà bỏ lúc sửa là hàng rào có cửa sau",
-			khung.min/10, khung.min, khung.max, err)
+			frame.min/10, frame.min, frame.max, err)
 	}
 
 	// Và giá cũ phải GIỮ NGUYÊN: một lời gọi bị từ chối không được để lại
 	// trạng thái nửa chừng.
-	sau, err := a.mods.marketplace.Service().GetOffer(ctx, o.ID())
+	after, err := a.mods.marketplace.Service().GetOffer(ctx, o.ID())
 	if err != nil {
 		t.Fatalf("đọc lại offer: %v", err)
 	}
-	if sau.Price().Amount() != o.Price().Amount() {
+	if after.Price().Amount() != o.Price().Amount() {
 		t.Errorf("giá đổi thành %d dù lời gọi bị từ chối, cần giữ %d",
-			sau.Price().Amount(), o.Price().Amount())
+			after.Price().Amount(), o.Price().Amount())
 	}
 }
 
-type khungGia struct{ min, max int64 }
+type priceFrame struct{ min, max int64 }
 
-// skuThuongHieuMoCoKhungGia dựng một SKU thương hiệu MỞ kèm khung giá.
+// openBrandSKUWithPriceFrame dựng một SKU thương hiệu MỞ kèm khung giá.
 //
 // # Vì sao phải dựng thay vì dùng SKU mẫu có sẵn
 //
@@ -155,7 +155,7 @@ type khungGia struct{ min, max int64 }
 //
 // Thứ tự ấy ĐÚNG và không đổi: chống hàng giả là rủi ro sống còn, nó phải
 // chặn trước. Nên bài test tự dựng dữ liệu đi tới được bước 4.
-func (a *apiTest) skuThuongHieuMoCoKhungGia(t *testing.T) (string, khungGia) {
+func (a *apiTest) openBrandSKUWithPriceFrame(t *testing.T) (string, priceFrame) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -163,8 +163,8 @@ func (a *apiTest) skuThuongHieuMoCoKhungGia(t *testing.T) (string, khungGia) {
 		t.Skip("module pricing cần kho lưu trữ postgres")
 	}
 
-	skuID := dungSkuThuongHieuMo(t, a)
-	k := khungGia{min: 300_000, max: 800_000}
+	skuID := buildOpenBrandSKU(t, a)
+	k := priceFrame{min: 300_000, max: 800_000}
 
 	if _, err := a.mods.pricing.Service().SetConstraint(ctx,
 		pricingapp.SetConstraintInput{

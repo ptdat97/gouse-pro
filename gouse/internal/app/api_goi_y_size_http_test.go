@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-// TestGoiYSizeHienRaTrenHTTP.
+// TestTheSizeSuggestionShowsUpOverHTTP.
 //
-// # Vì sao bài này tồn tại, khi đã có TestGoiYSizeTuLichSuTraHang
+// # Vì sao bài này tồn tại, khi đã có TestTheSizeSuggestionComesFromReturnHistory
 //
 // Bài kia kiểm QUY TẮC: cho quan sát vào, đòi gợi ý đúng ra. Nó xanh, và
 // nó xanh cả khi trường `size_recommendation` không bao giờ tới được
@@ -23,7 +23,7 @@ import (
 // Tính năng đúng từ domain lên tới module, và chết ở dây nối cuối cùng.
 // Bài này khóa đúng dây nối đó: một request HTTP mang token, và một
 // trường trong JSON.
-func TestGoiYSizeHienRaTrenHTTP(t *testing.T) {
+func TestTheSizeSuggestionShowsUpOverHTTP(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -31,15 +31,15 @@ func TestGoiYSizeHienRaTrenHTTP(t *testing.T) {
 		t.Skip("module gợi ý chưa được nối")
 	}
 
-	email := emailMoi("goiysizehttp")
-	tok := a.dangKyVaDangNhap(email)
+	email := newEmail("goiysizehttp")
+	tok := a.registerAndLogIn(email)
 	bear := map[string]string{"Authorization": "Bearer " + tok}
 
 	// Khách phải có hồ sơ mua hàng thì mới có `customer_id` để gắn quan
 	// sát — lấy nó qua đúng đường mà handler dùng.
-	var maKhach string
+	var custID string
 	if err := a.db.Pool().QueryRow(ctx,
-		`SELECT id FROM customer WHERE lower(email) = lower($1)`, email).Scan(&maKhach); err != nil {
+		`SELECT id FROM customer WHERE lower(email) = lower($1)`, email).Scan(&custID); err != nil {
 		t.Fatalf("đọc mã khách: %v", err)
 	}
 
@@ -59,7 +59,7 @@ func TestGoiYSizeHienRaTrenHTTP(t *testing.T) {
 		INSERT INTO size_observation (customer_id, brand_id, size, outcome,
 		                           source_type, source_id, observed_at)
 		VALUES ($1,$2,$3,'DA_MUA','test','ord_test_goiy_http', now())`,
-		maKhach, maTH, size); err != nil {
+		custID, maTH, size); err != nil {
 		t.Fatalf("ghi quan sát: %v", err)
 	}
 
@@ -68,16 +68,16 @@ func TestGoiYSizeHienRaTrenHTTP(t *testing.T) {
 		t.Fatalf("đọc sản phẩm: HTTP %d — %s", res.code, res.raw)
 	}
 
-	goiY, co := res.body["size_recommendation"].(map[string]any)
+	suggestion, co := res.body["size_recommendation"].(map[string]any)
 	if !co {
 		t.Fatalf("response KHÔNG có size_recommendation dù khách đã mua size %s "+
 			"của thương hiệu này — kiểm chuỗi middleware của tuyến sản phẩm: %s",
 			size, res.raw)
 	}
-	if got, _ := goiY["suggested_size"].(string); got != size {
+	if got, _ := suggestion["suggested_size"].(string); got != size {
 		t.Errorf("gợi ý size %q, cần %q", got, size)
 	}
-	if got, _ := goiY["reason"].(string); got != "PREVIOUS_PURCHASE" {
+	if got, _ := suggestion["reason"].(string); got != "PREVIOUS_PURCHASE" {
 		t.Errorf("lý do %q, cần PREVIOUS_PURCHASE", got)
 	}
 

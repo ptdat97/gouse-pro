@@ -7,7 +7,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/recommendation"
 )
 
-// TestGoiYSizeTuLichSuTraHang.
+// TestTheSizeSuggestionComesFromReturnHistory.
 //
 // # Vì sao bài này tồn tại
 //
@@ -22,7 +22,7 @@ import (
 //
 // Và nó kiểm ở tầng module chứ không gọi thẳng quy tắc: chính chỗ nối giữa
 // event và read model là chỗ dễ đứt nhất.
-func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
+func TestTheSizeSuggestionComesFromReturnHistory(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -30,28 +30,28 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 		t.Skip("module gợi ý chưa được nối")
 	}
 
-	maKhach := a.mauKhach(t)
-	if maKhach == "" {
+	custID := a.customerSample(t)
+	if custID == "" {
 		t.Skip("không có khách nào")
 	}
 
 	// Dựng quan sát như bên nhận event sẽ dựng.
 	maTH := "brd_01J9XABC123DEF456GHJKMNPQR"
-	ghi := func(size, ketQua, nguonID string) {
+	record := func(size, outcome, sourceID string) {
 		t.Helper()
 		if _, err := a.db.Pool().Exec(ctx, `
 			INSERT INTO size_observation (customer_id, brand_id, size, outcome,
 			                           source_type, source_id, observed_at)
 			VALUES ($1,$2,$3,$4,'test',$5, now())`,
-			maKhach, maTH, size, ketQua, nguonID); err != nil {
+			custID, maTH, size, outcome, sourceID); err != nil {
 			t.Fatalf("ghi quan sát: %v", err)
 		}
 	}
 
-	goiY := func() *recommendation.RecommendSizeView {
+	suggestion := func() *recommendation.RecommendSizeView {
 		t.Helper()
 		v, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
-			CustomerID: maKhach, BrandID: maTH,
+			CustomerID: custID, BrandID: maTH,
 			SizeScale: []string{"S", "M", "L", "XL"},
 		})
 		if err != nil {
@@ -61,20 +61,20 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 	}
 
 	// Chưa có gì: KHÔNG gợi ý. Đoán bừa còn tệ hơn im lặng.
-	if v := goiY(); v != nil {
+	if v := suggestion(); v != nil {
 		t.Fatalf("gợi ý %q khi chưa có quan sát nào", v.SuggestedSize)
 	}
 
 	// Mua size M → gợi ý M, căn cứ YẾU.
-	ghi("M", "DA_MUA", "ord-1")
-	v := goiY()
+	record("M", "DA_MUA", "ord-1")
+	v := suggestion()
 	if v == nil || v.SuggestedSize != "M" || v.Reason != "PREVIOUS_PURCHASE" {
 		t.Fatalf("sau khi mua M: %+v, cần M / PREVIOUS_PURCHASE", v)
 	}
 
 	// Trả vì CHẬT → gợi ý L, và căn cứ đổi sang lịch sử trả hàng.
-	ghi("M", "CHAT", "ret-1")
-	v = goiY()
+	record("M", "CHAT", "ret-1")
+	v = suggestion()
 	if v == nil || v.SuggestedSize != "L" {
 		t.Fatalf("sau khi trả vì chật: %+v, cần L — phàn nàn phải thắng "+
 			"lần mua, nếu không khách lại chọn đúng size vừa trả", v)
@@ -85,15 +85,15 @@ func TestGoiYSizeTuLichSuTraHang(t *testing.T) {
 
 	// Thương hiệu KHÁC không được ăn theo: size M của hai thương hiệu
 	// không bằng nhau.
-	khac, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
-		CustomerID: maKhach, BrandID: "brd_01J9XKHACKHACKHACKHACKHAC",
+	other, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
+		CustomerID: custID, BrandID: "brd_01J9XKHACKHACKHACKHACKHAC",
 		SizeScale: []string{"S", "M", "L"},
 	})
 	if err != nil {
 		t.Fatalf("gợi ý thương hiệu khác: %v", err)
 	}
-	if khac != nil {
+	if other != nil {
 		t.Errorf("gợi ý %q cho thương hiệu chưa có quan sát nào — size M "+
-			"của hai thương hiệu không bằng nhau", khac.SuggestedSize)
+			"của hai thương hiệu không bằng nhau", other.SuggestedSize)
 	}
 }

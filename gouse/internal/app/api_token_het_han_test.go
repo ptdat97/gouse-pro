@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestTokenHetHanGiuaCheckoutTraVe401.
+// TestATokenExpiringMidCheckoutReturns401.
 //
 // # Vì sao bài này tồn tại
 //
@@ -26,26 +26,26 @@ import (
 //
 // Bài này dùng token RÁC thay cho token hết hạn — cùng một nhánh mã, vì
 // OptionalAuth xử lý mọi lỗi xác minh như nhau.
-func TestTokenHetHanGiuaCheckoutTraVe401(t *testing.T) {
+func TestATokenExpiringMidCheckoutReturns401(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("tokenhethan"))
+	tok := a.registerAndLogIn(newEmail("tokenhethan"))
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	// Giỏ tạo khi ĐANG đăng nhập → gắn với hồ sơ khách.
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
 		map[string]any{"offer_id": maOffer, "quantity": 1}, h)
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
-	if maGio == "" {
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
+	if cartID == "" {
 		t.Fatalf("không lấy được mã giỏ: %s", res.raw)
 	}
 
@@ -59,10 +59,10 @@ func TestTokenHetHanGiuaCheckoutTraVe401(t *testing.T) {
 	delete(a.cookies, "shopper_session")
 
 	// Token chết giữa chừng.
-	h = khoaIdem()
+	h = idemKey()
 	h["Authorization"] = "Bearer khong.phai.token"
 	res = a.call(http.MethodPost, "/api/v1/checkout",
-		map[string]any{"cart_id": maGio}, h)
+		map[string]any{"cart_id": cartID}, h)
 
 	if res.code == http.StatusForbidden {
 		t.Fatalf("token hết hạn bị trả 403 — client sẽ KHÔNG làm mới token "+
@@ -74,42 +74,42 @@ func TestTokenHetHanGiuaCheckoutTraVe401(t *testing.T) {
 	}
 }
 
-// TestKhachLaKhongDuocMuonGioNguoiKhac giữ nửa còn lại của quyết định trên.
+// TestAStrangerCannotBorrowAnothersCart giữ nửa còn lại của quyết định trên.
 //
 // Nới 403 thành 401 cho token hỏng KHÔNG được nới luôn cho người gọi
 // không mang token nào. Với họ 403 vẫn đúng: không có gì để làm mới, và
 // một mã giỏ đoán trúng không được đổi thành đường thử lại vô hạn.
-func TestKhachLaKhongDuocMuonGioNguoiKhac(t *testing.T) {
+func TestAStrangerCannotBorrowAnothersCart(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("gionguoikhac"))
+	tok := a.registerAndLogIn(newEmail("gionguoikhac"))
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
 		map[string]any{"offer_id": maOffer, "quantity": 1}, h)
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	// KHÔNG header Authorization và KHÔNG cookie phiên của chủ giỏ: đây
 	// là người lạ cầm được mã giỏ, không phải chủ giỏ mất token.
 	delete(a.cookies, "shopper_session")
 	res = a.call(http.MethodPost, "/api/v1/checkout",
-		map[string]any{"cart_id": maGio}, khoaIdem())
+		map[string]any{"cart_id": cartID}, idemKey())
 	if res.code != http.StatusForbidden {
 		t.Fatalf("khách ẩn danh dùng mã giỏ của người khác phải nhận 403, "+
 			"nhận HTTP %d — %s", res.code, res.raw)
 	}
 }
 
-// TestTokenHetHanKhongBienChuDonThanhNguoiLa.
+// TestAnExpiredTokenDoesNotTurnTheOwnerIntoAStranger.
 //
 // Cùng một quyết định với bài trên, ở ba đường KHÁC: đọc đơn, đọc kiện
 // hàng, xin trả hàng. Ba đường này trả **404** cho người không phải chủ —
@@ -119,72 +119,72 @@ func TestKhachLaKhongDuocMuonGioNguoiKhac(t *testing.T) {
 // Nhưng với chủ đơn vừa hết hạn token, 404 nói "đơn của bạn không tồn
 // tại" và client không thử lại sau 404. Thấy trên Docker (16/09): token
 // hết hạn 48 giây trước, `POST /orders/{id}/returns` trả 404.
-func TestTokenHetHanKhongBienChuDonThanhNguoiLa(t *testing.T) {
+func TestAnExpiredTokenDoesNotTurnTheOwnerIntoAStranger(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("chudonhethan"))
+	tok := a.registerAndLogIn(newEmail("chudonhethan"))
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
 		map[string]any{"offer_id": maOffer, "quantity": 1}, h)
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
-	h = khoaIdem()
+	h = idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res = a.call(http.MethodPost, "/api/v1/checkout",
-		map[string]any{"cart_id": maGio}, h)
+		map[string]any{"cart_id": cartID}, h)
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	h = khoaIdem()
+	h = idemKey()
 	h["Authorization"] = "Bearer " + tok
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
 			"recipient_name": "Khách Thử", "phone": "0900555666",
 			"street_address": "1 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
 		}, h)
 
-	h = khoaIdem()
+	h = idemKey()
 	h["Authorization"] = "Bearer " + tok
-	res = a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
+	res = a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
 		map[string]any{"payment_method": "COD"}, h)
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
 
 	// Token chết. Cookie phiên vãng lai không cứu được ở đây: quyền xem
 	// đơn tra theo customer_id, không theo phiên.
-	hong := map[string]string{"Authorization": "Bearer khong.phai.token"}
+	broken := map[string]string{"Authorization": "Bearer khong.phai.token"}
 
-	duong := []struct {
+	route := []struct {
 		ten    string
 		method string
 		path   string
 		than   any
 	}{
-		{"đọc đơn", http.MethodGet, "/api/v1/orders/" + maDon, nil},
-		{"đọc kiện", http.MethodGet, "/api/v1/orders/" + maDon + "/shipments", nil},
-		{"xin trả", http.MethodPost, "/api/v1/orders/" + maDon + "/returns",
+		{"đọc đơn", http.MethodGet, "/api/v1/orders/" + orderID, nil},
+		{"đọc kiện", http.MethodGet, "/api/v1/orders/" + orderID + "/shipments", nil},
+		{"xin trả", http.MethodPost, "/api/v1/orders/" + orderID + "/returns",
 			map[string]any{"lines": []any{}}},
 	}
-	for _, d := range duong {
-		hd := hong
+	for _, d := range route {
+		hd := broken
 		if d.than != nil {
-			hd = hopNhat(khoaIdem(), hong)
+			hd = merge(idemKey(), broken)
 		}
 		got := a.call(d.method, d.path, d.than, hd)
 		if got.code == http.StatusNotFound {

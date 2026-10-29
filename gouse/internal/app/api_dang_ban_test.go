@@ -11,7 +11,7 @@ import (
 	catalogdom "github.com/fashion-commerce/platform/internal/modules/catalog/domain"
 )
 
-// TestNhaBanDangBanSanPhamQuaAPI — P3-25 đi trọn một vòng.
+// TestASellerPublishesAProductOverTheAPI — P3-25 đi trọn một vòng.
 //
 // # Vì sao bài này tồn tại
 //
@@ -28,17 +28,17 @@ import (
 //
 // Khẳng định KHẢ KIẾN ở từng chặng, không chỉ mã HTTP: một chuỗi trả 200
 // ở mọi bước vẫn có thể để hàng chưa duyệt lọt ra cửa hàng.
-func TestNhaBanDangBanSanPhamQuaAPI(t *testing.T) {
+func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	a := newAPITest(t)
 
-	sellerID := a.mauNhaBanCoDon(t)
+	sellerID := a.sellerWithOrderSample(t)
 	if sellerID == "" {
-		sellerID = a.baoDamCoDonThucHien(t)
+		sellerID = a.ensureFulfillmentOrder(t)
 	}
-	tokNB := a.taoTokenNhaBan(t, sellerID)
-	nbHeaders := hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokNB})
+	tokNB := a.createSellerToken(t, sellerID)
+	nbHeaders := merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokNB})
 
-	brandID, chartID, catID := a.thuongHieuMoVaBangSize(t)
+	brandID, chartID, catID := a.openBrandAndSizeChart(t)
 
 	// ---- Nhà bán TẠO sản phẩm ----
 	slug := "ao-thu-dang-ban-" + strings.ToLower(
@@ -112,14 +112,14 @@ func TestNhaBanDangBanSanPhamQuaAPI(t *testing.T) {
 	}
 
 	// ---- Vận hành DUYỆT ----
-	tokVH := a.taoTaiKhoanVaiTro(t, "OPS_MERCHANDISING")
-	vhHeaders := hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokVH})
+	tokVH := a.createAccountWithRole(t, "OPS_MERCHANDISING")
+	vhHeaders := merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokVH})
 
 	res = a.call(http.MethodGet, "/api/v1/admin/products/pending", nil, vhHeaders)
 	if res.code != http.StatusOK {
 		t.Fatalf("xem hàng chờ duyệt: HTTP %d — %s", res.code, res.raw)
 	}
-	if !coTrongDanhSach(res, maSP) {
+	if !isInList(res, maSP) {
 		t.Errorf("sản phẩm vừa gửi KHÔNG có trong danh sách chờ duyệt")
 	}
 
@@ -137,18 +137,18 @@ func TestNhaBanDangBanSanPhamQuaAPI(t *testing.T) {
 		t.Fatalf("khách xem hàng ĐÃ DUYỆT: HTTP %d, cần 200 — %s", got.code, got.raw)
 	}
 
-	bienThe, _ := got.body["variants"].([]any)
-	if len(bienThe) != 1 {
+	variant, _ := got.body["variants"].([]any)
+	if len(variant) != 1 {
 		t.Fatalf("variants = %v, mong 1", got.body["variants"])
 	}
-	bt, _ := bienThe[0].(map[string]any)
+	bt, _ := variant[0].(map[string]any)
 	if bt["color_hex"] != "#1B2A49" {
 		t.Errorf("color_hex = %v, mong #1B2A49 (chữ HOA) — mã màu nhà bán "+
 			"nhập phải tới được khách", bt["color_hex"])
 	}
 }
 
-// TestNhaBanKhongSuaDuocHangCuaNhaBanKhac.
+// TestASellerCannotEditAnothersGoods.
 //
 // Ranh giới bảo mật quan trọng nhất của mặt GHI. Nó nằm ở tầng application
 // (`kiemChuSoHuu`) chứ không ở HTTP: tầng HTTP lấy seller_id từ token,
@@ -157,15 +157,15 @@ func TestNhaBanDangBanSanPhamQuaAPI(t *testing.T) {
 //
 // Trả 404 chứ không 403: 403 xác nhận sản phẩm tồn tại, và đó là đủ để dò
 // mã hàng chưa phát hành của đối thủ.
-func TestNhaBanKhongSuaDuocHangCuaNhaBanKhac(t *testing.T) {
+func TestASellerCannotEditAnothersGoods(t *testing.T) {
 	a := newAPITest(t)
 
-	sellerA := a.mauNhaBanCoDon(t)
+	sellerA := a.sellerWithOrderSample(t)
 	if sellerA == "" {
-		sellerA = a.baoDamCoDonThucHien(t)
+		sellerA = a.ensureFulfillmentOrder(t)
 	}
-	tokA := a.taoTokenNhaBan(t, sellerA)
-	brandID, chartID, catID := a.thuongHieuMoVaBangSize(t)
+	tokA := a.createSellerToken(t, sellerA)
+	brandID, chartID, catID := a.openBrandAndSizeChart(t)
 
 	slug := "hang-cua-a-" + strings.ToLower(ids.MustNew(ids.PrefixRequest).String()[22:])
 	res := a.call(http.MethodPost, "/api/v1/seller/products", map[string]any{
@@ -175,7 +175,7 @@ func TestNhaBanKhongSuaDuocHangCuaNhaBanKhac(t *testing.T) {
 		"material_composition": "100% cotton",
 		"product_type":         "TOP", "gender_target": "UNISEX",
 		"images": []string{"https://cdn.example.com/a.jpg"},
-	}, hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokA}))
+	}, merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokA}))
 	if res.code != http.StatusCreated {
 		t.Fatalf("A tạo sản phẩm: HTTP %d — %s", res.code, res.raw)
 	}
@@ -183,12 +183,12 @@ func TestNhaBanKhongSuaDuocHangCuaNhaBanKhac(t *testing.T) {
 
 	// Gian hàng B cầm token của mình, thử đụng vào hàng của A.
 	sellerB := ids.MustNew(ids.PrefixSeller).String()
-	tokB := a.taoTokenNhaBan(t, sellerB)
-	bHeaders := hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokB})
+	tokB := a.createSellerToken(t, sellerB)
+	bHeaders := merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokB})
 
-	for _, buoc := range []struct {
-		ten string
-		goi func() reply
+	for _, steps := range []struct {
+		ten  string
+		call func() reply
 	}{
 		{"gửi duyệt", func() reply {
 			return a.call(http.MethodPost,
@@ -204,16 +204,16 @@ func TestNhaBanKhongSuaDuocHangCuaNhaBanKhac(t *testing.T) {
 				}, bHeaders)
 		}},
 	} {
-		got := buoc.goi()
+		got := steps.call()
 		if got.code != http.StatusNotFound {
 			t.Errorf("B %s trên hàng của A: HTTP %d, cần 404 — %s",
-				buoc.ten, got.code, got.raw)
+				steps.ten, got.code, got.raw)
 		}
 	}
 }
 
-// thuongHieuMoVaBangSize trả thương hiệu OPEN kèm bảng size và danh mục.
-func (a *apiTest) thuongHieuMoVaBangSize(t *testing.T) (brandID, chartID, catID string) {
+// openBrandAndSizeChart trả thương hiệu OPEN kèm bảng size và danh mục.
+func (a *apiTest) openBrandAndSizeChart(t *testing.T) (brandID, chartID, catID string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -242,9 +242,9 @@ func (a *apiTest) thuongHieuMoVaBangSize(t *testing.T) (brandID, chartID, catID 
 			},
 		})
 	if err != nil {
-		san, loiTim := a.mods.catalog.Service().GetSizeChartFor(
+		san, searchErr := a.mods.catalog.Service().GetSizeChartFor(
 			ctx, bid, catalogdom.ProductTypeTop)
-		if loiTim != nil {
+		if searchErr != nil {
 			t.Fatalf("tạo bảng size: %v", err)
 		}
 		chart = san
@@ -257,7 +257,7 @@ func (a *apiTest) thuongHieuMoVaBangSize(t *testing.T) (brandID, chartID, catID 
 	return bid.String(), chart.ID().String(), cats[0].ID
 }
 
-func coTrongDanhSach(res reply, maSP string) bool {
+func isInList(res reply, maSP string) bool {
 	ds, _ := res.body["data"].([]any)
 	for _, item := range ds {
 		m, _ := item.(map[string]any)

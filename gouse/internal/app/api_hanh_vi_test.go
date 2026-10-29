@@ -12,7 +12,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
-// TestThuDuLieuHanhViDongPhieu.
+// TestBehaviourDataCollectionClosesTheRecord.
 //
 // # Vì sao bài này tồn tại
 //
@@ -25,7 +25,7 @@ import (
 // docs/00-overview/vision.md gọi khâu `Behavior Data → Demand Signal` là
 // chỗ đa số nền tảng thương mại điện tử đứt, và nói rõ dữ liệu này KHÔNG
 // tạo ngược được.
-func TestThuDuLieuHanhViDongPhieu(t *testing.T) {
+func TestBehaviourDataCollectionClosesTheRecord(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -49,17 +49,17 @@ func TestThuDuLieuHanhViDongPhieu(t *testing.T) {
 		t.Fatalf("ghi được %v sự kiện, cần 2", n)
 	}
 
-	var soXem, soTim int
+	var viewCount, searchCount int
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE event_name = 'product_view'),
 		       count(*) FILTER (WHERE event_name = 'search')
 		  FROM event_log WHERE session_id = $1`, "ses-hanhvi-1").
-		Scan(&soXem, &soTim); err != nil {
+		Scan(&viewCount, &searchCount); err != nil {
 		t.Fatalf("đọc event_log: %v", err)
 	}
-	if soXem != 1 || soTim != 1 {
+	if viewCount != 1 || searchCount != 1 {
 		t.Errorf("ghi được %d lượt xem và %d lượt tìm, cần 1/1 — khúc đầu "+
-			"của phễu vẫn trống", soXem, soTim)
+			"của phễu vẫn trống", viewCount, searchCount)
 	}
 
 	// KHÔNG thu IP và user-agent: thu dữ liệu không dùng tới là tự tạo
@@ -77,13 +77,13 @@ func TestThuDuLieuHanhViDongPhieu(t *testing.T) {
 	}
 }
 
-// TestChiNhanSuKienTrongDanhSachDong.
+// TestOnlyEventsOnTheClosedListAreAccepted.
 //
 // Đây là endpoint CÔNG KHAI, không xác thực. Danh sách mở nghĩa là bất kỳ
 // ai cũng ghi được sự kiện tên tùy ý vào bảng mà mọi chỉ số kinh doanh đọc
 // từ đó — `purchase` giả sẽ thổi phồng tỷ lệ chuyển đổi, và không có cách
 // nào phân biệt sau này.
-func TestChiNhanSuKienTrongDanhSachDong(t *testing.T) {
+func TestOnlyEventsOnTheClosedListAreAccepted(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -108,30 +108,30 @@ func TestChiNhanSuKienTrongDanhSachDong(t *testing.T) {
 		t.Errorf("ghi được %v sự kiện, cần ĐÚNG 1 (chỉ product_view)", n)
 	}
 
-	var gia int
+	var priceObj int
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(*) FROM event_log
 		 WHERE session_id = $1 AND event_name IN ('purchase', 'order.placed')`,
-		"ses-gia-mao").Scan(&gia); err != nil {
+		"ses-gia-mao").Scan(&priceObj); err != nil {
 		t.Fatalf("đọc event_log: %v", err)
 	}
-	if gia != 0 {
+	if priceObj != 0 {
 		t.Errorf("%d sự kiện NGHIỆP VỤ giả lọt vào qua đường công khai — "+
-			"mọi chỉ số kinh doanh đọc từ bảng này", gia)
+			"mọi chỉ số kinh doanh đọc từ bảng này", priceObj)
 	}
 }
 
-// TestGioiHanSuKienTheoPhien.
+// TestEventsAreCappedPerCheckout.
 //
 // Một client hỏng gửi vòng lặp hàng nghìn sự kiện một giây là tình huống
 // thường gặp hơn kẻ cố tình phá, và nó làm hỏng dữ liệu y như vậy.
-func TestGioiHanSuKienTheoPhien(t *testing.T) {
+func TestEventsAreCappedPerCheckout(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	tok := a.createAccountWithRole(t, identity.RoleAdmin)
 
 	// Hạ ngưỡng xuống 3 để bài chạy nhanh — và đó chính là điểm: ngưỡng
 	// là tham số vận hành, chỉnh được khi thấy lưu lượng thật.
-	if res := a.datCauHinh(t, tok, opsconfig.KeyMaxEventsPerSession, 3,
+	if res := a.setConfig(t, tok, opsconfig.KeyMaxEventsPerSession, 3,
 		"Ha nguong de kiem chung gioi han theo phien co tac dung"); res.code != http.StatusOK {
 		t.Fatalf("đặt ngưỡng: HTTP %d — %s", res.code, res.raw)
 	}
@@ -159,21 +159,21 @@ func TestGioiHanSuKienTheoPhien(t *testing.T) {
 	}
 
 	// Phiên KHÁC không bị vạ lây.
-	khac := a.call(http.MethodPost, "/api/v1/events", map[string]any{
+	other := a.call(http.MethodPost, "/api/v1/events", map[string]any{
 		"session_id": "ses-khac",
 		"events": []any{map[string]any{
 			"name": "product_view", "subject_type": "product",
 			"subject_id": "prd_01J9XABC123DEF456GHJKMNPQR",
 		}},
 	}, nil)
-	if khac.code != http.StatusOK {
+	if other.code != http.StatusOK {
 		t.Errorf("phiên khác bị chặn lây: HTTP %d — giới hạn phải theo "+
-			"TỪNG phiên", khac.code)
+			"TỪNG phiên", other.code)
 	}
 }
 
-// TestLoQuaLonBiTuChoi chặn lô khổng lồ làm nghẽn một giao dịch database.
-func TestLoQuaLonBiTuChoi(t *testing.T) {
+// TestAnOversizedBatchIsRejected chặn lô khổng lồ làm nghẽn một giao dịch database.
+func TestAnOversizedBatchIsRejected(t *testing.T) {
 	a := newAPITest(t)
 
 	ev := make([]any, 0, 51)
@@ -188,7 +188,7 @@ func TestLoQuaLonBiTuChoi(t *testing.T) {
 	}
 }
 
-// TestBamTimLanHaiKhongPhatTinHieuMoi.
+// TestASecondSearchClickEmitsNoNewSignal.
 //
 // # Vì sao hàng rào này cần test riêng
 //
@@ -199,19 +199,19 @@ func TestLoQuaLonBiTuChoi(t *testing.T) {
 //
 // Phát hiện lúc phá: bỏ điều kiện `them &&` trong `AddItemKemEvent` mà KHÔNG
 // bài nào đỏ. Hàng rào có, test thì không.
-func TestBamTimLanHaiKhongPhatTinHieuMoi(t *testing.T) {
+func TestASecondSearchClickEmitsNoNewSignal(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	tok := a.dangKyVaDangNhap(emailMoi("bamtim"))
+	tok := a.registerAndLogIn(newEmail("bamtim"))
 	var maSP string
 	if err := a.db.Pool().QueryRow(ctx,
 		`SELECT id FROM product LIMIT 1`).Scan(&maSP); err != nil {
 		t.Skip("không có sản phẩm nào")
 	}
 
-	them := func() int {
-		hh := khoaIdem()
+	add := func() int {
+		hh := idemKey()
 		hh["Authorization"] = "Bearer " + tok
 		res := a.call(http.MethodPost, "/api/v1/me/wishlist", map[string]any{
 			"product_id": maSP, "notify_when_available": true,
@@ -229,16 +229,16 @@ func TestBamTimLanHaiKhongPhatTinHieuMoi(t *testing.T) {
 		return n
 	}
 
-	if n := them(); n != 1 {
+	if n := add(); n != 1 {
 		t.Fatalf("lần thêm đầu phát %d event, cần 1", n)
 	}
-	if n := them(); n != 1 {
+	if n := add(); n != 1 {
 		t.Errorf("bấm tim lần HAI làm số event thành %d, cần vẫn 1 — nhu "+
 			"cầu của sản phẩm sẽ bằng số lần bấm, không phải số người muốn", n)
 	}
 }
 
-// TestRollUpViewsDemTheoPHIENKhongTheoLuot.
+// TestRollUpViewsCountsBySessionNotByVisit.
 //
 // # Vì sao đếm PHIÊN
 //
@@ -249,7 +249,7 @@ func TestBamTimLanHaiKhongPhatTinHieuMoi(t *testing.T) {
 //
 // Bài này gửi 5 lượt xem từ 2 phiên cho cùng một sản phẩm và khẳng định
 // phép gom trả về 2.
-func TestRollUpViewsDemTheoPHIENKhongTheoLuot(t *testing.T) {
+func TestRollUpViewsCountsBySessionNotByVisit(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -261,10 +261,10 @@ func TestRollUpViewsDemTheoPHIENKhongTheoLuot(t *testing.T) {
 	// thông điệp lỗi chỉ vào phép đếm chứ không vào sự trùng mã.
 	maSP := ids.MustNew(ids.PrefixProduct).String()
 
-	gui := func(session string, soLan int) {
+	send := func(session string, attempts int) {
 		t.Helper()
-		ev := make([]any, 0, soLan)
-		for i := 0; i < soLan; i++ {
+		ev := make([]any, 0, attempts)
+		for i := 0; i < attempts; i++ {
 			ev = append(ev, map[string]any{
 				"name": "product_view", "subject_type": "product",
 				"subject_id": maSP,
@@ -278,12 +278,12 @@ func TestRollUpViewsDemTheoPHIENKhongTheoLuot(t *testing.T) {
 		}
 	}
 
-	gui("ses-gom-1", 3)
-	gui("ses-gom-2", 2)
+	send("ses-gom-1", 3)
+	send("ses-gom-2", 2)
 
 	now := types.Now()
-	dau := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	theoSP, err := a.mods.analytics.RollUpViews(ctx, dau, dau.AddDate(0, 0, 1))
+	first := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	theoSP, err := a.mods.analytics.RollUpViews(ctx, first, first.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("gom lượt xem: %v", err)
 	}

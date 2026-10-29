@@ -10,14 +10,14 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/httpserver"
 )
 
-const biMatCongTT = "bi-mat-cong-thanh-toan-cho-test"
+const paymentGatewaySecret = "bi-mat-cong-thanh-toan-cho-test"
 
-// goiWebhookThanhToan gửi một webhook thanh toán, ký bằng khóa cho trước.
+// callPaymentWebhook gửi một webhook thanh toán, ký bằng khóa cho trước.
 //
 // Ký trên BYTE THÔ của thân, đúng như production tính: ký trên bản
 // serialize lại sẽ khớp trong test và trượt ngoài đời.
-func (a *apiTest) goiWebhookThanhToan(
-	t *testing.T, nhaCungCap string, than any, biMat string,
+func (a *apiTest) callPaymentWebhook(
+	t *testing.T, provider string, than any, biMat string,
 ) reply {
 	t.Helper()
 
@@ -27,7 +27,7 @@ func (a *apiTest) goiWebhookThanhToan(
 	}
 
 	req := httptest.NewRequest(http.MethodPost,
-		"/api/v1/webhooks/payment/"+nhaCungCap, bytes.NewReader(raw))
+		"/api/v1/webhooks/payment/"+provider, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	if biMat != "" {
 		req.Header.Set("X-Signature", httpserver.SignHMAC(raw, biMat))
@@ -43,32 +43,32 @@ func (a *apiTest) goiWebhookThanhToan(
 	return out
 }
 
-// donTraTruoc dựng một đơn đã đặt bằng phương thức TRẢ TRƯỚC, trả về mã
+// prepaidOrder dựng một đơn đã đặt bằng phương thức TRẢ TRƯỚC, trả về mã
 // đơn và tổng tiền của nó.
-func (a *apiTest) donTraTruoc(t *testing.T, email, dienThoai string) (string, int64) {
+func (a *apiTest) prepaidOrder(t *testing.T, email, phone string) (string, int64) {
 	t.Helper()
 
-	maPhien := a.dungPhienSanHoanTat(email, dienThoai)
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "CARD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete(email, phone)
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "CARD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	if maDon == "" {
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
+	if orderID == "" {
 		t.Fatalf("không lấy được mã đơn: %s", res.raw)
 	}
 
-	tong, _ := don["total"].(map[string]any)
-	soTien, _ := tong["amount"].(float64)
-	if soTien <= 0 {
-		t.Fatalf("tổng đơn = %v, phải > 0: %s", soTien, res.raw)
+	tong, _ := ord["total"].(map[string]any)
+	amount, _ := tong["amount"].(float64)
+	if amount <= 0 {
+		t.Fatalf("tổng đơn = %v, phải > 0: %s", amount, res.raw)
 	}
-	return maDon, int64(soTien)
+	return orderID, int64(amount)
 }
 
-// TestWebhookBaoSaiSoTienThiKHONGThuTien là bài test mà cả PH-36 tồn tại
+// TestAWebhookWithTheWrongAmountDoesNotCapture là bài test mà cả PH-36 tồn tại
 // vì nó.
 //
 // # Vì sao chữ ký HMAC là KHÔNG đủ
@@ -84,25 +84,25 @@ func (a *apiTest) donTraTruoc(t *testing.T, email, dienThoai string) (string, in
 // Cả ba đều kết thúc bằng tiền ghi sai vào một cuốn sổ BẤT BIẾN — ghi rồi
 // thì phải ghi bút toán đảo, không xóa được (ADR-0008). Đó là lý do
 // endpoint này không được mở trước khi có `payment_intent` để đối chiếu.
-func TestWebhookBaoSaiSoTienThiKHONGThuTien(t *testing.T) {
+func TestAWebhookWithTheWrongAmountDoesNotCapture(t *testing.T) {
 	a := newAPITest(t)
 
-	const dienThoai = "0900888777"
-	maDon, tong := a.donTraTruoc(t, "webhook-tt@example.com", dienThoai)
+	const phone = "0900888777"
+	orderID, tong := a.prepaidOrder(t, "webhook-tt@example.com", phone)
 
-	if tt := a.trangThaiDon(t, maDon); tt != "PENDING_PAYMENT" {
+	if tt := a.orderStatus(t, orderID); tt != "PENDING_PAYMENT" {
 		t.Fatalf("trạng thái ban đầu = %q, cần PENDING_PAYMENT", tt)
 	}
 
-	than := func(soTien int64, maSuKien string) map[string]any {
+	than := func(amount int64, eventID string) map[string]any {
 		return map[string]any{
-			"event_id":   maSuKien,
+			"event_id":   eventID,
 			"event_type": "payment.succeeded",
 			"data": map[string]any{
 				"payment_intent_id": "pi_ben_ngoai_123",
-				"amount":            soTien,
+				"amount":            amount,
 				"currency":          "VND",
-				"metadata":          map[string]any{"order_id": maDon},
+				"metadata":          map[string]any{"order_id": orderID},
 			},
 		}
 	}
@@ -110,33 +110,33 @@ func TestWebhookBaoSaiSoTienThiKHONGThuTien(t *testing.T) {
 	t.Run("số tiền LỆCH thì 422 và đơn KHÔNG đổi", func(t *testing.T) {
 		// Chữ ký HỢP LỆ, số tiền SAI — đúng hình dạng của cả ba tình
 		// huống ngoài đời.
-		res := a.goiWebhookThanhToan(t, "cong-tt", than(tong+1000, "evt_lech_01"), biMatCongTT)
+		res := a.callPaymentWebhook(t, "cong-tt", than(tong+1000, "evt_lech_01"), paymentGatewaySecret)
 
 		if res.code != http.StatusUnprocessableEntity {
 			t.Errorf("HTTP %d, cần 422 — %s", res.code, res.raw)
 		}
-		if tt := a.trangThaiDon(t, maDon); tt != "PENDING_PAYMENT" {
+		if tt := a.orderStatus(t, orderID); tt != "PENDING_PAYMENT" {
 			t.Errorf("trạng thái = %q sau webhook SAI SỐ TIỀN — cần giữ "+
 				"PENDING_PAYMENT. Đây là tiền ghi sai vào sổ cái bất biến", tt)
 		}
 	})
 
 	t.Run("chữ ký sai thì 401", func(t *testing.T) {
-		res := a.goiWebhookThanhToan(t, "cong-tt", than(tong, "evt_kysai_01"), "khoa-gia-mao")
+		res := a.callPaymentWebhook(t, "cong-tt", than(tong, "evt_kysai_01"), "khoa-gia-mao")
 		if res.code != http.StatusUnauthorized {
 			t.Errorf("HTTP %d, cần 401 — %s", res.code, res.raw)
 		}
-		if tt := a.trangThaiDon(t, maDon); tt != "PENDING_PAYMENT" {
+		if tt := a.orderStatus(t, orderID); tt != "PENDING_PAYMENT" {
 			t.Errorf("trạng thái = %q sau webhook GIẢ MẠO", tt)
 		}
 	})
 
 	t.Run("số tiền KHỚP thì thu tiền và đơn thành PAID", func(t *testing.T) {
-		res := a.goiWebhookThanhToan(t, "cong-tt", than(tong, "evt_dung_01"), biMatCongTT)
+		res := a.callPaymentWebhook(t, "cong-tt", than(tong, "evt_dung_01"), paymentGatewaySecret)
 		if res.code != http.StatusOK {
 			t.Fatalf("HTTP %d, cần 200 — %s", res.code, res.raw)
 		}
-		if tt := a.trangThaiDon(t, maDon); tt != "PAID" {
+		if tt := a.orderStatus(t, orderID); tt != "PAID" {
 			t.Errorf("trạng thái = %q, cần PAID — tiền đã về mà đơn vẫn "+
 				"treo là đúng tình trạng trước PH-36", tt)
 		}
@@ -145,54 +145,54 @@ func TestWebhookBaoSaiSoTienThiKHONGThuTien(t *testing.T) {
 	t.Run("gửi TRÙNG thì 200 và không hỏng gì", func(t *testing.T) {
 		// Yêu cầu 2 của webhooks.yaml: nhà cung cấp SẼ gửi trùng, và báo
 		// lỗi khiến họ gửi lại mãi cho một việc đã xong.
-		res := a.goiWebhookThanhToan(t, "cong-tt", than(tong, "evt_dung_01"), biMatCongTT)
+		res := a.callPaymentWebhook(t, "cong-tt", than(tong, "evt_dung_01"), paymentGatewaySecret)
 		if res.code != http.StatusOK {
 			t.Fatalf("HTTP %d, cần 200 — %s", res.code, res.raw)
 		}
 		if da, _ := res.body["already_processed"].(bool); !da {
 			t.Errorf("already_processed = false, cần true — %s", res.raw)
 		}
-		if tt := a.trangThaiDon(t, maDon); tt != "PAID" {
+		if tt := a.orderStatus(t, orderID); tt != "PAID" {
 			t.Errorf("trạng thái = %q sau bản gửi trùng, cần vẫn PAID", tt)
 		}
 	})
 }
 
-// TestWebhookChoDonCODThiKhongXuLy — COD không có intent, nên không có gì
+// TestAWebhookForACODOrderIsNotProcessed — COD không có intent, nên không có gì
 // để đối chiếu.
 //
 // Một webhook báo về đơn COD nghĩa là: nhà cung cấp nhầm, hoặc ai đó đang
 // thử đường này để xem hệ thống có nuốt không. Cả hai đều không được xử lý.
-func TestWebhookChoDonCODThiKhongXuLy(t *testing.T) {
+func TestAWebhookForACODOrderIsNotProcessed(t *testing.T) {
 	a := newAPITest(t)
 
-	const dienThoai = "0900888666"
-	maPhien := a.dungPhienSanHoanTat("webhook-cod@example.com", dienThoai)
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	const phone = "0900888666"
+	checkoutID := a.buildCheckoutReadyToComplete("webhook-cod@example.com", phone)
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	tong, _ := don["total"].(map[string]any)
-	soTien, _ := tong["amount"].(float64)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
+	tong, _ := ord["total"].(map[string]any)
+	amount, _ := tong["amount"].(float64)
 
-	got := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
+	got := a.callPaymentWebhook(t, "cong-tt", map[string]any{
 		"event_id":   "evt_cod_01",
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
-			"amount":   int64(soTien),
+			"amount":   int64(amount),
 			"currency": "VND",
-			"metadata": map[string]any{"order_id": maDon},
+			"metadata": map[string]any{"order_id": orderID},
 		},
-	}, biMatCongTT)
+	}, paymentGatewaySecret)
 
 	if got.code != http.StatusNotFound {
 		t.Errorf("HTTP %d, cần 404 — đơn COD không có ý định thanh toán "+
 			"nào để đối chiếu: %s", got.code, got.raw)
 	}
-	if tt := a.trangThaiDon(t, maDon); tt != "PENDING_PAYMENT" {
+	if tt := a.orderStatus(t, orderID); tt != "PENDING_PAYMENT" {
 		t.Errorf("trạng thái = %q — đơn COD bị webhook đánh dấu đã trả tiền", tt)
 	}
 }

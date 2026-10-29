@@ -37,10 +37,10 @@ import (
 // đoán. Bài này biến dự đoán thành con số: chuỗi quy công là khoản sửa
 // core DUY NHẤT mà affiliate cần, và nó là khoản MỘT LẦN — creator,
 // livestream, campaign sau này dùng lại chính chuỗi ấy.
-func TestNguonQuyCongDiTuGioToiDon(t *testing.T) {
+func TestTheAttributionSourceTravelsFromCartToOrder(t *testing.T) {
 	a := newAPITest(t)
 
-	offerID := a.timOfferBanDuoc()
+	offerID := a.findSellableOffer()
 	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
@@ -57,56 +57,56 @@ func TestNguonQuyCongDiTuGioToiDon(t *testing.T) {
 			"creator_id": creatorID,
 			"content_id": contentID,
 		},
-	}, khoaIdem())
+	}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm giỏ kèm nguồn: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	// Chặng 1: giỏ đã ghi nguồn.
-	if n := a.demDong("cart_item",
+	if n := a.countRows("cart_item",
 		"source_creator_id = $1 AND source_content_id = $2",
 		creatorID, contentID); n != 1 {
 		t.Fatalf("cart_item ghi nguồn quy công: mong 1 dòng, nhận %d", n)
 	}
 
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id": maGio, "guest_email": emailMoi("quycong"),
+		"cart_id": cartID, "guest_email": newEmail("quycong"),
 		"guest_phone": "0900555444",
-	}, khoaIdem())
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
 	// Chặng 2 — CHỖ TỪNG ĐỨT.
-	if n := a.demDong("checkout_line",
+	if n := a.countRows("checkout_line",
 		"source_creator_id = $1 AND source_content_id = $2",
 		creatorID, contentID); n != 1 {
 		t.Fatalf("checkout_line mang nguồn quy công: mong 1 dòng, nhận %d — "+
 			"đây là chỗ chuỗi từng đứt, xem migration 000057", n)
 	}
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
 			"recipient_name": "Khách Quy Công", "phone": "0900555444",
 			"street_address": "3 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
+		}, idemKey())
 	if res := a.call(http.MethodPatch,
-		"/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem()); res.code != http.StatusOK {
+		"/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey()); res.code != http.StatusOK {
 		t.Fatalf("chọn cách giao: HTTP %d — %s", res.code, res.raw)
 	}
-	if res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem()); res.code != http.StatusOK &&
+	if res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey()); res.code != http.StatusOK &&
 		res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
 
 	// Chặng 3: đơn hàng nhận được quy công.
-	if n := a.demDong("order_line", "attributed_creator_id = $1",
+	if n := a.countRows("order_line", "attributed_creator_id = $1",
 		creatorID); n != 1 {
 		t.Fatalf("order_line nhận quy công: mong 1 dòng, nhận %d — chuỗi "+
 			"giỏ→phiên→đơn chưa nối hết", n)
@@ -122,7 +122,7 @@ func TestNguonQuyCongDiTuGioToiDon(t *testing.T) {
 	// Khẳng định CẢ HAI mã trên cùng một dòng: một bản cài chở đúng creator
 	// mà đánh rơi nội dung sẽ xanh ở chặng 3, và chặng này là chỗ duy nhất
 	// phân biệt.
-	if n := a.demDong("order_line",
+	if n := a.countRows("order_line",
 		"attributed_creator_id = $1 AND attributed_content_id = $2",
 		creatorID, contentID); n != 1 {
 		t.Fatalf("order_line nhận CẢ mã nội dung: mong 1 dòng, nhận %d — "+
@@ -139,10 +139,10 @@ func TestNguonQuyCongDiTuGioToiDon(t *testing.T) {
 //
 // Bài này khẳng định điều đó THÀNH LỜI, để người đọc biết mã không tồn tại
 // là CHỦ Ý chứ không phải dữ liệu thử cẩu thả.
-func TestKernelKhongTraCreator(t *testing.T) {
+func TestTheKernelDoesNotReturnTheCreator(t *testing.T) {
 	a := newAPITest(t)
 
-	offerID := a.timOfferBanDuoc()
+	offerID := a.findSellableOffer()
 	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
@@ -152,7 +152,7 @@ func TestKernelKhongTraCreator(t *testing.T) {
 		"source": map[string]any{
 			"creator_id": ids.MustNew(ids.PrefixCreator).String(),
 		},
-	}, khoaIdem())
+	}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm giỏ với creator KHÔNG tồn tại phải được: HTTP %d — %s\n"+
 			"Kernel chỉ CHỞ mã quy công. Đi tra nó nghĩa là kernel biết về "+

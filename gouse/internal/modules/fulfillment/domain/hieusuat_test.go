@@ -127,9 +127,9 @@ func TestUnmeasuredMetricsStateTheReason(t *testing.T) {
 		if c.Ten == "" {
 			t.Error("có mục thiếu tên chỉ số")
 		}
-		if len(c.LyDo) < 20 {
+		if len(c.Reason) < 20 {
 			t.Errorf("lý do của %q quá ngắn (%q) — một dòng không giải "+
-				"thích được thì không khác gì im lặng", c.Ten, c.LyDo)
+				"thích được thì không khác gì im lặng", c.Ten, c.Reason)
 		}
 	}
 }
@@ -152,7 +152,7 @@ func TestAnInsufficientSampleMustAlsoBeStated(t *testing.T) {
 
 	theoTen := map[string]string{}
 	for _, c := range domain.UnmeasuredMetrics(moi, ng) {
-		theoTen[c.Ten] = c.LyDo
+		theoTen[c.Ten] = c.Reason
 	}
 
 	for _, ten := range []string{"cancellation_rate", "on_time_shipping_rate"} {

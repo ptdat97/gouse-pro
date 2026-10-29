@@ -27,7 +27,7 @@ import (
 // lỗi này cho đơn thực hiện, kèm lần kiểm chứng bằng đơn thật ngày 20/08:
 // "đặt 5 món rồi hủy, tồn kho đứng nguyên 15 khả dụng / 5 cam kết. Không
 // lỗi, không log."
-func TestHuyDonThiNhaKho(t *testing.T) {
+func TestCancellingAnOrderReleasesStock(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -85,11 +85,11 @@ func TestHuyDonThiNhaKho(t *testing.T) {
 	}
 }
 
-// TestHuyDonHaiLanKhongNhaKhoHaiLan.
+// TestCancellingTwiceDoesNotReleaseStockTwice.
 //
 // Event `order.cancelled` phát lại là đường đi bình thường. Nhả hai lần
 // nghĩa là kho có nhiều hàng hơn thực tế, và nền tảng bán thứ không có.
-func TestHuyDonHaiLanKhongNhaKhoHaiLan(t *testing.T) {
+func TestCancellingTwiceDoesNotReleaseStockTwice(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 

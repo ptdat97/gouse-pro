@@ -10,14 +10,14 @@ import (
 	"testing"
 )
 
-// truongNoiBo là những tên trường KHÔNG bao giờ được xuất hiện trong một
+// internalFields là những tên trường KHÔNG bao giờ được xuất hiện trong một
 // phản hồi công khai (không kèm token).
 //
 // Đây là danh sách ĐEN, và danh sách đen thì luôn thiếu. Nó bắt được lỗi
 // phổ biến nhất — thêm trường vào DTO công khai vì "tiện" — nhưng không
-// bắt được trường đổi tên. Lớp thứ hai (`TestDuLieuNhayCamKhongRoRaCongKhai`)
+// bắt được trường đổi tên. Lớp thứ hai (`TestSensitiveDataNeverLeaksPublicly`)
 // bù chỗ đó bằng cách dò theo GIÁ TRỊ.
-var truongNoiBo = map[string]string{
+var internalFields = map[string]string{
 	"legal_name":         "tên pháp nhân — hồ sơ nội bộ",
 	"tax_code":           "mã số thuế — hồ sơ nội bộ",
 	"tax_id":             "mã số thuế — hồ sơ nội bộ",
@@ -37,11 +37,11 @@ var truongNoiBo = map[string]string{
 	"reserved_quantity":  "tồn kho giữ chỗ — số liệu vận hành",
 }
 
-// duongCongKhai là mọi đường GET không cần token.
+// publicPaths là mọi đường GET không cần token.
 //
 // `{}` được thay bằng mã thật lúc chạy: một phản hồi 404 thì không rò rỉ
 // gì cả, nên test gọi vào dữ liệu CÓ THẬT mới có giá trị.
-func duongCongKhai(a *apiTest, maSP, maNB string) []string {
+func publicPaths(a *apiTest, maSP, maNB string) []string {
 	return []string{
 		"/api/v1/products",
 		"/api/v1/products?limit=20",
@@ -54,52 +54,52 @@ func duongCongKhai(a *apiTest, maSP, maNB string) []string {
 	}
 }
 
-// TestPhanHoiCongKhaiKhongChuaTruongNoiBo — mục backlog 2.9:
+// TestAPublicResponseCarriesNoInternalField — mục backlog 2.9:
 // "chưa có test khẳng định response công khai KHÔNG chứa dữ liệu nội bộ".
 //
 // Duyệt ĐỆ QUY thân JSON, không chỉ tầng ngoài cùng: rò rỉ hay nằm trong
 // object lồng (`data[].seller.tax_code`) — chỗ mà mắt người rà không tới.
-func TestPhanHoiCongKhaiKhongChuaTruongNoiBo(t *testing.T) {
+func TestAPublicResponseCarriesNoInternalField(t *testing.T) {
 	a := newAPITest(t)
-	maSP, maNB := mauCongKhai(t, a)
+	maSP, maNB := publicPattern(t, a)
 
-	for _, duong := range duongCongKhai(a, maSP, maNB) {
-		t.Run(duong, func(t *testing.T) {
-			res := a.call(http.MethodGet, duong, nil, nil)
+	for _, route := range publicPaths(a, maSP, maNB) {
+		t.Run(route, func(t *testing.T) {
+			res := a.call(http.MethodGet, route, nil, nil)
 			if res.code != http.StatusOK {
 				t.Fatalf("HTTP %d — %s", res.code, res.raw)
 			}
 
-			var thay any
-			if err := json.Unmarshal([]byte(res.raw), &thay); err != nil {
+			var found any
+			if err := json.Unmarshal([]byte(res.raw), &found); err != nil {
 				t.Fatalf("giải mã: %v", err)
 			}
 
-			var loi []string
-			duyetJSON(thay, "", func(khoa, viTri string) {
-				if vi, cam := truongNoiBo[strings.ToLower(khoa)]; cam {
-					loi = append(loi, fmt.Sprintf("%s (%s)", viTri, vi))
+			var errs []string
+			approveJSON(found, "", func(key, position string) {
+				if vi, commit := internalFields[strings.ToLower(key)]; commit {
+					errs = append(errs, fmt.Sprintf("%s (%s)", position, vi))
 				}
 			})
-			if len(loi) > 0 {
-				sort.Strings(loi)
+			if len(errs) > 0 {
+				sort.Strings(errs)
 				t.Errorf("phản hồi công khai rò %d trường nội bộ:\n  %s",
-					len(loi), strings.Join(deTrung(loi), "\n  "))
+					len(errs), strings.Join(dedupe(errs), "\n  "))
 			}
 		})
 	}
 }
 
-// TestDuLieuNhayCamKhongRoRaCongKhai dò theo GIÁ TRỊ, không theo tên trường.
+// TestSensitiveDataNeverLeaksPublicly dò theo GIÁ TRỊ, không theo tên trường.
 //
 // Bài trên bắt được trường tên `tax_code`. Nó KHÔNG bắt được cùng dữ liệu
 // đó xuất hiện dưới tên `code`, `ref`, hay lẫn trong một chuỗi mô tả. Bài
 // này nạp giá trị độc nhất vào các cột nội bộ của một gian hàng ĐANG HOẠT
 // ĐỘNG, rồi khẳng định chúng không xuất hiện ở BẤT KỲ đâu trong phản hồi
 // công khai — bất kể nằm dưới tên gì.
-func TestDuLieuNhayCamKhongRoRaCongKhai(t *testing.T) {
+func TestSensitiveDataNeverLeaksPublicly(t *testing.T) {
 	a := newAPITest(t)
-	_, maNB := mauCongKhai(t, a)
+	_, maNB := publicPattern(t, a)
 
 	// Giá trị mồi: độc nhất để tìm chuỗi không dính nhầm.
 	moi := map[string]string{
@@ -122,52 +122,52 @@ func TestDuLieuNhayCamKhongRoRaCongKhai(t *testing.T) {
 	}
 
 	// Gọi KHÔNG kèm token: đúng tư cách người lạ.
-	for _, duong := range []string{
+	for _, route := range []string{
 		"/api/v1/sellers?ids=" + maNB,
 		"/api/v1/products",
 		"/api/v1/search?q=ao",
 	} {
-		res := a.call(http.MethodGet, duong, nil, nil)
+		res := a.call(http.MethodGet, route, nil, nil)
 		if res.code != http.StatusOK {
-			t.Fatalf("%s: HTTP %d — %s", duong, res.code, res.raw)
+			t.Fatalf("%s: HTTP %d — %s", route, res.code, res.raw)
 		}
-		for cot, giaTri := range moi {
-			if strings.Contains(res.raw, giaTri) {
+		for cot, value := range moi {
+			if strings.Contains(res.raw, value) {
 				t.Errorf("%s: cột nội bộ %s RÒ ra công khai (%q): %s",
-					duong, cot, giaTri, res.raw)
+					route, cot, value, res.raw)
 			}
 		}
 	}
 
 	// Chống xanh rỗng: đường /sellers phải THẬT SỰ trả về gian hàng vừa
 	// nạp mồi. Nếu không, ba vòng lặp trên chỉ đang soi phản hồi rỗng.
-	cong := a.call(http.MethodGet, "/api/v1/sellers?ids="+maNB, nil, nil)
-	if !strings.Contains(cong.raw, maNB) {
+	gateway := a.call(http.MethodGet, "/api/v1/sellers?ids="+maNB, nil, nil)
+	if !strings.Contains(gateway.raw, maNB) {
 		t.Fatalf("phản hồi công khai không chứa gian hàng %s — "+
-			"bài test sẽ xanh mà không kiểm gì: %s", maNB, cong.raw)
+			"bài test sẽ xanh mà không kiểm gì: %s", maNB, gateway.raw)
 	}
 }
 
-// duyetJSON đi hết cây JSON, gọi `gap` cho mỗi khóa kèm đường dẫn tới nó.
-func duyetJSON(v any, viTri string, gap func(khoa, viTri string)) {
+// approveJSON đi hết cây JSON, gọi `gap` cho mỗi khóa kèm đường dẫn tới nó.
+func approveJSON(v any, position string, gap func(key, position string)) {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, con := range x {
-			duong := k
-			if viTri != "" {
-				duong = viTri + "." + k
+			route := k
+			if position != "" {
+				route = position + "." + k
 			}
-			gap(k, duong)
-			duyetJSON(con, duong, gap)
+			gap(k, route)
+			approveJSON(con, route, gap)
 		}
 	case []any:
 		for i, con := range x {
-			duyetJSON(con, fmt.Sprintf("%s[%d]", viTri, i), gap)
+			approveJSON(con, fmt.Sprintf("%s[%d]", position, i), gap)
 		}
 	}
 }
 
-func deTrung(ds []string) []string {
+func dedupe(ds []string) []string {
 	var ra []string
 	for i, s := range ds {
 		if i == 0 || s != ds[i-1] {
@@ -177,8 +177,8 @@ func deTrung(ds []string) []string {
 	return ra
 }
 
-// mauCongKhai lấy một sản phẩm và một nhà bán CÓ THẬT.
-func mauCongKhai(t *testing.T, a *apiTest) (maSP, maNB string) {
+// publicPattern lấy một sản phẩm và một nhà bán CÓ THẬT.
+func publicPattern(t *testing.T, a *apiTest) (maSP, maNB string) {
 	t.Helper()
 	res := a.call(http.MethodGet, "/api/v1/products", nil, nil)
 	ds, _ := res.body["data"].([]any)

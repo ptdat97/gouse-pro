@@ -16,7 +16,7 @@ import (
 // # Bài này là PHÉP THỬ CHẤP NHẬN của ADR-0021
 //
 // ADR-0021 nói: dựng một module extension thật phải cần 0 dòng sửa ở module
-// kernel. `TestNguonQuyCongDiTuGioToiDon` đã kiểm chặng 1 — kernel CHỞ được
+// kernel. `TestTheAttributionSourceTravelsFromCartToOrder` đã kiểm chặng 1 — kernel CHỞ được
 // mã creator qua ba module. Bài này kiểm chặng 2: module `affiliate` biến mã
 // ấy thành TIỀN, và nó làm được mà không module nào biết nó tồn tại.
 //
@@ -35,7 +35,7 @@ import (
 // có thể đứt — `OrderLineView.AttributedCreatorID` là một trường vừa mới
 // được bày ra, và trước đó dữ liệu đã nằm trong bảng suốt mà không ai lấy
 // được.
-func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
+func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -44,36 +44,36 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 	}
 
 	creatorID := ids.MustNew(ids.PrefixCreator).String()
-	maDon, tong, foID, sellerID, _, contentID := a.donTraTruocCuaCreator(t, creatorID)
+	orderID, tong, foID, sellerID, _, contentID := a.creatorPrepaidOrder(t, creatorID)
 
 	// ---- Chặng 1: đặt đơn xong mà CHƯA quy công ----
 	//
 	// `checkout.completed` đã phát và đã tới mọi bên nhận. Nếu affiliate
 	// nghe event ấy thay vì `order.paid`, số dưới đây sẽ là 1 — và đó là
 	// một khoản hoa hồng cho doanh thu chưa tồn tại.
-	a.phatEvent(t)
-	if n := a.demQuyCong(t, maDon); n != 0 {
+	a.emitEvent(t)
+	if n := a.countAttributions(t, orderID); n != 0 {
 		t.Fatalf("đơn CHƯA trả tiền đã có %d bản quy công, cần 0 — "+
 			"hoa hồng phải sinh ra lúc TIỀN VỀ, không lúc đặt đơn", n)
 	}
 
 	// ---- Chặng 2: tiền về → quy công ----
-	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
+	whRes := a.callPaymentWebhook(t, "cong-tt", map[string]any{
 		"event_id":   "evt_hoa_hong_creator_1",
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
 			"payment_intent_id": "pi_hoa_hong_1",
 			"amount":            tong,
 			"currency":          "VND",
-			"metadata":          map[string]any{"order_id": maDon},
+			"metadata":          map[string]any{"order_id": orderID},
 		},
-	}, biMatCongTT)
+	}, paymentGatewaySecret)
 	if whRes.code != http.StatusOK {
 		t.Fatalf("webhook thanh toán: HTTP %d — %s", whRes.code, whRes.raw)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if n := a.demQuyCong(t, maDon); n != 1 {
+	if n := a.countAttributions(t, orderID); n != 1 {
 		t.Fatalf("sau khi tiền về: %d bản quy công, cần 1 — chuỗi "+
 			"order.paid → affiliate chưa nối, hoặc "+
 			"OrderLineView.AttributedCreatorID không mang mã creator", n)
@@ -82,16 +82,16 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 	// Bản quy công phải ĐÓNG BĂNG đủ thứ để đối soát lại được.
 	var (
 		gotCreator, gotContent, gotSeller string
-		benChiu, moHinh                   string
+		bearer, model                     string
 		tyLe                              int
-		tienGoc                           int64
+		baseAmount                        int64
 	)
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT creator_id, content_id, seller_id, cost_bearer,
 		       attribution_model, commission_rate, commission_base
-		  FROM attribution WHERE order_id = $1`, maDon,
-	).Scan(&gotCreator, &gotContent, &gotSeller, &benChiu, &moHinh,
-		&tyLe, &tienGoc); err != nil {
+		  FROM attribution WHERE order_id = $1`, orderID,
+	).Scan(&gotCreator, &gotContent, &gotSeller, &bearer, &model,
+		&tyLe, &baseAmount); err != nil {
 		t.Fatalf("đọc bản quy công: %v", err)
 	}
 
@@ -119,13 +119,13 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 	if tyLe != 500 {
 		t.Errorf("tỷ lệ hoa hồng đóng băng = %d điểm cơ bản, cần 500", tyLe)
 	}
-	if benChiu != "PLATFORM" {
+	if bearer != "PLATFORM" {
 		t.Errorf("bên chịu chi phí = %q, cần PLATFORM — đoán sang nhà bán là "+
-			"lấy tiền của người ngoài công ty", benChiu)
+			"lấy tiền của người ngoài công ty", bearer)
 	}
-	if moHinh != "LAST_CLICK" {
+	if model != "LAST_CLICK" {
 		t.Errorf("mô hình quy công = %q, cần LAST_CLICK — phải GHI RA để đổi "+
-			"mô hình sau này còn giải thích được số cũ", moHinh)
+			"mô hình sau này còn giải thích được số cũ", model)
 	}
 
 	// ---- Chặng 3: số tiền, và trạng thái ĐẦU ----
@@ -133,20 +133,20 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 	// Khẳng định phép tính, không chỉ sự tồn tại: một bản ghi có mặt với số
 	// tiền sai là tệ hơn không có bản ghi nào.
 	var (
-		soTien int64
+		amount int64
 		tt     string
 	)
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT c.amount, c.status
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
-		 WHERE a.order_id = $1`, maDon).Scan(&soTien, &tt); err != nil {
+		 WHERE a.order_id = $1`, orderID).Scan(&amount, &tt); err != nil {
 		t.Fatalf("đọc khoản hoa hồng: %v", err)
 	}
 
-	if mong := tienGoc * 500 / 10000; soTien != mong {
+	if mong := baseAmount * 500 / 10000; amount != mong {
 		t.Errorf("hoa hồng = %d, cần %d (5%% của tiền gốc %d) — số tiền phải "+
-			"TÍNH từ tỷ lệ và tiền gốc đã đóng băng", soTien, mong, tienGoc)
+			"TÍNH từ tỷ lệ và tiền gốc đã đóng băng", amount, mong, baseAmount)
 	}
 	if tt != "PENDING" {
 		t.Fatalf("trạng thái đầu = %q, cần PENDING — hoa hồng chỉ rút được "+
@@ -155,33 +155,33 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 
 	// Tiền gốc là tiền THỰC TRẢ của dòng, không phải tổng đơn: tổng đơn có
 	// cả phí vận chuyển, mà creator không tạo ra khoản phí ấy.
-	if tienGoc >= tong {
+	if baseAmount >= tong {
 		t.Errorf("tiền gốc tính hoa hồng = %d, tổng đơn = %d — tiền gốc phải "+
-			"là tiền HÀNG của dòng, không gồm phí vận chuyển", tienGoc, tong)
+			"là tiền HÀNG của dòng, không gồm phí vận chuyển", baseAmount, tong)
 	}
 
 	// ---- Chặng 4: hết hạn đổi trả → RÚT ĐƯỢC ----
-	tokNB := a.taoTokenNhaBan(t, sellerID)
-	for _, buoc := range []string{"ship", "deliver"} {
+	tokNB := a.createSellerToken(t, sellerID)
+	for _, steps := range []string{"ship", "deliver"} {
 		than := map[string]any{}
-		if buoc == "ship" {
+		if steps == "ship" {
 			than = map[string]any{
 				"shipping_provider": "GHN", "tracking_number": "GHN-HH-1",
 			}
 		}
 		res := a.call(http.MethodPost,
-			"/api/v1/seller/fulfillment-orders/"+foID+"/"+buoc, than,
-			hopNhat(khoaIdem(), map[string]string{
+			"/api/v1/seller/fulfillment-orders/"+foID+"/"+steps, than,
+			merge(idemKey(), map[string]string{
 				"Authorization": "Bearer " + tokNB,
 			}))
 		if res.code != http.StatusOK {
-			t.Fatalf("%s: HTTP %d — %s", buoc, res.code, res.raw)
+			t.Fatalf("%s: HTTP %d — %s", steps, res.code, res.raw)
 		}
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
 	// Giao xong nhưng CHƯA hết hạn trả: hoa hồng vẫn phải CHỜ.
-	if tt := a.trangThaiHoaHong(t, maDon); tt != "PENDING" {
+	if tt := a.commissionStatus(t, orderID); tt != "PENDING" {
 		t.Fatalf("giao hàng xong mà hoa hồng đã %q — hạn đổi trả chưa qua, "+
 			"tiền chưa được mở", tt)
 	}
@@ -195,9 +195,9 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 	if n, err := a.mods.fulfillment.CompleteDelivered(ctx, 10); err != nil || n == 0 {
 		t.Fatalf("hoàn tất đơn quá hạn: n=%d err=%v", n, err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if tt := a.trangThaiHoaHong(t, maDon); tt != "AVAILABLE" {
+	if tt := a.commissionStatus(t, orderID); tt != "AVAILABLE" {
 		t.Fatalf("hết hạn đổi trả mà hoa hồng vẫn %q — creator không bao giờ "+
 			"được chi, cùng dạng lỗi số dư nhà bán đứng vĩnh viễn", tt)
 	}
@@ -214,9 +214,9 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 		  WHERE handler LIKE 'affiliate.%'`); err != nil {
 		t.Fatalf("xóa dấu đã xử lý: %v", err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if n := a.demQuyCong(t, maDon); n != 1 {
+	if n := a.countAttributions(t, orderID); n != 1 {
 		t.Errorf("phát lại event sinh thêm bản quy công: %d, cần 1 — "+
 			"UNIQUE (order_line_id) là thứ chặn thật", n)
 	}
@@ -227,7 +227,7 @@ func TestHoaHongCreatorDiHetChuoi(t *testing.T) {
 // affiliate.md quy tắc 5. Không có đường này thì hủy đơn để lại một khoản
 // hoa hồng CHỜ ĐẾN HẠN cho doanh thu không còn tồn tại — và tới kỳ chi trả,
 // nền tảng trả tiền cho một đơn đã hủy. Im lặng, và là tiền.
-func TestHuyDonThiDaoHoaHongCreator(t *testing.T) {
+func TestCancellingAnOrderReversesTheCreatorCommission(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -236,24 +236,24 @@ func TestHuyDonThiDaoHoaHongCreator(t *testing.T) {
 	}
 
 	creatorID := ids.MustNew(ids.PrefixCreator).String()
-	maDon, tong, _, _, dienThoai, _ := a.donTraTruocCuaCreator(t, creatorID)
+	orderID, tong, _, _, phone, _ := a.creatorPrepaidOrder(t, creatorID)
 
-	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
+	whRes := a.callPaymentWebhook(t, "cong-tt", map[string]any{
 		"event_id":   "evt_hoa_hong_dao_1",
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
 			"payment_intent_id": "pi_hoa_hong_dao_1",
 			"amount":            tong,
 			"currency":          "VND",
-			"metadata":          map[string]any{"order_id": maDon},
+			"metadata":          map[string]any{"order_id": orderID},
 		},
-	}, biMatCongTT)
+	}, paymentGatewaySecret)
 	if whRes.code != http.StatusOK {
 		t.Fatalf("webhook thanh toán: HTTP %d — %s", whRes.code, whRes.raw)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if tt := a.trangThaiHoaHong(t, maDon); tt != "PENDING" {
+	if tt := a.commissionStatus(t, orderID); tt != "PENDING" {
 		t.Fatalf("trước khi hủy: hoa hồng = %q, cần PENDING", tt)
 	}
 
@@ -262,29 +262,29 @@ func TestHuyDonThiDaoHoaHongCreator(t *testing.T) {
 	//
 	// `reason` thuộc danh sách ĐÓNG năm giá trị của đặc tả, và khách vãng lai
 	// chứng minh đơn là của mình bằng số điện thoại ở header.
-	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/cancel",
+	res := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/cancel",
 		map[string]any{"reason": "CHANGED_MIND"},
-		hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": dienThoai}))
+		merge(idemKey(), map[string]string{"X-Guest-Phone": phone}))
 	if res.code != http.StatusOK {
 		t.Fatalf("hủy đơn: HTTP %d — %s", res.code, res.raw)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if tt := a.trangThaiHoaHong(t, maDon); tt != "REVERSED" {
+	if tt := a.commissionStatus(t, orderID); tt != "REVERSED" {
 		t.Fatalf("hủy đơn mà hoa hồng vẫn %q — nền tảng sẽ trả tiền cho một "+
 			"đơn đã hủy", tt)
 	}
 
 	// Lý do BẮT BUỘC có, và phải là lý do THẬT của đơn.
-	var lyDo string
+	var reason string
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT c.reversed_reason
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
-		 WHERE a.order_id = $1`, maDon).Scan(&lyDo); err != nil {
+		 WHERE a.order_id = $1`, orderID).Scan(&reason); err != nil {
 		t.Fatalf("đọc lý do đảo: %v", err)
 	}
-	if lyDo == "" {
+	if reason == "" {
 		t.Error("đảo mà không ghi lý do — một khoản tiền biến mất không giải " +
 			"thích được là điểm mù trong kiểm toán")
 	}
@@ -300,9 +300,9 @@ func TestHuyDonThiDaoHoaHongCreator(t *testing.T) {
 	); err != nil {
 		t.Fatalf("xóa dấu đã xử lý: %v", err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if tt := a.trangThaiHoaHong(t, maDon); tt != "REVERSED" {
+	if tt := a.commissionStatus(t, orderID); tt != "REVERSED" {
 		t.Errorf("phát lại order.cancelled đổi trạng thái thành %q — đảo phải "+
 			"IDEMPOTENT", tt)
 	}
@@ -310,16 +310,16 @@ func TestHuyDonThiDaoHoaHongCreator(t *testing.T) {
 
 // ------------------------------------------------------------ tiện ích
 
-// donTraTruocCuaCreator dựng một đơn TRẢ TRƯỚC từ nội dung của creator.
+// creatorPrepaidOrder dựng một đơn TRẢ TRƯỚC từ nội dung của creator.
 //
 // TRẢ TRƯỚC chứ không COD: chỉ đơn trả trước đi qua `order.paid` ngay, còn
 // COD phải chờ tới lúc giao. Bài test cần mốc tiền về ở giữa chuỗi.
-func (a *apiTest) donTraTruocCuaCreator(
+func (a *apiTest) creatorPrepaidOrder(
 	t *testing.T, creatorID string,
-) (maDon string, tong int64, foID, sellerID, dienThoai, contentID string) {
+) (orderID string, tong int64, foID, sellerID, phone, contentID string) {
 	t.Helper()
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
@@ -331,73 +331,73 @@ func (a *apiTest) donTraTruocCuaCreator(
 			"creator_id": creatorID,
 			"content_id": contentID,
 		},
-	}, khoaIdem())
+	}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm giỏ kèm nguồn creator: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	// Số điện thoại RIÊNG cho mỗi đơn: nó là thứ duy nhất chứng minh đơn
 	// thuộc về khách vãng lai này, và cả gói test dùng chung một database.
-	dienThoai = "0900666" + ids.MustNew(ids.PrefixCreator).String()[24:27]
+	phone = "0900666" + ids.MustNew(ids.PrefixCreator).String()[24:27]
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id":     maGio,
-		"guest_email": emailMoi("hoahong"),
-		"guest_phone": dienThoai,
-	}, khoaIdem())
+		"cart_id":     cartID,
+		"guest_email": newEmail("hoahong"),
+		"guest_phone": phone,
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
-			"recipient_name": "Khách Hoa Hồng", "phone": dienThoai,
+			"recipient_name": "Khách Hoa Hồng", "phone": phone,
 			"street_address": "7 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+		}, idemKey())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey())
 
-	res = a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "CARD"}, khoaIdem())
+	res = a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "CARD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ = don["id"].(string)
-	if maDon == "" {
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ = ord["id"].(string)
+	if orderID == "" {
 		t.Fatalf("không lấy được mã đơn: %s", res.raw)
 	}
-	tongMap, _ := don["total"].(map[string]any)
-	soTien, _ := tongMap["amount"].(float64)
-	tong = int64(soTien)
+	tongMap, _ := ord["total"].(map[string]any)
+	amount, _ := tongMap["amount"].(float64)
+	tong = int64(amount)
 
 	// Đơn thực hiện chỉ tồn tại sau khi `checkout.completed` được phát.
-	a.phatEvent(t)
-	foID, sellerID = a.donThucHienCuaDon(t, maDon)
-	return maDon, tong, foID, sellerID, dienThoai, contentID
+	a.emitEvent(t)
+	foID, sellerID = a.fulfillmentOfOrder(t, orderID)
+	return orderID, tong, foID, sellerID, phone, contentID
 }
 
-func (a *apiTest) demQuyCong(t *testing.T, maDon string) int {
+func (a *apiTest) countAttributions(t *testing.T, orderID string) int {
 	t.Helper()
-	return a.demDong("attribution", "order_id = $1", maDon)
+	return a.countRows("attribution", "order_id = $1", orderID)
 }
 
-// trangThaiHoaHong trả trạng thái khoản hoa hồng DUY NHẤT của một đơn.
+// commissionStatus trả trạng thái khoản hoa hồng DUY NHẤT của một đơn.
 //
 // Đỏ khi có nhiều hơn một: bài test dựng đơn MỘT dòng, nên hai khoản nghĩa
 // là quy công đã chạy hai lần — thứ phải thấy ngay chứ không phải đọc dòng
 // đầu rồi bỏ qua.
-func (a *apiTest) trangThaiHoaHong(t *testing.T, maDon string) string {
+func (a *apiTest) commissionStatus(t *testing.T, orderID string) string {
 	t.Helper()
 
 	rows, err := a.db.Pool().Query(context.Background(), `
 		SELECT c.status
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
-		 WHERE a.order_id = $1`, maDon)
+		 WHERE a.order_id = $1`, orderID)
 	if err != nil {
 		t.Fatalf("đọc trạng thái hoa hồng: %v", err)
 	}
@@ -412,7 +412,7 @@ func (a *apiTest) trangThaiHoaHong(t *testing.T, maDon string) string {
 		got = append(got, s)
 	}
 	if len(got) != 1 {
-		t.Fatalf("đơn %s có %d khoản hoa hồng (%v), cần đúng 1", maDon, len(got), got)
+		t.Fatalf("đơn %s có %d khoản hoa hồng (%v), cần đúng 1", orderID, len(got), got)
 	}
 	return got[0]
 }
@@ -433,7 +433,7 @@ func (a *apiTest) trangThaiHoaHong(t *testing.T, maDon string) string {
 //
 // Bài một-nhà-bán ở trên KHÔNG bắt được lỗi đó: với một nhà bán, mở theo đơn
 // và mở theo nhà bán cho cùng kết quả.
-func TestMoKhoaHoaHongTheoTungNhaBan(t *testing.T) {
+func TestCommissionUnlocksPerSeller(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -441,107 +441,107 @@ func TestMoKhoaHoaHongTheoTungNhaBan(t *testing.T) {
 		t.Skip("module affiliate cần kho lưu trữ postgres")
 	}
 
-	maDon, dsFO := a.donHaiNhaBanDaTraTien(t, "2nb")
+	orderID, dsFO := a.paidTwoSellerOrder(t, "2nb")
 
 	// Hoàn tất đơn thực hiện của MỘT nhà bán thôi.
-	mot := dsFO[0]
-	tokNB := a.taoTokenNhaBan(t, mot.sellerID)
-	for _, buoc := range []string{"ship", "deliver"} {
+	one := dsFO[0]
+	tokNB := a.createSellerToken(t, one.sellerID)
+	for _, steps := range []string{"ship", "deliver"} {
 		than := map[string]any{}
-		if buoc == "ship" {
+		if steps == "ship" {
 			than = map[string]any{
 				"shipping_provider": "GHN", "tracking_number": "GHN-2NB-1",
 			}
 		}
 		if r := a.call(http.MethodPost,
-			"/api/v1/seller/fulfillment-orders/"+mot.id+"/"+buoc, than,
-			hopNhat(khoaIdem(), map[string]string{
+			"/api/v1/seller/fulfillment-orders/"+one.id+"/"+steps, than,
+			merge(idemKey(), map[string]string{
 				"Authorization": "Bearer " + tokNB,
 			})); r.code != http.StatusOK {
-			t.Fatalf("%s: HTTP %d — %s", buoc, r.code, r.raw)
+			t.Fatalf("%s: HTTP %d — %s", steps, r.code, r.raw)
 		}
 	}
 	if _, err := a.db.Pool().Exec(ctx,
 		`UPDATE fulfillment_order SET delivered_at = now() - $1::interval
 		  WHERE id = $2`,
-		(fulfillmentapp.ReturnWindow + time.Hour).String(), mot.id); err != nil {
+		(fulfillmentapp.ReturnWindow + time.Hour).String(), one.id); err != nil {
 		t.Fatalf("đẩy mốc giao: %v", err)
 	}
 	if n, err := a.mods.fulfillment.CompleteDelivered(ctx, 10); err != nil || n == 0 {
 		t.Fatalf("hoàn tất đơn quá hạn: n=%d err=%v", n, err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
 	// ĐÚNG MỘT khoản mở, đúng của nhà bán đã hoàn tất.
-	moTheoNhaBan := func(sellerID string) string {
+	openPerSeller := func(sellerID string) string {
 		var tt string
 		if err := a.db.Pool().QueryRow(ctx, `
 			SELECT c.status
 			  FROM commission_record c
 			  JOIN attribution a ON a.id = c.attribution_id
 			 WHERE a.order_id = $1 AND a.seller_id = $2`,
-			maDon, sellerID).Scan(&tt); err != nil {
+			orderID, sellerID).Scan(&tt); err != nil {
 			t.Fatalf("đọc hoa hồng của nhà bán %s: %v", sellerID, err)
 		}
 		return tt
 	}
 
-	if tt := moTheoNhaBan(mot.sellerID); tt != "AVAILABLE" {
+	if tt := openPerSeller(one.sellerID); tt != "AVAILABLE" {
 		t.Errorf("nhà bán đã hết hạn đổi trả mà hoa hồng vẫn %q", tt)
 	}
-	if tt := moTheoNhaBan(dsFO[1].sellerID); tt != "PENDING" {
+	if tt := openPerSeller(dsFO[1].sellerID); tt != "PENDING" {
 		t.Fatalf("hoa hồng của nhà bán CHƯA giao xong đã %q — mở khóa bỏ qua "+
 			"seller_id, nên hàng còn trong hạn đổi trả đã vào diện chi được", tt)
 	}
 }
 
-// moPhienTuGio mở phiên thanh toán từ một giỏ và điền đủ địa chỉ, cách giao.
+// openCheckoutFromCart mở phiên thanh toán từ một giỏ và điền đủ địa chỉ, cách giao.
 //
-// Tách khỏi `donTraTruocCuaCreator` vì bài hai nhà bán tự dựng giỏ: nó cần
+// Tách khỏi `creatorPrepaidOrder` vì bài hai nhà bán tự dựng giỏ: nó cần
 // hai offer, và ghép việc dựng giỏ vào cùng một tiện ích sẽ cho một hàm có
 // hai chế độ.
-func (a *apiTest) moPhienTuGio(t *testing.T, maGio, email, dienThoai string) string {
+func (a *apiTest) openCheckoutFromCart(t *testing.T, cartID, email, phone string) string {
 	t.Helper()
 
 	res := a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id": maGio, "guest_email": email, "guest_phone": dienThoai,
-	}, khoaIdem())
+		"cart_id": cartID, "guest_email": email, "guest_phone": phone,
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
-			"recipient_name": "Khách Hoa Hồng", "phone": dienThoai,
+			"recipient_name": "Khách Hoa Hồng", "phone": phone,
 			"street_address": "9 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+		}, idemKey())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey())
 
-	return maPhien
+	return checkoutID
 }
 
-// donThucHien là một đơn thực hiện trong bài test, kèm nhà bán của nó.
-type donThucHien struct{ id, sellerID string }
+// fulfillmentOrder là một đơn thực hiện trong bài test, kèm nhà bán của nó.
+type fulfillmentOrder struct{ id, sellerID string }
 
-// donHaiNhaBanDaTraTien dựng một đơn HAI nhà bán, cùng một creator, ĐÃ trả
+// paidTwoSellerOrder dựng một đơn HAI nhà bán, cùng một creator, ĐÃ trả
 // tiền và ĐÃ quy công.
 //
 // CÙNG một creator cho cả hai dòng có chủ ý: bài dùng nó kiểm ranh giới NHÀ
 // BÁN, nên hai creator khác nhau sẽ làm lẫn hai nguyên nhân với nhau.
 //
-// `nhan` phân biệt mã idempotency của webhook giữa các bài: cả gói test dùng
+// `label` phân biệt mã idempotency của webhook giữa các bài: cả gói test dùng
 // chung một database, nên hai bài gửi cùng `event_id` thì bài sau nhận lại
 // phản hồi của bài trước và không có event nào được phát.
-func (a *apiTest) donHaiNhaBanDaTraTien(
-	t *testing.T, nhan string,
-) (maDon string, dsFO []donThucHien) {
+func (a *apiTest) paidTwoSellerOrder(
+	t *testing.T, label string,
+) (orderID string, dsFO []fulfillmentOrder) {
 	t.Helper()
 	ctx := context.Background()
 
-	offerA, offerB := a.haiOfferKhacNhaBan(t)
+	offerA, offerB := a.twoOffersDifferentSellers(t)
 	if offerA == "" || offerB == "" {
 		t.Skip("không có đủ hai nhà bán bán được hàng")
 	}
@@ -551,62 +551,62 @@ func (a *apiTest) donHaiNhaBanDaTraTien(
 		r := a.call(http.MethodPost, "/api/v1/cart/items", map[string]any{
 			"offer_id": id, "quantity": 1,
 			"source": map[string]any{"creator_id": creatorID},
-		}, khoaIdem())
+		}, idemKey())
 		if r.code != http.StatusOK {
 			t.Fatalf("thêm offer %s: HTTP %d — %s", id, r.code, r.raw)
 		}
 	}
 
-	gio := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
-	c, _ := gio.body["cart"].(map[string]any)
-	if nhom, _ := c["groups"].([]any); len(nhom) < 2 {
-		t.Skipf("giỏ chỉ có %d nhà bán, cần 2", len(nhom))
+	cartBody := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
+	c, _ := cartBody.body["cart"].(map[string]any)
+	if group, _ := c["groups"].([]any); len(group) < 2 {
+		t.Skipf("giỏ chỉ có %d nhà bán, cần 2", len(group))
 	}
-	maGio, _ := c["id"].(string)
+	cartID, _ := c["id"].(string)
 
-	dienThoai := "09004" + ids.MustNew(ids.PrefixRequest).String()[25:30]
-	maPhien := a.moPhienTuGio(t, maGio, emailMoi("hh"+nhan), dienThoai)
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "CARD"}, khoaIdem())
+	phone := "09004" + ids.MustNew(ids.PrefixRequest).String()[25:30]
+	checkoutID := a.openCheckoutFromCart(t, cartID, newEmail("hh"+label), phone)
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "CARD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ = don["id"].(string)
-	tongMap, _ := don["total"].(map[string]any)
-	soTien, _ := tongMap["amount"].(float64)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ = ord["id"].(string)
+	tongMap, _ := ord["total"].(map[string]any)
+	amount, _ := tongMap["amount"].(float64)
 
 	// Phát TRƯỚC webhook: đơn thực hiện chỉ tồn tại sau `checkout.completed`.
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
-		"event_id":   "evt_hoa_hong_" + nhan,
+	whRes := a.callPaymentWebhook(t, "cong-tt", map[string]any{
+		"event_id":   "evt_hoa_hong_" + label,
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
-			"payment_intent_id": "pi_hoa_hong_" + nhan,
-			"amount":            int64(soTien),
+			"payment_intent_id": "pi_hoa_hong_" + label,
+			"amount":            int64(amount),
 			"currency":          "VND",
-			"metadata":          map[string]any{"order_id": maDon},
+			"metadata":          map[string]any{"order_id": orderID},
 		},
-	}, biMatCongTT)
+	}, paymentGatewaySecret)
 	if whRes.code != http.StatusOK {
 		t.Fatalf("webhook thanh toán: HTTP %d — %s", whRes.code, whRes.raw)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if n := a.demQuyCong(t, maDon); n != 2 {
+	if n := a.countAttributions(t, orderID); n != 2 {
 		t.Fatalf("đơn hai nhà bán có %d bản quy công, cần 2 — quy công theo "+
 			"TỪNG DÒNG, không theo cả đơn", n)
 	}
 
 	rows, err := a.db.Pool().Query(ctx,
 		`SELECT id, seller_id FROM fulfillment_order WHERE order_id = $1
-		  ORDER BY created_at`, maDon)
+		  ORDER BY created_at`, orderID)
 	if err != nil {
 		t.Fatalf("đọc đơn thực hiện: %v", err)
 	}
 	for rows.Next() {
-		var f donThucHien
+		var f fulfillmentOrder
 		if err := rows.Scan(&f.id, &f.sellerID); err != nil {
 			t.Fatalf("đọc đơn thực hiện: %v", err)
 		}
@@ -617,13 +617,13 @@ func (a *apiTest) donHaiNhaBanDaTraTien(
 		t.Fatalf("đơn tách thành %d đơn thực hiện, cần 2", len(dsFO))
 	}
 
-	return maDon, dsFO
+	return orderID, dsFO
 }
 
-// trangThaiHoaHongTheoNhaBan trả trạng thái khoản hoa hồng của một nhà bán
+// commissionStatusBySeller trả trạng thái khoản hoa hồng của một nhà bán
 // trong một đơn.
-func (a *apiTest) trangThaiHoaHongTheoNhaBan(
-	t *testing.T, maDon, sellerID string,
+func (a *apiTest) commissionStatusBySeller(
+	t *testing.T, orderID, sellerID string,
 ) string {
 	t.Helper()
 	var tt string
@@ -632,7 +632,7 @@ func (a *apiTest) trangThaiHoaHongTheoNhaBan(
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
 		 WHERE a.order_id = $1 AND a.seller_id = $2`,
-		maDon, sellerID).Scan(&tt); err != nil {
+		orderID, sellerID).Scan(&tt); err != nil {
 		t.Fatalf("đọc hoa hồng của nhà bán %s: %v", sellerID, err)
 	}
 	return tt
@@ -657,7 +657,7 @@ func (a *apiTest) trangThaiHoaHongTheoNhaBan(
 // Bài này đòi hai điều cùng lúc, và điều thứ hai mới là chỗ dễ sai: dòng của
 // nhà bán CÒN LẠI không được chạm tới. `ReverseByOrder` đảo theo `order_id`, nên
 // dùng nó cho việc này sẽ xanh ở nửa đầu và sai ở nửa sau.
-func TestHuyDonThucHienThiDaoHoaHongCuaDongDo(t *testing.T) {
+func TestCancellingAFulfillmentReversesThatLinesCommission(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -665,11 +665,11 @@ func TestHuyDonThucHienThiDaoHoaHongCuaDongDo(t *testing.T) {
 		t.Skip("module affiliate cần kho lưu trữ postgres")
 	}
 
-	maDon, dsFO := a.donHaiNhaBanDaTraTien(t, "huy_fo")
-	huy, conLai := dsFO[0], dsFO[1]
+	orderID, dsFO := a.paidTwoSellerOrder(t, "huy_fo")
+	cancelled, left := dsFO[0], dsFO[1]
 
 	for _, f := range dsFO {
-		if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, f.sellerID); tt != "PENDING" {
+		if tt := a.commissionStatusBySeller(t, orderID, f.sellerID); tt != "PENDING" {
 			t.Fatalf("trước khi hủy: hoa hồng của %s là %q, cần PENDING",
 				f.sellerID, tt)
 		}
@@ -679,37 +679,37 @@ func TestHuyDonThucHienThiDaoHoaHongCuaDongDo(t *testing.T) {
 	// là đường production thật — `CancelFulfillment` là thứ phát
 	// `fulfillment.cancelled`.
 	if err := a.mods.fulfillment.CancelFulfillment(
-		ctx, huy.sellerID, huy.id, "hết hàng",
+		ctx, cancelled.sellerID, cancelled.id, "hết hàng",
 	); err != nil {
 		t.Fatalf("hủy đơn thực hiện: %v", err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, huy.sellerID); tt != "REVERSED" {
+	if tt := a.commissionStatusBySeller(t, orderID, cancelled.sellerID); tt != "REVERSED" {
 		t.Fatalf("nhà bán hủy mà hoa hồng vẫn %q — khoản này sẽ đứng ở "+
 			"CHỜ ĐẾN HẠN mãi mãi, vì đơn thực hiện bị hủy không bao giờ phát "+
 			"fulfillment_order.completed (P3-85)", tt)
 	}
 
 	// VÀ dòng của nhà bán còn lại KHÔNG được chạm.
-	if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, conLai.sellerID); tt != "PENDING" {
+	if tt := a.commissionStatusBySeller(t, orderID, left.sellerID); tt != "PENDING" {
 		t.Fatalf("hoa hồng của nhà bán VẪN ĐANG GIAO đã thành %q — đảo theo "+
 			"order_id thay vì theo dòng đơn", tt)
 	}
 
 	// Lý do phải nêu rõ ĐƠN THỰC HIỆN nào: "đơn bị hủy" không tra ra được
 	// chuyện đã xảy ra lúc đối soát.
-	var lyDo string
+	var reason string
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT c.reversed_reason
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
 		 WHERE a.order_id = $1 AND a.seller_id = $2`,
-		maDon, huy.sellerID).Scan(&lyDo); err != nil {
+		orderID, cancelled.sellerID).Scan(&reason); err != nil {
 		t.Fatalf("đọc lý do đảo: %v", err)
 	}
-	if !strings.Contains(lyDo, "đơn thực hiện") {
-		t.Errorf("lý do đảo = %q — phải nêu rõ đơn thực hiện nào bị hủy", lyDo)
+	if !strings.Contains(reason, "đơn thực hiện") {
+		t.Errorf("lý do đảo = %q — phải nêu rõ đơn thực hiện nào bị hủy", reason)
 	}
 
 	// Phát LẠI event không được đổi gì: giao ít nhất một lần.
@@ -723,9 +723,9 @@ func TestHuyDonThucHienThiDaoHoaHongCuaDongDo(t *testing.T) {
 	); err != nil {
 		t.Fatalf("xóa dấu đã xử lý: %v", err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if tt := a.trangThaiHoaHongTheoNhaBan(t, maDon, conLai.sellerID); tt != "PENDING" {
+	if tt := a.commissionStatusBySeller(t, orderID, left.sellerID); tt != "PENDING" {
 		t.Errorf("phát lại event đổi hoa hồng của nhà bán còn lại thành %q", tt)
 	}
 }

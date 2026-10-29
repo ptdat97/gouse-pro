@@ -54,9 +54,9 @@ type world struct {
 	// production dùng, chỉ khác nguồn cờ INTERNAL.
 	internal map[ids.ID]bool
 
-	// orderIDCuoi là đơn vừa đặt qua helper, để bài test khỏi phải trả về
+	// lastOrderID là đơn vừa đặt qua helper, để bài test khỏi phải trả về
 	// thêm một giá trị chỉ dùng ở nửa số bài.
-	orderIDCuoi ids.ID
+	lastOrderID ids.ID
 }
 
 func newWorld(t *testing.T) *world {
@@ -176,7 +176,7 @@ func (w *world) drain() {
 	}
 }
 
-// stockTaiKho nhập hàng của một chủ sở hữu vào MỘT KHO CHO SẴN.
+// stockAtLocation nhập hàng của một chủ sở hữu vào MỘT KHO CHO SẴN.
 //
 // Khác `stockFor` ở chỗ nó KHÔNG tự tạo kho mới. Cần nó cho ca mà cặp
 // `(sku, kho)` KHÔNG đủ định danh: hàng nhiều nhà bán gửi chung một kho
@@ -187,7 +187,7 @@ func (w *world) drain() {
 // Dùng `stockFor` cho ca này sẽ cấp cho mỗi chủ một kho riêng, và khi ấy
 // `stock_location_id` một mình đã đủ tìm đúng dòng — bài test xanh vì dữ
 // liệu dễ chứ không phải vì code đúng.
-func (w *world) stockTaiKho(skuID, owner, locID ids.ID, qty int) {
+func (w *world) stockAtLocation(skuID, owner, locID ids.ID, qty int) {
 	w.t.Helper()
 	if _, err := w.inv.Receive(context.Background(), inventory.ReceiveRequest{
 		SKUID:       skuID.String(),
@@ -200,8 +200,8 @@ func (w *world) stockTaiKho(skuID, owner, locID ids.ID, qty int) {
 	}
 }
 
-// khoChung tạo MỘT kho để nhiều chủ sở hữu gửi hàng chung.
-func (w *world) khoChung() ids.ID {
+// sharedLocation tạo MỘT kho để nhiều chủ sở hữu gửi hàng chung.
+func (w *world) sharedLocation() ids.ID {
 	w.t.Helper()
 	locID := ids.MustNew(ids.PrefixStockLocation)
 	if _, err := w.db.Pool().Exec(context.Background(), `
@@ -402,7 +402,7 @@ func (p *orderPort) PlaceOrder(
 			CommissionRate: int(l.CommissionRate.Value()),
 		})
 	}
-	tien := func(m money.Money) order.Amount {
+	amount := func(m money.Money) order.Amount {
 		return order.Amount{Value: m.Amount(), Currency: string(m.Currency())}
 	}
 
@@ -420,9 +420,9 @@ func (p *orderPort) PlaceOrder(
 			CountryCode:   in.ShippingAddress.CountryCode,
 		},
 		Currency:         string(in.Currency),
-		ShippingFee:      tien(in.ShippingFee),
-		DiscountAmount:   tien(in.DiscountAmount),
-		TaxAmount:        tien(in.TaxAmount),
+		ShippingFee:      amount(in.ShippingFee),
+		DiscountAmount:   amount(in.DiscountAmount),
+		TaxAmount:        amount(in.TaxAmount),
 		Lines:            lines,
 		IdempotencyKey:   in.IdempotencyKey,
 		SourceCheckoutID: in.SourceCheckoutID.String(),
@@ -433,16 +433,16 @@ func (p *orderPort) PlaceOrder(
 	}
 	// Ghép dòng phiên ↔ dòng đơn, y như adapter thật: event
 	// `checkout.completed` mang mã dòng của ĐƠN.
-	dong := make([]checkoutapp.PlacedOrderLine, 0, len(res.Order.Lines))
+	line := make([]checkoutapp.PlacedOrderLine, 0, len(res.Order.Lines))
 	for _, l := range res.Order.Lines {
-		dong = append(dong, checkoutapp.PlacedOrderLine{
+		line = append(line, checkoutapp.PlacedOrderLine{
 			OfferID: ids.ID(l.OfferID), LineID: ids.ID(l.ID),
 		})
 	}
 	return checkoutapp.PlacedOrder{
 		OrderID:     ids.ID(res.Order.ID),
 		OrderNumber: res.Order.OrderNumber,
-		Lines:       dong,
+		Lines:       line,
 	}, nil
 }
 
@@ -497,7 +497,7 @@ func vnd(n int64) money.Money {
 
 // ---------------------------------------------------------------- Luồng
 
-// TestDonNhieuNhaBanDiHetChuoi đi hết chuỗi của một đơn hàng chợ:
+// TestAMultiSellerOrderGoesEndToEnd đi hết chuỗi của một đơn hàng chợ:
 //
 //	giữ hàng → đặt đơn → phát event → tách đơn thực hiện → cam kết tồn kho
 //
@@ -511,7 +511,7 @@ func vnd(n int64) money.Money {
 // trong module của nó. Điều cần kiểm chứng là dữ liệu đi qua bốn ranh giới
 // mà không rơi mất và không đổi nghĩa. Tách nhỏ ra thì mỗi mảnh lại phải
 // dựng bản giả cho mảnh kế bên, và bản giả chính là thứ đã che P3-18.
-func TestDonNhieuNhaBanDiHetChuoi(t *testing.T) {
+func TestAMultiSellerOrderGoesEndToEnd(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -587,13 +587,13 @@ func TestDonNhieuNhaBanDiHetChuoi(t *testing.T) {
 	w.drain()
 
 	// ---- Kiểm chứng A: tồn kho chuyển sang CAM KẾT, đúng của từng chủ
-	availP, commP := w.stock(shared, platform)
-	if availP != 98 || commP != 2 {
-		t.Errorf("hàng nền tảng: %d khả dụng / %d cam kết, cần 98/2", availP, commP)
+	availP, commPlatform := w.stock(shared, platform)
+	if availP != 98 || commPlatform != 2 {
+		t.Errorf("hàng nền tảng: %d khả dụng / %d cam kết, cần 98/2", availP, commPlatform)
 	}
-	availS, commS := w.stock(shared, shop)
-	if availS != 47 || commS != 3 {
-		t.Errorf("hàng nhà bán (SKU chung): %d/%d, cần 47/3", availS, commS)
+	availS, commSeller := w.stock(shared, shop)
+	if availS != 47 || commSeller != 3 {
+		t.Errorf("hàng nhà bán (SKU chung): %d/%d, cần 47/3", availS, commSeller)
 	}
 
 	// ---- Kiểm chứng B: HAI đơn thực hiện, mỗi nhà bán một đơn

@@ -10,9 +10,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 )
 
-// datVaGiao dựng một đơn đã đặt xong, trả về mã đơn thực hiện của seller.
-func datVaGiao(
-	t *testing.T, w *world, shop, skuID ids.ID, khoBanDau, muaBaoNhieu int,
+// placeAndDeliver dựng một đơn đã đặt xong, trả về mã đơn thực hiện của seller.
+func placeAndDeliver(
+	t *testing.T, w *world, shop, skuID ids.ID, initialStock, buyQty int,
 ) string {
 	t.Helper()
 	ctx := context.Background()
@@ -20,7 +20,7 @@ func datVaGiao(
 	// Nhập kho dưới CHỦ SỞ HỮU đã suy ra, không phải dưới mã nhà bán:
 	// own brand là seller nội bộ nhưng hàng của nó thuộc nền tảng
 	// (ADR-0012). Nhập nhầm chủ thì offer không tìm thấy hàng.
-	w.stockFor(skuID, w.ownerOf(shop), khoBanDau)
+	w.stockFor(skuID, w.ownerOf(shop), initialStock)
 
 	cartID := ids.MustNew(ids.PrefixCart)
 	w.cart.put(checkoutapp.CartSnapshot{
@@ -29,7 +29,7 @@ func datVaGiao(
 		GuestEmail: "khach@example.com",
 		Currency:   money.VND,
 		Items: []checkoutapp.CartItemSnapshot{
-			line(shop, skuID, 300_000, muaBaoNhieu),
+			line(shop, skuID, 300_000, buyQty),
 		},
 	})
 
@@ -62,7 +62,7 @@ func datVaGiao(
 	return fos[0].ID
 }
 
-// TestHuyDonTraHangVeKho — PH-28.
+// TestCancellingAnOrderReturnsGoodsToStock — PH-28.
 //
 // # Lỗi mà nó chặn
 //
@@ -74,13 +74,13 @@ func datVaGiao(
 // Không lỗi, không log, không cảnh báo. Chỉ phát hiện được khi kiểm kê tay
 // thấy số thực nhiều hơn số hệ thống — và lúc đó không còn lần ra được
 // những đơn nào đã gây ra nó.
-func TestHuyDonTraHangVeKho(t *testing.T) {
+func TestCancellingAnOrderReturnsGoodsToStock(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, shop, skuID, 20, 5)
+	foID := placeAndDeliver(t, w, shop, skuID, 20, 5)
 
 	if avail, commit := w.stock(skuID, shop); avail != 15 || commit != 5 {
 		t.Fatalf("sau khi đặt: %d/%d, cần 15/5", avail, commit)
@@ -101,13 +101,13 @@ func TestHuyDonTraHangVeKho(t *testing.T) {
 	}
 }
 
-// TestHuyDonCuaOwnBrandTraVeKhoNenTang: chủ sở hữu tồn kho suy ra từ nhà
+// TestCancellingAnOwnBrandOrderReturnsPlatformStock: chủ sở hữu tồn kho suy ra từ nhà
 // bán (ADR-0012), nên đường trả hàng cũng phải suy đúng.
 //
 // Nếu handler dùng thẳng `seller_id` làm chủ sở hữu, nó sẽ đi tìm một bản
 // ghi tồn kho không tồn tại, bỏ qua trong im lặng, và hàng của nền tảng
 // vẫn kẹt — đúng lỗi P3-18 lặp lại ở một đường khác.
-func TestHuyDonCuaOwnBrandTraVeKhoNenTang(t *testing.T) {
+func TestCancellingAnOwnBrandOrderReturnsPlatformStock(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -115,7 +115,7 @@ func TestHuyDonCuaOwnBrandTraVeKhoNenTang(t *testing.T) {
 	w.internal[ownBrand] = true
 
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, ownBrand, skuID, 30, 4)
+	foID := placeAndDeliver(t, w, ownBrand, skuID, 30, 4)
 
 	// Hàng nằm dưới own_platform, KHÔNG phải dưới mã seller nội bộ.
 	owner := w.ownerOf(ownBrand)
@@ -135,7 +135,7 @@ func TestHuyDonCuaOwnBrandTraVeKhoNenTang(t *testing.T) {
 	}
 }
 
-// TestHuyLaiKhongTraHangHaiLan: chạy dispatcher thêm nhiều vòng không làm
+// TestRecancellingDoesNotReturnGoodsTwice: chạy dispatcher thêm nhiều vòng không làm
 // hàng quay về hai lần.
 //
 // Hậu quả của việc trả hai lần là hàng KHÔNG CÓ THẬT xuất hiện trong kho,
@@ -146,13 +146,13 @@ func TestHuyDonCuaOwnBrandTraVeKhoNenTang(t *testing.T) {
 // cả khi lấy lại thì `event_processed` cùng trạng thái domain đều chặn.
 // Cơ chế "đúng một lần" của dispatcher có test riêng ở
 // internal/platform/eventbus.
-func TestHuyLaiKhongTraHangHaiLan(t *testing.T) {
+func TestRecancellingDoesNotReturnGoodsTwice(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, shop, skuID, 20, 5)
+	foID := placeAndDeliver(t, w, shop, skuID, 20, 5)
 
 	if err := w.ful.CancelFulfillment(
 		ctx, shop.String(), foID, "khách đổi ý"); err != nil {
@@ -172,7 +172,7 @@ func TestHuyLaiKhongTraHangHaiLan(t *testing.T) {
 	}
 }
 
-// TestHangDangTrenDuongVeThiKHONGTraVeKho — mặt kia của PH-28.
+// TestGoodsInTransitBackAreNotReturnedToStock — mặt kia của PH-28.
 //
 // Domain cho phép DELIVERY_FAILED → CANCELLED: giao thất bại, hàng được
 // chuyển trả về người gửi. Nhưng lúc đó hàng ĐÃ RỜI KHO và đang trên
@@ -183,17 +183,17 @@ func TestHuyLaiKhongTraHangHaiLan(t *testing.T) {
 // khách đầu — và lúc đó không còn lần ra được nguyên nhân.
 //
 // Hàng trả về nhập lại bằng quy trình riêng có bước kiểm tra chất lượng.
-func TestHangDangTrenDuongVeThiKHONGTraVeKho(t *testing.T) {
+func TestGoodsInTransitBackAreNotReturnedToStock(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, shop, skuID, 20, 5)
+	foID := placeAndDeliver(t, w, shop, skuID, 20, 5)
 	seller := shop.String()
 
 	// Đi hết đường tới lúc giao thất bại.
-	for _, buoc := range []struct {
+	for _, step := range []struct {
 		ten string
 		lam func() error
 	}{
@@ -211,15 +211,15 @@ func TestHangDangTrenDuongVeThiKHONGTraVeKho(t *testing.T) {
 			return w.ful.MarkDeliveryFailed(ctx, seller, foID, "khách không nhận máy")
 		}},
 	} {
-		if err := buoc.lam(); err != nil {
-			t.Fatalf("%s: %v", buoc.ten, err)
+		if err := step.lam(); err != nil {
+			t.Fatalf("%s: %v", step.ten, err)
 		}
 	}
 	w.drain()
 
 	// Hàng đã rời kho: Ship() đã trừ khỏi tồn kho vật lý, hoặc vẫn ở
 	// Committed tùy luồng. Ghi lại con số TRƯỚC khi hủy để so.
-	truocAvail, truocCommit := w.stock(skuID, shop)
+	beforeAvail, beforeCommit := w.stock(skuID, shop)
 
 	if err := w.ful.CancelFulfillment(
 		ctx, seller, foID, "trả về người gửi"); err != nil {
@@ -227,10 +227,10 @@ func TestHangDangTrenDuongVeThiKHONGTraVeKho(t *testing.T) {
 	}
 	w.drain()
 
-	sauAvail, sauCommit := w.stock(skuID, shop)
-	if sauAvail != truocAvail || sauCommit != truocCommit {
+	afterAvail, afterCommit := w.stock(skuID, shop)
+	if afterAvail != beforeAvail || afterCommit != beforeCommit {
 		t.Errorf(
 			"tồn kho ĐỔI khi hủy lúc hàng đang trên đường về: %d/%d → %d/%d",
-			truocAvail, truocCommit, sauAvail, sauCommit)
+			beforeAvail, beforeCommit, afterAvail, afterCommit)
 	}
 }

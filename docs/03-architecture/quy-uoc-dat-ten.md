@@ -230,6 +230,50 @@ grep -rn '"<TenCu>"' cmd/           # ghim dạng chuỗi
 grep -rn 'Name != "<TenCu>"' cmd/   # ghim dạng AST
 ```
 
+### `grep -vc '`'` loại CẢ DÒNG, không loại phần trong backtick
+
+Phép đo văn xuôi báo `ban` 0 dòng, nên tôi cho nó vào lượt quét và nó biến
+`// Đặc tả ban đầu ghi 10 ký tự trong khi \`audit.ValidateReason\` cưỡng
+chế` thành `// Đặc tả shop2 đầu …`. Dòng ấy CÓ backtick — ở chỗ khác — nên
+`grep -v '\`'` bỏ luôn cả dòng.
+
+Đo đúng là BỎ PHẦN trong backtick rồi mới đếm:
+
+```python
+cmt.append(re.sub(r'`[^`]*`', '``', line))   # giữ dòng, bỏ phần backtick
+```
+
+Đo lại đúng cách ra: `kho` 131 dòng, `sau` 74, `tham` 40, `duy` 29, `cam`
+19, `khung` 12, `ban` 2.
+
+### `gofmt -r` an toàn với văn xuôi — chỉ lượt QUÉT mới cần loại trừ
+
+Tôi đã loại 40 tên khỏi CẢ hai lượt, nên 40 định danh ấy không được đổi và
+phải làm thêm hai lượt nữa. Danh sách loại trừ thuộc lượt QUÉT CHÚ THÍCH,
+không thuộc lượt `gofmt -r`.
+
+### Phục hồi chuỗi: so với HEAD, đừng áp luật nghịch
+
+Lượt `internal/app` làm hỏng 44 chuỗi. Áp bảng NGHỊCH trong chuỗi thì đổi
+luôn những chuỗi vốn đã tiếng Anh ở HEAD (`"ord-1"` thành `"don-1"`).
+
+Cách đúng là đọc HEAD: với mỗi tệp, so danh sách literal của bản hiện tại
+với bản HEAD theo THỨ TỰ, và phục hồi mọi chỗ khác nhau — trừ chuỗi có nêu
+tên định danh đã đổi. Số literal phải khớp; không khớp thì bỏ qua tệp ấy và
+đọc tay.
+
+### Chỗ thứ TƯ sổ gác ghim tên định danh
+
+```text
+cmd/apicheck/enum_cap.go     "TrangThaiDoiSoat"   tên KIỂU
+cmd/apicheck/dto_cap.go      "sellerFOJSON"       tên KIỂU
+cmd/apicheck/header.go       "HeaderChoPhep"      tên BIẾN, đọc bằng AST
+cmd/eventcheck/bo_ben_nhan.go "dangKyBenNhan"     tên HÀM trong tệp TEST
+```
+
+Cái thứ tư gác một hàm của `internal/app/api_ledger_test.go`. `make check`
+đỏ kèm câu "đổi tên hàm thì phải sửa cả công cụ này".
+
 ### Chuỗi CÓ KHI phải đổi: phân biệt bằng backtick
 
 Ba công cụ kiểm nhúng tên sổ gác vào thông báo lỗi, để người đọc lỗi biết
@@ -639,7 +683,10 @@ XONG   internal/kernel                  45   (ids, money, types)
 XONG   internal/platform               222   (13 gói, hai lượt)
 XONG   cmd (worker, dotai, doisoat*, tao*)  151
 XONG   cmd (apicheck, archcheck, eventcheck) 252  — HẾT cmd
-CÒN    internal/e2e 105 · internal/app 57
+XONG   internal/e2e                    120
+XONG   internal/app                    555   (ba lượt)
+HẾT    Bộ lọc tiếng Việt trả về RỖNG trên toàn repo.
+       7934 định danh, không còn tên tiếng Việt nào.
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

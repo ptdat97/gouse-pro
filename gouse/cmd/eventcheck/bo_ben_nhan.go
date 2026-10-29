@@ -13,7 +13,7 @@ import (
 //
 // # Vì sao quy tắc này tồn tại
 //
-// `internal/app/api_ledger_test.go` có `dangKyBenNhan`, và chú thích của nó
+// `internal/app/api_ledger_test.go` có `registerReceivers`, và chú thích của nó
 // nói rõ mục đích: *"bộ bên nhận chuẩn, dùng chung cho mọi bài test cần phát
 // event, để KHÔNG CÓ BÀI NÀO chạy với bộ bên nhận khác production"*.
 //
@@ -70,7 +70,7 @@ const (
 	// CHỈ hàm này, không phải cả file: `phatEvent` và các bài test khác cũng
 	// gọi `bus.Subscribe` cho những bên nhận riêng của chúng, và gộp vào sẽ
 	// làm sổ miễn trừ vô nghĩa.
-	testSetFunc = "dangKyBenNhan"
+	testSetFunc = "registerReceivers"
 )
 
 // compareReceiverSets thực thi R4.

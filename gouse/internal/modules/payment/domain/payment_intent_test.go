@@ -119,8 +119,8 @@ func TestADuplicateWebhookDoesNotCaptureTwice(t *testing.T) {
 	firstMark := p.CapturedAt()
 
 	// Gửi lại ĐÚNG số tiền: không lỗi, và không đổi mốc thu tiền.
-	sau := fixedTime.Add(time.Hour)
-	if err := p.MatchAndCapture(vnd(628_000), "psp", "pi_x", sau); err != nil {
+	after := fixedTime.Add(time.Hour)
+	if err := p.MatchAndCapture(vnd(628_000), "psp", "pi_x", after); err != nil {
 		t.Fatalf("gửi trùng bị báo lỗi: %v — nhà cung cấp sẽ gửi lại mãi", err)
 	}
 	if !p.CapturedAt().Equal(firstMark) {
@@ -128,7 +128,7 @@ func TestADuplicateWebhookDoesNotCaptureTwice(t *testing.T) {
 	}
 
 	// Gửi lại với số tiền KHÁC: phải từ chối.
-	if err := p.MatchAndCapture(vnd(999_000), "psp", "pi_x", sau); !errors.Is(
+	if err := p.MatchAndCapture(vnd(999_000), "psp", "pi_x", after); !errors.Is(
 		err, domain.ErrAmountMismatch) {
 		t.Fatalf("lỗi = %v, mong ErrAmountMismatch — gửi lại với số tiền "+
 			"khác là dấu hiệu xấu, không phải bản trùng vô hại", err)

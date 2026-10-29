@@ -238,9 +238,9 @@ func Build(
 		// Khóa mã hóa có thể rỗng khi phát triển: module vẫn khởi tạo,
 		// nhưng mọi hồ sơ đăng ký kèm tài khoản ngân hàng sẽ bị TỪ CHỐI.
 		// Thà không nhận còn hơn lưu số tài khoản ở dạng rõ.
-		var boMaHoa *privacy.Cipher
+		var cipher *privacy.Cipher
 		if cfg.Auth.EncryptionKey != "" {
-			boMaHoa, err = privacy.NewCipher(cfg.Auth.EncryptionKey)
+			cipher, err = privacy.NewCipher(cfg.Auth.EncryptionKey)
 			if err != nil {
 				return Modules{}, fmt.Errorf("app: khóa mã hóa: %w", err)
 			}
@@ -250,7 +250,7 @@ func Build(
 			Storage:   "postgres",
 			DB:        db,
 			Audit:     auditRecorder,
-			Encrypted: boMaHoa,
+			Encrypted: cipher,
 			OpsConfig: opsConfigStore,
 		})
 		if err != nil {
@@ -363,11 +363,11 @@ func Build(
 					}
 					return v.Email, nil
 				},
-				Consent: func(ctx context.Context, customerID, loai string) (bool, error) {
+				Consent: func(ctx context.Context, customerID, kind string) (bool, error) {
 					if customerModule == nil {
 						return false, nil
 					}
-					return customerModule.HasConsent(ctx, customerID, loai)
+					return customerModule.HasConsent(ctx, customerID, kind)
 				},
 			},
 		})
@@ -385,7 +385,7 @@ func Build(
 
 			// Notifier để gửi thư XÁC MINH EMAIL (P3-15) — bước mở đường
 			// gộp lịch sử đơn vãng lai.
-			Notifier: &guiXacMinhEmail{api: notificationModule},
+			Notifier: &sendEmailVerification{api: notificationModule},
 
 			// Orders để CHUYỂN CHỦ các đơn vãng lai sau khi xác minh.
 			// Đây mới là chỗ giữ lịch sử mua hàng của khách vãng lai.
@@ -541,13 +541,13 @@ func Build(
 		//
 		// Khác 0 nghĩa là có đơn hàng với phiên chưa đóng: cần đối soát,
 		// không phải chờ nó tự khỏi.
-		ketLai, err := checkoutModule.CountStuckCompletions(ctx)
+		stuck, err := checkoutModule.CountStuckCompletions(ctx)
 		if err != nil {
 			return Modules{}, fmt.Errorf("kiểm tra phiên kẹt sau khi tạo đơn: %w", err)
 		}
-		if ketLai > 0 {
+		if stuck > 0 {
 			log.Error("CÓ PHIÊN ĐÃ TẠO ĐƠN NHƯNG CHƯA HOÀN TẤT",
-				"số_lượng", ketLai,
+				"số_lượng", stuck,
 				"hệ_quả", "hàng của các đơn này đang bị giữ và không tự nhả")
 		}
 		// Chỉ báo giám sát: event chưa phát và event đã bỏ cuộc.
@@ -677,7 +677,7 @@ func Build(
 	// Tới 01/10/2026 nó KHÔNG có trong `Modules`, nên bộ bên nhận của test
 	// thiếu `supplychain.NewSignalHandler` và bánh đà dữ liệu hành vi →
 	// sản xuất không có bài test nào đi qua. Chú thích cũ của
-	// `dangKyBenNhan` đã ghi khoảng trống ấy, nhưng "đã ghi" không phải
+	// `registerReceivers` đã ghi khoảng trống ấy, nhưng "đã ghi" không phải
 	// "đã gác" — xem P3-90.
 	//
 	// Nó KHÔNG đăng ký route nào: màn hình lập kế hoạch sản xuất là Phase 3.
@@ -868,7 +868,7 @@ func RegisterRoutes(
 		productMux, sizeSuggestionFrom(m.recommendation), log)
 	{
 		chain := []httpserver.Middleware{
-			httpserver.ResolveShopperReadOnly(khachTu(m.customer)),
+			httpserver.ResolveShopperReadOnly(customerFrom(m.customer)),
 		}
 		if identityModule != nil {
 			chain = append([]httpserver.Middleware{
@@ -958,7 +958,7 @@ func RegisterRoutes(
 
 		mux.Handle("POST /api/v1/auth/login", httpserver.Chain(
 			authMux,
-			httpserver.RateLimitFailures(loginLimit, loginWindow, laDangNhapHong),
+			httpserver.RateLimitFailures(loginLimit, loginWindow, isBadLogin),
 		))
 		mux.Handle("POST /api/v1/auth/refresh", authMux)
 		mux.Handle("POST /api/v1/auth/logout", authMux)
@@ -1170,7 +1170,7 @@ func RegisterRoutes(
 		// chính họ — hai thứ middleware của ta không biết cách kiểm.
 		if m.fulfillment != nil {
 			m.fulfillment.RegisterWebhookRoutes(mux,
-				&ghiSuKien{r: webhook.NewRecorder(db.Pool())},
+				&webhookLog{r: webhook.NewRecorder(db.Pool())},
 				biMatWebhook(cfg.Auth.WebhookSecrets), log)
 		}
 
@@ -1182,12 +1182,12 @@ func RegisterRoutes(
 		// Thiếu order thì endpoint sẽ nhận tiền mà không cập nhật được gì
 		// — thà không mở còn hơn (ADR-0017).
 		if m.payment != nil && m.order != nil {
-			donHang := m.order
+			placedOrder := m.order
 			m.payment.RegisterWebhookRoutes(mux,
-				&ghiSuKienThanhToan{r: webhook.NewRecorder(db.Pool())},
-				biMatWebhookThanhToan(cfg.Auth.WebhookSecrets),
+				&paymentWebhookLog{r: webhook.NewRecorder(db.Pool())},
+				paymentWebhookSecret(cfg.Auth.WebhookSecrets),
 				func(ctx context.Context, orderID string) error {
-					return donHang.MarkOrderPaid(ctx, orderID)
+					return placedOrder.MarkOrderPaid(ctx, orderID)
 				},
 				log)
 		}

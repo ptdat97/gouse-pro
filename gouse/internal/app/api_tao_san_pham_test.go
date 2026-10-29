@@ -32,14 +32,14 @@ import (
 // Hai trong ba lỗi chỉ tồn tại ở ĐƯỜNG DÂY: một ở tầng dịch lỗi HTTP, một
 // ở tầng lưu trữ Postgres. Gọi thẳng application thì cả hai biến mất, và
 // bài test sẽ xanh trong lúc endpoint vẫn trả 500.
-func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
+func TestCreatingAProductReports400Not500(t *testing.T) {
 	a := newAPITest(t)
-	nb := dungNhaBan(t, a, "taosp"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	nb := buildSeller(t, a, "taosp"+ids.MustNew(ids.PrefixRequest).String()[24:])
 
-	brandID := a.thuongHieuMo(t)
-	catID := a.mauDanhMuc(t)
+	brandID := a.openBrand(t)
+	catID := a.catalogSample(t)
 
-	than := func(slug string, them map[string]any) map[string]any {
+	than := func(slug string, add map[string]any) map[string]any {
 		b := map[string]any{
 			"brand_id":      brandID,
 			"category_id":   catID,
@@ -48,24 +48,24 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 			"product_type":  "TOP",
 			"gender_target": "UNISEX",
 		}
-		for k, v := range them {
+		for k, v := range add {
 			b[k] = v
 		}
 		return b
 	}
-	tao := func(b map[string]any) reply {
-		h := khoaIdem()
+	create := func(b map[string]any) reply {
+		h := idemKey()
 		h["Authorization"] = "Bearer " + nb.token
 		return a.call(http.MethodPost, "/api/v1/seller/products", b, h)
 	}
 
-	duy := ids.MustNew(ids.PrefixRequest).String()[20:]
+	unique := ids.MustNew(ids.PrefixRequest).String()[20:]
 
 	t.Run("thiếu danh mục là 400, không phải 500", func(t *testing.T) {
-		b := than("thieu-danh-muc-"+duy, nil)
+		b := than("thieu-danh-muc-"+unique, nil)
 		delete(b, "category_id")
 
-		res := tao(b)
+		res := create(b)
 		if res.code == http.StatusInternalServerError {
 			t.Fatalf("thiếu category_id trả 500 — người dùng được bảo "+
 				"\"thử lại\", mà thử lại y hệt sẽ hỏng y hệt: %s", res.raw)
@@ -78,7 +78,7 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 		// Bản đầu của bài này chỉ đòi 400 và nó XANH trong khi request
 		// hỏng vì thiếu `Idempotency-Key` — một lỗi hoàn toàn khác. Một
 		// bài test xanh vì nhầm lý do còn tệ hơn không có bài test.
-		if msg := loiMessage(res); !strings.Contains(msg, "danh mục") {
+		if msg := errMessage(res); !strings.Contains(msg, "danh mục") {
 			t.Errorf("400 nhưng không phải vì thiếu danh mục: %q", msg)
 		}
 	})
@@ -88,13 +88,13 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 	// không thấy và tầng HTTP không nhận ra. Cả hai từng trả 500 trong lúc
 	// hàng rào báo xanh. Xem TestDomainCreatesNoAdHocErrors.
 	for _, ca := range []struct {
-		ten, truong, giaTri string
+		ten, field, value string
 	}{
 		{"loại sản phẩm lạ", "product_type", "XYZ"},
 		{"đối tượng khách lạ", "gender_target", "ALIENS"},
 	} {
 		t.Run(ca.ten+" là 400, không phải 500", func(t *testing.T) {
-			res := tao(than("la-"+ca.truong+"-"+duy, map[string]any{ca.truong: ca.giaTri}))
+			res := create(than("la-"+ca.field+"-"+unique, map[string]any{ca.field: ca.value}))
 			if res.code != http.StatusBadRequest {
 				t.Fatalf("mong 400, nhận %d: %s", res.code, res.raw)
 			}
@@ -105,7 +105,7 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 	// được — không có khóa ngoại vì danh mục thuộc module khác — và sản
 	// phẩm ấy không bao giờ hiện dưới danh mục nào ở cửa hàng.
 	t.Run("danh mục không tồn tại là 400", func(t *testing.T) {
-		res := tao(than("dm-rac-"+duy, map[string]any{
+		res := create(than("dm-rac-"+unique, map[string]any{
 			"category_id": ids.MustNew(ids.PrefixCategory).String(),
 		}))
 		if res.code != http.StatusBadRequest {
@@ -116,7 +116,7 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 	t.Run("KHÔNG kèm ảnh vẫn tạo được nháp", func(t *testing.T) {
 		// Tạo nháp rồi bổ sung ảnh sau là cách làm BÌNH THƯỜNG, và miền
 		// cho phép: điều kiện "phải có ảnh" chỉ bật lúc GỬI DUYỆT.
-		res := tao(than("nhap-khong-anh-"+duy, nil))
+		res := create(than("nhap-khong-anh-"+unique, nil))
 		if res.code != http.StatusCreated {
 			t.Fatalf("mong 201, nhận %d: %s", res.code, res.raw)
 		}
@@ -126,17 +126,17 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 	})
 
 	t.Run("trùng slug là 409 kèm việc cần làm", func(t *testing.T) {
-		slug := "trung-slug-" + duy
-		if res := tao(than(slug, nil)); res.code != http.StatusCreated {
+		slug := "trung-slug-" + unique
+		if res := create(than(slug, nil)); res.code != http.StatusCreated {
 			t.Fatalf("lần tạo đầu: %d — %s", res.code, res.raw)
 		}
 
-		res := tao(than(slug, map[string]any{"name": "Trùng"}))
+		res := create(than(slug, map[string]any{"name": "Trùng"}))
 		if res.code != http.StatusConflict {
 			t.Fatalf("mong 409, nhận %d: %s", res.code, res.raw)
 		}
 		// Thông điệp phải nói ĐỔI GÌ. "Xung đột" là đúng mà vô dụng.
-		if msg := loiMessage(res); msg == "" {
+		if msg := errMessage(res); msg == "" {
 			t.Error("409 không kèm thông điệp nào")
 		}
 	})
@@ -146,20 +146,20 @@ func TestTaoSanPhamBaoLOI400ChuKhongPhai500(t *testing.T) {
 //
 // Bài trên nới lỏng phản hồi lỗi; bài này canh cho việc nới lỏng ấy không
 // vô tình mở cửa cho gian hàng đăng bán dưới thương hiệu của người khác.
-func TestNhaBanKhongDangDuocDuoiThuongHieuBiHanChe(t *testing.T) {
+func TestASellerCannotPublishUnderARestrictedBrand(t *testing.T) {
 	a := newAPITest(t)
-	nb := dungNhaBan(t, a, "gia"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	nb := buildSeller(t, a, "gia"+ids.MustNew(ids.PrefixRequest).String()[24:])
 
-	hanChe := a.thuongHieuHanChe(t)
-	if hanChe == "" {
+	restricted := a.restrictedBrand(t)
+	if restricted == "" {
 		t.Skip("dữ liệu test không có thương hiệu RESTRICTED")
 	}
 
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + nb.token
 	res := a.call(http.MethodPost, "/api/v1/seller/products", map[string]any{
-		"brand_id":      hanChe,
-		"category_id":   a.mauDanhMuc(t),
+		"brand_id":      restricted,
+		"category_id":   a.catalogSample(t),
 		"name":          "Hàng giả",
 		"slug":          "hang-gia-" + ids.MustNew(ids.PrefixRequest).String()[20:],
 		"product_type":  "TOP",
@@ -172,23 +172,23 @@ func TestNhaBanKhongDangDuocDuoiThuongHieuBiHanChe(t *testing.T) {
 	}
 }
 
-func loiMessage(res reply) string {
+func errMessage(res reply) string {
 	e, _ := res.body["error"].(map[string]any)
 	m, _ := e["message"].(string)
 	return m
 }
 
-// thuongHieuMo tìm một thương hiệu ai cũng bán được.
-func (a *apiTest) thuongHieuMo(t *testing.T) string {
+// openBrand tìm một thương hiệu ai cũng bán được.
+func (a *apiTest) openBrand(t *testing.T) string {
 	t.Helper()
-	return a.motDong(t,
+	return a.oneRow(t,
 		`SELECT id FROM brand WHERE protection_level = 'OPEN'
 		   AND status = 'ACTIVE' LIMIT 1`,
 		"không có thương hiệu OPEN nào trong dữ liệu test")
 }
 
-// thuongHieuHanChe tìm một thương hiệu chỉ chủ sở hữu được bán.
-func (a *apiTest) thuongHieuHanChe(t *testing.T) string {
+// restrictedBrand tìm một thương hiệu chỉ chủ sở hữu được bán.
+func (a *apiTest) restrictedBrand(t *testing.T) string {
 	t.Helper()
 	var id string
 	_ = a.db.Pool().QueryRow(context.Background(),
@@ -197,17 +197,17 @@ func (a *apiTest) thuongHieuHanChe(t *testing.T) string {
 	return id
 }
 
-func (a *apiTest) mauDanhMuc(t *testing.T) string {
+func (a *apiTest) catalogSample(t *testing.T) string {
 	t.Helper()
-	return a.motDong(t, `SELECT id FROM category LIMIT 1`,
+	return a.oneRow(t, `SELECT id FROM category LIMIT 1`,
 		"không có danh mục nào trong dữ liệu test")
 }
 
-func (a *apiTest) motDong(t *testing.T, sql, khiTrong string) string {
+func (a *apiTest) oneRow(t *testing.T, sql, whenEmpty string) string {
 	t.Helper()
 	var id string
 	if err := a.db.Pool().QueryRow(context.Background(), sql).Scan(&id); err != nil {
-		t.Fatalf("%s: %v", khiTrong, err)
+		t.Fatalf("%s: %v", whenEmpty, err)
 	}
 	return id
 }

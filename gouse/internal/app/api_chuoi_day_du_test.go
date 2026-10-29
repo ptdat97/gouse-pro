@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestChuoiDayDuTraTruoc là P3-3: Product → Offer → Cart → Checkout →
+// TestTheFullPrepaidChain là P3-3: Product → Offer → Cart → Checkout →
 // Order → Payment → Fulfillment, đi HẾT trong một bài, qua HTTP thật.
 //
 // # Vì sao bài này trước nay KHÔNG viết được
@@ -26,101 +26,101 @@ import (
 //
 // Bài này khẳng định TRẠNG THÁI TIỀN ở từng chặng, không chỉ mã HTTP —
 // một chuỗi trả 200 ở mọi bước vẫn có thể ghi sai sổ ở bước thứ tư.
-func TestChuoiDayDuTraTruoc(t *testing.T) {
+func TestTheFullPrepaidChain(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
 	// ---- Product → Offer → Cart → Checkout → Order ----
-	maDon, tong := a.donTraTruoc(t, emailMoi("chuoi"), "0900777111")
+	orderID, tong := a.prepaidOrder(t, newEmail("chuoi"), "0900777111")
 
-	if tt := a.trangThaiDon(t, maDon); tt != "PENDING_PAYMENT" {
+	if tt := a.orderStatus(t, orderID); tt != "PENDING_PAYMENT" {
 		t.Fatalf("sau khi đặt: trạng thái = %q, cần PENDING_PAYMENT", tt)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
 	// Đơn thực hiện đã tạo, nhưng KHÓA — tiền chưa về (ADR-0018 A2).
-	foID, sellerID := a.donThucHienCuaDon(t, maDon)
-	if !a.dangKhoaChoThanhToan(t, foID) {
+	foID, sellerID := a.fulfillmentOfOrder(t, orderID)
+	if !a.lockedAwaitingPayment(t, foID) {
 		t.Fatal("đơn thực hiện của đơn TRẢ TRƯỚC phải bị khóa chờ thanh toán")
 	}
 
 	// Sổ cái: KHÁCH NỢ, chưa có đồng tiền mặt nào (ADR-0018 B1).
-	if tien, phaiThu := a.soDuSoCai(t, maDon); tien != 0 || phaiThu <= 0 {
+	if cash, receivable := a.ledgerBalance(t, orderID); cash != 0 || receivable <= 0 {
 		t.Errorf("sau khi đặt: tiền mặt = %d (cần 0), phải thu = %d (cần > 0)",
-			tien, phaiThu)
+			cash, receivable)
 	}
 
 	// Nhà bán CHƯA được giao hàng.
-	tokNB := a.taoTokenNhaBan(t, sellerID)
+	tokNB := a.createSellerToken(t, sellerID)
 	res := a.call(http.MethodPost,
 		"/api/v1/seller/fulfillment-orders/"+foID+"/ship",
 		map[string]any{"shipping_provider": "GHN", "tracking_number": "GHN-CHUOI-1"},
-		hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokNB}))
+		merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokNB}))
 	if res.code < 400 {
 		t.Fatalf("nhà bán GIAO ĐƯỢC hàng khi tiền chưa về: HTTP %d — %s",
 			res.code, res.raw)
 	}
 
 	// ---- Payment: webhook của cổng thanh toán ----
-	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
+	whRes := a.callPaymentWebhook(t, "cong-tt", map[string]any{
 		"event_id":   "evt_chuoi_day_du_1",
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
 			"payment_intent_id": "pi_chuoi_1",
 			"amount":            tong,
 			"currency":          "VND",
-			"metadata":          map[string]any{"order_id": maDon},
+			"metadata":          map[string]any{"order_id": orderID},
 		},
-	}, biMatCongTT)
+	}, paymentGatewaySecret)
 	if whRes.code != http.StatusOK {
 		t.Fatalf("webhook thanh toán: HTTP %d — %s", whRes.code, whRes.raw)
 	}
-	if tt := a.trangThaiDon(t, maDon); tt != "PAID" {
+	if tt := a.orderStatus(t, orderID); tt != "PAID" {
 		t.Fatalf("sau webhook: trạng thái = %q, cần PAID", tt)
 	}
 
 	// `order.paid` đi qua outbox tới hai bên nhận.
-	a.phatEvent(t)
+	a.emitEvent(t)
 
 	// ---- Fulfillment: nay mới được giao ----
-	if a.dangKhoaChoThanhToan(t, foID) {
+	if a.lockedAwaitingPayment(t, foID) {
 		t.Fatal("thu tiền xong mà đơn thực hiện vẫn bị khóa")
 	}
 
 	// Sổ cái: khoản phải thu đã thành TIỀN MẶT.
-	tien, phaiThu := a.soDuSoCai(t, maDon)
-	if phaiThu != 0 {
-		t.Errorf("sau khi thu tiền: phải thu = %d, cần 0", phaiThu)
+	cash, receivable := a.ledgerBalance(t, orderID)
+	if receivable != 0 {
+		t.Errorf("sau khi thu tiền: phải thu = %d, cần 0", receivable)
 	}
-	if tien != int64(tong) {
-		t.Errorf("tiền mặt = %d, cần %d — đúng số tiền đã thu", tien, tong)
+	if cash != int64(tong) {
+		t.Errorf("tiền mặt = %d, cần %d — đúng số tiền đã thu", cash, tong)
 	}
 
 	res = a.call(http.MethodPost,
 		"/api/v1/seller/fulfillment-orders/"+foID+"/ship",
 		map[string]any{"shipping_provider": "GHN", "tracking_number": "GHN-CHUOI-1"},
-		hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokNB}))
+		merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokNB}))
 	if res.code != http.StatusOK {
 		t.Fatalf("bàn giao vận chuyển: HTTP %d — %s", res.code, res.raw)
 	}
 
 	res = a.call(http.MethodPost,
 		"/api/v1/seller/fulfillment-orders/"+foID+"/deliver", nil,
-		hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokNB}))
+		merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokNB}))
 	if res.code != http.StatusOK {
 		t.Fatalf("giao hàng: HTTP %d — %s", res.code, res.raw)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
 	// ---- Kết: đơn đã giao, tiền đã thu, sổ cân ----
-	var trangThaiFO string
+	var foStatus string
 	if err := a.db.Pool().QueryRow(ctx,
 		`SELECT status FROM fulfillment_order WHERE id = $1`, foID,
-	).Scan(&trangThaiFO); err != nil {
+	).Scan(&foStatus); err != nil {
 		t.Fatalf("đọc trạng thái đơn thực hiện: %v", err)
 	}
-	if trangThaiFO != "DELIVERED" {
-		t.Errorf("đơn thực hiện = %q, cần DELIVERED", trangThaiFO)
+	if foStatus != "DELIVERED" {
+		t.Errorf("đơn thực hiện = %q, cần DELIVERED", foStatus)
 	}
 
 	// Bất biến cuối cùng của mọi sổ kép: Σ NỢ = Σ CÓ.
@@ -130,7 +130,7 @@ func TestChuoiDayDuTraTruoc(t *testing.T) {
 		       COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'CREDIT'), 0)
 		  FROM ledger_line  l
 		  JOIN ledger_entry e ON e.id = l.entry_id
-		 WHERE e.reference_id = $1`, maDon).Scan(&no, &co); err != nil {
+		 WHERE e.reference_id = $1`, orderID).Scan(&no, &co); err != nil {
 		t.Fatalf("đọc sổ cái: %v", err)
 	}
 	if no != co {
@@ -138,8 +138,8 @@ func TestChuoiDayDuTraTruoc(t *testing.T) {
 	}
 }
 
-// donThucHienCuaDon trả đơn thực hiện đầu tiên của một đơn hàng.
-func (a *apiTest) donThucHienCuaDon(t *testing.T, orderID string) (foID, sellerID string) {
+// fulfillmentOfOrder trả đơn thực hiện đầu tiên của một đơn hàng.
+func (a *apiTest) fulfillmentOfOrder(t *testing.T, orderID string) (foID, sellerID string) {
 	t.Helper()
 	if err := a.db.Pool().QueryRow(context.Background(),
 		`SELECT id, seller_id FROM fulfillment_order WHERE order_id = $1
@@ -149,23 +149,23 @@ func (a *apiTest) donThucHienCuaDon(t *testing.T, orderID string) (foID, sellerI
 	return foID, sellerID
 }
 
-func (a *apiTest) dangKhoaChoThanhToan(t *testing.T, foID string) bool {
+func (a *apiTest) lockedAwaitingPayment(t *testing.T, foID string) bool {
 	t.Helper()
-	var khoa bool
+	var key bool
 	if err := a.db.Pool().QueryRow(context.Background(),
 		`SELECT cho_thanh_toan FROM fulfillment_order WHERE id = $1`,
-		foID).Scan(&khoa); err != nil {
+		foID).Scan(&key); err != nil {
 		t.Fatalf("đọc cờ chờ thanh toán: %v", err)
 	}
-	return khoa
+	return key
 }
 
-// soDuSoCai trả số dư PLATFORM_CASH và ACCOUNTS_RECEIVABLE CỦA MỘT ĐƠN.
+// ledgerBalance trả số dư PLATFORM_CASH và ACCOUNTS_RECEIVABLE CỦA MỘT ĐƠN.
 //
 // Lọc theo `reference_id`, không cộng cả bảng: các bài khác trong gói dùng
 // chung database, nên một phép cộng toàn cục xanh khi chạy riêng và đỏ khi
 // chạy cả gói — đúng kiểu test chập chờn mà P3-2 đã dọn một lần.
-func (a *apiTest) soDuSoCai(t *testing.T, orderID string) (tienMat, phaiThu int64) {
+func (a *apiTest) ledgerBalance(t *testing.T, orderID string) (cash, receivable int64) {
 	t.Helper()
 	rows, err := a.db.Pool().Query(context.Background(), `
 		SELECT l.account_type,
@@ -187,15 +187,15 @@ func (a *apiTest) soDuSoCai(t *testing.T, orderID string) (tienMat, phaiThu int6
 			t.Fatalf("đọc số dư: %v", err)
 		}
 		if acc == "PLATFORM_CASH" {
-			tienMat = v
+			cash = v
 		} else {
-			phaiThu = v
+			receivable = v
 		}
 	}
-	return tienMat, phaiThu
+	return cash, receivable
 }
 
-// TestChuoiDayDuCoGiamGia — cùng chuỗi, nhưng đơn CÓ mã giảm giá.
+// TestTheFullChainWithADiscount — cùng chuỗi, nhưng đơn CÓ mã giảm giá.
 //
 // # Vì sao tách thành bài riêng
 //
@@ -207,91 +207,91 @@ func (a *apiTest) soDuSoCai(t *testing.T, orderID string) (tienMat, phaiThu int6
 // ai đòi.
 //
 // Đây chính là mục "còn mở" mà bài chuỗi đầu tiên ghi lại.
-func TestChuoiDayDuCoGiamGia(t *testing.T) {
+func TestTheFullChainWithADiscount(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
 	const ma = "CHUOIGIAM10"
-	a.dungMaGiamGia(t, ma, 1000) // giảm 10%
+	a.buildCoupon(t, ma, 1000) // giảm 10%
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id": maGio, "guest_email": emailMoi("chuoigiam"),
+		"cart_id": cartID, "guest_email": newEmail("chuoigiam"),
 		"guest_phone": "0900777222",
-	}, khoaIdem())
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	if got := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/coupon",
-		map[string]any{"code": ma}, khoaIdem()); got.code != http.StatusOK {
+	if got := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
+		map[string]any{"code": ma}, idemKey()); got.code != http.StatusOK {
 		t.Fatalf("áp mã: HTTP %d — %s", got.code, got.raw)
 	}
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
 			"recipient_name": "Khách Giảm", "phone": "0900777222",
 			"street_address": "1 Đường Thử", "ward": "P1",
 			"district": "Q1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+		}, idemKey())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey())
 
-	res = a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "CARD"}, khoaIdem())
+	res = a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "CARD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	tong, _ := don["total"].(map[string]any)
-	soTien := int64(tong["amount"].(float64))
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
+	tong, _ := ord["total"].(map[string]any)
+	amount := int64(tong["amount"].(float64))
 
-	a.phatEvent(t)
+	a.emitEvent(t)
 
 	// Khoản phải thu phải bằng ĐÚNG số khách sẽ trả — không hơn.
-	_, phaiThu := a.soDuSoCai(t, maDon)
-	if phaiThu != soTien {
+	_, receivable := a.ledgerBalance(t, orderID)
+	if receivable != amount {
 		t.Errorf("khoản phải thu = %d nhưng khách chỉ trả %d — lệch %d, "+
 			"đúng bằng phần giảm giá không được ghi sổ",
-			phaiThu, soTien, phaiThu-soTien)
+			receivable, amount, receivable-amount)
 	}
 
 	// Thu tiền.
-	whRes := a.goiWebhookThanhToan(t, "cong-tt", map[string]any{
+	whRes := a.callPaymentWebhook(t, "cong-tt", map[string]any{
 		"event_id":   "evt_chuoi_giam_1",
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
 			"payment_intent_id": "pi_chuoi_giam",
-			"amount":            soTien,
+			"amount":            amount,
 			"currency":          "VND",
-			"metadata":          map[string]any{"order_id": maDon},
+			"metadata":          map[string]any{"order_id": orderID},
 		},
-	}, biMatCongTT)
+	}, paymentGatewaySecret)
 	if whRes.code != http.StatusOK {
 		t.Fatalf("webhook: HTTP %d — %s", whRes.code, whRes.raw)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	tien, phaiThu := a.soDuSoCai(t, maDon)
-	if phaiThu != 0 {
+	cash, receivable := a.ledgerBalance(t, orderID)
+	if receivable != 0 {
 		t.Errorf("sau khi thu tiền: phải thu = %d, cần 0 — khách còn 'nợ' "+
-			"một khoản không ai đòi", phaiThu)
+			"một khoản không ai đòi", receivable)
 	}
-	if tien != soTien {
-		t.Errorf("tiền mặt = %d, cần %d", tien, soTien)
+	if cash != amount {
+		t.Errorf("tiền mặt = %d, cần %d", cash, amount)
 	}
 
 	var no, co int64
@@ -300,7 +300,7 @@ func TestChuoiDayDuCoGiamGia(t *testing.T) {
 		       COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'CREDIT'), 0)
 		  FROM ledger_line  l
 		  JOIN ledger_entry e ON e.id = l.entry_id
-		 WHERE e.reference_id = $1`, maDon).Scan(&no, &co); err != nil {
+		 WHERE e.reference_id = $1`, orderID).Scan(&no, &co); err != nil {
 		t.Fatalf("đọc sổ cái: %v", err)
 	}
 	if no != co {

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// dungNhieuDon tạo `n` đơn cho MỘT khách rồi đặt trạng thái XEN KẼ theo
+// buildOrders tạo `n` đơn cho MỘT khách rồi đặt trạng thái XEN KẼ theo
 // đúng thứ tự mà API trả về.
 //
 // Xen kẽ là điều kiện sống còn của mấy bài dưới, không phải chi tiết trang
@@ -22,28 +22,28 @@ import (
 //
 // Trả về token và trạng thái của nhóm đơn KHÔNG bị huỷ, để bài test lọc
 // theo trạng thái có thật thay vì một chuỗi đoán mò.
-func (a *apiTest) dungNhieuDon(t *testing.T, n int) (string, string) {
+func (a *apiTest) buildOrders(t *testing.T, n int) (string, string) {
 	t.Helper()
-	d := a.dungNhieuDonCoEmail(t, n)
-	return d.token, d.trangThaiConLai
+	d := a.buildOrdersWithEmail(t, n)
+	return d.token, d.remainingStatuses
 }
 
-// donDaDung gom những gì bài test cần sau khi dựng dữ liệu. Trả struct thay
+// builtOrder gom những gì bài test cần sau khi dựng dữ liệu. Trả struct thay
 // vì bốn giá trị trần: `(string, string, string, string)` thì đổi chỗ hai
 // tham số là lỗi âm thầm, trình biên dịch không bắt được.
-type donDaDung struct {
-	token           string
-	email           string
-	maKhach         string
-	trangThaiConLai string
+type builtOrder struct {
+	token             string
+	email             string
+	custID            string
+	remainingStatuses string
 }
 
-func (a *apiTest) dungNhieuDonCoEmail(t *testing.T, n int) donDaDung {
+func (a *apiTest) buildOrdersWithEmail(t *testing.T, n int) builtOrder {
 	t.Helper()
 	ctx := context.Background()
 
-	email := emailMoi("locdon")
-	tok := a.dangKyVaDangNhap(email)
+	email := newEmail("locdon")
+	tok := a.registerAndLogIn(email)
 
 	var customerID string
 	if err := a.db.Pool().QueryRow(ctx,
@@ -53,9 +53,9 @@ func (a *apiTest) dungNhieuDonCoEmail(t *testing.T, n int) donDaDung {
 	}
 
 	for i := 0; i < n; i++ {
-		maPhien := a.dungPhienSanHoanTat(email, "0900444555")
-		res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-			map[string]any{"payment_method": "COD"}, khoaIdem())
+		checkoutID := a.buildCheckoutReadyToComplete(email, "0900444555")
+		res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+			map[string]any{"payment_method": "COD"}, idemKey())
 		if res.code != http.StatusCreated && res.code != http.StatusOK {
 			t.Fatalf("hoàn tất đơn %d: HTTP %d — %s", i, res.code, res.raw)
 		}
@@ -91,27 +91,27 @@ func (a *apiTest) dungNhieuDonCoEmail(t *testing.T, n int) donDaDung {
 
 	// Chống test rỗng ruột: nếu dữ liệu không có ĐỦ HAI trạng thái thì mọi
 	// khẳng định bên dưới đều đúng một cách vô nghĩa.
-	var conLai string
-	var soHuy, soConLai int
+	var left string
+	var cancelCount, remaining int
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT coalesce(max(status) FILTER (WHERE status <> 'CANCELLED'), ''),
 		       count(*) FILTER (WHERE status = 'CANCELLED'),
 		       count(*) FILTER (WHERE status <> 'CANCELLED')
 		  FROM "order" WHERE customer_id = $1`, customerID).
-		Scan(&conLai, &soHuy, &soConLai); err != nil {
+		Scan(&left, &cancelCount, &remaining); err != nil {
 		t.Fatalf("đếm trạng thái: %v", err)
 	}
-	if soHuy < 2 || soConLai < 2 || conLai == "" {
+	if cancelCount < 2 || remaining < 2 || left == "" {
 		t.Fatalf("dữ liệu dựng sai: %d đơn CANCELLED, %d đơn %q — cần ít "+
 			"nhất 2 mỗi bên thì bộ lọc mới có gì để lọc",
-			soHuy, soConLai, conLai)
+			cancelCount, remaining, left)
 	}
-	return donDaDung{
-		token: tok, email: email, maKhach: customerID, trangThaiConLai: conLai,
+	return builtOrder{
+		token: tok, email: email, custID: customerID, remainingStatuses: left,
 	}
 }
 
-// TestLocTrangThaiKhongLamTrangTraThieu.
+// TestAStatusFilterDoesNotShortAPage.
 //
 // # Lỗi trước đây
 //
@@ -121,9 +121,9 @@ func (a *apiTest) dungNhieuDonCoEmail(t *testing.T, n int) donDaDung {
 // Khi CẢ trang bị loại thì tệ hơn hẳn: `data` rỗng trong lúc `has_more`
 // vẫn true. Client thường coi trang rỗng là hết dữ liệu và dừng phân
 // trang — khách mất phần lịch sử còn lại mà không có lỗi nào.
-func TestLocTrangThaiKhongLamTrangTraThieu(t *testing.T) {
+func TestAStatusFilterDoesNotShortAPage(t *testing.T) {
 	a := newAPITest(t)
-	tok, _ := a.dungNhieuDon(t, 6)
+	tok, _ := a.buildOrders(t, 6)
 
 	res := a.call(http.MethodGet,
 		"/api/v1/orders?status=CANCELLED&limit=2", nil, bearer(tok))
@@ -133,10 +133,10 @@ func TestLocTrangThaiKhongLamTrangTraThieu(t *testing.T) {
 
 	ds, _ := res.body["data"].([]any)
 	pg, _ := res.body["pagination"].(map[string]any)
-	conNua, _ := pg["has_more"].(bool)
+	more, _ := pg["has_more"].(bool)
 
 	// Còn trang sau thì trang này PHẢI đầy.
-	if conNua && len(ds) != 2 {
+	if more && len(ds) != 2 {
 		t.Errorf("trang trả %d đơn trong khi limit=2 và has_more=true — "+
 			"bộ lọc đang chạy sau khi đọc, nên bản ghi bị loại vẫn tính "+
 			"vào trang: %s", len(ds), res.raw)
@@ -151,15 +151,15 @@ func TestLocTrangThaiKhongLamTrangTraThieu(t *testing.T) {
 	}
 }
 
-// TestLocTrangThaiKhongTraTrangRong.
+// TestAStatusFilterDoesNotReturnAnEmptyPage.
 //
 // Trang RỖNG kèm `has_more=true` là tổ hợp không được phép: client đọc nó
 // là "hết dữ liệu" và dừng, trong khi máy chủ nói còn.
-func TestLocTrangThaiKhongTraTrangRong(t *testing.T) {
+func TestAStatusFilterDoesNotReturnAnEmptyPage(t *testing.T) {
 	a := newAPITest(t)
-	tok, conLai := a.dungNhieuDon(t, 6)
+	tok, left := a.buildOrders(t, 6)
 
-	for _, tt := range []string{"CANCELLED", conLai} {
+	for _, tt := range []string{"CANCELLED", left} {
 		res := a.call(http.MethodGet,
 			"/api/v1/orders?status="+tt+"&limit=1", nil, bearer(tok))
 		if res.code != http.StatusOK {
@@ -167,31 +167,31 @@ func TestLocTrangThaiKhongTraTrangRong(t *testing.T) {
 		}
 		ds, _ := res.body["data"].([]any)
 		pg, _ := res.body["pagination"].(map[string]any)
-		conNua, _ := pg["has_more"].(bool)
+		more, _ := pg["has_more"].(bool)
 
-		if len(ds) == 0 && conNua {
+		if len(ds) == 0 && more {
 			t.Errorf("%s: trang RỖNG nhưng has_more=true — client sẽ coi "+
 				"là hết dữ liệu và dừng: %s", tt, res.raw)
 		}
 	}
 }
 
-// TestLocTrangThaiLaTra400.
+// TestAnUnknownStatusFilterReturns400.
 //
 // Trạng thái gõ sai phải báo lỗi, KHÔNG trả danh sách rỗng: rỗng trông
 // giống "khách chưa có đơn nào" chứ không giống "bạn gõ sai".
-func TestLocTrangThaiLaTra400(t *testing.T) {
+func TestAnUnknownStatusFilterReturns400(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("locsai"))
+	tok := a.registerAndLogIn(newEmail("locsai"))
 
-	for _, xau := range []string{"KHONG_TON_TAI", "cancelled", "'; DROP"} {
+	for _, bad := range []string{"KHONG_TON_TAI", "cancelled", "'; DROP"} {
 		// Mã hoá như client thật: chuỗi có khoảng trắng mà ghép thẳng vào
 		// URL thì hỏng ngay ở khâu dựng request, chưa tới được máy chủ.
 		res := a.call(http.MethodGet,
-			"/api/v1/orders?status="+url.QueryEscape(xau), nil, bearer(tok))
+			"/api/v1/orders?status="+url.QueryEscape(bad), nil, bearer(tok))
 		if res.code != http.StatusBadRequest {
 			t.Errorf("trạng thái %q: HTTP %d, cần 400 — %s",
-				xau, res.code, res.raw)
+				bad, res.code, res.raw)
 		}
 	}
 
@@ -201,37 +201,37 @@ func TestLocTrangThaiLaTra400(t *testing.T) {
 	}
 }
 
-// themDonMoiNhat tạo thêm MỘT đơn cho khách đã có, và đặt `placed_at` sau
+// addLatestOrder tạo thêm MỘT đơn cho khách đã có, và đặt `placed_at` sau
 // mọi đơn cũ — tức là đơn này đứng ĐẦU danh sách sắp theo `placed_at DESC`.
 //
 // Đây là tình huống thật, không phải dựng để bắt lỗi: khách mở trang lịch
 // sử, xem trang 1, rồi đặt thêm một đơn trước khi bấm "xem thêm".
-func (a *apiTest) themDonMoiNhat(t *testing.T, email, customerID string) {
+func (a *apiTest) addLatestOrder(t *testing.T, email, customerID string) {
 	t.Helper()
 	ctx := context.Background()
 
-	maPhien := a.dungPhienSanHoanTat(email, "0900444555")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete(email, "0900444555")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("đơn mới: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
 
 	if _, err := a.db.Pool().Exec(ctx,
 		`UPDATE "order" SET customer_id = $1, placed_at = now() WHERE id = $2`,
-		customerID, maDon); err != nil {
+		customerID, orderID); err != nil {
 		t.Fatalf("gắn đơn mới: %v", err)
 	}
 }
 
-// docTrang trả danh sách id của một trang, kèm con trỏ đi tiếp.
-func (a *apiTest) docTrang(t *testing.T, tok, truyVan string) ([]string, string) {
+// readPage trả danh sách id của một trang, kèm con trỏ đi tiếp.
+func (a *apiTest) readPage(t *testing.T, tok, query string) ([]string, string) {
 	t.Helper()
-	res := a.call(http.MethodGet, "/api/v1/orders?"+truyVan, nil, bearer(tok))
+	res := a.call(http.MethodGet, "/api/v1/orders?"+query, nil, bearer(tok))
 	if res.code != http.StatusOK {
-		t.Fatalf("đọc trang %q: HTTP %d — %s", truyVan, res.code, res.raw)
+		t.Fatalf("đọc trang %q: HTTP %d — %s", query, res.code, res.raw)
 	}
 	ds, _ := res.body["data"].([]any)
 	ids := make([]string, 0, len(ds))
@@ -245,7 +245,7 @@ func (a *apiTest) docTrang(t *testing.T, tok, truyVan string) ([]string, string)
 	return ids, con
 }
 
-// TestPhanTrangKhongLapBanGhi.
+// TestPagingNeverRepeatsARecord.
 //
 // # Lỗi
 //
@@ -256,101 +256,101 @@ func (a *apiTest) docTrang(t *testing.T, tok, truyVan string) ([]string, string)
 // Khách thấy CÙNG một đơn hai lần trong lịch sử mua hàng. Tệ hơn: nếu một
 // đơn rời khỏi tập lọc giữa chừng thì chiều ngược lại xảy ra — một đơn bị
 // NHẢY QUA và không bao giờ hiện ra.
-func TestPhanTrangKhongLapBanGhi(t *testing.T) {
+func TestPagingNeverRepeatsARecord(t *testing.T) {
 	a := newAPITest(t)
-	d := a.dungNhieuDonCoEmail(t, 6)
+	d := a.buildOrdersWithEmail(t, 6)
 	tok := d.token
 
-	trang1, con := a.docTrang(t, tok, "limit=3")
-	if len(trang1) != 3 || con == "" {
+	page1, con := a.readPage(t, tok, "limit=3")
+	if len(page1) != 3 || con == "" {
 		t.Fatalf("trang 1 có %d đơn, con trỏ %q — cần 3 đơn và còn trang sau",
-			len(trang1), con)
+			len(page1), con)
 	}
 
 	// Khách đặt thêm một đơn TRƯỚC khi bấm "xem thêm".
-	a.themDonMoiNhat(t, d.email, d.maKhach)
+	a.addLatestOrder(t, d.email, d.custID)
 
-	trang2, _ := a.docTrang(t, tok, "limit=3&cursor="+url.QueryEscape(con))
+	page2, _ := a.readPage(t, tok, "limit=3&cursor="+url.QueryEscape(con))
 
 	da := map[string]bool{}
-	for _, id := range trang1 {
+	for _, id := range page1 {
 		da[id] = true
 	}
-	for _, id := range trang2 {
+	for _, id := range page2 {
 		if da[id] {
 			t.Errorf("đơn %s xuất hiện ở CẢ trang 1 và trang 2 — con trỏ là "+
 				"offset, nên đơn mới xen vào đầu đẩy mọi bản ghi lùi một "+
-				"bậc\ntrang 1: %v\ntrang 2: %v", id, trang1, trang2)
+				"bậc\ntrang 1: %v\ntrang 2: %v", id, page1, page2)
 		}
 	}
 }
 
-// TestPhanTrangDiHetDanhSach: đi hết mọi trang phải gặp MỖI đơn đúng MỘT lần.
+// TestPagingWalksTheWholeList: đi hết mọi trang phải gặp MỖI đơn đúng MỘT lần.
 //
 // Lặp bản ghi thì khách còn nhìn thấy và nghi ngờ. Chiều ngược lại — bản
 // ghi bị NHẢY QUA — thì im lặng hoàn toàn: đơn đó biến mất khỏi lịch sử mà
 // không ai biết để đi tìm. Bài này bắt cả hai chiều.
-func TestPhanTrangDiHetDanhSach(t *testing.T) {
+func TestPagingWalksTheWholeList(t *testing.T) {
 	a := newAPITest(t)
-	d := a.dungNhieuDonCoEmail(t, 7)
+	d := a.buildOrdersWithEmail(t, 7)
 
-	dem := map[string]int{}
-	truyVan, soTrang := "limit=2", 0
+	count := map[string]int{}
+	query, pageCount := "limit=2", 0
 	for {
-		ids, con := a.docTrang(t, d.token, truyVan)
+		ids, con := a.readPage(t, d.token, query)
 		for _, id := range ids {
-			dem[id]++
+			count[id]++
 		}
-		soTrang++
-		if soTrang > 20 {
+		pageCount++
+		if pageCount > 20 {
 			t.Fatal("đi quá 20 trang cho 7 đơn — con trỏ không tiến")
 		}
 		if con == "" {
 			break
 		}
-		truyVan = "limit=2&cursor=" + url.QueryEscape(con)
+		query = "limit=2&cursor=" + url.QueryEscape(con)
 	}
 
-	if len(dem) != 7 {
+	if len(count) != 7 {
 		t.Errorf("đi hết các trang gặp %d đơn khác nhau, cần 7 — có đơn bị "+
-			"nhảy qua", len(dem))
+			"nhảy qua", len(count))
 	}
-	for id, n := range dem {
+	for id, n := range count {
 		if n != 1 {
 			t.Errorf("đơn %s xuất hiện %d lần khi đi hết danh sách", id, n)
 		}
 	}
 	// Chống test rỗng ruột: 7 đơn với limit=2 phải là 4 trang.
-	if soTrang != 4 {
-		t.Errorf("đi %d trang cho 7 đơn với limit=2, cần 4", soTrang)
+	if pageCount != 4 {
+		t.Errorf("đi %d trang cho 7 đơn với limit=2, cần 4", pageCount)
 	}
 }
 
-// TestConTroBiaTra400: con trỏ bịa phải báo lỗi, không lặng lẽ đọc từ đầu.
+// TestABadCursorReturns400: con trỏ bịa phải báo lỗi, không lặng lẽ đọc từ đầu.
 //
 // Đọc từ đầu là kiểu hỏng xấu nhất ở đây: client tưởng đang đọc trang 5,
 // nhận lại trang 1, rồi lặp vô hạn nếu nó cứ đi tiếp theo con trỏ trả về.
-func TestConTroBiaTra400(t *testing.T) {
+func TestABadCursorReturns400(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("contro"))
+	tok := a.registerAndLogIn(newEmail("contro"))
 
 	// Con trỏ mang id của thực thể KHÁC: đúng định dạng, sai kiểu.
-	saiKieu := base64.RawURLEncoding.EncodeToString(
+	wrongKind := base64.RawURLEncoding.EncodeToString(
 		[]byte("1757000000000000|off_01ARZ3NDEKTSV4RRFFQ69G5FAV"))
 
-	for _, xau := range []string{
-		"0", "3", "khong-phai-base64!!", "MTIz", saiKieu,
+	for _, bad := range []string{
+		"0", "3", "khong-phai-base64!!", "MTIz", wrongKind,
 		base64.RawURLEncoding.EncodeToString([]byte("abc|ord_01ARZ3NDEKTSV4RRFFQ69G5FAV")),
 	} {
 		res := a.call(http.MethodGet,
-			"/api/v1/orders?cursor="+url.QueryEscape(xau), nil, bearer(tok))
+			"/api/v1/orders?cursor="+url.QueryEscape(bad), nil, bearer(tok))
 		if res.code != http.StatusBadRequest {
-			t.Errorf("cursor %q: HTTP %d, cần 400 — %s", xau, res.code, res.raw)
+			t.Errorf("cursor %q: HTTP %d, cần 400 — %s", bad, res.code, res.raw)
 		}
 	}
 }
 
-// TestPhanTrangKhiTrungMocThoiGian: nhiều đơn CÙNG một `placed_at`.
+// TestPagingWhenTimestampsCollide: nhiều đơn CÙNG một `placed_at`.
 //
 // Đây là lý do mốc phải gồm CẢ `id`, không riêng `placed_at`. Trùng mốc
 // không phải chuyện hiếm dựng ra để bắt lỗi: đơn tạo trong cùng một
@@ -360,39 +360,39 @@ func TestConTroBiaTra400(t *testing.T) {
 // Nếu chỉ so `placed_at`, trang sau hỏi "đơn nào CŨ HƠN mốc" và loại sạch
 // những đơn cùng mốc — kể cả đơn chưa ai đọc. Danh sách đứt giữa chừng và
 // không có lỗi nào báo.
-func TestPhanTrangKhiTrungMocThoiGian(t *testing.T) {
+func TestPagingWhenTimestampsCollide(t *testing.T) {
 	a := newAPITest(t)
-	d := a.dungNhieuDonCoEmail(t, 7)
+	d := a.buildOrdersWithEmail(t, 7)
 
 	// Dồn MỌI đơn về đúng một mốc thời gian.
 	if _, err := a.db.Pool().Exec(context.Background(),
 		`UPDATE "order" SET placed_at = timestamptz '2026-09-01 10:00:00+07'
-		  WHERE customer_id = $1`, d.maKhach); err != nil {
+		  WHERE customer_id = $1`, d.custID); err != nil {
 		t.Fatalf("dồn mốc thời gian: %v", err)
 	}
 
-	dem := map[string]int{}
-	truyVan, soTrang := "limit=2", 0
+	count := map[string]int{}
+	query, pageCount := "limit=2", 0
 	for {
-		ids, con := a.docTrang(t, d.token, truyVan)
+		ids, con := a.readPage(t, d.token, query)
 		for _, id := range ids {
-			dem[id]++
+			count[id]++
 		}
-		soTrang++
-		if soTrang > 20 {
+		pageCount++
+		if pageCount > 20 {
 			t.Fatal("đi quá 20 trang cho 7 đơn — con trỏ không tiến")
 		}
 		if con == "" {
 			break
 		}
-		truyVan = "limit=2&cursor=" + url.QueryEscape(con)
+		query = "limit=2&cursor=" + url.QueryEscape(con)
 	}
 
-	if len(dem) != 7 {
+	if len(count) != 7 {
 		t.Errorf("7 đơn cùng một `placed_at`, đi hết các trang chỉ gặp %d — "+
-			"mốc bỏ qua `id` nên đơn cùng mốc bị loại sạch", len(dem))
+			"mốc bỏ qua `id` nên đơn cùng mốc bị loại sạch", len(count))
 	}
-	for id, n := range dem {
+	for id, n := range count {
 		if n != 1 {
 			t.Errorf("đơn %s xuất hiện %d lần", id, n)
 		}

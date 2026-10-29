@@ -9,7 +9,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/opsconfig"
 )
 
-// TestSoLuongVuotSucChuaTra400.
+// TestAQuantityBeyondStorageReturns400.
 //
 // # Chỗ lệch giữa Go và PostgreSQL
 //
@@ -23,18 +23,18 @@ import (
 //
 // Bài này đo ở RANH GIỚI, không chỉ ở con số lố bịch: đúng trần phải nhận,
 // trần cộng một phải từ chối.
-func TestSoLuongVuotSucChuaTra400(t *testing.T) {
+func TestAQuantityBeyondStorageReturns400(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsWarehouse)
-	sku, loc, own, _ := a.mauTonKho(t)
+	tok := a.createAccountWithRole(t, identity.RoleOpsWarehouse)
+	sku, filtered, own, _ := a.stockSample(t)
 
 	dat := func(q int64) reply {
-		h := khoaIdem()
+		h := idemKey()
 		h["Authorization"] = "Bearer " + tok
 		return a.call(http.MethodPost, "/api/v1/admin/inventory/adjustments",
 			map[string]any{
 				"sku_id":             sku,
-				"stock_location_id":  loc,
+				"stock_location_id":  filtered,
 				"inventory_owner_id": own,
 				"reason":             "kiểm kê thử ranh giới số lượng, bài test tự động",
 				"adjustments":        map[string]any{"quantity_available": q},
@@ -66,7 +66,7 @@ func TestSoLuongVuotSucChuaTra400(t *testing.T) {
 	}
 }
 
-// TestDoiTranSoLuongTuGiaoDienCoHieuLucNgay.
+// TestChangingTheQuantityCapFromTheUITakesEffectAtOnce.
 //
 // Trần số lượng là tham số VẬN HÀNH: mặc định 10 triệu đơn vị cho một SKU
 // tại một kho — con số không kho thời trang nào chạm tới, nên vượt nó gần
@@ -74,18 +74,18 @@ func TestSoLuongVuotSucChuaTra400(t *testing.T) {
 //
 // Nhưng có mặt hàng đếm bằng đơn vị nhỏ (chỉ, cúc, hạt cườm), nên con số
 // phải nâng được mà không cần build lại.
-func TestDoiTranSoLuongTuGiaoDienCoHieuLucNgay(t *testing.T) {
+func TestChangingTheQuantityCapFromTheUITakesEffectAtOnce(t *testing.T) {
 	a := newAPITest(t)
-	admin := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
-	kho := a.taoTaiKhoanVaiTro(t, identity.RoleOpsWarehouse)
-	sku, loc, own, _ := a.mauTonKho(t)
+	admin := a.createAccountWithRole(t, identity.RoleAdmin)
+	warehouseTok := a.createAccountWithRole(t, identity.RoleOpsWarehouse)
+	sku, filtered, own, _ := a.stockSample(t)
 
 	dat := func(q int64) reply {
-		h := khoaIdem()
-		h["Authorization"] = "Bearer " + kho
+		h := idemKey()
+		h["Authorization"] = "Bearer " + warehouseTok
 		return a.call(http.MethodPost, "/api/v1/admin/inventory/adjustments",
 			map[string]any{
-				"sku_id": sku, "stock_location_id": loc,
+				"sku_id": sku, "stock_location_id": filtered,
 				"inventory_owner_id": own,
 				"reason":             "kiểm kê thử trần sửa được, bài test tự động",
 				"adjustments":        map[string]any{"quantity_available": q},
@@ -99,7 +99,7 @@ func TestDoiTranSoLuongTuGiaoDienCoHieuLucNgay(t *testing.T) {
 	}
 
 	// Nâng trần lên 50 triệu.
-	if got := a.datCauHinh(t, admin, opsconfig.KeyMaxQuantityPerSKU, 50_000_000,
+	if got := a.setConfig(t, admin, opsconfig.KeyMaxQuantityPerSKU, 50_000_000,
 		"nâng trần tồn kho cho mặt hàng đếm bằng đơn vị nhỏ như cúc và chỉ",
 	); got.code != http.StatusOK {
 		t.Fatalf("đổi trần: HTTP %d — %s", got.code, got.raw)
@@ -112,17 +112,17 @@ func TestDoiTranSoLuongTuGiaoDienCoHieuLucNgay(t *testing.T) {
 	}
 }
 
-// TestTranSoLuongKhongDatVuotSucChuaDuoc.
+// TestTheQuantityCapCannotBeSetBeyondStorage.
 //
 // Sổ đăng ký kẹp `Max` ở trần lưu trữ. Không có nó, một quản trị viên đặt
 // trần nghiệp vụ 5 tỷ sẽ làm mọi con số dưới mức đó ĐI QUA kiểm tra rồi
 // hỏng ở câu lệnh ghi — tức tự tay dựng lại đúng lỗi 500 mà trần này sinh
 // ra để tránh.
-func TestTranSoLuongKhongDatVuotSucChuaDuoc(t *testing.T) {
+func TestTheQuantityCapCannotBeSetBeyondStorage(t *testing.T) {
 	a := newAPITest(t)
-	admin := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	admin := a.createAccountWithRole(t, identity.RoleAdmin)
 
-	got := a.datCauHinh(t, admin, opsconfig.KeyMaxQuantityPerSKU, 5_000_000_000,
+	got := a.setConfig(t, admin, opsconfig.KeyMaxQuantityPerSKU, 5_000_000_000,
 		"thử đặt trần nghiệp vụ vượt sức chứa của cột trong database")
 	if got.code != http.StatusBadRequest {
 		t.Errorf("đặt trần 5 tỷ (> sức chứa int32): HTTP %d, cần 400 — %s",

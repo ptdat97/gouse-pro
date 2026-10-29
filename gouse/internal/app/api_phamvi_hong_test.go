@@ -8,7 +8,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 )
 
-// TestPhamViNhaBanHongTra403KhongPhai500.
+// TestABadSellerScopeReturns403Not500.
 //
 // # Tình huống, và cách nó lộ ra
 //
@@ -28,34 +28,34 @@ import (
 // là thứ sai. Trả 500 sai theo hai hướng cùng lúc: người dùng thấy "lỗi hệ
 // thống" và đi báo sự cố thay vì gọi quản trị viên, còn giám sát đếm nó
 // vào tỷ lệ lỗi máy chủ, che mất một vấn đề cần người sửa bằng tay.
-func TestPhamViNhaBanHongTra403KhongPhai500(t *testing.T) {
+func TestABadSellerScopeReturns403Not500(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	email := emailMoi("phamvihong")
-	const matKhau = "MatKhauDuDai@2026"
+	email := newEmail("phamvihong")
+	const password = "MatKhauDuDai@2026"
 	u, err := a.mods.identity.Register(ctx, identity.RegisterRequest{
-		Email: email, Password: matKhau,
+		Email: email, Password: password,
 	})
 	if err != nil {
 		t.Fatalf("tạo tài khoản: %v", err)
 	}
 
 	// Phạm vi trỏ tới một gian hàng KHÔNG tồn tại.
-	const gianHangMa = "sel_01M0D5KHONGTONTAI000001X"
+	const shopCode = "sel_01M0D5KHONGTONTAI000001X"
 	if err := a.mods.identity.GrantRole(
-		ctx, u.ID, identity.RoleSellerOwner, gianHangMa); err != nil {
+		ctx, u.ID, identity.RoleSellerOwner, shopCode); err != nil {
 		t.Fatalf("cấp vai trò: %v", err)
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/auth/login",
-		map[string]any{"email": email, "password": matKhau}, nil)
+		map[string]any{"email": email, "password": password}, nil)
 	tok, _ := res.body["access_token"].(string)
 	if tok == "" {
 		t.Fatalf("đăng nhập: %s", res.raw)
 	}
 
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	got := a.call(http.MethodPut,
 		"/api/v1/seller/inventory/sku_01M0C73VPBMPV3KJRZ6A295ZDF",

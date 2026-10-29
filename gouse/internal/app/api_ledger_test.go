@@ -25,7 +25,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
-// phatEvent chạy bộ phát event với ĐÚNG bên nhận mà cmd/worker đăng ký.
+// emitEvent chạy bộ phát event với ĐÚNG bên nhận mà cmd/worker đăng ký.
 //
 // Dựng bên nhận riêng cho test sẽ kiểm một thứ khác với thứ chạy thật —
 // đúng cái bẫy đã làm bộ middleware trong test này từng lệch với production.
@@ -53,9 +53,9 @@ import (
 // giao dịch và đường ghi phễu chuyển đổi không có bài test tích hợp nào
 // đi qua: một lần nối dây hỏng sẽ im lặng y như lỗi `size_recommendation`
 // (P3-50).
-// dangKyBenNhan đăng ký bộ bên nhận chuẩn — dùng chung cho mọi bài test
+// registerReceivers đăng ký bộ bên nhận chuẩn — dùng chung cho mọi bài test
 // cần phát event, để không có bài nào chạy với bộ bên nhận khác production.
-func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
+func (a *apiTest) registerReceivers(bus *eventbus.Dispatcher, log *slog.Logger) {
 	bus.Subscribe(inventory.NewCommitHandler(a.mods.inventory, log))
 
 	// ĐƯỜNG RA của kho — thiếu ở bộ này tới 01/10/2026.
@@ -124,12 +124,12 @@ func (a *apiTest) dangKyBenNhan(bus *eventbus.Dispatcher, log *slog.Logger) {
 	}
 }
 
-func (a *apiTest) phatEvent(t *testing.T) int {
+func (a *apiTest) emitEvent(t *testing.T) int {
 	t.Helper()
 
 	log := logger.New("error", "text")
 	bus := eventbus.NewDispatcher(a.db.Pool(), log)
-	a.dangKyBenNhan(bus, log)
+	a.registerReceivers(bus, log)
 
 	// PHÁT TỚI CẠN, không phải một mẻ.
 	//
@@ -151,7 +151,7 @@ func (a *apiTest) phatEvent(t *testing.T) int {
 	}
 }
 
-// TestDatHangThiGhiSoDoanhThu — PH-33.
+// TestPlacingAnOrderPostsRevenue — PH-33.
 //
 // # Vì sao bài này tồn tại
 //
@@ -162,46 +162,46 @@ func (a *apiTest) phatEvent(t *testing.T) int {
 //
 // Bài này khoá lại điều đó: đặt đơn qua HTTP thật, chạy bộ phát event
 // thật, rồi kiểm SỔ CÁI chứ không kiểm response.
-func TestDatHangThiGhiSoDoanhThu(t *testing.T) {
+func TestPlacingAnOrderPostsRevenue(t *testing.T) {
 	a := newAPITest(t)
 
-	truoc := a.demDong("ledger_entry", "")
+	before := a.countRows("ledger_entry", "")
 
-	maPhien := a.dungPhienSanHoanTat("soCai@example.com", "0900888777")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete("soCai@example.com", "0900888777")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	if maDon == "" {
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
+	if orderID == "" {
 		t.Fatalf("không lấy được mã đơn: %s", res.raw)
 	}
 
 	// Trước khi phát event: chưa có gì. Đây chính là trạng thái cũ.
-	if got := a.demDong("ledger_entry", ""); got != truoc {
+	if got := a.countRows("ledger_entry", ""); got != before {
 		t.Errorf("có %d bút toán TRƯỚC khi phát event, cần %d — "+
 			"ghi sổ phải đi qua event, không phải chèn thẳng trong lúc đặt đơn",
-			got-truoc, 0)
+			got-before, 0)
 	}
 
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	sau := a.demDong("ledger_entry", "")
-	if sau <= truoc {
+	after := a.countRows("ledger_entry", "")
+	if after <= before {
 		t.Fatalf("phát event xong vẫn KHÔNG có bút toán nào — " +
 			"payment không nghe checkout.completed (PH-33)")
 	}
 
 	// Bút toán phải trỏ đúng đơn hàng này.
-	n := a.demDong("ledger_entry", "reference_id = $1 AND entry_type = 'ORDER_REVENUE'", maDon)
+	n := a.countRows("ledger_entry", "reference_id = $1 AND entry_type = 'ORDER_REVENUE'", orderID)
 	if n < 1 {
-		t.Errorf("đơn %s có %d bút toán doanh thu, cần ít nhất 1", maDon, n)
+		t.Errorf("đơn %s có %d bút toán doanh thu, cần ít nhất 1", orderID, n)
 	}
 
 	// Sổ KÉP: mỗi bút toán phải cân. Lệch một đồng là sổ sai.
-	var lech int
+	var drift int
 	err := a.db.Pool().QueryRow(context.Background(), `
 		SELECT count(*) FROM (
 			SELECT l.entry_id
@@ -211,16 +211,16 @@ func TestDatHangThiGhiSoDoanhThu(t *testing.T) {
 			 GROUP BY l.entry_id
 			HAVING sum(CASE WHEN l.direction = 'DEBIT'  THEN l.amount ELSE 0 END)
 			    <> sum(CASE WHEN l.direction = 'CREDIT' THEN l.amount ELSE 0 END)
-		) x`, maDon).Scan(&lech)
+		) x`, orderID).Scan(&drift)
 	if err != nil {
 		t.Fatalf("kiểm cân đối: %v", err)
 	}
-	if lech != 0 {
-		t.Errorf("%d bút toán KHÔNG cân — sổ kép bị vi phạm", lech)
+	if drift != 0 {
+		t.Errorf("%d bút toán KHÔNG cân — sổ kép bị vi phạm", drift)
 	}
 }
 
-// TestPhatLaiEventKhongGhiSoHaiLan.
+// TestARedeliveredEventDoesNotPostTwice.
 //
 // Outbox giao hàng ÍT NHẤT MỘT LẦN. Một event được phát lại — vì tiến
 // trình chết sau khi handler chạy nhưng trước khi đánh dấu, hoặc vì người
@@ -229,20 +229,20 @@ func TestDatHangThiGhiSoDoanhThu(t *testing.T) {
 // Đây là bất biến của TIỀN, nên nó phải được cưỡng chế ở tầng dữ liệu:
 // ràng buộc UNIQUE trên `ledger_entry.idempotency_key`, với khoá gồm cả
 // mã đơn lẫn mã nhà bán.
-func TestPhatLaiEventKhongGhiSoHaiLan(t *testing.T) {
+func TestARedeliveredEventDoesNotPostTwice(t *testing.T) {
 	a := newAPITest(t)
 
-	maPhien := a.dungPhienSanHoanTat("phatlai@example.com", "0900888666")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete("phatlai@example.com", "0900888666")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
 
-	a.phatEvent(t)
-	lan1 := a.demDong("ledger_entry", "reference_id = $1", maDon)
+	a.emitEvent(t)
+	lan1 := a.countRows("ledger_entry", "reference_id = $1", orderID)
 	if lan1 == 0 {
 		t.Fatalf("lần phát đầu không ghi sổ gì")
 	}
@@ -251,26 +251,26 @@ func TestPhatLaiEventKhongGhiSoHaiLan(t *testing.T) {
 	// trình chết giữa chừng.
 	if _, err := a.db.Pool().Exec(context.Background(),
 		`UPDATE event_outbox SET published_at = NULL, attempts = 0
-		  WHERE payload::text LIKE '%' || $1 || '%'`, maDon); err != nil {
+		  WHERE payload::text LIKE '%' || $1 || '%'`, orderID); err != nil {
 		t.Fatalf("đưa event về hàng chờ: %v", err)
 	}
 	if _, err := a.db.Pool().Exec(context.Background(),
 		`DELETE FROM event_processed WHERE event_id IN (
 		   SELECT event_id FROM event_outbox WHERE payload::text LIKE '%' || $1 || '%')`,
-		maDon); err != nil {
+		orderID); err != nil {
 		t.Fatalf("xóa dấu đã xử lý: %v", err)
 	}
 
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	lan2 := a.demDong("ledger_entry", "reference_id = $1", maDon)
+	lan2 := a.countRows("ledger_entry", "reference_id = $1", orderID)
 	if lan2 != lan1 {
 		t.Errorf("phát lại làm số bút toán đổi %d → %d — doanh thu bị ghi hai lần",
 			lan1, lan2)
 	}
 }
 
-// TestDonTronHaiNhaBanGhiHaiButToan.
+// TestAnOrderMixingTwoSellersPostsTwoEntries.
 //
 // # Vì sao phải có bài RIÊNG cho đơn trộn
 //
@@ -285,29 +285,29 @@ func TestPhatLaiEventKhongGhiSoHaiLan(t *testing.T) {
 //
 // docs/07-workflows/marketplace-order.md mục 4 nói rõ: mỗi phần của mỗi
 // nhà bán là MỘT bút toán riêng.
-func TestDonTronHaiNhaBanGhiHaiButToan(t *testing.T) {
+func TestAnOrderMixingTwoSellersPostsTwoEntries(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
 	// Nhà bán thứ hai, có hàng thật bán được.
-	B := dungNhaBan(t, a, "nhabanso"+ids.MustNew(ids.PrefixRequest).String()[24:])
-	skuID := dungSkuThuongHieuMo(t, a)
+	B := buildSeller(t, a, "nhabanso"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	skuID := buildOpenBrandSKU(t, a)
 
-	gia, _ := money.New(199_000, money.VND)
+	priceObj, _ := money.New(199_000, money.VND)
 	offerB, err := a.mods.marketplace.Service().CreateOffer(ctx, marketapp.CreateOfferInput{
-		SKUID: ids.ID(skuID), SellerID: ids.ID(B.sellerID), Price: gia,
+		SKUID: ids.ID(skuID), SellerID: ids.ID(B.sellerID), Price: priceObj,
 		Condition: marketdom.ConditionNew, HandlingTimeHours: 24,
 		MinOrderQuantity: 1, Activate: true,
 	})
 	if err != nil {
 		t.Skipf("không tạo được offer: %v", err)
 	}
-	loc, err := a.mods.inventory.EnsureLocation(ctx, "Kho B", "SELLER-"+B.sellerID, "SELLER")
+	filtered, err := a.mods.inventory.EnsureLocation(ctx, "Kho B", "SELLER-"+B.sellerID, "SELLER")
 	if err != nil {
 		t.Fatalf("tạo kho: %v", err)
 	}
 	if _, err := a.mods.inventory.Receive(ctx, inventory.ReceiveRequest{
-		SKUID: skuID, LocationID: loc,
+		SKUID: skuID, LocationID: filtered,
 		OwnerID:  inventory.OwnerForSeller(B.sellerID, false),
 		Quantity: 10, PerformedBy: "test",
 	}); err != nil {
@@ -315,82 +315,82 @@ func TestDonTronHaiNhaBanGhiHaiButToan(t *testing.T) {
 	}
 
 	// Giỏ có hàng của CẢ HAI nhà bán.
-	offerA := a.timOfferBanDuoc()
+	offerA := a.findSellableOffer()
 	if offerA == "" {
 		t.Skip("không có offer nào của nhà bán mặc định")
 	}
 	for _, id := range []string{offerA, offerB.ID().String()} {
 		r := a.call(http.MethodPost, "/api/v1/cart/items",
-			map[string]any{"offer_id": id, "quantity": 1}, khoaIdem())
+			map[string]any{"offer_id": id, "quantity": 1}, idemKey())
 		if r.code != http.StatusOK {
 			t.Fatalf("thêm offer %s: HTTP %d — %s", id, r.code, r.raw)
 		}
 	}
 
-	gio := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
-	c, _ := gio.body["cart"].(map[string]any)
-	nhom, _ := c["groups"].([]any)
-	if len(nhom) < 2 {
-		t.Skipf("giỏ chỉ có %d nhà bán, cần 2", len(nhom))
+	cartBody := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
+	c, _ := cartBody.body["cart"].(map[string]any)
+	group, _ := c["groups"].([]any)
+	if len(group) < 2 {
+		t.Skipf("giỏ chỉ có %d nhà bán, cần 2", len(group))
 	}
-	maGio, _ := c["id"].(string)
+	cartID, _ := c["id"].(string)
 
-	maDon := a.datDonTuGio(t, maGio, "tron@example.com", "0900222111")
-	a.phatEvent(t)
+	orderID := a.placeOrderFromCart(t, cartID, "tron@example.com", "0900222111")
+	a.emitEvent(t)
 
 	// HAI bút toán doanh thu, mỗi nhà bán một cái.
-	n := a.demDong("ledger_entry", "reference_id = $1 AND entry_type = 'ORDER_REVENUE'", maDon)
+	n := a.countRows("ledger_entry", "reference_id = $1 AND entry_type = 'ORDER_REVENUE'", orderID)
 	if n != 2 {
 		t.Errorf("đơn trộn hai nhà bán có %d bút toán doanh thu, cần 2 — "+
 			"khoá idempotency phải gồm CẢ mã nhà bán", n)
 	}
 
 	// Và chúng phải ghi cho hai chủ sở hữu KHÁC NHAU.
-	var soChu int
+	var ownerCount int
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(DISTINCT l.account_owner_id)
 		  FROM ledger_line l
 		  JOIN ledger_entry e ON e.id = l.entry_id
 		 WHERE e.reference_id = $1
-		   AND l.account_type = 'SELLER_PAYABLE'`, maDon).Scan(&soChu); err != nil {
+		   AND l.account_type = 'SELLER_PAYABLE'`, orderID).Scan(&ownerCount); err != nil {
 		t.Fatalf("đếm chủ sở hữu: %v", err)
 	}
-	if soChu < 1 {
+	if ownerCount < 1 {
 		t.Errorf("không có dòng PHẢI TRẢ NHÀ BÁN nào — tiền của nhà bán ngoài "+
-			"không được ghi nhận (%d chủ)", soChu)
+			"không được ghi nhận (%d chủ)", ownerCount)
 	}
 }
 
-// datDonTuGio hoàn tất một giỏ đã có sẵn và trả mã đơn.
-func (a *apiTest) datDonTuGio(t *testing.T, maGio, email, dienThoai string) string {
+// placeOrderFromCart hoàn tất một giỏ đã có sẵn và trả mã đơn.
+func (a *apiTest) placeOrderFromCart(t *testing.T, cartID, email, phone string) string {
 	t.Helper()
 
 	res := a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id": maGio, "guest_email": email, "guest_phone": dienThoai,
-	}, khoaIdem())
+		"cart_id": cartID, "guest_email": email, "guest_phone": phone,
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
-			"recipient_name": "Khách Trộn", "phone": dienThoai,
+			"recipient_name": "Khách Trộn", "phone": phone,
 			"street_address": "1 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+		}, idemKey())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey())
 
-	res = a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	res = a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	if maDon == "" {
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
+	if orderID == "" {
 		t.Fatalf("không lấy được mã đơn: %s", res.raw)
 	}
-	return maDon
+	return orderID
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
-// TestDuongQuanTriChanNguoiKhongCoQuyen — lỗi NỐI DÂY nguy hiểm nhất.
+// TestAdminPathsBlockTheUnprivileged — lỗi NỐI DÂY nguy hiểm nhất.
 //
 // Handler quản trị KHÔNG tự kiểm vai trò; việc đó do middleware
 // `RequireRole` làm lúc nối route. Đó là thiết kế đúng — tầng interfaces
@@ -17,12 +17,12 @@ import (
 //
 // Bảng dưới đi qua MỌI đường quản trị, không chọn mẫu: đường bị quên
 // thường là đường mới thêm, tức đường không ai nghĩ tới khi viết test.
-// duongCanQuyen liệt kê MỌI đường yêu cầu vai trò đặc biệt.
+// pathsNeedingAuth liệt kê MỌI đường yêu cầu vai trò đặc biệt.
 //
-// `TestMoiDuongCanQuyenDeuDuocKiem` quét mã nguồn và bắt lỗi nếu danh sách
+// `TestEveryAuthenticatedPathIsChecked` quét mã nguồn và bắt lỗi nếu danh sách
 // này thiếu — nên thêm route mới mà quên khai ở đây sẽ làm test đỏ, không
 // phải lặng lẽ mất bảo vệ.
-func duongCanQuyen() []struct {
+func pathsNeedingAuth() []struct {
 	method string
 	path   string
 } {
@@ -85,17 +85,17 @@ func duongCanQuyen() []struct {
 	}
 }
 
-func TestDuongQuanTriChanNguoiKhongCoQuyen(t *testing.T) {
+func TestAdminPathsBlockTheUnprivileged(t *testing.T) {
 	a := newAPITest(t)
 
 	// Tài khoản CHỈ có vai trò CUSTOMER — đăng ký công khai không cấp
 	// thêm gì.
-	tokKhach := a.dangKyVaDangNhap(emailMoi("khach"))
+	tokCustomer := a.registerAndLogIn(newEmail("khach"))
 
-	for _, d := range duongCanQuyen() {
+	for _, d := range pathsNeedingAuth() {
 		t.Run(d.method+" "+d.path, func(t *testing.T) {
 			// KHÔNG token → 401.
-			if got := a.call(d.method, d.path, map[string]any{}, khoaIdem()); got.code != http.StatusUnauthorized {
+			if got := a.call(d.method, d.path, map[string]any{}, idemKey()); got.code != http.StatusUnauthorized {
 				t.Errorf("không token: HTTP %d, cần 401 — %s", got.code, got.raw)
 			}
 
@@ -104,8 +104,8 @@ func TestDuongQuanTriChanNguoiKhongCoQuyen(t *testing.T) {
 			// Phân biệt 401 với 403 quan trọng: 401 nói "chưa đăng nhập",
 			// 403 nói "đăng nhập rồi nhưng không đủ quyền". Trả nhầm khiến
 			// giao diện đá người dùng về trang đăng nhập vô hạn.
-			h := khoaIdem()
-			h["Authorization"] = "Bearer " + tokKhach
+			h := idemKey()
+			h["Authorization"] = "Bearer " + tokCustomer
 			got := a.call(d.method, d.path, map[string]any{}, h)
 			if got.code != http.StatusForbidden {
 				t.Errorf("token CUSTOMER: HTTP %d, cần 403 — %s", got.code, got.raw)
@@ -122,9 +122,9 @@ func TestDuongQuanTriChanNguoiKhongCoQuyen(t *testing.T) {
 //
 // Ghi thành test vì đây là ngoại lệ, và ngoại lệ không có test là ngoại lệ
 // sẽ bị ai đó "sửa" cho nhất quán.
-func TestDuongMeChiCanDangNhap(t *testing.T) {
+func TestTheMePathOnlyNeedsALogin(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("khach"))
+	tok := a.registerAndLogIn(newEmail("khach"))
 
 	if got := a.call(http.MethodGet, "/api/v1/admin/me", nil, nil); got.code != http.StatusUnauthorized {
 		t.Errorf("không token: HTTP %d, cần 401", got.code)
@@ -135,7 +135,7 @@ func TestDuongMeChiCanDangNhap(t *testing.T) {
 	}
 }
 
-// TestDuongGhiBatBuocKhoaIdempotency — lỗi nối dây loại hai.
+// TestEveryWritePathRequiresAnIdempotencyKey — lỗi nối dây loại hai.
 //
 // `RequireIdempotencyKey` cũng là middleware gắn lúc nối route. Quên nó
 // thì hai lần bấm tạo hai đơn, và không có gì báo — đường vẫn chạy, chỉ
@@ -143,10 +143,10 @@ func TestDuongMeChiCanDangNhap(t *testing.T) {
 //
 // Loại lỗi này KHÔNG lộ ra ở bất kỳ test nào khác: test module không dựng
 // middleware, còn test đầu-cuối gọi thẳng service.
-func TestDuongGhiBatBuocKhoaIdempotency(t *testing.T) {
+func TestEveryWritePathRequiresAnIdempotencyKey(t *testing.T) {
 	a := newAPITest(t)
 
-	duong := []struct {
+	route := []struct {
 		method string
 		path   string
 		body   any
@@ -155,10 +155,10 @@ func TestDuongGhiBatBuocKhoaIdempotency(t *testing.T) {
 		{http.MethodPost, "/api/v1/checkout", map[string]any{"cart_id": "crt_x"}},
 		{http.MethodPost, "/api/v1/orders", map[string]any{}},
 		{http.MethodPost, "/api/v1/auth/register", map[string]any{
-			"email": emailMoi("nokey"), "password": "MatKhauDuDai@2026"}},
+			"email": newEmail("nokey"), "password": "MatKhauDuDai@2026"}},
 	}
 
-	for _, d := range duong {
+	for _, d := range route {
 		t.Run(d.path, func(t *testing.T) {
 			got := a.call(d.method, d.path, d.body, nil)
 			if got.code != http.StatusBadRequest {
@@ -169,7 +169,7 @@ func TestDuongGhiBatBuocKhoaIdempotency(t *testing.T) {
 	}
 }
 
-// TestKhachChiXemDuocDonCuaChinhMinh — cách ly dữ liệu, kiểm qua HTTP.
+// TestACustomerOnlySeesItsOwnOrders — cách ly dữ liệu, kiểm qua HTTP.
 //
 // Quy tắc nằm ở domain (`Order.ViewableBy`) và đã có test riêng. Bài này
 // kiểm rằng nó THẬT SỰ được gọi trên đường HTTP — một handler quên hỏi là
@@ -177,34 +177,34 @@ func TestDuongGhiBatBuocKhoaIdempotency(t *testing.T) {
 //
 // Trả 404 chứ không phải 403: phân biệt hai mã cho phép dò xem mã đơn nào
 // CÓ THẬT.
-func TestKhachChiXemDuocDonCuaChinhMinh(t *testing.T) {
+func TestACustomerOnlySeesItsOwnOrders(t *testing.T) {
 	a := newAPITest(t)
 
-	tokA := a.dangKyVaDangNhap(emailMoi("a"))
-	tokB := a.dangKyVaDangNhap(emailMoi("b"))
+	tokA := a.registerAndLogIn(newEmail("a"))
+	tokB := a.registerAndLogIn(newEmail("b"))
 
 	// B thử mở một mã đơn bất kỳ — kể cả khi đoán trúng định dạng.
-	maDon := ids.MustNew(ids.PrefixOrder).String()
+	orderID := ids.MustNew(ids.PrefixOrder).String()
 
 	for ten, tok := range map[string]string{"khách A": tokA, "khách B": tokB} {
-		got := a.call(http.MethodGet, "/api/v1/orders/"+maDon, nil, bearer(tok))
+		got := a.call(http.MethodGet, "/api/v1/orders/"+orderID, nil, bearer(tok))
 		if got.code != http.StatusNotFound {
 			t.Errorf("%s mở đơn lạ: HTTP %d, cần 404 — %s", ten, got.code, got.raw)
 		}
 	}
 }
 
-// TestDuongNhaBanChanKhachThuong: đường của nhà bán phải chặn tài khoản
+// TestSellerPathsBlockOrdinaryCustomers: đường của nhà bán phải chặn tài khoản
 // chỉ có vai trò CUSTOMER.
-func TestDuongNhaBanChanKhachThuong(t *testing.T) {
+func TestSellerPathsBlockOrdinaryCustomers(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("khach"))
+	tok := a.registerAndLogIn(newEmail("khach"))
 
-	duong := []string{
+	route := []string{
 		"/api/v1/seller/offers",
 		"/api/v1/seller/fulfillment-orders",
 	}
-	for _, p := range duong {
+	for _, p := range route {
 		t.Run(p, func(t *testing.T) {
 			if got := a.call(http.MethodGet, p, nil, nil); got.code != http.StatusUnauthorized {
 				t.Errorf("không token: HTTP %d, cần 401", got.code)

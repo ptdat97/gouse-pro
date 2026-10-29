@@ -180,8 +180,8 @@ func gradeInverseThreshold(value, thresholds float64) MetricStatus {
 //
 // Nói thẳng "chưa đo, vì lý do này" trung thực hơn hẳn một con số bịa.
 type Unmeasured struct {
-	Ten  string
-	LyDo string
+	Ten    string
+	Reason string
 }
 
 // UnmeasuredMetrics liệt kê mọi chỉ số KHÔNG có trong `metrics`, kèm lý do.
@@ -211,14 +211,14 @@ func UnmeasuredMetrics(s PerformanceStats, ng Thresholds) []Unmeasured {
 	if s.TotalOrders < ng.MinSample {
 		ra = append(ra, Unmeasured{
 			Ten: "cancellation_rate",
-			LyDo: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn trong kỳ, "+
+			Reason: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn trong kỳ, "+
 				"hiện có %d", ng.MinSample, s.TotalOrders),
 		})
 	}
 	if s.DeliveredOrders < ng.MinSample {
 		ra = append(ra, Unmeasured{
 			Ten: "on_time_shipping_rate",
-			LyDo: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn ĐÃ BÀN GIAO "+
+			Reason: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn ĐÃ BÀN GIAO "+
 				"trong kỳ, hiện có %d", ng.MinSample, s.DeliveredOrders),
 		})
 	}
@@ -226,21 +226,21 @@ func UnmeasuredMetrics(s PerformanceStats, ng Thresholds) []Unmeasured {
 	return append(ra, []Unmeasured{
 		{
 			Ten: "return_rate_description",
-			LyDo: "cần dữ liệu của module returns; đó là module ở tầng khác " +
+			Reason: "cần dữ liệu của module returns; đó là module ở tầng khác " +
 				"nên phải qua một read model chung, chưa dựng",
 		},
 		{
-			Ten:  "average_rating",
-			LyDo: "hệ thống chưa có đánh giá của khách — không có bảng nào lưu",
+			Ten:    "average_rating",
+			Reason: "hệ thống chưa có đánh giá của khách — không có bảng nào lưu",
 		},
 		{
 			Ten: "inventory_accuracy",
-			LyDo: "chưa thống nhất công thức: nhật ký kho có ghi lượt điều " +
+			Reason: "chưa thống nhất công thức: nhật ký kho có ghi lượt điều " +
 				"chỉnh nhưng chưa định nghĩa thế nào là một lần lệch",
 		},
 		{
 			Ten: "buy_box_win_rate",
-			LyDo: "buy box tính tại thời điểm hỏi và không được lưu lại, " +
+			Reason: "buy box tính tại thời điểm hỏi và không được lưu lại, " +
 				"nên không có lịch sử để tính tỷ lệ",
 		},
 	}...)

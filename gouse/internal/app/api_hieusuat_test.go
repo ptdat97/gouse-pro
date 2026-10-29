@@ -11,21 +11,21 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 )
 
-func (a *apiTest) xemHieuSuat(t *testing.T, tok, ky string) reply {
+func (a *apiTest) viewPerformance(t *testing.T, tok, period string) reply {
 	t.Helper()
-	duong := "/api/v1/seller/performance"
-	if ky != "" {
+	route := "/api/v1/seller/performance"
+	if period != "" {
 		// Mã hoá: giá trị thử nghiệm có khoảng trắng và dấu chấm phẩy, và
 		// httptest.NewRequest PANIC với URL không hợp lệ — bản đầu của bài
 		// này chết ở đó chứ không phải ở endpoint.
-		duong += "?period=" + url.QueryEscape(ky)
+		route += "?period=" + url.QueryEscape(period)
 	}
-	return a.call(http.MethodGet, duong, nil,
+	return a.call(http.MethodGet, route, nil,
 		map[string]string{"Authorization": "Bearer " + tok})
 }
 
-// mauNhaBanCoDon lấy một gian hàng có sẵn đơn thực hiện.
-func (a *apiTest) mauNhaBanCoDon(t *testing.T) string {
+// sellerWithOrderSample lấy một gian hàng có sẵn đơn thực hiện.
+func (a *apiTest) sellerWithOrderSample(t *testing.T) string {
 	t.Helper()
 	var id string
 	err := a.db.Pool().QueryRow(context.Background(),
@@ -40,41 +40,41 @@ func (a *apiTest) mauNhaBanCoDon(t *testing.T) string {
 //
 // Database test là khuôn SẠCH, nên bài nào chỉ `t.Skip` khi không có dữ
 // liệu là bài không chạy trong mọi lần chạy bình thường — xanh mà rỗng.
-func (a *apiTest) baoDamCoDonThucHien(t *testing.T) string {
+func (a *apiTest) ensureFulfillmentOrder(t *testing.T) string {
 	t.Helper()
-	if id := a.mauNhaBanCoDon(t); id != "" {
+	if id := a.sellerWithOrderSample(t); id != "" {
 		return id
 	}
 
-	maPhien := a.dungPhienSanHoanTat(emailMoi("hsdon"), "0900888222")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete(newEmail("hsdon"), "0900888222")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	id := a.mauNhaBanCoDon(t)
+	id := a.sellerWithOrderSample(t)
 	if id == "" {
 		t.Fatalf("không dựng được đơn thực hiện")
 	}
 	return id
 }
 
-// TestHieuSuatTraChiSoVaThuocDoDangDung.
+// TestPerformanceReturnsTheMetricsAndTheThresholdsInUse.
 //
 // Đặc tả: "chỉ số, ngưỡng, và tác động đều công khai và tường minh", vì
 // mô hình chấm điểm hộp đen tạo tranh chấp không giải quyết được.
 //
 // Một con số không kèm thước đo và cỡ mẫu thì vẫn là hộp đen: "tỷ lệ hủy
 // 5%" — của bao nhiêu đơn, và đo đúng hạn theo mốc nào?
-func TestHieuSuatTraChiSoVaThuocDoDangDung(t *testing.T) {
+func TestPerformanceReturnsTheMetricsAndTheThresholdsInUse(t *testing.T) {
 	a := newAPITest(t)
 
-	sellerID := a.baoDamCoDonThucHien(t)
+	sellerID := a.ensureFulfillmentOrder(t)
 
-	tok := a.taoTokenNhaBan(t, sellerID)
-	res := a.xemHieuSuat(t, tok, "")
+	tok := a.createSellerToken(t, sellerID)
+	res := a.viewPerformance(t, tok, "")
 	if res.code != http.StatusOK {
 		t.Fatalf("xem hiệu suất: HTTP %d — %s", res.code, res.raw)
 	}
@@ -105,11 +105,11 @@ func TestHieuSuatTraChiSoVaThuocDoDangDung(t *testing.T) {
 // ba chỉ số còn lại tạo ra đúng thứ hộp đen mà đặc tả cấm — chỉ khác là ở
 // phía người viết API. Nhà bán không có cách nào biết mình đang được chấm
 // bằng những gì.
-func TestHieuSuatNoiRoChiSoChuaDo(t *testing.T) {
+func TestPerformanceNamesItsUnmeasuredMetrics(t *testing.T) {
 	a := newAPITest(t)
-	sellerID := a.baoDamCoDonThucHien(t)
+	sellerID := a.ensureFulfillmentOrder(t)
 
-	res := a.xemHieuSuat(t, a.taoTokenNhaBan(t, sellerID), "")
+	res := a.viewPerformance(t, a.createSellerToken(t, sellerID), "")
 	if res.code != http.StatusOK {
 		t.Fatalf("HTTP %d — %s", res.code, res.raw)
 	}
@@ -123,17 +123,17 @@ func TestHieuSuatNoiRoChiSoChuaDo(t *testing.T) {
 	// `buy_box_win_rate` là trường hợp quan trọng nhất: đặc tả đặt nó ở
 	// mục "tác động", nên một con số bịa ở đó sẽ dẫn tới quyết định kinh
 	// doanh sai.
-	var coBuyBox bool
+	var hasBuyBox bool
 	for _, x := range ds {
 		m, _ := x.(map[string]any)
 		if ten, _ := m["name"].(string); ten == "buy_box_win_rate" {
-			coBuyBox = true
-			if lyDo, _ := m["reason"].(string); len(lyDo) < 20 {
+			hasBuyBox = true
+			if reason, _ := m["reason"].(string); len(reason) < 20 {
 				t.Errorf("buy_box_win_rate khai chưa đo nhưng lý do trống rỗng")
 			}
 		}
 	}
-	if !coBuyBox {
+	if !hasBuyBox {
 		t.Errorf("không khai buy_box_win_rate là chưa đo — nó phải nằm ở "+
 			"đây hoặc phải có số thật, không được biến mất im lặng: %s",
 			res.raw)
@@ -147,28 +147,28 @@ func TestHieuSuatNoiRoChiSoChuaDo(t *testing.T) {
 	}
 }
 
-// TestHieuSuatChanKyLa: tập kỳ là tập ĐÓNG.
+// TestPerformanceRejectsAnUnknownPeriod: tập kỳ là tập ĐÓNG.
 //
 // Cho phép kỳ tùy ý nghĩa là mở cửa cho một truy vấn quét toàn bộ bảng.
-func TestHieuSuatChanKyLa(t *testing.T) {
+func TestPerformanceRejectsAnUnknownPeriod(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.taoTokenNhaBan(t, a.baoDamCoDonThucHien(t))
+	tok := a.createSellerToken(t, a.ensureFulfillmentOrder(t))
 
-	for _, ky := range []string{"ALL_TIME", "LAST_1000_DAYS", "'; DROP TABLE"} {
-		if got := a.xemHieuSuat(t, tok, ky); got.code != http.StatusBadRequest {
+	for _, period := range []string{"ALL_TIME", "LAST_1000_DAYS", "'; DROP TABLE"} {
+		if got := a.viewPerformance(t, tok, period); got.code != http.StatusBadRequest {
 			t.Errorf("kỳ %q được chấp nhận: HTTP %d — %s",
-				ky, got.code, got.raw)
+				period, got.code, got.raw)
 		}
 	}
-	for _, ky := range []string{"LAST_7_DAYS", "LAST_30_DAYS", "LAST_90_DAYS"} {
-		if got := a.xemHieuSuat(t, tok, ky); got.code != http.StatusOK {
+	for _, period := range []string{"LAST_7_DAYS", "LAST_30_DAYS", "LAST_90_DAYS"} {
+		if got := a.viewPerformance(t, tok, period); got.code != http.StatusOK {
 			t.Errorf("kỳ hợp lệ %q bị từ chối: HTTP %d — %s",
-				ky, got.code, got.raw)
+				period, got.code, got.raw)
 		}
 	}
 }
 
-// TestHieuSuatKhongThayCuaNhaBanKhac — cách ly dữ liệu.
+// TestASellerCannotSeeAnothersPerformance — cách ly dữ liệu.
 //
 // Hiệu suất là thông tin cạnh tranh: tỷ lệ hủy và tốc độ giao của đối thủ
 // nói cho biết họ đang yếu ở đâu, và ở đâu thì chen vào được.
@@ -182,12 +182,12 @@ func TestHieuSuatChanKyLa(t *testing.T) {
 // So với một gian hàng KHÔNG có đơn chặt hơn và luôn chạy được: nếu truy
 // vấn quên lọc `seller_id`, gian hàng rỗng sẽ thấy đúng số đơn của gian
 // hàng kia, và chênh lệch lộ ra ngay.
-func TestHieuSuatKhongThayCuaNhaBanKhac(t *testing.T) {
+func TestASellerCannotSeeAnothersPerformance(t *testing.T) {
 	a := newAPITest(t)
 
-	coDon := a.baoDamCoDonThucHien(t)
+	hasOrder := a.ensureFulfillmentOrder(t)
 
-	r1 := a.xemHieuSuat(t, a.taoTokenNhaBan(t, coDon), "LAST_90_DAYS")
+	r1 := a.viewPerformance(t, a.createSellerToken(t, hasOrder), "LAST_90_DAYS")
 	if r1.code != http.StatusOK {
 		t.Fatalf("gian hàng có đơn: HTTP %d — %s", r1.code, r1.raw)
 	}
@@ -198,8 +198,8 @@ func TestHieuSuatKhongThayCuaNhaBanKhac(t *testing.T) {
 	}
 
 	// Gian hàng KHÔNG có đơn nào.
-	trong := ids.MustNew(ids.PrefixSeller).String()
-	r2 := a.xemHieuSuat(t, a.taoTokenNhaBan(t, trong), "LAST_90_DAYS")
+	inGroup := ids.MustNew(ids.PrefixSeller).String()
+	r2 := a.viewPerformance(t, a.createSellerToken(t, inGroup), "LAST_90_DAYS")
 	if r2.code != http.StatusOK {
 		t.Fatalf("gian hàng rỗng: HTTP %d — %s", r2.code, r2.raw)
 	}

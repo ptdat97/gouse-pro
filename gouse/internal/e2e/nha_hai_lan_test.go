@@ -11,7 +11,7 @@ import (
 	checkoutapp "github.com/fashion-commerce/platform/internal/modules/checkout/application"
 )
 
-// TestHaiJobDonHanKhongNhaHangHaiLan — tái hiện PH-31.
+// TestTwoExpirySweepsDoNotReleaseStockTwice — tái hiện PH-31.
 //
 // # Hai job dọn hai đầu của CÙNG một sợi dây
 //
@@ -45,7 +45,7 @@ import (
 // Giữ lại vì nó khóa đúng bất biến và chặn được hồi quy dạng khác. Nhưng
 // KHÔNG được coi nó là bằng chứng rằng PH-31 đã được sửa — xem backlog
 // mục 2.6e để biết phần còn chưa giải thích được.
-func TestHaiJobDonHanKhongNhaHangHaiLan(t *testing.T) {
+func TestTwoExpirySweepsDoNotReleaseStockTwice(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -70,9 +70,9 @@ func TestHaiJobDonHanKhongNhaHangHaiLan(t *testing.T) {
 	}
 
 	avail, _ := w.stock(skuID, shop)
-	giu := w.reserved(skuID, shop)
-	if avail != 17 || giu != 3 {
-		t.Fatalf("dựng sai: %d khả dụng / %d giữ chỗ, cần 17/3", avail, giu)
+	held := w.reserved(skuID, shop)
+	if avail != 17 || held != 3 {
+		t.Fatalf("dựng sai: %d khả dụng / %d giữ chỗ, cần 17/3", avail, held)
 	}
 
 	time.Sleep(20 * time.Millisecond)
@@ -83,14 +83,14 @@ func TestHaiJobDonHanKhongNhaHangHaiLan(t *testing.T) {
 	done.Add(2)
 
 	var mu sync.Mutex
-	var loi []error
+	var failure []error
 
 	go func() {
 		defer done.Done()
 		start.Wait()
 		if _, err := w.invMod.Service().ExpireReservations(ctx, 200); err != nil {
 			mu.Lock()
-			loi = append(loi, err)
+			failure = append(failure, err)
 			mu.Unlock()
 		}
 	}()
@@ -99,7 +99,7 @@ func TestHaiJobDonHanKhongNhaHangHaiLan(t *testing.T) {
 		start.Wait()
 		if _, err := w.checkout.ExpireStale(ctx, 200); err != nil {
 			mu.Lock()
-			loi = append(loi, err)
+			failure = append(failure, err)
 			mu.Unlock()
 		}
 	}()
@@ -108,14 +108,14 @@ func TestHaiJobDonHanKhongNhaHangHaiLan(t *testing.T) {
 
 	// Tồn kho phải TRỞ VỀ ĐÚNG 20, không phải 23.
 	avail, _ = w.stock(skuID, shop)
-	giu = w.reserved(skuID, shop)
+	held = w.reserved(skuID, shop)
 
 	if avail != 20 {
 		t.Errorf("còn %d khả dụng, cần 20 — nhả hai lần đã SINH RA %d món hàng",
 			avail, avail-20)
 	}
-	if giu != 0 {
-		t.Errorf("còn %d giữ chỗ, cần 0", giu)
+	if held != 0 {
+		t.Errorf("còn %d giữ chỗ, cần 0", held)
 	}
 
 	// KHÔNG được để lại reservation ACTIVE nào: đó là thứ làm job dọn hạn
@@ -130,7 +130,7 @@ func TestHaiJobDonHanKhongNhaHangHaiLan(t *testing.T) {
 		t.Errorf("còn %d reservation kẹt ở ACTIVE", conActive)
 	}
 
-	for _, e := range loi {
+	for _, e := range failure {
 		t.Logf("lỗi từ job dọn (có thể chấp nhận được nếu tồn kho vẫn đúng): %v", e)
 	}
 }

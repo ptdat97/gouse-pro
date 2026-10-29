@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// TestMoiTuyenCuaModuleDeuDuocPhoiBay.
+// TestEveryModuleRouteIsExposed.
 //
 // # Vì sao cần hàng rào này
 //
@@ -31,7 +31,7 @@ import (
 //
 // Bài này đọc MÃ NGUỒN vì đó là nơi sự thật nằm: `http.ServeMux` không cho
 // liệt kê lại các mẫu đã đăng ký.
-func TestMoiTuyenCuaModuleDeuDuocPhoiBay(t *testing.T) {
+func TestEveryModuleRouteIsExposed(t *testing.T) {
 	// Chỉ những module gắn vào mux CON mới có nguy cơ này. Module gắn
 	// thẳng vào mux của app (catalog, product, marketplace) không có
 	// danh sách thứ hai để lệch.
@@ -42,26 +42,26 @@ func TestMoiTuyenCuaModuleDeuDuocPhoiBay(t *testing.T) {
 		"identity": "internal/modules/identity/interfaces/http",
 	}
 
-	phoiBay := docMauTuyen(t, "internal/app")
+	exposed := readRoutePatterns(t, "internal/app")
 
-	for module, thuMuc := range muxCon {
-		for mau := range docMauTuyen(t, thuMuc) {
-			if phoiBay[mau] {
+	for module, dir := range muxCon {
+		for pattern := range readRoutePatterns(t, dir) {
+			if exposed[pattern] {
 				continue
 			}
 			t.Errorf("module %s đăng ký %q nhưng internal/app KHÔNG phơi "+
 				"bày nó — tuyến này trả 404 với khách thật.\n"+
-				"    Thêm dòng: mux.Handle(%q, h)", module, mau, mau)
+				"    Thêm dòng: mux.Handle(%q, h)", module, pattern, pattern)
 		}
 	}
 }
 
-// gocRepo tìm gốc module Go bằng cách đi ngược tới khi thấy go.mod.
+// repoRoot tìm gốc module Go bằng cách đi ngược tới khi thấy go.mod.
 //
 // Test chạy với thư mục làm việc là thư mục của CHÍNH gói, nên đường dẫn
 // tương đối tới gói khác không dùng được. Đi ngược thay vì viết "../.."
 // cứng: bài kiểm này sẽ sống sót khi gói được chuyển chỗ.
-func gocRepo(t *testing.T) string {
+func repoRoot(t *testing.T) string {
 	t.Helper()
 
 	d, err := os.Getwd()
@@ -80,32 +80,32 @@ func gocRepo(t *testing.T) string {
 	}
 }
 
-// docMauTuyen đọc mọi mẫu tuyến `mux.Handle("METHOD /đường/dẫn"` trong một
+// readRoutePatterns đọc mọi mẫu tuyến `mux.Handle("METHOD /đường/dẫn"` trong một
 // thư mục, bỏ qua file test.
 //
 // Trả về tập hợp để bên gọi tra nhanh; thứ tự không có ý nghĩa.
-func docMauTuyen(t *testing.T, thuMuc string) map[string]bool {
+func readRoutePatterns(t *testing.T, dir string) map[string]bool {
 	t.Helper()
 
 	re := regexp.MustCompile(`mux\.Handle\(\s*"([A-Z]+ /[^"]*)"`)
 	ra := map[string]bool{}
 
-	entries, err := os.ReadDir(filepath.Join(gocRepo(t), thuMuc))
+	entries, err := os.ReadDir(filepath.Join(repoRoot(t), dir))
 	if err != nil {
-		t.Fatalf("đọc thư mục %s: %v", thuMuc, err)
+		t.Fatalf("đọc thư mục %s: %v", dir, err)
 	}
-	var soFile int
+	var fileCount int
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") ||
 			strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(gocRepo(t), thuMuc, name))
+		b, err := os.ReadFile(filepath.Join(repoRoot(t), dir, name))
 		if err != nil {
 			t.Fatalf("đọc %s: %v", name, err)
 		}
-		soFile++
+		fileCount++
 		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
 			ra[m[1]] = true
 		}
@@ -113,17 +113,17 @@ func docMauTuyen(t *testing.T, thuMuc string) map[string]bool {
 
 	// Hàng rào cho chính bài kiểm: thư mục không có file nào, hoặc biểu
 	// thức chính quy không khớp gì, sẽ làm bài này XANH mà không kiểm gì.
-	if soFile == 0 {
-		t.Fatalf("%s không có file .go nào — đường dẫn đã đổi?", thuMuc)
+	if fileCount == 0 {
+		t.Fatalf("%s không có file .go nào — đường dẫn đã đổi?", dir)
 	}
 	if len(ra) == 0 {
 		t.Fatalf("%s không có mẫu tuyến nào — cách đăng ký tuyến đã đổi "+
-			"và bài kiểm này không còn kiểm gì", thuMuc)
+			"và bài kiểm này không còn kiểm gì", dir)
 	}
 	return ra
 }
 
-// TestDanhSachPhoiBayKhongThua là chiều NGƯỢC lại.
+// TestTheExposureListHasNoExtras là chiều NGƯỢC lại.
 //
 // Một dòng ỦY QUYỀN trong shopper.go trỏ tới tuyến mà module không đăng ký
 // là tuyến CHẾT: request đi vào mux con và nhận 404 ở đó. Dạng này sinh ra
@@ -132,9 +132,9 @@ func docMauTuyen(t *testing.T, thuMuc string) map[string]bool {
 // Chỉ xét dạng `mux.Handle("…", h)` — ủy quyền cho mux con. Các tuyến app
 // TỰ phục vụ (/metrics, /health, cấu hình vận hành) truyền handler khác và
 // không có danh sách thứ hai để lệch.
-func TestDanhSachPhoiBayKhongThua(t *testing.T) {
-	dangKy := map[string]bool{}
-	for _, thuMuc := range []string{
+func TestTheExposureListHasNoExtras(t *testing.T) {
+	register := map[string]bool{}
+	for _, dir := range []string{
 		"internal/modules/cart/interfaces/http",
 		"internal/modules/checkout/interfaces/http",
 		"internal/modules/customer/interfaces/http",
@@ -145,37 +145,37 @@ func TestDanhSachPhoiBayKhongThua(t *testing.T) {
 		// /orders/{id}/returns nên chúng đi cùng chuỗi middleware của đơn.
 		"internal/modules/returns/interfaces/http",
 	} {
-		for mau := range docMauTuyen(t, thuMuc) {
-			dangKy[mau] = true
+		for pattern := range readRoutePatterns(t, dir) {
+			register[pattern] = true
 		}
 	}
 
-	b, err := os.ReadFile(filepath.Join(gocRepo(t), "internal/app/shopper.go"))
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "internal/app/shopper.go"))
 	if err != nil {
 		t.Fatalf("đọc shopper.go: %v", err)
 	}
 	re := regexp.MustCompile(`mux\.Handle\(\s*"([A-Z]+ /[^"]*)",\s*h\)`)
-	khop := re.FindAllStringSubmatch(string(b), -1)
-	if len(khop) == 0 {
+	matches := re.FindAllStringSubmatch(string(b), -1)
+	if len(matches) == 0 {
 		t.Fatal("shopper.go không có dòng ủy quyền nào — cách gắn tuyến đã " +
 			"đổi và bài kiểm này không còn kiểm gì")
 	}
 
-	var thua []string
-	for _, m := range khop {
-		if !dangKy[m[1]] {
-			thua = append(thua, m[1])
+	var extra []string
+	for _, m := range matches {
+		if !register[m[1]] {
+			extra = append(extra, m[1])
 		}
 	}
-	sort.Strings(thua)
+	sort.Strings(extra)
 
-	for _, mau := range thua {
+	for _, pattern := range extra {
 		t.Errorf("shopper.go ủy quyền %q nhưng KHÔNG module nào đăng ký "+
-			"nó — request sẽ đi vào mux con rồi nhận 404 ở đó", mau)
+			"nó — request sẽ đi vào mux con rồi nhận 404 ở đó", pattern)
 	}
 }
 
-// TestDacTaVaMaKhongTroiXaNhau.
+// TestTheSpecAndTheCodeDoNotDriftApart.
 //
 // # Khoảng cách phải CÓ CHỦ Ý, không phải trôi dần
 //
@@ -199,66 +199,66 @@ func TestDanhSachPhoiBayKhongThua(t *testing.T) {
 // Chiều thứ hai quan trọng ngang chiều đầu: một nhãn "Phase 2" còn sót lại
 // sau khi tính năng đã xong sẽ khiến người đọc bỏ qua một endpoint dùng
 // được.
-func TestDacTaVaMaKhongTroiXaNhau(t *testing.T) {
-	goc := gocRepo(t)
+func TestTheSpecAndTheCodeDoNotDriftApart(t *testing.T) {
+	goc := repoRoot(t)
 
-	duongDan := docDuongDanDacTa(t, goc)
-	if len(duongDan) == 0 {
+	path := readSpecPaths(t, goc)
+	if len(path) == 0 {
 		t.Fatal("không đọc được đường dẫn nào từ đặc tả — cách khai đã đổi " +
 			"và bài kiểm này không còn kiểm gì")
 	}
 
-	tuyen := map[string]bool{}
-	for _, thuMuc := range thuMucInterfaceHTTP(t, goc) {
-		for mau := range docMauTuyen(t, thuMuc) {
+	routes := map[string]bool{}
+	for _, dir := range httpInterfaceDir(t, goc) {
+		for pattern := range readRoutePatterns(t, dir) {
 			// Bỏ phương thức, chỉ giữ đường dẫn.
-			if i := strings.IndexByte(mau, ' '); i > 0 {
-				tuyen[chuanHoaDuongDan(mau[i+1:])] = true
+			if i := strings.IndexByte(pattern, ' '); i > 0 {
+				routes[normalizePath(pattern[i+1:])] = true
 			}
 		}
 	}
 	// internal/app tự phục vụ một số đường (cấu hình vận hành, sức khỏe).
-	for mau := range docMauTuyen(t, "internal/app") {
-		if i := strings.IndexByte(mau, ' '); i > 0 {
-			tuyen[chuanHoaDuongDan(mau[i+1:])] = true
+	for pattern := range readRoutePatterns(t, "internal/app") {
+		if i := strings.IndexByte(pattern, ' '); i > 0 {
+			routes[normalizePath(pattern[i+1:])] = true
 		}
 	}
 
-	for _, d := range duongDan {
-		coTuyen := tuyen[chuanHoaDuongDan(d.duongDan)]
+	for _, d := range path {
+		hasRoute := routes[normalizePath(d.path)]
 		switch {
-		case !coTuyen && d.giaiDoan == 0:
+		case !hasRoute && d.stage == 0:
 			t.Errorf("đặc tả khai %q nhưng KHÔNG có tuyến nào, và cũng "+
 				"không có nhãn `x-phase`.\n"+
 				"    Hoặc xây nó, hoặc thêm `x-phase: 2` vào khối %q ở "+
 				"api/paths/ để nói rõ đây là giai đoạn sau.",
-				d.duongDan, d.khoi)
-		case coTuyen && d.giaiDoan > 0:
+				d.path, d.block)
+		case hasRoute && d.stage > 0:
 			t.Errorf("khối %q vẫn mang nhãn `x-phase: %d` nhưng %q ĐÃ có "+
 				"tuyến — gỡ nhãn đi, nếu không người đọc đặc tả sẽ bỏ qua "+
-				"một endpoint dùng được", d.khoi, d.giaiDoan, d.duongDan)
+				"một endpoint dùng được", d.block, d.stage, d.path)
 		}
 	}
 }
 
-// mucDacTa là một đường dẫn trong đặc tả, kèm giai đoạn nếu có nhãn.
-type mucDacTa struct {
-	duongDan string
-	khoi     string // ví dụ "admin.yaml#/payouts"
-	giaiDoan int    // 0 = không có nhãn, nghĩa là "phải chạy được hôm nay"
+// specEntry là một đường dẫn trong đặc tả, kèm giai đoạn nếu có nhãn.
+type specEntry struct {
+	path  string
+	block string // ví dụ "admin.yaml#/payouts"
+	stage int    // 0 = không có nhãn, nghĩa là "phải chạy được hôm nay"
 }
 
-// chuanHoaDuongDan bỏ TÊN tham số đường dẫn.
+// normalizePath bỏ TÊN tham số đường dẫn.
 //
 // Đặc tả viết `{product_id}`, mã viết `{product_id}` — hôm nay giống nhau,
 // nhưng đổi tên tham số ở một bên là chuyện thường và không đáng làm bài
 // kiểm đỏ.
-func chuanHoaDuongDan(p string) string {
+func normalizePath(p string) string {
 	return regexp.MustCompile(`\{[^}]*\}`).ReplaceAllString(p, "{}")
 }
 
-// docDuongDanDacTa đọc đường dẫn từ openapi.yaml và tra nhãn x-phase.
-func docDuongDanDacTa(t *testing.T, goc string) []mucDacTa {
+// readSpecPaths đọc đường dẫn từ openapi.yaml và tra nhãn x-phase.
+func readSpecPaths(t *testing.T, goc string) []specEntry {
 	t.Helper()
 
 	b, err := os.ReadFile(filepath.Join(goc, "api/openapi.yaml"))
@@ -267,38 +267,38 @@ func docDuongDanDacTa(t *testing.T, goc string) []mucDacTa {
 	}
 
 	re := regexp.MustCompile(`(?m)^  (/[^\s:]+):\s*\n\s*\$ref:\s*'\./paths/([^#]+)#/(\w+)'`)
-	var out []mucDacTa
+	var out []specEntry
 	for _, m := range re.FindAllStringSubmatch(string(b), -1) {
-		out = append(out, mucDacTa{
-			duongDan: m[1],
-			khoi:     m[2] + "#/" + m[3],
-			giaiDoan: docNhanGiaiDoan(t, goc, m[2], m[3]),
+		out = append(out, specEntry{
+			path:  m[1],
+			block: m[2] + "#/" + m[3],
+			stage: readStageLabels(t, goc, m[2], m[3]),
 		})
 	}
 	return out
 }
 
-// docNhanGiaiDoan tìm `x-phase` trong MỘT khối của tệp đường dẫn.
+// readStageLabels tìm `x-phase` trong MỘT khối của tệp đường dẫn.
 //
 // Đọc theo khối chứ không theo cả tệp: một tệp có hàng chục khối, và nhãn
 // của khối này không nói gì về khối kia.
-func docNhanGiaiDoan(t *testing.T, goc, tep, khoi string) int {
+func readStageLabels(t *testing.T, goc, file, block string) int {
 	t.Helper()
 
-	b, err := os.ReadFile(filepath.Join(goc, "api/paths", tep))
+	b, err := os.ReadFile(filepath.Join(goc, "api/paths", file))
 	if err != nil {
-		t.Fatalf("đọc %s: %v", tep, err)
+		t.Fatalf("đọc %s: %v", file, err)
 	}
 
 	than := string(b)
-	dau := strings.Index(than, "\n"+khoi+":\n")
-	if dau < 0 {
+	first := strings.Index(than, "\n"+block+":\n")
+	if first < 0 {
 		return 0
 	}
-	than = than[dau+1:]
+	than = than[first+1:]
 	// Khối kết thúc ở khóa cấp cao nhất tiếp theo.
-	if cuoi := regexp.MustCompile(`\n[A-Za-z_]\w*:`).FindStringIndex(than[len(khoi)+2:]); cuoi != nil {
-		than = than[:len(khoi)+2+cuoi[0]]
+	if cuoi := regexp.MustCompile(`\n[A-Za-z_]\w*:`).FindStringIndex(than[len(block)+2:]); cuoi != nil {
+		than = than[:len(block)+2+cuoi[0]]
 	}
 
 	m := regexp.MustCompile(`x-phase:\s*(\d+)`).FindStringSubmatch(than)
@@ -307,13 +307,13 @@ func docNhanGiaiDoan(t *testing.T, goc, tep, khoi string) int {
 	}
 	n, err := strconv.Atoi(m[1])
 	if err != nil {
-		t.Fatalf("nhãn x-phase của khối %s không phải số: %q", khoi, m[1])
+		t.Fatalf("nhãn x-phase của khối %s không phải số: %q", block, m[1])
 	}
 	return n
 }
 
-// thuMucInterfaceHTTP liệt kê mọi thư mục interfaces/http của module.
-func thuMucInterfaceHTTP(t *testing.T, goc string) []string {
+// httpInterfaceDir liệt kê mọi thư mục interfaces/http của module.
+func httpInterfaceDir(t *testing.T, goc string) []string {
 	t.Helper()
 
 	entries, err := os.ReadDir(filepath.Join(goc, "internal/modules"))

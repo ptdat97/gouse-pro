@@ -30,11 +30,11 @@ import (
 // Kiểm ĐỦ chuỗi bước của nhà bán, không chỉ bước đầu: một cửa chặn chỉ
 // đóng ở `Confirm` vẫn để lọt đường đi thẳng tới `HandOver` nếu có ai đó
 // thêm một lối tắt sau này.
-func TestBB1_HangTraTruocKhongRoiKho(t *testing.T) {
+func TestBB1_PrepaidGoodsDoNotLeaveTheWarehouse(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "CARD")
+	shop, fos := w.placeOrderWith(t, "CARD")
 	foID := fos[0].ID
 	seller := shop.String()
 
@@ -55,37 +55,37 @@ func TestBB1_HangTraTruocKhongRoiKho(t *testing.T) {
 	}
 }
 
-// TestBB2_DonCODKhongBaoGioBiKhoa.
+// TestBB2_ACODOrderIsNeverLocked.
 //
 // Nửa dễ làm hỏng nhất: một lần khóa quá tay làm đứng toàn bộ COD, và với
 // COD thì chờ thanh toán trước khi giao là chặn chính đường thu tiền.
-func TestBB2_DonCODKhongBaoGioBiKhoa(t *testing.T) {
+func TestBB2_ACODOrderIsNeverLocked(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "COD")
+	shop, fos := w.placeOrderWith(t, "COD")
 
 	if err := w.ful.ConfirmFulfillment(ctx, shop.String(), fos[0].ID); err != nil {
 		t.Fatalf("BB2 vỡ: đơn COD bị chặn — %v", err)
 	}
 }
 
-// TestBB3_DaMoKhoaThiDonPhaiDaTraTien.
+// TestBB3_AnUnlockedOrderMustBePaid.
 //
 // Bất biến này nhìn từ phía DỮ LIỆU chứ không từ phía lời gọi: quét mọi
 // đơn thực hiện đang mở khóa rồi đối chiếu ngược lên đơn hàng. Nó bắt được
 // cả những đường mở khóa mà bài test không biết tới — ví dụ một câu UPDATE
 // viết tay, hay một bên nhận mới đặt cờ sai.
-func TestBB3_DaMoKhoaThiDonPhaiDaTraTien(t *testing.T) {
+func TestBB3_AnUnlockedOrderMustBePaid(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
 	// Dựng cả ba tình huống trong CÙNG một database rồi mới quét.
-	w.datDonVoiPhuongThuc(t, "COD")
-	w.datDonVoiPhuongThuc(t, "CARD")
+	w.placeOrderWith(t, "COD")
+	w.placeOrderWith(t, "CARD")
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "BANK_TRANSFER")
-	if err := w.ord.MarkOrderPaid(ctx, w.orderIDCuoi.String()); err != nil {
+	shop, fos := w.placeOrderWith(t, "BANK_TRANSFER")
+	if err := w.ord.MarkOrderPaid(ctx, w.lastOrderID.String()); err != nil {
 		t.Fatalf("MarkOrderPaid: %v", err)
 	}
 	w.drain()
@@ -102,24 +102,24 @@ func TestBB3_DaMoKhoaThiDonPhaiDaTraTien(t *testing.T) {
 	}
 	defer rows.Close()
 
-	var soDong int
+	var rowCount int
 	for rows.Next() {
-		var foID, trangThai, phuongThuc string
-		if err := rows.Scan(&foID, &trangThai, &phuongThuc); err != nil {
+		var foID, status, payMethod string
+		if err := rows.Scan(&foID, &status, &payMethod); err != nil {
 			t.Fatalf("đọc dòng: %v", err)
 		}
-		soDong++
+		rowCount++
 
 		// Mở khóa hợp lệ khi: đơn đã trả tiền, HOẶC là COD (tiền lúc giao),
 		// HOẶC không có phương thức (đường placeOrder — xem ADR-0018).
-		hopLe := trangThai == "PAID" ||
-			phuongThuc == "COD" || phuongThuc == "(trống)"
+		hopLe := status == "PAID" ||
+			payMethod == "COD" || payMethod == "(trống)"
 		if !hopLe {
 			t.Errorf("BB3 vỡ: đơn thực hiện %s đã mở khóa nhưng đơn hàng "+
-				"ở trạng thái %q với phương thức %q", foID, trangThai, phuongThuc)
+				"ở trạng thái %q với phương thức %q", foID, status, payMethod)
 		}
 	}
-	if soDong == 0 {
+	if rowCount == 0 {
 		t.Fatal("không có đơn thực hiện nào đã mở khóa — bài test không kiểm được gì")
 	}
 }
@@ -129,20 +129,20 @@ func TestBB3_DaMoKhoaThiDonPhaiDaTraTien(t *testing.T) {
 // Event `order.paid` được phát lại là chuyện bình thường của giao hàng
 // ít-nhất-một-lần. Lần thứ hai KHÔNG được khóa lại, và cũng không được
 // biến thành lỗi làm event kẹt trong hàng đợi.
-func TestBB4_MoKhoaLaMotChieu(t *testing.T) {
+func TestBB4_UnlockingIsOneWay(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "CARD")
+	shop, fos := w.placeOrderWith(t, "CARD")
 	foID := fos[0].ID
 
-	if err := w.ord.MarkOrderPaid(ctx, w.orderIDCuoi.String()); err != nil {
+	if err := w.ord.MarkOrderPaid(ctx, w.lastOrderID.String()); err != nil {
 		t.Fatalf("MarkOrderPaid: %v", err)
 	}
 	w.drain()
 
 	// Phát lại: gọi thẳng đường mở khóa lần nữa, đúng như một event trùng.
-	if _, err := w.ful.UnlockByOrder(ctx, w.orderIDCuoi.String()); err != nil {
+	if _, err := w.ful.UnlockByOrder(ctx, w.lastOrderID.String()); err != nil {
 		t.Fatalf("BB4 vỡ: mở khóa lần hai báo lỗi — %v", err)
 	}
 
@@ -169,35 +169,35 @@ func handOverReq(sellerID, foID string) fulfillment.HandOverRequest {
 // Đo được lúc phát hiện: 1.132.273.000 đ ghi NỢ PLATFORM_CASH cho 3110
 // đơn còn PENDING_PAYMENT. Sổ cái khẳng định nền tảng cầm 1,13 tỷ đồng
 // chưa hề tới, và con số đó đi thẳng vào mọi báo cáo tài sản.
-func TestBB5_TienMatChiTangKhiTienThatSuVe(t *testing.T) {
+func TestBB5_CashRisesOnlyWhenMoneyActuallyArrives(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	w.datDonVoiPhuongThuc(t, "CARD")
+	w.placeOrderWith(t, "CARD")
 
-	tien, phaiThu := w.soDu(t)
-	if tien != 0 {
+	amount, receivable := w.balance(t)
+	if amount != 0 {
 		t.Errorf("BB5 vỡ: tiền mặt = %d ngay sau khi đặt đơn, mong 0 — "+
-			"chưa đồng nào về", tien)
+			"chưa đồng nào về", amount)
 	}
-	if phaiThu <= 0 {
+	if receivable <= 0 {
 		t.Fatalf("khoản phải thu = %d, mong dương — tiền của đơn phải nằm "+
-			"ở đâu đó", phaiThu)
+			"ở đâu đó", receivable)
 	}
 
 	// Tiền về.
-	if err := w.ord.MarkOrderPaid(ctx, w.orderIDCuoi.String()); err != nil {
+	if err := w.ord.MarkOrderPaid(ctx, w.lastOrderID.String()); err != nil {
 		t.Fatalf("MarkOrderPaid: %v", err)
 	}
 	w.drain()
 
-	tien2, phaiThu2 := w.soDu(t)
-	if tien2 != phaiThu {
+	amount2, receivable2 := w.balance(t)
+	if amount2 != receivable {
 		t.Errorf("tiền mặt sau khi thu = %d, mong %d (đúng khoản phải thu cũ)",
-			tien2, phaiThu)
+			amount2, receivable)
 	}
-	if phaiThu2 != 0 {
-		t.Errorf("khoản phải thu còn %d sau khi thu tiền, mong 0", phaiThu2)
+	if receivable2 != 0 {
+		t.Errorf("khoản phải thu còn %d sau khi thu tiền, mong 0", receivable2)
 	}
 }
 
@@ -207,31 +207,31 @@ func TestBB5_TienMatChiTangKhiTienThatSuVe(t *testing.T) {
 // ít-nhất-một-lần. Ghi hai bút toán thu tiền cho một lần thu nghĩa là sổ
 // cái nói nền tảng nhận gấp đôi — và sổ cái bất biến thì sửa bằng bút
 // toán đảo, không xóa được.
-func TestBB6_ThuTienHaiLanChiGhiMotButToan(t *testing.T) {
+func TestBB6_CapturingTwicePostsOneEntry(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	w.datDonVoiPhuongThuc(t, "CARD")
-	if err := w.ord.MarkOrderPaid(ctx, w.orderIDCuoi.String()); err != nil {
+	w.placeOrderWith(t, "CARD")
+	if err := w.ord.MarkOrderPaid(ctx, w.lastOrderID.String()); err != nil {
 		t.Fatalf("MarkOrderPaid: %v", err)
 	}
 	w.drain()
 
-	tien, _ := w.soDu(t)
+	amount, _ := w.balance(t)
 
 	// Phát lại đúng event đó lần nữa.
-	w.phatLaiOrderPaid(t)
+	w.republishOrderPaid(t)
 	w.drain()
 
-	tien2, _ := w.soDu(t)
-	if tien2 != tien {
+	amount2, _ := w.balance(t)
+	if amount2 != amount {
 		t.Errorf("BB6 vỡ: tiền mặt %d → %d sau khi phát lại order.paid — "+
-			"ghi nhận tiền về hai lần", tien, tien2)
+			"ghi nhận tiền về hai lần", amount, amount2)
 	}
 }
 
-// soDu trả số dư PLATFORM_CASH và ACCOUNTS_RECEIVABLE, tính từ sổ cái.
-func (w *world) soDu(t *testing.T) (tienMat, phaiThu int64) {
+// balance trả số dư PLATFORM_CASH và ACCOUNTS_RECEIVABLE, tính từ sổ cái.
+func (w *world) balance(t *testing.T) (cash, receivable int64) {
 	t.Helper()
 	rows, err := w.db.Pool().Query(context.Background(), `
 		SELECT account_type,
@@ -251,19 +251,19 @@ func (w *world) soDu(t *testing.T) (tienMat, phaiThu int64) {
 			t.Fatalf("đọc số dư: %v", err)
 		}
 		if acc == "PLATFORM_CASH" {
-			tienMat = v
+			cash = v
 		} else {
-			phaiThu = v
+			receivable = v
 		}
 	}
-	return tienMat, phaiThu
+	return cash, receivable
 }
 
-// phatLaiOrderPaid đưa event `order.paid` trở lại hàng đợi chưa xử lý.
+// republishOrderPaid đưa event `order.paid` trở lại hàng đợi chưa xử lý.
 //
 // Mô phỏng đúng thứ xảy ra thật: nhà cung cấp gửi trùng, hoặc worker chết
 // giữa lúc đánh dấu đã xử lý rồi khởi động lại.
-func (w *world) phatLaiOrderPaid(t *testing.T) {
+func (w *world) republishOrderPaid(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := w.db.Pool().Exec(ctx, `

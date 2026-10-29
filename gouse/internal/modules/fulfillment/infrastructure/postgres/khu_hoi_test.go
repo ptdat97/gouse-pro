@@ -16,7 +16,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/testdb"
 )
 
-var luc = time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
+var at = time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
 
 func newPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -190,15 +190,15 @@ func fullParams(t *testing.T) domain.RestoreFOParams {
 		// Ngày giao dự kiến lưu ở cột kiểu DATE — dựng nó ĐÃ CẮT về ngày
 		// theo giờ nghiệp vụ, đúng như domain đặt. Đặt kèm giờ phút thì
 		// bài test đỏ vì một sai lệch không có thật.
-		EstimatedDelivery: types.StartOfDay(luc.Add(72 * time.Hour)),
-		CompletedAt:       luc.Add(96 * time.Hour),
-		ConfirmedAt:       luc.Add(time.Hour),
-		PackedAt:          luc.Add(2 * time.Hour),
-		ShippedAt:         luc.Add(3 * time.Hour),
-		DeliveredAt:       luc.Add(48 * time.Hour),
-		CancelledAt:       luc.Add(50 * time.Hour),
-		CreatedAt:         luc,
-		UpdatedAt:         luc.Add(4 * time.Hour),
+		EstimatedDelivery: types.StartOfDay(at.Add(72 * time.Hour)),
+		CompletedAt:       at.Add(96 * time.Hour),
+		ConfirmedAt:       at.Add(time.Hour),
+		PackedAt:          at.Add(2 * time.Hour),
+		ShippedAt:         at.Add(3 * time.Hour),
+		DeliveredAt:       at.Add(48 * time.Hour),
+		CancelledAt:       at.Add(50 * time.Hour),
+		CreatedAt:         at,
+		UpdatedAt:         at.Add(4 * time.Hour),
 		Version:           1,
 		Lines: []domain.FOLine{{
 			OrderLineID:        lineID,

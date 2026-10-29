@@ -124,7 +124,7 @@ func chay() error {
 		return fmt.Errorf("dựng module promotion: %w", err)
 	}
 
-	var written, boQua int
+	var written, skipped int
 	for _, t := range missing {
 		// Đi qua module, KHÔNG chèn thẳng SQL: bộ đếm `used_count` và
 		// `used_budget` phải tăng cùng lúc với hàng lượt, và chỉ đường
@@ -141,14 +141,14 @@ func chay() error {
 			// tên là chuyện thường với dữ liệu cũ.
 			fmt.Fprintf(os.Stderr, "  bỏ qua %s (mã %s): %v\n",
 				t.orderID, t.code, err)
-			boQua++
+			skipped++
 			continue
 		}
 		written++
 	}
 
-	fmt.Printf("\nĐã ghi %d lượt, bỏ qua %d.\n", written, boQua)
-	if boQua > 0 {
+	fmt.Printf("\nĐã ghi %d lượt, bỏ qua %d.\n", written, skipped)
+	if skipped > 0 {
 		return errors.New("có đơn không ghi được lượt — xem log ở trên")
 	}
 	return nil

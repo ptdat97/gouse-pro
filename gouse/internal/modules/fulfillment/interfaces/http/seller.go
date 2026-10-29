@@ -516,7 +516,7 @@ func (h *SellerHandler) performance(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range hs.Unmeasured {
 		ra.NotMeasured = append(ra.NotMeasured, unmeasuredJSON{
-			Name: c.Ten, Reason: c.LyDo,
+			Name: c.Ten, Reason: c.Reason,
 		})
 	}
 	ra.Impact.Message = hs.Message

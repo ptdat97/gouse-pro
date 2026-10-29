@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestKhongGianMaKhongLanNhau.
+// TestIDNamespacesDoNotOverlap.
 //
 // # Vì sao bài này tồn tại
 //
@@ -37,70 +37,70 @@ import (
 //
 // Bảng mới, cột mới đều tự động được phủ. Thứ duy nhất phải khai tay là
 // ngoại lệ — cột CỐ Ý đa hình, và mỗi dòng ngoại lệ phải nói rõ vì sao.
-func TestKhongGianMaKhongLanNhau(t *testing.T) {
+func TestIDNamespacesDoNotOverlap(t *testing.T) {
 	a := newAPITest(t)
 
 	// Dựng dữ liệu đi hết chuỗi lõi: giỏ → phiên → đơn → đơn thực hiện.
 	// Không có dữ liệu thì không có tiền tố nào để đối chiếu, và bài test
 	// sẽ xanh vì rỗng — đúng kiểu xanh vô nghĩa mà nó sinh ra để chống.
-	maDon := a.datDonCOD(t, "khonggianma")
-	a.phatEvent(t)
-	if maDon == "" {
+	orderID := a.placeCODOrder(t, "khonggianma")
+	a.emitEvent(t)
+	if orderID == "" {
 		t.Fatal("không dựng được đơn để lấy dữ liệu")
 	}
 
 	// Đọc thêm hai đường nữa để chắc `fulfillment_order_line` có dòng.
-	if res := a.call(http.MethodGet, "/api/v1/orders/"+maDon+"/shipments", nil,
+	if res := a.call(http.MethodGet, "/api/v1/orders/"+orderID+"/shipments", nil,
 		map[string]string{"X-Guest-Phone": "0900333222"}); res.code != http.StatusOK {
 		t.Fatalf("đọc kiện hàng: HTTP %d — %s", res.code, res.raw)
 	}
 
-	cot := docCacCotMa(t, a)
+	cot := readIDColumns(t, a)
 
 	// Bước 1: không gian mã của từng bảng, lấy từ chính cột `id` của nó.
-	khongGian := map[string]string{}
+	namespace := map[string]string{}
 	for _, c := range cot {
 		if c.cot != "id" {
 			continue
 		}
-		tt := tienToCua(t, a, c.bang, c.cot)
+		tt := prefixOf(t, a, c.table, c.cot)
 		if len(tt) == 1 {
-			khongGian[c.bang] = tt[0]
+			namespace[c.table] = tt[0]
 		}
 	}
-	if len(khongGian) < 10 {
+	if len(namespace) < 10 {
 		t.Fatalf("chỉ suy ra được %d không gian mã — dữ liệu quá mỏng để "+
-			"kết luận gì", len(khongGian))
+			"kết luận gì", len(namespace))
 	}
 
 	// Bước 2: mọi cột `T_id` phải nằm trong không gian của T.
-	var daKiem int
+	var checked int
 	for _, c := range cot {
 		if c.cot == "id" {
 			continue
 		}
-		bangDich, co := bangCuaCot(c.bang, c.cot, khongGian)
+		targetTable, co := tableOfColumn(c.table, c.cot, namespace)
 		if !co {
 			continue // không suy ra được bảng đích — bỏ qua, xem ghi chú dưới
 		}
-		muon := khongGian[bangDich]
-		khoa := c.bang + "." + c.cot
+		want := namespace[targetTable]
+		key := c.table + "." + c.cot
 
-		for _, tt := range tienToCua(t, a, c.bang, c.cot) {
-			if !laTienTo(tt) {
+		for _, tt := range prefixOf(t, a, c.table, c.cot) {
+			if !isPrefix(tt) {
 				// Không phải mã có tiền tố: hằng canh (`seed-demo`,
 				// `dev-tool`) hoặc dữ liệu dựng tay trong test. Phép kiểm
 				// này nói về KHÔNG GIAN MÃ, không về mọi chuỗi lọt vào cột.
-				t.Logf("bỏ qua %s: %q không phải mã có tiền tố", khoa, tt)
+				t.Logf("bỏ qua %s: %q không phải mã có tiền tố", key, tt)
 				continue
 			}
-			daKiem++
-			if tt == muon {
+			checked++
+			if tt == want {
 				continue
 			}
-			if ly := noDaBiet[khoa]; ly != "" {
+			if why := knownDebt[key]; why != "" {
 				t.Logf("NỢ ĐÃ BIẾT — %s chứa %q thay vì %q: %s",
-					khoa, tt, muon, ly)
+					key, tt, want, why)
 				continue
 			}
 			t.Errorf("%s.%s chứa mã %q nhưng phải là %q (không gian của "+
@@ -109,23 +109,23 @@ func TestKhongGianMaKhongLanNhau(t *testing.T) {
 				"dựa vào nó khớp 0 dòng, và cả hai đầu vẫn trông đúng khi "+
 				"xét riêng.\n"+
 				"    Cố ý đa hình thì khai vào `ngoaiLeDaHinh` kèm lý do.",
-				c.bang, c.cot, tt, muon, bangDich, bangDich)
+				c.table, c.cot, tt, want, targetTable, targetTable)
 		}
 	}
 
-	if daKiem == 0 {
+	if checked == 0 {
 		t.Fatal("không kiểm được cột nào — phép quét hỏng chứ không phải hệ " +
 			"thống sạch")
 	}
 	t.Logf("đã đối chiếu %d cặp (cột, tiền tố) trên %d không gian mã",
-		daKiem, len(khongGian))
+		checked, len(namespace))
 }
 
-// ngoaiLeDaHinh là những cột CỐ Ý chứa nhiều không gian mã.
+// polymorphicExceptions là những cột CỐ Ý chứa nhiều không gian mã.
 //
 // Mỗi dòng phải có cột phân loại đi kèm cho biết mã thuộc loại nào — không
 // có nó thì đây không phải đa hình, mà là lẫn lộn.
-var ngoaiLeDaHinh = map[string]string{
+var polymorphicExceptions = map[string]string{
 	"audit_log.resource_id":           "resource_type cho biết đây là tài nguyên gì",
 	"demand_signal.source_id":         "source_type cho biết tín hiệu đến từ đâu",
 	"event_log.subject_id":            "subject_type cho biết đối tượng là gì",
@@ -134,25 +134,25 @@ var ngoaiLeDaHinh = map[string]string{
 	"notification_log.reference_id":   "reference_type cho biết thông báo về cái gì",
 }
 
-// noDaBiet là những cột ĐANG SAI mà bản sửa còn chờ một quyết định.
+// knownDebt là những cột ĐANG SAI mà bản sửa còn chờ một quyết định.
 //
-// Khác `ngoaiLeDaHinh` ở chỗ: kia là thiết kế, đây là nợ. Bài test ghi ra
+// Khác `polymorphicExceptions` ở chỗ: kia là thiết kế, đây là nợ. Bài test ghi ra
 // từng dòng ở đây thay vì đỏ, vì chặn cả bộ test vì một việc chưa quyết
 // được thì người ta sẽ xóa phép kiểm chứ không đi quyết.
 //
 // Mỗi dòng phải trỏ tới chỗ ghi quyết định đang chờ.
-var noDaBiet = map[string]string{
+var knownDebt = map[string]string{
 	// Rỗng từ 17/09: `event_log.session_id` nay chỉ chứa mã LƯỢT TRUY CẬP
 	// sau khi ADR-0020 bước 3 nối xong. Giữ sổ lại vì dạng nợ ấy sẽ còn
 	// xuất hiện, và một sổ rỗng nói rõ hơn là không có sổ.
 }
 
-// laTienTo cho biết một chuỗi có hình dạng tiền tố mã của hệ thống không.
+// isPrefix cho biết một chuỗi có hình dạng tiền tố mã của hệ thống không.
 //
 // Mã của dự án là `abc_<ULID>`: đúng ba chữ cái thường rồi gạch dưới. Giá
 // trị không theo hình dạng đó là hằng canh hoặc dữ liệu test dựng tay, và
 // phép kiểm này không nói gì về chúng.
-func laTienTo(s string) bool {
+func isPrefix(s string) bool {
 	if len(s) != 3 {
 		return false
 	}
@@ -165,10 +165,10 @@ func laTienTo(s string) bool {
 }
 
 // coTen là một cột định danh trong schema.
-type coTen struct{ bang, cot string }
+type coTen struct{ table, cot string }
 
-// docCacCotMa liệt kê mọi cột text tên `id` hoặc `*_id`.
-func docCacCotMa(t *testing.T, a *apiTest) []coTen {
+// readIDColumns liệt kê mọi cột text tên `id` hoặc `*_id`.
+func readIDColumns(t *testing.T, a *apiTest) []coTen {
 	t.Helper()
 
 	rows, err := a.db.Pool().Query(context.Background(), `
@@ -187,7 +187,7 @@ func docCacCotMa(t *testing.T, a *apiTest) []coTen {
 	var out []coTen
 	for rows.Next() {
 		var c coTen
-		if err := rows.Scan(&c.bang, &c.cot); err != nil {
+		if err := rows.Scan(&c.table, &c.cot); err != nil {
 			t.Fatalf("đọc schema: %v", err)
 		}
 		out = append(out, c)
@@ -195,20 +195,20 @@ func docCacCotMa(t *testing.T, a *apiTest) []coTen {
 	return out
 }
 
-// tienToCua trả các tiền tố KHÁC NHAU đang có trong một cột.
+// prefixOf trả các tiền tố KHÁC NHAU đang có trong một cột.
 //
 // Bỏ qua giá trị rỗng: cột định danh trong schema này dùng ” thay cho
 // NULL, và "chưa gán" không phải "gán sai".
-func tienToCua(t *testing.T, a *apiTest, bang, cot string) []string {
+func prefixOf(t *testing.T, a *apiTest, table, cot string) []string {
 	t.Helper()
 
 	q := fmt.Sprintf(
 		`SELECT DISTINCT split_part(%s, '_', 1) FROM %s WHERE %s <> ''`,
-		trichDan(cot), trichDan(bang), trichDan(cot))
+		quote(cot), quote(table), quote(cot))
 
 	rows, err := a.db.Pool().Query(context.Background(), q)
 	if err != nil {
-		t.Fatalf("quét %s.%s: %v", bang, cot, err)
+		t.Fatalf("quét %s.%s: %v", table, cot, err)
 	}
 	defer rows.Close()
 
@@ -216,7 +216,7 @@ func tienToCua(t *testing.T, a *apiTest, bang, cot string) []string {
 	for rows.Next() {
 		var s string
 		if err := rows.Scan(&s); err != nil {
-			t.Fatalf("quét %s.%s: %v", bang, cot, err)
+			t.Fatalf("quét %s.%s: %v", table, cot, err)
 		}
 		out = append(out, s)
 	}
@@ -224,7 +224,7 @@ func tienToCua(t *testing.T, a *apiTest, bang, cot string) []string {
 	return out
 }
 
-// bangCuaCot suy ra bảng đích của một cột `*_id`.
+// tableOfColumn suy ra bảng đích của một cột `*_id`.
 //
 // # Vì sao chỉ khớp CHÍNH XÁC, không đoán thêm
 //
@@ -235,8 +235,8 @@ func tienToCua(t *testing.T, a *apiTest, bang, cot string) []string {
 //
 // Cột không suy ra được bảng nào thì KHÔNG kiểm — bài test này không hứa
 // phủ hết, nó hứa mọi thứ nó nói đều đúng.
-func bangCuaCot(bang, cot string, khongGian map[string]string) (string, bool) {
-	if ngoaiLeDaHinh[bang+"."+cot] != "" {
+func tableOfColumn(table, cot string, namespace map[string]string) (string, bool) {
+	if polymorphicExceptions[table+"."+cot] != "" {
 		return "", false
 	}
 
@@ -244,18 +244,18 @@ func bangCuaCot(bang, cot string, khongGian map[string]string) (string, bool) {
 
 	// `parent_id` trỏ tới chính bảng đang đứng (danh mục cha).
 	if ten == "parent" {
-		ten = bang
+		ten = table
 	}
 
-	if _, co := khongGian[ten]; co {
+	if _, co := namespace[ten]; co {
 		return ten, true
 	}
 	return "", false
 }
 
-// trichDan bọc tên định danh SQL.
+// quote bọc tên định danh SQL.
 //
 // Cần vì `user` là từ khóa của PostgreSQL: không bọc thì câu truy vấn
 // quét bảng đó là lỗi cú pháp, và bảng người dùng là đúng chỗ đáng quét
 // nhất.
-func trichDan(s string) string { return `"` + s + `"` }
+func quote(s string) string { return `"` + s + `"` }

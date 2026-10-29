@@ -166,23 +166,23 @@ func (a *apiTest) call(
 	return out
 }
 
-// dangKyVaDangNhap tạo một tài khoản mới và trả access token.
+// registerAndLogIn tạo một tài khoản mới và trả access token.
 //
 // Đi qua ĐÚNG hai endpoint mà giao diện dùng, không gọi tắt vào module:
 // mục đích của lớp test này là kiểm chuỗi HTTP.
-func (a *apiTest) dangKyVaDangNhap(email string) string {
+func (a *apiTest) registerAndLogIn(email string) string {
 	a.t.Helper()
-	const matKhau = "MatKhauDuDai@2026"
+	const password = "MatKhauDuDai@2026"
 
 	res := a.call(http.MethodPost, "/api/v1/auth/register",
-		map[string]any{"email": email, "password": matKhau},
+		map[string]any{"email": email, "password": password},
 		map[string]string{"Idempotency-Key": ids.MustNew(ids.PrefixRequest).String()})
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		a.t.Fatalf("đăng ký %s: HTTP %d — %s", email, res.code, res.raw)
 	}
 
 	res = a.call(http.MethodPost, "/api/v1/auth/login",
-		map[string]any{"email": email, "password": matKhau}, nil)
+		map[string]any{"email": email, "password": password}, nil)
 	if res.code != http.StatusOK {
 		a.t.Fatalf("đăng nhập %s: HTTP %d — %s", email, res.code, res.raw)
 	}
@@ -193,12 +193,12 @@ func (a *apiTest) dangKyVaDangNhap(email string) string {
 	return tok
 }
 
-// khoaIdem sinh header Idempotency-Key mới.
+// idemKey sinh header Idempotency-Key mới.
 //
 // Cần cho mọi request POST/PATCH/PUT trong test phân quyền: thiếu nó thì
 // middleware trả 400 TRƯỚC khi tới bước kiểm quyền, và bài test sẽ đo
 // nhầm thứ.
-func khoaIdem() map[string]string {
+func idemKey() map[string]string {
 	return map[string]string{"Idempotency-Key": ids.MustNew(ids.PrefixRequest).String()}
 }
 
@@ -206,38 +206,38 @@ func bearer(tok string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + tok}
 }
 
-func emailMoi(prefix string) string {
+func newEmail(prefix string) string {
 	return fmt.Sprintf("%s-%s@apitest.local", prefix,
 		ids.MustNew(ids.PrefixRequest).String()[4:14])
 }
 
-// demDong đếm số dòng khớp điều kiện.
-func (a *apiTest) demDong(bang, dieuKien string, args ...any) int {
+// countRows đếm số dòng khớp điều kiện.
+func (a *apiTest) countRows(table, condition string, args ...any) int {
 	a.t.Helper()
 	var n int
-	q := "SELECT count(*) FROM " + bang
-	if dieuKien != "" {
-		q += " WHERE " + dieuKien
+	q := "SELECT count(*) FROM " + table
+	if condition != "" {
+		q += " WHERE " + condition
 	}
 	if err := a.db.Pool().QueryRow(context.Background(), q, args...).Scan(&n); err != nil {
-		a.t.Fatalf("đếm %s: %v", bang, err)
+		a.t.Fatalf("đếm %s: %v", table, err)
 	}
 	return n
 }
 
-// anhChupBang chụp lại (số dòng, tổng updated_at) của một bảng.
+// snapshotTable chụp lại (số dòng, tổng updated_at) của một bảng.
 //
 // Tổng dấu thời gian bắt được cả trường hợp SỬA mà không thêm dòng — thứ
 // mà đếm dòng một mình bỏ qua.
-func (a *apiTest) anhChupBang(bang string) (int, float64) {
+func (a *apiTest) snapshotTable(table string) (int, float64) {
 	a.t.Helper()
 	var n int
 	var tong *float64
 	err := a.db.Pool().QueryRow(context.Background(),
-		"SELECT count(*), sum(extract(epoch FROM updated_at)) FROM "+bang,
+		"SELECT count(*), sum(extract(epoch FROM updated_at)) FROM "+table,
 	).Scan(&n, &tong)
 	if err != nil {
-		a.t.Fatalf("chụp bảng %s: %v", bang, err)
+		a.t.Fatalf("chụp bảng %s: %v", table, err)
 	}
 	if tong == nil {
 		return n, 0
@@ -245,7 +245,7 @@ func (a *apiTest) anhChupBang(bang string) (int, float64) {
 	return n, *tong
 }
 
-// goiSongSong bắn N request GIỐNG HỆT NHAU cùng lúc và trả mọi kết quả.
+// callInParallel bắn N request GIỐNG HỆT NHAU cùng lúc và trả mọi kết quả.
 //
 // # Vì sao không dùng thẳng a.call
 //
@@ -254,14 +254,14 @@ func (a *apiTest) anhChupBang(bang string) (int, float64) {
 // bài test chứ không phải hệ thống, và ta mất đi thứ muốn đo.
 //
 // Ở đây mỗi goroutine đọc một BẢN CHỤP cookie và không ghi lại gì.
-func (a *apiTest) goiSongSong(
+func (a *apiTest) callInParallel(
 	n int, method, path string, body any, headers map[string]string,
 ) []reply {
 	a.t.Helper()
 
-	chup := make(map[string]string, len(a.cookies))
+	snapshot := make(map[string]string, len(a.cookies))
 	for k, v := range a.cookies {
-		chup[k] = v
+		snapshot[k] = v
 	}
 
 	than, err := json.Marshal(body)
@@ -269,48 +269,48 @@ func (a *apiTest) goiSongSong(
 		a.t.Fatalf("mã hóa thân request: %v", err)
 	}
 
-	ketQua := make([]reply, n)
-	var batDau sync.WaitGroup
-	var xong sync.WaitGroup
-	batDau.Add(1)
+	outcome := make([]reply, n)
+	var startGate sync.WaitGroup
+	var done sync.WaitGroup
+	startGate.Add(1)
 
 	for i := range n {
-		xong.Add(1)
+		done.Add(1)
 		go func() {
-			defer xong.Done()
+			defer done.Done()
 
 			req := httptest.NewRequest(method, path, bytes.NewReader(than))
 			req.Header.Set("Content-Type", "application/json")
 			for k, v := range headers {
 				req.Header.Set(k, v)
 			}
-			for name, val := range chup {
+			for name, val := range snapshot {
 				req.AddCookie(&http.Cookie{Name: name, Value: val})
 			}
 
 			rec := httptest.NewRecorder()
 			// Thả cùng lúc: nếu goroutine đầu chạy xong trước khi
 			// goroutine cuối bắt đầu thì đây chỉ là vòng lặp tuần tự.
-			batDau.Wait()
+			startGate.Wait()
 			a.handler.ServeHTTP(rec, req)
 
 			out := reply{code: rec.Code, raw: rec.Body.String()}
 			if rec.Body.Len() > 0 {
 				_ = json.Unmarshal(rec.Body.Bytes(), &out.body)
 			}
-			ketQua[i] = out
+			outcome[i] = out
 		}()
 	}
 
-	batDau.Done()
-	xong.Wait()
-	return ketQua
+	startGate.Done()
+	done.Wait()
+	return outcome
 }
 
-// timOfferBanDuoc trả mã offer đầu tiên còn bán được trong danh mục.
+// findSellableOffer trả mã offer đầu tiên còn bán được trong danh mục.
 //
 // Trả chuỗi rỗng khi không có, để bên gọi tự quyết định skip hay fail.
-func (a *apiTest) timOfferBanDuoc() string {
+func (a *apiTest) findSellableOffer() string {
 	a.t.Helper()
 
 	res := a.call(http.MethodGet, "/api/v1/products?limit=20", nil, nil)
@@ -326,7 +326,7 @@ func (a *apiTest) timOfferBanDuoc() string {
 		offers, _ := r.body["data"].([]any)
 		for _, o := range offers {
 			m, _ := o.(map[string]any)
-			if ban, _ := m["is_sellable"].(bool); ban {
+			if shop2, _ := m["is_sellable"].(bool); shop2 {
 				if id, _ := m["id"].(string); id != "" {
 					return id
 				}
@@ -336,64 +336,64 @@ func (a *apiTest) timOfferBanDuoc() string {
 	return ""
 }
 
-// dungPhienSanHoanTat dựng một phiên thanh toán đã điền đủ địa chỉ và
+// buildCheckoutReadyToComplete dựng một phiên thanh toán đã điền đủ địa chỉ và
 // phương thức giao, chỉ còn thiếu bước hoàn tất.
 //
 // Đi trọn đường HTTP mà giao diện đi, không gọi tắt vào module: bài test
 // dùng helper này để đo bước CUỐI, nên mọi bước trước phải giống thật.
-func (a *apiTest) dungPhienSanHoanTat(email, dienThoai string) string {
+func (a *apiTest) buildCheckoutReadyToComplete(email, phone string) string {
 	a.t.Helper()
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		a.t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		a.t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id":     maGio,
+		"cart_id":     cartID,
 		"guest_email": email,
-		"guest_phone": dienThoai,
-	}, khoaIdem())
+		"guest_phone": phone,
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		a.t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
-	if maPhien == "" {
+	checkoutID, _ := res.body["id"].(string)
+	if checkoutID == "" {
 		a.t.Fatalf("mở phiên không trả id: %s", res.raw)
 	}
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
-			"recipient_name": "Khách Thử", "phone": dienThoai,
+			"recipient_name": "Khách Thử", "phone": phone,
 			"street_address": "1 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+		}, idemKey())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey())
 
-	return maPhien
+	return checkoutID
 }
 
-// goiSongSongKhoaRieng giống goiSongSong nhưng mỗi lượt một khóa
+// callInParallelOwnKeys giống callInParallel nhưng mỗi lượt một khóa
 // idempotency RIÊNG: mô phỏng N lần bấm thật, không phải một lần bị gửi lặp.
-// goiSongSongKhoaRieng giống goiSongSongCoHeader nhưng không gửi header
+// callInParallelOwnKeys giống callInParallelWithHeader nhưng không gửi header
 // nào ngoài Idempotency-Key.
-func (a *apiTest) goiSongSongKhoaRieng(
+func (a *apiTest) callInParallelOwnKeys(
 	n int, method, path string, body any,
 ) []reply {
 	a.t.Helper()
-	return a.goiSongSongCoHeader(n, method, path, body, nil)
+	return a.callInParallelWithHeader(n, method, path, body, nil)
 }
 
-// goiSongSongCoHeader gọi song song, mỗi lượt một khóa idempotency RIÊNG,
+// callInParallelWithHeader gọi song song, mỗi lượt một khóa idempotency RIÊNG,
 // và mang thêm header do bên gọi đưa (thường là token).
 //
 // # Vì sao KHÔNG dùng `a.call` trong goroutine
@@ -404,14 +404,14 @@ func (a *apiTest) goiSongSongKhoaRieng(
 // đang thay đổi.
 //
 // Hàm này CHỤP ẢNH cookie trước khi thả, và không ghi ngược lại.
-func (a *apiTest) goiSongSongCoHeader(
-	n int, method, path string, body any, them map[string]string,
+func (a *apiTest) callInParallelWithHeader(
+	n int, method, path string, body any, add map[string]string,
 ) []reply {
 	a.t.Helper()
 
-	chup := make(map[string]string, len(a.cookies))
+	snapshot := make(map[string]string, len(a.cookies))
 	for k, v := range a.cookies {
-		chup[k] = v
+		snapshot[k] = v
 	}
 	than, err := json.Marshal(body)
 	if err != nil {
@@ -420,43 +420,43 @@ func (a *apiTest) goiSongSongCoHeader(
 
 	// Sinh khóa TRƯỚC khi thả: ids.MustNew dùng nguồn ngẫu nhiên dùng
 	// chung, gọi trong goroutine sẽ làm nhiễu thứ ta muốn đo.
-	khoa := make([]string, n)
-	for i := range khoa {
-		khoa[i] = ids.MustNew(ids.PrefixRequest).String()
+	key := make([]string, n)
+	for i := range key {
+		key[i] = ids.MustNew(ids.PrefixRequest).String()
 	}
 
-	ketQua := make([]reply, n)
-	var batDau, xong sync.WaitGroup
-	batDau.Add(1)
+	outcome := make([]reply, n)
+	var startGate, done sync.WaitGroup
+	startGate.Add(1)
 
 	for i := range n {
-		xong.Add(1)
+		done.Add(1)
 		go func() {
-			defer xong.Done()
+			defer done.Done()
 
 			req := httptest.NewRequest(method, path, bytes.NewReader(than))
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Idempotency-Key", khoa[i])
-			for k, v := range them {
+			req.Header.Set("Idempotency-Key", key[i])
+			for k, v := range add {
 				req.Header.Set(k, v)
 			}
-			for name, val := range chup {
+			for name, val := range snapshot {
 				req.AddCookie(&http.Cookie{Name: name, Value: val})
 			}
 
 			rec := httptest.NewRecorder()
-			batDau.Wait()
+			startGate.Wait()
 			a.handler.ServeHTTP(rec, req)
 
 			out := reply{code: rec.Code, raw: rec.Body.String()}
 			if rec.Body.Len() > 0 {
 				_ = json.Unmarshal(rec.Body.Bytes(), &out.body)
 			}
-			ketQua[i] = out
+			outcome[i] = out
 		}()
 	}
 
-	batDau.Done()
-	xong.Wait()
-	return ketQua
+	startGate.Done()
+	done.Wait()
+	return outcome
 }

@@ -12,12 +12,12 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/metrics"
 )
 
-// demThatBai đọc giá trị bộ đếm thất bại cho một (stage, reason).
+// countFailures đọc giá trị bộ đếm thất bại cho một (stage, reason).
 //
 // Đọc thẳng từ registry của Prometheus chứ không parse `/metrics`: nếu
 // nhãn bị đặt sai tên, bản parse văn bản vẫn "tìm thấy một dòng nào đó"
 // và bài test xanh nhầm.
-func demThatBai(t *testing.T, stage, reason string) float64 {
+func countFailures(t *testing.T, stage, reason string) float64 {
 	t.Helper()
 
 	// Đọc từ metrics.Registry, KHÔNG phải prometheus.DefaultGatherer.
@@ -34,7 +34,7 @@ func demThatBai(t *testing.T, stage, reason string) float64 {
 			continue
 		}
 		for _, m := range f.GetMetric() {
-			if khopNhan(m, stage, reason) {
+			if labelMatches(m, stage, reason) {
 				if c := m.GetCounter(); c != nil {
 					return c.GetValue()
 				}
@@ -44,7 +44,7 @@ func demThatBai(t *testing.T, stage, reason string) float64 {
 	return 0
 }
 
-func khopNhan(m *dto.Metric, stage, reason string) bool {
+func labelMatches(m *dto.Metric, stage, reason string) bool {
 	var coStage, coReason bool
 	for _, l := range m.GetLabel() {
 		switch l.GetName() {
@@ -57,19 +57,19 @@ func khopNhan(m *dto.Metric, stage, reason string) bool {
 	return coStage && coReason
 }
 
-// TestDemThatBaiTien: bút toán không cân bằng phải được đếm, và đếm dưới
+// TestPaymentFailuresAreCounted: bút toán không cân bằng phải được đếm, và đếm dưới
 // nhãn RIÊNG.
 //
 // Đây là nhãn đáng theo dõi nhất trong cả hệ thống: bút toán lệch nghĩa là
 // sổ sách sai. Gộp nó vào "internal" cùng mọi lỗi khác thì con số ấy chìm
 // trong nhiễu, và sự cố nghiêm trọng nhất trông y hệt một lỗi vặt.
-func TestDemThatBaiTien(t *testing.T) {
+func TestPaymentFailuresAreCounted(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsFinance)
+	tok := a.createAccountWithRole(t, identity.RoleOpsFinance)
 
-	truoc := demThatBai(t, metrics.StagePayment, "unbalanced")
+	before := countFailures(t, metrics.StagePayment, "unbalanced")
 
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPost, "/api/v1/admin/ledger/adjustments",
 		map[string]any{
@@ -89,44 +89,44 @@ func TestDemThatBaiTien(t *testing.T) {
 		t.Fatalf("bút toán lệch được chấp nhận: HTTP %d — %s", res.code, res.raw)
 	}
 
-	if sau := demThatBai(t, metrics.StagePayment, "unbalanced"); sau <= truoc {
+	if after := countFailures(t, metrics.StagePayment, "unbalanced"); after <= before {
 		t.Errorf("bút toán lệch KHÔNG được đếm dưới nhãn unbalanced "+
 			"(%v → %v) — sự cố nghiêm trọng nhất của đường tiền không có "+
-			"chỉ báo riêng", truoc, sau)
+			"chỉ báo riêng", before, after)
 	}
 }
 
-// TestDemThatBaiGiaoHang: thao tác sai trạng thái ở đơn thực hiện phải
+// TestDeliveryFailuresAreCounted: thao tác sai trạng thái ở đơn thực hiện phải
 // được đếm dưới stage `fulfillment`.
-func TestDemThatBaiGiaoHang(t *testing.T) {
+func TestDeliveryFailuresAreCounted(t *testing.T) {
 	a := newAPITest(t)
 	// DỰNG một đơn thực hiện thay vì tìm đơn có sẵn.
 	//
 	// Database test là khuôn sạch nên không có đơn nào; bản đầu của bài
 	// này `t.Skip` và vì thế không kiểm gì trong mọi lần chạy bình thường
 	// — xanh mà rỗng.
-	maPhien := a.dungPhienSanHoanTat(emailMoi("demfo"), "0900666777")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete(newEmail("demfo"), "0900666777")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
 
-	a.phatEvent(t)
-	fo := a.timFulfillment(t, maDon)
+	a.emitEvent(t)
+	fo := a.findFulfillment(t, orderID)
 	if fo.id == "" {
-		t.Fatalf("không dựng được đơn thực hiện cho đơn %s", maDon)
+		t.Fatalf("không dựng được đơn thực hiện cho đơn %s", orderID)
 	}
 	foID, sellerID := fo.id, fo.sellerID
 
-	tok := a.taoTokenNhaBan(t, sellerID)
-	truoc := demThatBai(t, metrics.StageFulfillment, "invalid_status")
+	tok := a.createSellerToken(t, sellerID)
+	before := countFailures(t, metrics.StageFulfillment, "invalid_status")
 
 	// Báo ĐÃ GIAO khi đơn còn chưa bàn giao cho hãng vận chuyển — sai thứ
 	// tự trạng thái, và là nhầm lẫn có thật của nhà bán.
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res = a.call(http.MethodPost,
 		"/api/v1/seller/fulfillment-orders/"+foID+"/deliver",
@@ -143,22 +143,22 @@ func TestDemThatBaiGiaoHang(t *testing.T) {
 			res.code, res.raw)
 	}
 
-	if sau := demThatBai(t, metrics.StageFulfillment, "invalid_status"); sau <= truoc {
+	if after := countFailures(t, metrics.StageFulfillment, "invalid_status"); after <= before {
 		t.Errorf("thao tác sai trạng thái KHÔNG được đếm (%v → %v) — "+
 			"stage fulfillment khai trong metrics nhưng không ai ghi vào",
-			truoc, sau)
+			before, after)
 	}
 }
 
-// taoTokenNhaBan tạo tài khoản SELLER_OWNER gắn với một gian hàng cụ thể.
-func (a *apiTest) taoTokenNhaBan(t *testing.T, sellerID string) string {
+// createSellerToken tạo tài khoản SELLER_OWNER gắn với một gian hàng cụ thể.
+func (a *apiTest) createSellerToken(t *testing.T, sellerID string) string {
 	t.Helper()
 	ctx := context.Background()
 
-	email := emailMoi("nbdem")
-	const matKhau = "MatKhauDuDai@2026"
+	email := newEmail("nbdem")
+	const password = "MatKhauDuDai@2026"
 	u, err := a.mods.identity.Register(ctx, identity.RegisterRequest{
-		Email: email, Password: matKhau,
+		Email: email, Password: password,
 	})
 	if err != nil {
 		t.Fatalf("tạo tài khoản nhà bán: %v", err)
@@ -169,7 +169,7 @@ func (a *apiTest) taoTokenNhaBan(t *testing.T, sellerID string) string {
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/auth/login",
-		map[string]any{"email": email, "password": matKhau}, nil)
+		map[string]any{"email": email, "password": password}, nil)
 	tok, _ := res.body["access_token"].(string)
 	if tok == "" {
 		t.Fatalf("đăng nhập nhà bán: %s", res.raw)

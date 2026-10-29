@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-// mienTruXungDot là những module CỐ Ý không ánh xạ ErrVersionConflict ở
+// versionConflictExemptions là những module CỐ Ý không ánh xạ ErrVersionConflict ở
 // tầng HTTP, kèm lý do.
 //
 // Danh sách này phải NGẮN và mỗi dòng phải giải thích được. Một danh sách
 // miễn trừ dài là dấu hiệu quy tắc sai, không phải dấu hiệu nhiều ngoại lệ.
-var mienTruXungDot = map[string]string{
+var versionConflictExemptions = map[string]string{
 	"payment": "ErrVersionConflict của payment chỉ phát sinh khi ghi đợt " +
 		"đối soát, mà đường đó do worker chạy chứ không có endpoint HTTP " +
 		"nào chạm tới (payment chỉ có 3 route đọc + ledger adjustment). " +
@@ -22,7 +22,7 @@ var mienTruXungDot = map[string]string{
 		"tầng đó. Thêm ánh xạ HTTP sẽ là mã chết.",
 }
 
-// TestMoiModuleAnhXaXungDotVersionThanh409 — PH-6, phần "chuẩn hóa xử lý
+// TestEveryModuleMapsAVersionConflictTo409 — PH-6, phần "chuẩn hóa xử lý
 // thất bại".
 //
 // # Vì sao 500 là câu trả lời sai
@@ -44,90 +44,90 @@ var mienTruXungDot = map[string]string{
 // đường — nhiều công, dễ vỡ, và vẫn bỏ sót đường mới thêm. Kiểu hỏng cần
 // chặn ở đây rất hẹp và rất dễ nhận: QUÊN ánh xạ. Quét mã bắt đúng nó.
 //
-// Bài `TestSuaHoSoSongSongKhongTra500` bên dưới đo hành vi thật trên một
+// Bài `TestConcurrentProfileEditsDoNotReturn500` bên dưới đo hành vi thật trên một
 // đường cụ thể, để bài quét này không chỉ là kiểm tra chuỗi ký tự.
-func TestMoiModuleAnhXaXungDotVersionThanh409(t *testing.T) {
+func TestEveryModuleMapsAVersionConflictTo409(t *testing.T) {
 	goc := filepath.Join("..", "modules")
 	ds, err := os.ReadDir(goc)
 	if err != nil {
 		t.Fatalf("đọc thư mục module: %v", err)
 	}
 
-	var thieu, daKiem []string
+	var missingImg, checked []string
 	for _, e := range ds {
 		if !e.IsDir() {
 			continue
 		}
 		mod := e.Name()
-		thuMuc := filepath.Join(goc, mod)
+		dir := filepath.Join(goc, mod)
 
-		if !dinhNghiaXungDot(t, thuMuc) {
+		if !definesVersionConflict(t, dir) {
 			continue
 		}
-		if !coRouteGhi(t, filepath.Join(thuMuc, "interfaces", "http")) {
+		if !hasWriteRoute(t, filepath.Join(dir, "interfaces", "http")) {
 			continue
 		}
-		if lyDo, mienTru := mienTruXungDot[mod]; mienTru {
-			t.Logf("miễn trừ %s: %s", mod, lyDo)
+		if reason, exemptions := versionConflictExemptions[mod]; exemptions {
+			t.Logf("miễn trừ %s: %s", mod, reason)
 			continue
 		}
-		daKiem = append(daKiem, mod)
-		if !anhXaXungDot(t, filepath.Join(thuMuc, "interfaces", "http")) {
-			thieu = append(thieu, mod)
+		checked = append(checked, mod)
+		if !mapsVersionConflict(t, filepath.Join(dir, "interfaces", "http")) {
+			missingImg = append(missingImg, mod)
 		}
 	}
 
 	// In ra phạm vi phủ. Một bài quét không nói nó quét được gì thì không
 	// phân biệt được "mọi module đều đúng" với "không module nào lọt lưới
 	// vì bộ lọc hỏng".
-	t.Logf("đã kiểm %d module: %s", len(daKiem), strings.Join(daKiem, ", "))
-	if len(daKiem) < 3 {
+	t.Logf("đã kiểm %d module: %s", len(checked), strings.Join(checked, ", "))
+	if len(checked) < 3 {
 		t.Errorf("chỉ kiểm được %d module — bộ lọc nhiều khả năng đang hỏng",
-			len(daKiem))
+			len(checked))
 	}
 
-	if len(thieu) > 0 {
+	if len(missingImg) > 0 {
 		t.Errorf("%d module có đường HTTP GHI và có khóa lạc quan nhưng "+
 			"KHÔNG ánh xạ ErrVersionConflict — xung đột sẽ ra 500:\n  %s",
-			len(thieu), strings.Join(thieu, "\n  "))
+			len(missingImg), strings.Join(missingImg, "\n  "))
 	}
 }
 
-// khaiBaoXungDot khớp khai báo ErrVersionConflict.
+// reVersionConflictDecl khớp khai báo ErrVersionConflict.
 //
 // `\s+` chứ không phải một dấu cách: gofmt CĂN CỘT các khai báo trong cùng
 // khối var, nên chuỗi thật là `ErrVersionConflict   = errors.New`. Bản đầu
 // của bài này khớp đúng một dấu cách và vì thế bỏ qua gần hết số module —
 // nó xanh trong khi phủ ít hơn hẳn điều nó tuyên bố.
-var khaiBaoXungDot = regexp.MustCompile(`ErrVersionConflict\s+=\s+errors\.New`)
+var reVersionConflictDecl = regexp.MustCompile(`ErrVersionConflict\s+=\s+errors\.New`)
 
-func dinhNghiaXungDot(t *testing.T, thuMuc string) bool {
+func definesVersionConflict(t *testing.T, dir string) bool {
 	t.Helper()
-	return quetTep(t, filepath.Join(thuMuc, "domain"), func(s string) bool {
-		return khaiBaoXungDot.MatchString(s)
+	return scanFiles(t, filepath.Join(dir, "domain"), func(s string) bool {
+		return reVersionConflictDecl.MatchString(s)
 	})
 }
 
-var routeGhi = regexp.MustCompile(`mux\.Handle(?:Func)?\("(POST|PUT|PATCH|DELETE) `)
+var writeRoute = regexp.MustCompile(`mux\.Handle(?:Func)?\("(POST|PUT|PATCH|DELETE) `)
 
-func coRouteGhi(t *testing.T, thuMuc string) bool {
+func hasWriteRoute(t *testing.T, dir string) bool {
 	t.Helper()
-	return quetTep(t, thuMuc, func(s string) bool {
-		return routeGhi.MatchString(s)
+	return scanFiles(t, dir, func(s string) bool {
+		return writeRoute.MatchString(s)
 	})
 }
 
-func anhXaXungDot(t *testing.T, thuMuc string) bool {
+func mapsVersionConflict(t *testing.T, dir string) bool {
 	t.Helper()
-	return quetTep(t, thuMuc, func(s string) bool {
+	return scanFiles(t, dir, func(s string) bool {
 		return strings.Contains(s, "ErrVersionConflict")
 	})
 }
 
-// quetTep đọc mọi tệp .go KHÔNG phải test trong thư mục và hỏi `hop`.
-func quetTep(t *testing.T, thuMuc string, hop func(string) bool) bool {
+// scanFiles đọc mọi tệp .go KHÔNG phải test trong thư mục và hỏi `hop`.
+func scanFiles(t *testing.T, dir string, hop func(string) bool) bool {
 	t.Helper()
-	ds, err := os.ReadDir(thuMuc)
+	ds, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
@@ -136,7 +136,7 @@ func quetTep(t *testing.T, thuMuc string, hop func(string) bool) bool {
 			strings.HasSuffix(e.Name(), "_test.go") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(thuMuc, e.Name()))
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			t.Fatalf("đọc %s: %v", e.Name(), err)
 		}
@@ -147,7 +147,7 @@ func quetTep(t *testing.T, thuMuc string, hop func(string) bool) bool {
 	return false
 }
 
-// TestSuaHoSoSongSongKhongTra500 đo HÀNH VI THẬT trên một đường cụ thể.
+// TestConcurrentProfileEditsDoNotReturn500 đo HÀNH VI THẬT trên một đường cụ thể.
 //
 // Nhiều request sửa hồ sơ chạy song song trên cùng một khách: bên thắng
 // ghi được, bên thua gặp xung đột phiên bản. Bên thua phải nhận 4xx —
@@ -167,9 +167,9 @@ func quetTep(t *testing.T, thuMuc string, hop func(string) bool) bool {
 //
 // Vì thế bài này tự dựng vòng song song (token + khóa riêng cho từng
 // request) và KHẲNG ĐỊNH có ít nhất một request đi lọt qua xác thực.
-func TestSuaHoSoSongSongKhongTra500(t *testing.T) {
+func TestConcurrentProfileEditsDoNotReturn500(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("songsong"))
+	tok := a.registerAndLogIn(newEmail("songsong"))
 
 	// Dùng helper song song CHỤP ẢNH cookie, không gọi `a.call` trong
 	// goroutine.
@@ -177,14 +177,14 @@ func TestSuaHoSoSongSongKhongTra500(t *testing.T) {
 	// Bản đầu tự dựng vòng lặp gọi thẳng `a.call`, và đó là ĐUA DỮ LIỆU
 	// thật: `a.call` ghi vào hũ cookie dùng chung của apiTest. Nó chỉ lộ
 	// ra khi chạy `-race` trên CẢ gói, không phải khi chạy riêng bài này.
-	ketQua := a.goiSongSongCoHeader(8, http.MethodPatch, "/api/v1/me",
+	outcome := a.callInParallelWithHeader(8, http.MethodPatch, "/api/v1/me",
 		map[string]any{"name": "Tên Mới", "phone": "0900777888"},
 		map[string]string{"Authorization": "Bearer " + tok})
 
-	var quaDuocXacThuc int
-	for i, r := range ketQua {
+	var authenticatedCalls int
+	for i, r := range outcome {
 		if r.code != http.StatusUnauthorized {
-			quaDuocXacThuc++
+			authenticatedCalls++
 		}
 		if r.code >= 500 {
 			t.Errorf("request %d nhận HTTP %d — xung đột phiên bản KHÔNG "+
@@ -195,9 +195,9 @@ func TestSuaHoSoSongSongKhongTra500(t *testing.T) {
 
 	// Chống xanh rỗng: nếu mọi request dừng ở cửa xác thực thì bài này
 	// không đo được gì về xung đột phiên bản.
-	if quaDuocXacThuc == 0 {
+	if authenticatedCalls == 0 {
 		t.Fatalf("không request nào qua được xác thực — bài test không "+
 			"chạm tới handler, và khẳng định \"không 500\" là vô nghĩa: %s",
-			ketQua[0].raw)
+			outcome[0].raw)
 	}
 }

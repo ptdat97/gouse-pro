@@ -142,7 +142,7 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if su.AlreadyReceived && su.AlreadyDone {
-		h.tra(w, r, true)
+		h.respond(w, r, true)
 		return
 	}
 
@@ -166,7 +166,7 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 		// 200: báo lỗi khiến nhà cung cấp gửi lại mãi một loại ta cố tình
 		// bỏ qua.
 		_ = h.webhookLog.MarkDone(r.Context(), su.ID, nil)
-		h.tra(w, r, su.AlreadyReceived)
+		h.respond(w, r, su.AlreadyReceived)
 	}
 }
 
@@ -229,7 +229,7 @@ func (h *WebhookHandler) collected(
 		metrics.RecordFailure(metrics.StageWebhook, "xu_ly_that_bai")
 		h.log.ErrorContext(r.Context(), "xử lý webhook thanh toán thất bại",
 			"error", err, "nha_cung_cap", provider, "order_id", orderID.String())
-		h.tra(w, r, su.AlreadyReceived)
+		h.respond(w, r, su.AlreadyReceived)
 		return
 	}
 
@@ -251,7 +251,7 @@ func (h *WebhookHandler) collected(
 	}
 
 	_ = h.webhookLog.MarkDone(r.Context(), su.ID, nil)
-	h.tra(w, r, su.AlreadyReceived)
+	h.respond(w, r, su.AlreadyReceived)
 }
 
 // failed xử lý payment.failed.
@@ -269,10 +269,10 @@ func (h *WebhookHandler) failed(
 			"error", err, "nha_cung_cap", provider, "order_id", orderID.String())
 	}
 	_ = h.webhookLog.MarkDone(r.Context(), su.ID, err)
-	h.tra(w, r, su.AlreadyReceived)
+	h.respond(w, r, su.AlreadyReceived)
 }
 
-func (h *WebhookHandler) tra(w http.ResponseWriter, r *http.Request, processed bool) {
+func (h *WebhookHandler) respond(w http.ResponseWriter, r *http.Request, processed bool) {
 	body := map[string]any{"received": true, "already_processed": processed}
 	if err := apierror.WriteJSON(w, http.StatusOK, body); err != nil {
 		h.log.ErrorContext(r.Context(), "không ghi được response", "error", err)

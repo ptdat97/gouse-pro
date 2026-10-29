@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestKhachDangKyNhanDuocThuXacNhanDon.
+// TestARegisteredCustomerGetsTheOrderConfirmationEmail.
 //
 // # Vì sao bài này tồn tại
 //
@@ -30,23 +30,23 @@ import (
 // # Vì sao không bài test cũ nào bắt được
 //
 // Bộ bên nhận của lớp test này KHÔNG đăng ký `notification` cho tới cùng
-// ngày — chú thích ở `dangKyBenNhan` tự ghi nhận sự thiếu đó. Đường thư
+// ngày — chú thích ở `registerReceivers` tự ghi nhận sự thiếu đó. Đường thư
 // chỉ chạy ở worker, nơi không test tích hợp nào đi qua.
-func TestKhachDangKyNhanDuocThuXacNhanDon(t *testing.T) {
+func TestARegisteredCustomerGetsTheOrderConfirmationEmail(t *testing.T) {
 	a := newAPITest(t)
 	if a.mods.notification == nil {
 		t.Skip("module notification chưa được nối")
 	}
 
-	email := emailMoi("thudangky")
-	tok := a.dangKyVaDangNhap(email)
+	email := newEmail("thudangky")
+	tok := a.registerAndLogIn(email)
 	bear := func() map[string]string {
-		h := khoaIdem()
+		h := idemKey()
 		h["Authorization"] = "Bearer " + tok
 		return h
 	}
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
@@ -56,38 +56,38 @@ func TestKhachDangKyNhanDuocThuXacNhanDon(t *testing.T) {
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	res = a.call(http.MethodPost, "/api/v1/checkout",
-		map[string]any{"cart_id": maGio}, bear())
+		map[string]any{"cart_id": cartID}, bear())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
 			"recipient_name": "Khách Thử", "phone": "0900555666",
 			"street_address": "1 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
 		}, bear())
 
-	res = a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
+	res = a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
 		map[string]any{"payment_method": "COD"}, bear())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
 
 	// Thư đi qua event, và event đi qua outbox.
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	var status, lyDoBoQua, nguoiNhan string
+	var status, skipReason, recipient string
 	err := a.db.Pool().QueryRow(context.Background(), `
 		SELECT status, skip_reason, recipient
 		FROM notification_log
 		WHERE template = 'order_confirmed'
-		ORDER BY id DESC LIMIT 1`).Scan(&status, &lyDoBoQua, &nguoiNhan)
+		ORDER BY id DESC LIMIT 1`).Scan(&status, &skipReason, &recipient)
 	if err != nil {
 		t.Fatalf("đọc nhật ký gửi thư: %v — không có bản ghi nào nghĩa là "+
 			"bên nhận notification không chạy", err)
@@ -96,43 +96,43 @@ func TestKhachDangKyNhanDuocThuXacNhanDon(t *testing.T) {
 	if status != "SENT" {
 		t.Fatalf("thư xác nhận đơn của khách ĐÃ ĐĂNG KÝ ở trạng thái %q "+
 			"(lý do: %q). Khách vãng lai thì nhận được — ngược đúng chiều "+
-			"đáng lẽ phải có.", status, lyDoBoQua)
+			"đáng lẽ phải có.", status, skipReason)
 	}
 	// So không phân biệt hoa thường: hồ sơ khách lưu email đã chuẩn hóa.
-	if !strings.EqualFold(nguoiNhan, email) {
+	if !strings.EqualFold(recipient, email) {
 		t.Errorf("thư gửi tới %q, cần %q — địa chỉ phải là email của hồ sơ "+
-			"khách", nguoiNhan, email)
+			"khách", recipient, email)
 	}
 }
 
-// TestKhachVangLaiVanNhanDuocThu giữ nửa còn lại của quyết định trên.
+// TestAGuestStillGetsTheEmail giữ nửa còn lại của quyết định trên.
 //
 // Bản sửa ƯU TIÊN email khách gõ ở ô thanh toán, chỉ tra hồ sơ khi ô đó
 // trống. Đảo thứ tự ấy sẽ gửi nhầm địa chỉ với đơn đặt hộ: người có tài
 // khoản mua giùm người khác và điền email của người nhận.
-func TestKhachVangLaiVanNhanDuocThu(t *testing.T) {
+func TestAGuestStillGetsTheEmail(t *testing.T) {
 	a := newAPITest(t)
 	if a.mods.notification == nil {
 		t.Skip("module notification chưa được nối")
 	}
 
-	if maDon := a.datDonCOD(t, "thuvanglai"); maDon == "" {
+	if orderID := a.placeCODOrder(t, "thuvanglai"); orderID == "" {
 		t.Fatal("không đặt được đơn")
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	var status, nguoiNhan string
+	var status, recipient string
 	if err := a.db.Pool().QueryRow(context.Background(), `
 		SELECT status, recipient FROM notification_log
 		WHERE template = 'order_confirmed'
-		ORDER BY id DESC LIMIT 1`).Scan(&status, &nguoiNhan); err != nil {
+		ORDER BY id DESC LIMIT 1`).Scan(&status, &recipient); err != nil {
 		t.Fatalf("đọc nhật ký gửi thư: %v", err)
 	}
 
 	if status != "SENT" {
 		t.Fatalf("thư xác nhận đơn của khách vãng lai ở trạng thái %q", status)
 	}
-	if nguoiNhan == "" {
+	if recipient == "" {
 		t.Error("thư gửi tới địa chỉ rỗng")
 	}
 }

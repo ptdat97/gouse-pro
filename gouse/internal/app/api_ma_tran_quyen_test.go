@@ -9,7 +9,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 )
 
-// nhomQuyen mô tả MỘT nhóm đường dẫn và tập vai trò được vào.
+// permissionGroup mô tả MỘT nhóm đường dẫn và tập vai trò được vào.
 //
 // Nguồn của bảng này là tài liệu, không phải mã nguồn:
 //
@@ -20,21 +20,21 @@ import (
 // Cố ý KHÔNG đọc `RequireRole` từ mã nguồn: một bài test đọc chính thứ nó
 // kiểm thì luôn xanh. Bảng này nói "đáng lẽ phải thế nào", và test so nó
 // với "thực tế đang thế nào".
-type nhomQuyen struct {
-	tenNhom string
+type permissionGroup struct {
+	groupName string
 
-	// tienTo khớp theo tiền tố đường dẫn.
-	tienTo string
+	// prefix khớp theo tiền tố đường dẫn.
+	prefix string
 
-	// vaiTro là tập vai trò ĐƯỢC vào. Mọi vai trò khác phải nhận 403.
-	vaiTro []string
+	// role là tập vai trò ĐƯỢC vào. Mọi vai trò khác phải nhận 403.
+	role []string
 }
 
-// maTranQuyen là bảng resource × vai trò.
+// permissionMatrix là bảng resource × vai trò.
 //
 // Thứ tự QUAN TRỌNG: khớp theo tiền tố dài nhất trước, vì
 // `/api/v1/admin/ledger` cũng bắt đầu bằng `/api/v1/admin`.
-var maTranQuyen = []nhomQuyen{
+var permissionMatrix = []permissionGroup{
 	{"sổ cái — tài chính", "/api/v1/admin/ledger",
 		[]string{identity.RoleAdmin, identity.RoleOpsFinance}},
 
@@ -79,9 +79,9 @@ var maTranQuyen = []nhomQuyen{
 		[]string{identity.RoleSellerOwner, identity.RoleSellerStaff}},
 }
 
-// moiVaiTro là mọi vai trò đem ra thử. Vai trò KHÔNG có trong `vaiTro` của
+// eachRole là mọi vai trò đem ra thử. Vai trò KHÔNG có trong `role` của
 // một nhóm thì phải bị nhóm đó từ chối.
-var moiVaiTro = []string{
+var eachRole = []string{
 	identity.RoleCustomer,
 	identity.RoleSellerOwner,
 	identity.RoleAdmin,
@@ -91,12 +91,12 @@ var moiVaiTro = []string{
 	identity.RoleOpsWarehouse,
 }
 
-// TestMaTranQuyenTheoResourceVaVaiTro — việc mà backlog mục 2.9 để ngỏ:
+// TestThePermissionMatrixIsByResourceAndRole — việc mà backlog mục 2.9 để ngỏ:
 // "một bảng liệt kê MỌI resource × MỌI vai trò, không phải rà theo trí nhớ".
 //
 // # Bài test sẵn có kiểm gì, và bỏ sót gì
 //
-// `TestDuongQuanTriChanNguoiKhongCoQuyen` thử đúng MỘT vai trò sai —
+// `TestAdminPathsBlockTheUnprivileged` thử đúng MỘT vai trò sai —
 // CUSTOMER — trên mọi đường. Nó bắt được "quên bọc RequireRole", nhưng
 // KHÔNG bắt được "bọc nhầm vai trò".
 //
@@ -106,83 +106,83 @@ var moiVaiTro = []string{
 // sổ cái toàn nền tảng.
 //
 // Bài này thử MỌI vai trò trên MỌI nhóm đường.
-func TestMaTranQuyenTheoResourceVaVaiTro(t *testing.T) {
+func TestThePermissionMatrixIsByResourceAndRole(t *testing.T) {
 	a := newAPITest(t)
 
 	// Một tài khoản cho mỗi vai trò, dùng lại cho mọi đường.
 	token := map[string]string{}
-	for _, vt := range moiVaiTro {
-		token[vt] = a.taoTaiKhoanVaiTro(t, vt)
+	for _, vt := range eachRole {
+		token[vt] = a.createAccountWithRole(t, vt)
 	}
 
-	for _, d := range duongCanQuyen() {
-		nhom, co := nhomCuaDuong(d.path)
+	for _, d := range pathsNeedingAuth() {
+		group, co := groupOfPath(d.path)
 		if !co {
 			// Bắt ở bài phủ bên dưới, không lặp lại ở đây.
 			continue
 		}
 
-		for _, vt := range moiVaiTro {
-			duocVao := coTrong(nhom.vaiTro, vt)
+		for _, vt := range eachRole {
+			gotIn := isIn(group.role, vt)
 			ten := d.method + " " + d.path + " · " + vt
 			t.Run(ten, func(t *testing.T) {
-				h := khoaIdem()
+				h := idemKey()
 				h["Authorization"] = "Bearer " + token[vt]
 				got := a.call(d.method, d.path, map[string]any{}, h)
 
-				if duocVao {
+				if gotIn {
 					// KHÔNG khẳng định 200: thân request rỗng nên nhiều
 					// đường trả 400/404/409. Điều cần khẳng định là nó đi
 					// QUA được cửa phân quyền.
 					if got.code == http.StatusForbidden {
 						t.Errorf("vai trò %s BỊ TỪ CHỐI ở nhóm %q — "+
 							"đúng ra phải vào được: HTTP %d %s",
-							vt, nhom.tenNhom, got.code, got.raw)
+							vt, group.groupName, got.code, got.raw)
 					}
 					return
 				}
 
 				if got.code != http.StatusForbidden {
 					t.Errorf("vai trò %s VÀO ĐƯỢC nhóm %q — HTTP %d, cần 403: %s",
-						vt, nhom.tenNhom, got.code, got.raw)
+						vt, group.groupName, got.code, got.raw)
 				}
 			})
 		}
 	}
 }
 
-// TestMoiDuongCanQuyenDeuCoTrongMaTran.
+// TestEveryAuthenticatedPathIsInTheMatrix.
 //
 // Ma trận chỉ mạnh bằng phạm vi nó phủ. Một đường không rơi vào nhóm nào
 // là một đường không ai kiểm theo vai trò — và nó sẽ là đường mới thêm,
 // tức đường không ai nghĩ tới.
-func TestMoiDuongCanQuyenDeuCoTrongMaTran(t *testing.T) {
-	var thieu []string
-	for _, d := range duongCanQuyen() {
-		if _, co := nhomCuaDuong(d.path); !co {
-			thieu = append(thieu, d.method+" "+d.path)
+func TestEveryAuthenticatedPathIsInTheMatrix(t *testing.T) {
+	var missingImg []string
+	for _, d := range pathsNeedingAuth() {
+		if _, co := groupOfPath(d.path); !co {
+			missingImg = append(missingImg, d.method+" "+d.path)
 		}
 	}
-	if len(thieu) > 0 {
-		t.Errorf("%d đường KHÔNG thuộc nhóm nào trong maTranQuyen — "+
+	if len(missingImg) > 0 {
+		t.Errorf("%d đường KHÔNG thuộc nhóm nào trong permissionMatrix — "+
 			"thêm nhóm hoặc mở rộng tiền tố:\n  %s",
-			len(thieu), strings.Join(thieu, "\n  "))
+			len(missingImg), strings.Join(missingImg, "\n  "))
 	}
 }
 
-// nhomCuaDuong tìm nhóm khớp, ưu tiên TIỀN TỐ DÀI NHẤT.
-func nhomCuaDuong(path string) (nhomQuyen, bool) {
-	var tot nhomQuyen
+// groupOfPath tìm nhóm khớp, ưu tiên TIỀN TỐ DÀI NHẤT.
+func groupOfPath(path string) (permissionGroup, bool) {
+	var tot permissionGroup
 	var co bool
-	for _, n := range maTranQuyen {
-		if strings.HasPrefix(path, n.tienTo) && len(n.tienTo) > len(tot.tienTo) {
+	for _, n := range permissionMatrix {
+		if strings.HasPrefix(path, n.prefix) && len(n.prefix) > len(tot.prefix) {
 			tot, co = n, true
 		}
 	}
 	return tot, co
 }
 
-func coTrong(ds []string, x string) bool {
+func isIn(ds []string, x string) bool {
 	for _, v := range ds {
 		if v == x {
 			return true
@@ -191,56 +191,56 @@ func coTrong(ds []string, x string) bool {
 	return false
 }
 
-// taoTaiKhoanVaiTro tạo tài khoản mang đúng MỘT vai trò rồi đăng nhập.
+// createAccountWithRole tạo tài khoản mang đúng MỘT vai trò rồi đăng nhập.
 //
 // Vai trò nhà bán cần PHẠM VI là một gian hàng; vai trò quản trị thì không.
-func (a *apiTest) taoTaiKhoanVaiTro(t *testing.T, vaiTro string) string {
+func (a *apiTest) createAccountWithRole(t *testing.T, role string) string {
 	t.Helper()
-	tok, _ := a.taoTaiKhoanVaiTroCoID(t, vaiTro)
+	tok, _ := a.createAccountWithRoleAndID(t, role)
 	return tok
 }
 
-// taoTaiKhoanVaiTroCoID trả cả TOKEN và MÃ NGƯỜI DÙNG.
+// createAccountWithRoleAndID trả cả TOKEN và MÃ NGƯỜI DÙNG.
 //
 // Bài test nào khẳng định trên nhật ký thao tác đều cần mã này: nhật ký là
 // bảng dùng CHUNG, nên lọc theo hành động thôi sẽ đếm cả vết của bài khác.
-func (a *apiTest) taoTaiKhoanVaiTroCoID(
-	t *testing.T, vaiTro string,
+func (a *apiTest) createAccountWithRoleAndID(
+	t *testing.T, role string,
 ) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	email := emailMoi("vt-" + strings.ToLower(vaiTro))
-	const matKhau = "MatKhauDuDai@2026"
+	email := newEmail("vt-" + strings.ToLower(role))
+	const password = "MatKhauDuDai@2026"
 
 	u, err := a.mods.identity.Register(ctx, identity.RegisterRequest{
-		Email: email, Password: matKhau,
+		Email: email, Password: password,
 	})
 	if err != nil {
-		t.Fatalf("tạo tài khoản %s: %v", vaiTro, err)
+		t.Fatalf("tạo tài khoản %s: %v", role, err)
 	}
 
-	if vaiTro != identity.RoleCustomer {
+	if role != identity.RoleCustomer {
 		scope := ""
-		if vaiTro == identity.RoleSellerOwner || vaiTro == identity.RoleSellerStaff {
-			scope = a.mauSellerID(t)
+		if role == identity.RoleSellerOwner || role == identity.RoleSellerStaff {
+			scope = a.sampleSellerID(t)
 		}
-		if err := a.mods.identity.GrantRole(ctx, u.ID, vaiTro, scope); err != nil {
-			t.Fatalf("cấp vai trò %s: %v", vaiTro, err)
+		if err := a.mods.identity.GrantRole(ctx, u.ID, role, scope); err != nil {
+			t.Fatalf("cấp vai trò %s: %v", role, err)
 		}
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/auth/login",
-		map[string]any{"email": email, "password": matKhau}, nil)
+		map[string]any{"email": email, "password": password}, nil)
 	tok, _ := res.body["access_token"].(string)
 	if tok == "" {
-		t.Fatalf("đăng nhập %s: %s", vaiTro, res.raw)
+		t.Fatalf("đăng nhập %s: %s", role, res.raw)
 	}
 	return tok, u.ID
 }
 
-// mauSellerID lấy một gian hàng có thật để làm phạm vi.
-func (a *apiTest) mauSellerID(t *testing.T) string {
+// sampleSellerID lấy một gian hàng có thật để làm phạm vi.
+func (a *apiTest) sampleSellerID(t *testing.T) string {
 	t.Helper()
 	var id string
 	if err := a.db.Pool().QueryRow(context.Background(),

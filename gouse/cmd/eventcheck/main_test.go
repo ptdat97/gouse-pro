@@ -91,14 +91,14 @@ func fakeWorker(receivers []string) string {
 	return b.String()
 }
 
-// fakeTestSet dựng một `api_ledger_test.go` có hàm `dangKyBenNhan`.
+// fakeTestSet dựng một `api_ledger_test.go` có hàm `registerReceivers`.
 //
 // Có THÊM một lời gọi Subscribe NGOÀI hàm ấy, để khẳng định công cụ chỉ đọc
 // trong thân hàm: `phatEvent` và các bài test riêng cũng gọi `Subscribe`, và
 // gộp chúng vào sẽ làm sổ miễn trừ vô nghĩa.
 func fakeTestSet(receivers []string) string {
 	var b strings.Builder
-	b.WriteString("package app\n\nfunc (a *apiTest) dangKyBenNhan() {\n")
+	b.WriteString("package app\n\nfunc (a *apiTest) registerReceivers() {\n")
 	for _, ten := range receivers {
 		b.WriteString("\tbus.Subscribe(" + ten + "(m, log))\n")
 	}
@@ -320,7 +320,7 @@ func TestTheRealProjectIsClean(t *testing.T) {
 // R4 — worker đăng ký một bên nhận mà bộ của test KHÔNG.
 //
 // ĐÂY LÀ LỖI THẬT, tìm ra 01/10/2026: `inventory.NewReleaseHandler` — đường
-// RA của kho — có ở worker và thiếu ở `dangKyBenNhan` suốt nhiều tháng, nên
+// RA của kho — có ở worker và thiếu ở `registerReceivers` suốt nhiều tháng, nên
 // mọi bài test tích hợp chạy với một hệ thống không nhả hàng về kho.
 func TestCatchesAReceiverMissingFromTheTestSet(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
@@ -335,7 +335,7 @@ func TestCatchesAReceiverMissingFromTheTestSet(t *testing.T) {
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	for _, can := range []string{"R4", "inv.NewReleaseHandler", "dangKyBenNhan"} {
+	for _, can := range []string{"R4", "inv.NewReleaseHandler", "registerReceivers"} {
 		if !strings.Contains(c.violations[0], can) {
 			t.Errorf("thiếu %q trong: %s", can, c.violations[0])
 		}
@@ -410,7 +410,7 @@ func TestCatchesARottenR4Override(t *testing.T) {
 	}
 }
 
-// Lời gọi Subscribe NGOÀI `dangKyBenNhan` không được tính.
+// Lời gọi Subscribe NGOÀI `registerReceivers` không được tính.
 //
 // `phatEvent` và các bài test riêng cũng gọi `Subscribe` cho bên nhận của
 // riêng chúng — ví dụ `payment.NewCarrierCostHandler` kèm giá cố định.

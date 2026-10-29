@@ -8,15 +8,15 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
-// phatThoEvent đẩy một event có payload TỰ DỰNG vào outbox.
+// publishRawEvent đẩy một event có payload TỰ DỰNG vào outbox.
 //
 // Dùng map thay vì struct có chủ ý: bài test cần dựng được payload THIẾU
 // trường và payload có trường LẠ — hai thứ struct Go không cho phép.
-func phatThoEvent(
-	t *testing.T, w *world, loai string, aggID ids.ID, payload map[string]any,
+func publishRawEvent(
+	t *testing.T, w *world, kind string, aggID ids.ID, payload map[string]any,
 ) {
 	t.Helper()
-	e, err := eventbus.NewEvent(loai, eventbus.AggregateFulfillment, aggID, payload)
+	e, err := eventbus.NewEvent(kind, eventbus.AggregateFulfillment, aggID, payload)
 	if err != nil {
 		t.Fatalf("dựng event: %v", err)
 	}
@@ -39,14 +39,14 @@ func phatThoEvent(
 // Ngày 19/08 đã có một sự cố cùng họ: worker CŨ tiêu thụ event MỚI và bỏ
 // qua trường mới trong im lặng. Bài này khóa chiều ngược lại — bên nhận
 // MỚI phải chịu được payload có trường nó chưa biết.
-func TestBenNhanChiuDuocTruongLa(t *testing.T) {
+func TestAHandlerToleratesAnUnknownField(t *testing.T) {
 	w := newWorld(t)
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, shop, skuID, 20, 5)
+	foID := placeAndDeliver(t, w, shop, skuID, 20, 5)
 
 	// Payload đúng, CỘNG các trường bên nhận chưa từng biết.
-	phatThoEvent(t, w, eventbus.TypeFulfillmentCancelled, ids.ID(foID),
+	publishRawEvent(t, w, eventbus.TypeFulfillmentCancelled, ids.ID(foID),
 		map[string]any{
 			"order_id":       ids.MustNew(ids.PrefixOrder).String(),
 			"fulfillment_id": foID,
@@ -71,20 +71,20 @@ func TestBenNhanChiuDuocTruongLa(t *testing.T) {
 	}
 }
 
-// TestBenNhanChiuDuocThieuTruongTuyChon: trường KHÔNG bắt buộc vắng mặt
+// TestAHandlerToleratesAMissingOptionalField: trường KHÔNG bắt buộc vắng mặt
 // thì bên nhận vẫn phải chạy.
 //
 // Đây là chiều quan trọng khi TRIỂN KHAI BÊN NHẬN TRƯỚC — thứ tự bắt buộc
 // theo quy trình. Trong khoảng giữa, bên nhận mới đang chạy còn bên phát
 // vẫn là bản cũ, nên nó nhận payload THIẾU những trường nó vừa học được.
-func TestBenNhanChiuDuocThieuTruongTuyChon(t *testing.T) {
+func TestAHandlerToleratesAMissingOptionalField(t *testing.T) {
 	w := newWorld(t)
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, shop, skuID, 20, 5)
+	foID := placeAndDeliver(t, w, shop, skuID, 20, 5)
 
 	// KHÔNG có `stock_location_id` và không có `fo_number`.
-	phatThoEvent(t, w, eventbus.TypeFulfillmentCancelled, ids.ID(foID),
+	publishRawEvent(t, w, eventbus.TypeFulfillmentCancelled, ids.ID(foID),
 		map[string]any{
 			"order_id":       ids.MustNew(ids.PrefixOrder).String(),
 			"fulfillment_id": foID,
@@ -103,19 +103,19 @@ func TestBenNhanChiuDuocThieuTruongTuyChon(t *testing.T) {
 	}
 }
 
-// TestEventVersionDuocGhiVaDocLai: cột `event_version` phải đi được từ
+// TestTheEventVersionIsWrittenAndReadBack: cột `event_version` phải đi được từ
 // bên phát tới outbox.
 //
 // Cơ chế hiện mới có KHUNG — chưa bên nhận nào phân nhánh theo phiên bản,
 // và đó là trạng thái chấp nhận được khi mọi event còn ở v1. Nhưng nếu
 // bản thân con số không được ghi đúng thì ngày cần tới nó sẽ không có gì
 // để dựa vào.
-func TestEventVersionDuocGhiVaDocLai(t *testing.T) {
+func TestTheEventVersionIsWrittenAndReadBack(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	datVaGiao(t, w, shop, skuID, 20, 2)
+	placeAndDeliver(t, w, shop, skuID, 20, 2)
 
 	rows, err := w.db.Pool().Query(ctx,
 		`SELECT event_type, event_version FROM event_outbox ORDER BY id`)
@@ -124,24 +124,24 @@ func TestEventVersionDuocGhiVaDocLai(t *testing.T) {
 	}
 	defer rows.Close()
 
-	var soEvent int
+	var eventCount int
 	for rows.Next() {
-		var loai string
-		var phienBan int
-		if err := rows.Scan(&loai, &phienBan); err != nil {
+		var kind string
+		var version int
+		if err := rows.Scan(&kind, &version); err != nil {
 			t.Fatalf("đọc dòng: %v", err)
 		}
-		soEvent++
-		if phienBan < 1 {
-			t.Errorf("event %s có version = %d, phải >= 1", loai, phienBan)
+		eventCount++
+		if version < 1 {
+			t.Errorf("event %s có version = %d, phải >= 1", kind, version)
 		}
 	}
-	if soEvent == 0 {
+	if eventCount == 0 {
 		t.Fatal("không có event nào trong outbox — bài test không kiểm được gì")
 	}
 }
 
-// TestMoiEventTrongChuoiDeuCoCorrelationID — PH-22.
+// TestEveryEventInTheChainCarriesACorrelationID — PH-22.
 //
 // # Vì sao trường này phải có mặt ở MỌI mắt xích
 //
@@ -154,13 +154,13 @@ func TestEventVersionDuocGhiVaDocLai(t *testing.T) {
 // đứt — và chuỗi đứt thì không lần được gì, kể cả những mắt còn nguyên.
 //
 // Trước 20/08: chỉ 2 chỗ phát có gọi `WithTrace`, phần còn lại luôn rỗng.
-func TestMoiEventTrongChuoiDeuCoCorrelationID(t *testing.T) {
+func TestEveryEventInTheChainCarriesACorrelationID(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, shop, skuID, 20, 3)
+	foID := placeAndDeliver(t, w, shop, skuID, 20, 3)
 
 	// Thêm vài bước nữa để cây event rộng hơn.
 	if err := w.ful.CancelFulfillment(
@@ -176,24 +176,24 @@ func TestMoiEventTrongChuoiDeuCoCorrelationID(t *testing.T) {
 	}
 	defer rows.Close()
 
-	var tong, thieu int
-	var viDu []string
+	var tong, missing int
+	var samples []string
 	for rows.Next() {
-		var loai, corr string
-		if err := rows.Scan(&loai, &corr); err != nil {
+		var kind, corr string
+		if err := rows.Scan(&kind, &corr); err != nil {
 			t.Fatalf("đọc dòng: %v", err)
 		}
 		tong++
 		if corr == "" {
-			thieu++
-			viDu = append(viDu, loai)
+			missing++
+			samples = append(samples, kind)
 		}
 	}
 
 	if tong == 0 {
 		t.Fatal("không có event nào — bài test không kiểm được gì")
 	}
-	if thieu > 0 {
-		t.Errorf("%d/%d event KHÔNG có correlation_id: %v", thieu, tong, viDu)
+	if missing > 0 {
+		t.Errorf("%d/%d event KHÔNG có correlation_id: %v", missing, tong, samples)
 	}
 }

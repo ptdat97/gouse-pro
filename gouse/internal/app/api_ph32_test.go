@@ -13,7 +13,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
-// dongHoChanCheckout là đồng hồ thật, DỪNG ở lần gọi đầu tiên.
+// blockingCheckoutClock là đồng hồ thật, DỪNG ở lần gọi đầu tiên.
 //
 // `CompleteCheckout` gọi `s.clock.Now()` ĐÚNG sau khi đọc phiên và TRƯỚC
 // mọi kiểm tra dùng thời gian:
@@ -25,34 +25,34 @@ import (
 //
 // Clock vốn đã là cổng tiêm sẵn có (`checkout.Config.Clock`), không phải
 // thứ thêm vào để test dễ.
-type dongHoChanCheckout struct {
-	mu     sync.Mutex
-	daChan bool
-	toiRoi chan struct{}
-	diTiep chan struct{}
+type blockingCheckoutClock struct {
+	mu      sync.Mutex
+	daChan  bool
+	toiRoi  chan struct{}
+	proceed chan struct{}
 }
 
-func newDongHoChanCheckout() *dongHoChanCheckout {
-	return &dongHoChanCheckout{
-		toiRoi: make(chan struct{}),
-		diTiep: make(chan struct{}),
+func newBlockingCheckoutClock() *blockingCheckoutClock {
+	return &blockingCheckoutClock{
+		toiRoi:  make(chan struct{}),
+		proceed: make(chan struct{}),
 	}
 }
 
-func (d *dongHoChanCheckout) Now() time.Time {
+func (d *blockingCheckoutClock) Now() time.Time {
 	d.mu.Lock()
-	lanDau := !d.daChan
+	firstTime := !d.daChan
 	d.daChan = true
 	d.mu.Unlock()
 
-	if lanDau {
+	if firstTime {
 		close(d.toiRoi)
-		<-d.diTiep
+		<-d.proceed
 	}
 	return types.Now()
 }
 
-// TestPH32_PhienHetHanTrongLucDangHoanTat.
+// TestPH32_TheCheckoutExpiresMidCompletion.
 //
 // # Bất biến
 //
@@ -71,12 +71,12 @@ func (d *dongHoChanCheckout) Now() time.Time {
 //	T2: tạo đơn hàng cho số hàng VỪA được trả lại kho
 //
 // Bài này KHÔNG trông chờ xác suất: nó dừng T2 đúng giữa khe bằng đồng hồ.
-func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
+func TestPH32_TheCheckoutExpiresMidCompletion(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	dongHo := newDongHoChanCheckout()
-	cham, err := checkout.New(checkout.Config{
+	clock := newBlockingCheckoutClock()
+	graded, err := checkout.New(checkout.Config{
 		Storage:     "postgres",
 		DB:          a.db,
 		Cart:        a.mods.cart,
@@ -85,25 +85,25 @@ func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
 		Order:       a.mods.order,
 		Seller:      a.mods.seller,
 		Events:      eventbus.NewOutbox(a.db.Pool()),
-		Clock:       dongHo,
+		Clock:       clock,
 	})
 	if err != nil {
 		t.Fatalf("dựng checkout thứ hai: %v", err)
 	}
 
-	maPhien := a.dungPhienSanHoanTat("ph32@example.com", "0900555222")
+	checkoutID := a.buildCheckoutReadyToComplete("ph32@example.com", "0900555222")
 
-	truocDon := a.demDong(`"order"`, "")
+	beforeOrder := a.countRows(`"order"`, "")
 
 	// T2 — hoàn tất phiên, dừng ngay sau khi đọc phiên.
-	loiT2 := make(chan error, 1)
+	errT2Ch := make(chan error, 1)
 	go func() {
-		_, err := cham.CompleteCheckout(ctx, maPhien, "req_ph32_"+maPhien[4:20], "COD", "")
-		loiT2 <- err
+		_, err := graded.CompleteCheckout(ctx, checkoutID, "req_ph32_"+checkoutID[4:20], "COD", "")
+		errT2Ch <- err
 	}()
 
 	select {
-	case <-dongHo.toiRoi:
+	case <-clock.toiRoi:
 	case <-time.After(5 * time.Second):
 		t.Fatal("T2 không tới được chỗ chặn — đường code đã đổi?")
 	}
@@ -111,7 +111,7 @@ func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
 	// T1 — job dọn hạn: đẩy phiên quá hạn rồi dọn, đúng như worker làm.
 	if _, err := a.db.Pool().Exec(ctx,
 		`UPDATE checkout SET expires_at = now() - interval '1 hour' WHERE id = $1`,
-		maPhien); err != nil {
+		checkoutID); err != nil {
 		t.Fatalf("đẩy hạn: %v", err)
 	}
 	if _, err := a.mods.checkout.ExpireStale(ctx, 10); err != nil {
@@ -119,27 +119,27 @@ func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
 	}
 
 	// Hàng đã được nhả: đó là lý do phiên này không được tạo đơn nữa.
-	conGiu := a.demDong("reservation",
-		"checkout_id = $1 AND status = 'ACTIVE'", maPhien)
-	if conGiu != 0 {
-		t.Fatalf("sau khi dọn còn %d reservation ACTIVE — job dọn không chạy", conGiu)
+	stillHeld := a.countRows("reservation",
+		"checkout_id = $1 AND status = 'ACTIVE'", checkoutID)
+	if stillHeld != 0 {
+		t.Fatalf("sau khi dọn còn %d reservation ACTIVE — job dọn không chạy", stillHeld)
 	}
 
-	close(dongHo.diTiep)
+	close(clock.proceed)
 
 	var errT2 error
 	select {
-	case errT2 = <-loiT2:
+	case errT2 = <-errT2Ch:
 	case <-time.After(10 * time.Second):
 		t.Fatal("T2 không kết thúc")
 	}
 
 	// ---------------------------------------------------------------
 
-	sauDon := a.demDong(`"order"`, "")
-	if sauDon != truocDon {
+	afterOrder := a.countRows(`"order"`, "")
+	if afterOrder != beforeOrder {
 		t.Errorf("phiên ĐÃ HẾT HẠN vẫn sinh ra %d đơn hàng — "+
-			"đơn được tạo cho số hàng vừa trả lại kho", sauDon-truocDon)
+			"đơn được tạo cho số hàng vừa trả lại kho", afterOrder-beforeOrder)
 	}
 	if errT2 == nil {
 		t.Error("hoàn tất phiên đã hết hạn báo THÀNH CÔNG")
@@ -150,7 +150,7 @@ func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
 	// Phiên phải GIỮ trạng thái EXPIRED, không bị ghi đè thành COMPLETED.
 	var tt string
 	if err := a.db.Pool().QueryRow(ctx,
-		`SELECT status FROM checkout WHERE id = $1`, maPhien).Scan(&tt); err != nil {
+		`SELECT status FROM checkout WHERE id = $1`, checkoutID).Scan(&tt); err != nil {
 		t.Fatalf("đọc trạng thái phiên: %v", err)
 	}
 	if tt == "COMPLETED" {
@@ -158,7 +158,7 @@ func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
 	}
 }
 
-// TestPH32_GiuDeHoanTatChanJobDonHan — nửa còn lại của bất biến.
+// TestPH32_ClaimForCompletionBlocksTheExpirySweep — nửa còn lại của bất biến.
 //
 // Bài trên đo hướng nguy hiểm: job thắng thì KHÔNG được có đơn hàng. Bài
 // này đo hướng ngược: phiên đã được giữ để hoàn tất thì job dọn hạn không
@@ -179,23 +179,23 @@ func TestPH32_PhienHetHanTrongLucDangHoanTat(t *testing.T) {
 // hồ không chặn được vào đúng khe giữa hai bước. Nhánh `!duoc` vì thế là
 // phòng thủ chiều sâu CHƯA có test — ghi ra đây thay vì để ngầm hiểu là
 // đã được phủ.
-func TestPH32_GiuDeHoanTatChanJobDonHan(t *testing.T) {
+func TestPH32_ClaimForCompletionBlocksTheExpirySweep(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maPhien := a.dungPhienSanHoanTat("ph32b@example.com", "0900555111")
+	checkoutID := a.buildCheckoutReadyToComplete("ph32b@example.com", "0900555111")
 
 	// Phiên sắp hết hạn — đúng lúc job sẽ nhặt tới.
 	if _, err := a.db.Pool().Exec(ctx,
 		`UPDATE checkout SET expires_at = now() + interval '1 second' WHERE id = $1`,
-		maPhien); err != nil {
+		checkoutID); err != nil {
 		t.Fatalf("đặt hạn: %v", err)
 	}
 
 	// Khách bấm "Đặt hàng": phiên được giữ lại thêm một quãng ân hạn.
-	kho := checkoutpg.NewCheckoutStore(a.db.Pool())
-	if err := kho.ClaimForCompletion(
-		ctx, ids.ID(maPhien), types.Now(), 30*time.Second); err != nil {
+	store := checkoutpg.NewCheckoutStore(a.db.Pool())
+	if err := store.ClaimForCompletion(
+		ctx, ids.ID(checkoutID), types.Now(), 30*time.Second); err != nil {
 		t.Fatalf("giữ để hoàn tất: %v", err)
 	}
 
@@ -206,14 +206,14 @@ func TestPH32_GiuDeHoanTatChanJobDonHan(t *testing.T) {
 	}
 
 	// Hàng phải CÒN NGUYÊN: đơn đang được tạo dựa vào nó.
-	conGiu := a.demDong("reservation", "checkout_id = $1 AND status = 'ACTIVE'", maPhien)
-	if conGiu == 0 {
+	stillHeld := a.countRows("reservation", "checkout_id = $1 AND status = 'ACTIVE'", checkoutID)
+	if stillHeld == 0 {
 		t.Error("job dọn hạn đã NHẢ hàng của một phiên đang được hoàn tất")
 	}
 
 	var tt string
 	if err := a.db.Pool().QueryRow(ctx,
-		`SELECT status FROM checkout WHERE id = $1`, maPhien).Scan(&tt); err != nil {
+		`SELECT status FROM checkout WHERE id = $1`, checkoutID).Scan(&tt); err != nil {
 		t.Fatalf("đọc trạng thái: %v", err)
 	}
 	if tt == "EXPIRED" {

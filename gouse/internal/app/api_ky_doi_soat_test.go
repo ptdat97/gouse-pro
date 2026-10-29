@@ -28,19 +28,19 @@ import (
 // trạng thái → vết kiểm toán cùng giao dịch → DTO. Gọi thẳng service bỏ qua
 // bốn trong sáu mắt xích, và hai trong số đó (vai trò, idempotency) là lớp
 // bảo vệ của một endpoint chuyển tiền.
-func TestVongDoiDoiSoatKhepDuocKemNguoiKy(t *testing.T) {
+func TestTheSettlementLifecycleClosesWithItsSigners(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	id, _ := a.doiSoatNhap(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsFinance)
+	id, _ := a.settlementDraft(t)
+	tok := a.createAccountWithRole(t, identity.RoleOpsFinance)
 
-	const lyDo = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
+	const reason = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
 
 	// ---- Bước 1: chốt ----
 	res := a.call(http.MethodPost,
 		"/api/v1/admin/settlements/"+id+"/confirm",
-		map[string]any{"reason": lyDo}, hopNhat(khoaIdem(), bearer(tok)))
+		map[string]any{"reason": reason}, merge(idemKey(), bearer(tok)))
 	if res.code != http.StatusOK {
 		t.Fatalf("chốt đợt: HTTP %d — %s", res.code, res.raw)
 	}
@@ -49,19 +49,19 @@ func TestVongDoiDoiSoatKhepDuocKemNguoiKy(t *testing.T) {
 	if tt, _ := d["status"].(string); tt != "CONFIRMED" {
 		t.Fatalf("sau khi chốt: trạng thái = %q, cần CONFIRMED", tt)
 	}
-	nguoiChot, _ := d["confirmed_by"].(string)
-	if nguoiChot == "" {
+	confirmedBy, _ := d["confirmed_by"].(string)
+	if confirmedBy == "" {
 		t.Error("chốt xong mà KHÔNG ghi người ký — một cam kết với nhà bán " +
 			"không ai chịu trách nhiệm")
 	}
-	if mocChot, _ := d["confirmed_at"].(string); mocChot == "" {
+	if confirmedAt, _ := d["confirmed_at"].(string); confirmedAt == "" {
 		t.Error("chốt xong mà không ghi mốc thời gian")
 	}
 
 	// ---- Bước 2: ghi nhận đã chuyển tiền ----
 	res = a.call(http.MethodPost,
 		"/api/v1/admin/settlements/"+id+"/mark-paid",
-		map[string]any{"reason": lyDo}, hopNhat(khoaIdem(), bearer(tok)))
+		map[string]any{"reason": reason}, merge(idemKey(), bearer(tok)))
 	if res.code != http.StatusOK {
 		t.Fatalf("ghi nhận đã trả: HTTP %d — %s", res.code, res.raw)
 	}
@@ -70,7 +70,7 @@ func TestVongDoiDoiSoatKhepDuocKemNguoiKy(t *testing.T) {
 	if tt, _ := d["status"].(string); tt != "PAID" {
 		t.Fatalf("sau khi trả: trạng thái = %q, cần PAID", tt)
 	}
-	if nguoiTra, _ := d["paid_by"].(string); nguoiTra == "" {
+	if paidBy, _ := d["paid_by"].(string); paidBy == "" {
 		t.Fatal("tiền RỜI nền tảng mà không ghi ai ký — đây là bản ghi duy " +
 			"nhất nói ai quyết định chuyển nó")
 	}
@@ -80,17 +80,17 @@ func TestVongDoiDoiSoatKhepDuocKemNguoiKy(t *testing.T) {
 	// Tách `settlement.confirm` khỏi `settlement.mark_paid` chứ không gộp:
 	// báo cáo kiểm toán cần phân biệt "ai chốt con số" khỏi "ai quyết định
 	// chuyển tiền".
-	var soVet int
+	var traceCount int
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(DISTINCT action) FROM audit_log
 		 WHERE resource_type = 'SETTLEMENT' AND resource_id = $1
 		   AND action IN ('settlement.confirm', 'settlement.mark_paid')`,
-		id).Scan(&soVet); err != nil {
+		id).Scan(&traceCount); err != nil {
 		t.Fatalf("đọc vết kiểm toán: %v", err)
 	}
-	if soVet != 2 {
+	if traceCount != 2 {
 		t.Errorf("vết kiểm toán có %d loại thao tác, cần 2 — ai chốt và ai "+
-			"chuyển tiền phải tách được trong báo cáo", soVet)
+			"chuyển tiền phải tách được trong báo cáo", traceCount)
 	}
 }
 
@@ -99,29 +99,29 @@ func TestVongDoiDoiSoatKhepDuocKemNguoiKy(t *testing.T) {
 // Bên gọi gửi một request HỢP LỆ; chỉ là đợt đã ở trạng thái khác — thường
 // vì người khác vừa bấm. 400 sẽ khiến giao diện bảo người dùng sửa dữ liệu,
 // mà không có gì để sửa.
-func TestKyDoiSoatSaiThuTuThi409(t *testing.T) {
+func TestSigningASettlementOutOfOrderReturns409(t *testing.T) {
 	a := newAPITest(t)
 
-	id, _ := a.doiSoatNhap(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsFinance)
-	const lyDo = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
+	id, _ := a.settlementDraft(t)
+	tok := a.createAccountWithRole(t, identity.RoleOpsFinance)
+	const reason = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
 
 	// Đánh dấu đã trả khi đợt còn DRAFT: nhảy bước.
 	res := a.call(http.MethodPost,
 		"/api/v1/admin/settlements/"+id+"/mark-paid",
-		map[string]any{"reason": lyDo}, hopNhat(khoaIdem(), bearer(tok)))
+		map[string]any{"reason": reason}, merge(idemKey(), bearer(tok)))
 	if res.code != http.StatusConflict {
 		t.Fatalf("nhảy bước phải 409, nhận HTTP %d — %s", res.code, res.raw)
 	}
 
 	// Chốt HAI lần: lần hai cũng 409.
 	if r := a.call(http.MethodPost, "/api/v1/admin/settlements/"+id+"/confirm",
-		map[string]any{"reason": lyDo},
-		hopNhat(khoaIdem(), bearer(tok))); r.code != http.StatusOK {
+		map[string]any{"reason": reason},
+		merge(idemKey(), bearer(tok))); r.code != http.StatusOK {
 		t.Fatalf("chốt lần đầu: HTTP %d — %s", r.code, r.raw)
 	}
 	res = a.call(http.MethodPost, "/api/v1/admin/settlements/"+id+"/confirm",
-		map[string]any{"reason": lyDo}, hopNhat(khoaIdem(), bearer(tok)))
+		map[string]any{"reason": reason}, merge(idemKey(), bearer(tok)))
 	if res.code != http.StatusConflict {
 		t.Fatalf("chốt lần hai phải 409, nhận HTTP %d — %s", res.code, res.raw)
 	}
@@ -134,24 +134,24 @@ func TestKyDoiSoatSaiThuTuThi409(t *testing.T) {
 //
 // Và khi bị từ chối, trạng thái đợt phải GIỮ NGUYÊN: một lời gọi bị chặn
 // không được để lại nửa chừng.
-func TestKyDoiSoatThieuLyDoThiTuChoi(t *testing.T) {
+func TestSigningASettlementWithoutAReasonIsRejected(t *testing.T) {
 	a := newAPITest(t)
 
-	id, _ := a.doiSoatNhap(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsFinance)
+	id, _ := a.settlementDraft(t)
+	tok := a.createAccountWithRole(t, identity.RoleOpsFinance)
 
-	for _, lyDo := range []string{"", "ok", "đã kiểm"} {
+	for _, reason := range []string{"", "ok", "đã kiểm"} {
 		res := a.call(http.MethodPost,
 			"/api/v1/admin/settlements/"+id+"/confirm",
-			map[string]any{"reason": lyDo},
-			hopNhat(khoaIdem(), bearer(tok)))
+			map[string]any{"reason": reason},
+			merge(idemKey(), bearer(tok)))
 		if res.code < 400 {
 			t.Fatalf("lý do %q phải bị từ chối, nhận HTTP %d — %s",
-				lyDo, res.code, res.raw)
+				reason, res.code, res.raw)
 		}
 	}
 
-	if tt := a.trangThaiDoiSoat(t, id); tt != "DRAFT" {
+	if tt := a.settlementStatus(t, id); tt != "DRAFT" {
 		t.Errorf("bị từ chối rồi mà trạng thái thành %q, cần giữ DRAFT", tt)
 	}
 }
@@ -163,29 +163,29 @@ func TestKyDoiSoatThieuLyDoThiTuChoi(t *testing.T) {
 // trong một hệ phân quyền theo VAI TRÒ.
 //
 // 403 chứ không 404: người gọi ĐÃ xác thực, chỉ không đủ quyền.
-func TestChiVaiTroTaiChinhKyDuocDoiSoat(t *testing.T) {
+func TestOnlyTheFinanceRoleCanSignASettlement(t *testing.T) {
 	a := newAPITest(t)
 
-	id, _ := a.doiSoatNhap(t)
-	const lyDo = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
+	id, _ := a.settlementDraft(t)
+	const reason = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
 
-	for _, vaiTro := range []string{
+	for _, role := range []string{
 		identity.RoleOpsSupport,
 		identity.RoleOpsMerchandising,
 		identity.RoleOpsWarehouse,
 	} {
-		tok := a.taoTaiKhoanVaiTro(t, vaiTro)
+		tok := a.createAccountWithRole(t, role)
 		res := a.call(http.MethodPost,
 			"/api/v1/admin/settlements/"+id+"/confirm",
-			map[string]any{"reason": lyDo},
-			hopNhat(khoaIdem(), bearer(tok)))
+			map[string]any{"reason": reason},
+			merge(idemKey(), bearer(tok)))
 		if res.code != http.StatusForbidden {
 			t.Errorf("vai trò %s ký được đợt đối soát: HTTP %d — %s",
-				vaiTro, res.code, res.raw)
+				role, res.code, res.raw)
 		}
 	}
 
-	if tt := a.trangThaiDoiSoat(t, id); tt != "DRAFT" {
+	if tt := a.settlementStatus(t, id); tt != "DRAFT" {
 		t.Errorf("vai trò không đủ quyền mà đổi được trạng thái thành %q", tt)
 	}
 }
@@ -195,16 +195,16 @@ func TestChiVaiTroTaiChinhKyDuocDoiSoat(t *testing.T) {
 // Hai mốc thời gian thì có — "đã xác nhận lúc" và "đã trả lúc" là hai câu
 // nhà bán hỏi nhiều nhất. Nhưng nhân viên nào bấm nút là việc nội bộ, và
 // định danh nhân viên lọt ra ngoài là một rò rỉ không cần thiết.
-func TestNhaBanKhongThayNguoiKy(t *testing.T) {
+func TestASellerDoesNotSeeTheSigner(t *testing.T) {
 	a := newAPITest(t)
 
-	id, B := a.doiSoatNhap(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsFinance)
-	const lyDo = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
+	id, B := a.settlementDraft(t)
+	tok := a.createAccountWithRole(t, identity.RoleOpsFinance)
+	const reason = "Đối soát kỳ tháng 9, đã khớp với báo cáo giao hàng"
 
 	if r := a.call(http.MethodPost, "/api/v1/admin/settlements/"+id+"/confirm",
-		map[string]any{"reason": lyDo},
-		hopNhat(khoaIdem(), bearer(tok))); r.code != http.StatusOK {
+		map[string]any{"reason": reason},
+		merge(idemKey(), bearer(tok))); r.code != http.StatusOK {
 		t.Fatalf("chốt đợt: HTTP %d — %s", r.code, r.raw)
 	}
 
@@ -228,19 +228,19 @@ func TestNhaBanKhongThayNguoiKy(t *testing.T) {
 
 // ------------------------------------------------------------ tiện ích
 
-// doiSoatNhap dựng một nhà bán có tiền rút được và một đợt đối soát DRAFT.
-func (a *apiTest) doiSoatNhap(t *testing.T) (string, nhaBanThu) {
+// settlementDraft dựng một nhà bán có tiền rút được và một đợt đối soát DRAFT.
+func (a *apiTest) settlementDraft(t *testing.T) (string, testSeller) {
 	t.Helper()
 	ctx := context.Background()
 
-	B, rutDuoc := a.dungNhaBanCoTienRutDuoc(t)
-	if rutDuoc <= 0 {
-		t.Skipf("không dựng được số dư rút được (%v)", rutDuoc)
+	B, available := a.buildSellerWithAvailableFunds(t)
+	if available <= 0 {
+		t.Skipf("không dựng được số dư rút được (%v)", available)
 	}
 
-	den := types.Now().Add(time.Minute)
+	until := types.Now().Add(time.Minute)
 	if _, err := a.mods.payment.NewSettlementForPeriod(
-		ctx, den.Add(-7*24*time.Hour), den, 1000); err != nil {
+		ctx, until.Add(-7*24*time.Hour), until, 1000); err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)
 	}
 
@@ -254,7 +254,7 @@ func (a *apiTest) doiSoatNhap(t *testing.T) (string, nhaBanThu) {
 	return id, B
 }
 
-func (a *apiTest) trangThaiDoiSoat(t *testing.T, id string) string {
+func (a *apiTest) settlementStatus(t *testing.T, id string) string {
 	t.Helper()
 	var tt string
 	if err := a.db.Pool().QueryRow(context.Background(),
@@ -278,11 +278,11 @@ func (a *apiTest) trangThaiDoiSoat(t *testing.T, id string) string {
 //
 // Bài này khẳng định cả hai chiều. Chỉ kiểm chiều "admin thấy hết" thì một
 // bản cài bỏ hẳn phép lọc vẫn xanh.
-func TestDanhSachDoiSoatPhanBietQuanTriVaNhaBan(t *testing.T) {
+func TestTheSettlementListDistinguishesAdminFromSeller(t *testing.T) {
 	a := newAPITest(t)
 
-	id, B := a.doiSoatNhap(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleOpsFinance)
+	id, B := a.settlementDraft(t)
+	tok := a.createAccountWithRole(t, identity.RoleOpsFinance)
 
 	// ---- Quản trị: thấy đợt, kèm hai trường NGƯỜI KÝ ----
 	res := a.call(http.MethodGet, "/api/v1/admin/settlements?status=DRAFT",
@@ -295,18 +295,18 @@ func TestDanhSachDoiSoatPhanBietQuanTriVaNhaBan(t *testing.T) {
 		t.Fatal("quản trị không thấy đợt nào")
 	}
 
-	thay := false
+	found := false
 	for _, v := range ds {
 		d, _ := v.(map[string]any)
 		if got, _ := d["id"].(string); got == id {
-			thay = true
+			found = true
 			if s, _ := d["seller_id"].(string); s != B.sellerID {
 				t.Errorf("đợt thiếu mã gian hàng (%q) — một danh sách MỌI "+
 					"gian hàng không có mã gian hàng thì không dùng được", s)
 			}
 		}
 	}
-	if !thay {
+	if !found {
 		t.Errorf("đợt %s không có trong danh sách của quản trị", id)
 	}
 

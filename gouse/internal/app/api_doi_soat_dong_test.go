@@ -27,18 +27,18 @@ import (
 //
 // Lỗi nằm ĐÚNG ở tầng DTO. Gọi thẳng service thì `Dong()` luôn có dữ liệu
 // và bài test xanh trong lúc API vẫn trả thiếu.
-func TestChiTietDoiSoatNoiDuocNoGomNhungGi(t *testing.T) {
+func TestSettlementDetailExplainsWhatTheDebtCovers(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	B, rutDuoc := a.dungNhaBanCoTienRutDuoc(t)
-	if rutDuoc <= 0 {
-		t.Fatalf("không dựng được số dư rút được (%v)", rutDuoc)
+	B, available := a.buildSellerWithAvailableFunds(t)
+	if available <= 0 {
+		t.Fatalf("không dựng được số dư rút được (%v)", available)
 	}
 
-	den := types.Now().Add(time.Minute)
+	until := types.Now().Add(time.Minute)
 	if _, err := a.mods.payment.NewSettlementForPeriod(
-		ctx, den.Add(-7*24*time.Hour), den, 1000); err != nil {
+		ctx, until.Add(-7*24*time.Hour), until, 1000); err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)
 	}
 
@@ -46,12 +46,12 @@ func TestChiTietDoiSoatNoiDuocNoGomNhungGi(t *testing.T) {
 	if ds.code != http.StatusOK {
 		t.Fatalf("danh sách đợt: HTTP %d — %s", ds.code, ds.raw)
 	}
-	danhSach, _ := ds.body["data"].([]any)
-	if len(danhSach) == 0 {
+	listed, _ := ds.body["data"].([]any)
+	if len(listed) == 0 {
 		t.Fatal("không có đợt nào")
 	}
-	dau, _ := danhSach[0].(map[string]any)
-	id, _ := dau["id"].(string)
+	first, _ := listed[0].(map[string]any)
+	id, _ := first["id"].(string)
 
 	res := a.call(http.MethodGet, "/api/v1/seller/settlements/"+id, nil, bearer(B.token))
 	if res.code != http.StatusOK {
@@ -62,17 +62,17 @@ func TestChiTietDoiSoatNoiDuocNoGomNhungGi(t *testing.T) {
 		t.Fatalf("response không có `settlement`: %s", res.raw)
 	}
 
-	dong, coTruong := d["lines"].([]any)
-	if !coTruong {
+	line, hasField := d["lines"].([]any)
+	if !hasField {
 		t.Fatalf("chi tiết đợt KHÔNG có `lines` — nhà bán chỉ thấy một con "+
 			"số tổng và không đối chiếu được với sổ của họ: %s", res.raw)
 	}
-	if len(dong) == 0 {
+	if len(line) == 0 {
 		t.Fatal("`lines` rỗng dù đợt có tiền")
 	}
 
 	var tong float64
-	for i, x := range dong {
+	for i, x := range line {
 		l, _ := x.(map[string]any)
 		am, _ := l["amount"].(map[string]any)
 		v, _ := am["amount"].(float64)

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestKhachBatTatDuocThuKhuyenMai.
+// TestACustomerCanToggleMarketingEmail.
 //
 // # Vì sao bài này tồn tại
 //
@@ -20,16 +20,16 @@ import (
 // hai cờ boolean.
 //
 // Bài này đi đúng đường khách đi: đọc hồ sơ, bật, đọc lại.
-func TestKhachBatTatDuocThuKhuyenMai(t *testing.T) {
+func TestACustomerCanToggleMarketingEmail(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("dongymkt"))
+	tok := a.registerAndLogIn(newEmail("dongymkt"))
 
 	bear := func() map[string]string {
-		h := khoaIdem()
+		h := idemKey()
 		h["Authorization"] = "Bearer " + tok
 		return h
 	}
-	doc := func() map[string]any {
+	readProfile := func() map[string]any {
 		t.Helper()
 		res := a.call(http.MethodGet, "/api/v1/me", nil,
 			map[string]string{"Authorization": "Bearer " + tok})
@@ -46,8 +46,8 @@ func TestKhachBatTatDuocThuKhuyenMai(t *testing.T) {
 	}
 
 	// Mặc định: CHƯA đồng ý. Im lặng coi như đồng ý là cách vi phạm.
-	if dau := doc(); dau["email"] != false || dau["sms"] != false {
-		t.Fatalf("khách mới đăng ký đã được coi là đồng ý nhận thư: %v", dau)
+	if first := readProfile(); first["email"] != false || first["sms"] != false {
+		t.Fatalf("khách mới đăng ký đã được coi là đồng ý nhận thư: %v", first)
 	}
 
 	res := a.call(http.MethodPatch, "/api/v1/me",
@@ -56,15 +56,15 @@ func TestKhachBatTatDuocThuKhuyenMai(t *testing.T) {
 		t.Fatalf("bật đồng ý email: HTTP %d — %s", res.code, res.raw)
 	}
 
-	sau := doc()
-	if sau["email"] != true {
-		t.Errorf("bật đồng ý email xong đọc lại vẫn %v", sau["email"])
+	after := readProfile()
+	if after["email"] != true {
+		t.Errorf("bật đồng ý email xong đọc lại vẫn %v", after["email"])
 	}
 
 	// SMS KHÔNG được bật lây: khách tick ô email không phải giấy phép
 	// nhắn tin, và `customer` giữ hai loại đồng ý riêng cho đúng lý do đó.
-	if sau["sms"] != false {
-		t.Errorf("bật email mà SMS cũng bật theo: %v", sau)
+	if after["sms"] != false {
+		t.Errorf("bật email mà SMS cũng bật theo: %v", after)
 	}
 
 	// Rút lại được — "Quyền rút đồng ý" ở docs/09-operations/security.md.
@@ -73,12 +73,12 @@ func TestKhachBatTatDuocThuKhuyenMai(t *testing.T) {
 	if res.code != http.StatusOK {
 		t.Fatalf("rút đồng ý: HTTP %d — %s", res.code, res.raw)
 	}
-	if cuoi := doc(); cuoi["email"] != false {
+	if cuoi := readProfile(); cuoi["email"] != false {
 		t.Errorf("rút đồng ý xong vẫn %v", cuoi["email"])
 	}
 }
 
-// TestSuaHoSoKhongDUOCRutDongYAmTham.
+// TestEditingAProfileMustNotSilentlyWithdrawConsent.
 //
 // # Vì sao bài này tồn tại
 //
@@ -90,12 +90,12 @@ func TestKhachBatTatDuocThuKhuyenMai(t *testing.T) {
 // `customer_consent` kèm dấu thời gian và nguồn "settings", nên nó trông
 // y như khách tự bấm. Một bằng chứng pháp lý bịa ra bởi một phép gán mặc
 // định.
-func TestSuaHoSoKhongDUOCRutDongYAmTham(t *testing.T) {
+func TestEditingAProfileMustNotSilentlyWithdrawConsent(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.dangKyVaDangNhap(emailMoi("khongrutngam"))
+	tok := a.registerAndLogIn(newEmail("khongrutngam"))
 
 	bear := func() map[string]string {
-		h := khoaIdem()
+		h := idemKey()
 		h["Authorization"] = "Bearer " + tok
 		return h
 	}

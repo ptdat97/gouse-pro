@@ -116,18 +116,18 @@ func chay() error {
 		return fmt.Errorf("dựng module analytics: %w", err)
 	}
 
-	var written, boQua int
+	var written, skipped int
 	for _, p := range missing {
 		if err := writeCheckout(ctx, mod, p); err != nil {
 			// KHÔNG dừng cả lượt vì một phiên hỏng.
 			fmt.Fprintf(os.Stderr, "  bỏ qua %s: %v\n", p.checkoutID, err)
-			boQua++
+			skipped++
 			continue
 		}
 		written++
 	}
 
-	fmt.Printf("Đã dựng lại %d phiên, bỏ qua %d.\n", written, boQua)
+	fmt.Printf("Đã dựng lại %d phiên, bỏ qua %d.\n", written, skipped)
 	return nil
 }
 

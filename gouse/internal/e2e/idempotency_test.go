@@ -11,7 +11,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 )
 
-// TestBanGiaoVanChuyenDongThoiChiMotLan — idempotency của bước GIAO HÀNG.
+// TestConcurrentHandoverHappensOnce — idempotency của bước GIAO HÀNG.
 //
 // # Vì sao bước này cần chống trùng ở tầng dữ liệu
 //
@@ -24,13 +24,13 @@ import (
 // `fulfillment.progress`, nên khách nhận HAI email "đơn đã gửi", analytics
 // đếm hai lần, và mã vận đơn ghi sau đè lên mã ghi trước — nếu hai request
 // mang hai mã khác nhau thì mã thật bị mất.
-func TestBanGiaoVanChuyenDongThoiChiMotLan(t *testing.T) {
+func TestConcurrentHandoverHappensOnce(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
-	foID := datVaGiao(t, w, shop, skuID, 20, 3)
+	foID := placeAndDeliver(t, w, shop, skuID, 20, 3)
 	seller := shop.String()
 
 	// Đưa tới PACKED — trạng thái ngay trước khi bàn giao.
@@ -50,7 +50,7 @@ func TestBanGiaoVanChuyenDongThoiChiMotLan(t *testing.T) {
 	start.Add(1)
 
 	var mu sync.Mutex
-	var thanhCong int
+	var succeeded int
 
 	for i := 0; i < songSong; i++ {
 		done.Add(1)
@@ -65,7 +65,7 @@ func TestBanGiaoVanChuyenDongThoiChiMotLan(t *testing.T) {
 			})
 			if err == nil {
 				mu.Lock()
-				thanhCong++
+				succeeded++
 				mu.Unlock()
 			}
 		}(i)
@@ -73,18 +73,18 @@ func TestBanGiaoVanChuyenDongThoiChiMotLan(t *testing.T) {
 	start.Done()
 	done.Wait()
 
-	if thanhCong != 1 {
-		t.Errorf("%d lệnh bàn giao cùng thành công, cần đúng 1", thanhCong)
+	if succeeded != 1 {
+		t.Errorf("%d lệnh bàn giao cùng thành công, cần đúng 1", succeeded)
 	}
 
 	// Và chỉ MỘT event tiến độ được phát cho bước này.
-	if n := demEventTienDo(t, w, foID); n != 1 {
+	if n := countProgressEvents(t, w, foID); n != 1 {
 		t.Errorf("%d event fulfillment.progress cho bước bàn giao, cần 1", n)
 	}
 }
 
-// demEventTienDo đếm event tiến độ mang trạng thái HANDED_OVER của một FO.
-func demEventTienDo(t *testing.T, w *world, foID string) int {
+// countProgressEvents đếm event tiến độ mang trạng thái HANDED_OVER của một FO.
+func countProgressEvents(t *testing.T, w *world, foID string) int {
 	t.Helper()
 	var n int
 	err := w.db.Pool().QueryRow(context.Background(), `
@@ -98,7 +98,7 @@ func demEventTienDo(t *testing.T, w *world, foID string) int {
 	return n
 }
 
-// TestGiuHangTrungChoCungPhienBiChan — idempotency của bước GIỮ HÀNG.
+// TestADuplicateHoldForTheSameCheckoutIsBlocked — idempotency của bước GIỮ HÀNG.
 //
 // Một phiên thanh toán được giữ hàng HAI LẦN cho cùng một món nghĩa là
 // khóa gấp đôi số hàng khách thật sự cần. Số thừa bị treo tới khi hết hạn,
@@ -107,7 +107,7 @@ func demEventTienDo(t *testing.T, w *world, foID string) int {
 // Bảo vệ ở tầng ứng dụng đã có (một giỏ một phiên đang chạy). Bài này khóa
 // bất biến ở tầng DỮ LIỆU: dù bằng đường nào đi nữa, một phiên không được
 // có hai lần giữ hàng ĐANG HOẠT ĐỘNG cho cùng một bản ghi tồn kho.
-func TestGiuHangTrungChoCungPhienBiChan(t *testing.T) {
+func TestADuplicateHoldForTheSameCheckoutIsBlocked(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -139,7 +139,7 @@ func TestGiuHangTrungChoCungPhienBiChan(t *testing.T) {
 	}
 
 	// Và hàng chỉ bị khóa MỘT lần.
-	if giu := w.reserved(skuID, shop); giu != 3 {
-		t.Errorf("đang giữ %d, cần 3 — đã khóa hai lần", giu)
+	if held := w.reserved(skuID, shop); held != 3 {
+		t.Errorf("đang giữ %d, cần 3 — đã khóa hai lần", held)
 	}
 }

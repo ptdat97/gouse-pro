@@ -8,22 +8,22 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 )
 
-// dungDonDaGiao dựng một đơn đã giao xong, trả (mã đơn, mã dòng, mã nhà bán).
-func (a *apiTest) dungDonDaGiao(t *testing.T) (string, string, string) {
+// buildDeliveredOrder dựng một đơn đã giao xong, trả (mã đơn, mã dòng, mã nhà bán).
+func (a *apiTest) buildDeliveredOrder(t *testing.T) (string, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	maPhien := a.dungPhienSanHoanTat("trahang@example.com", "0900321321")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete("trahang@example.com", "0900321321")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
 
-	a.phatEvent(t)
-	fo := a.timFulfillment(t, maDon)
+	a.emitEvent(t)
+	fo := a.findFulfillment(t, orderID)
 	if fo.id == "" {
 		t.Skip("không tạo được đơn thực hiện")
 	}
@@ -44,35 +44,35 @@ func (a *apiTest) dungDonDaGiao(t *testing.T) (string, string, string) {
 			t.Fatalf("chuyển trạng thái đơn thực hiện: %v", err)
 		}
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	var maDong string
+	var lineID string
 	if err := a.db.Pool().QueryRow(ctx,
-		`SELECT id FROM order_line WHERE order_id = $1 LIMIT 1`, maDon).
-		Scan(&maDong); err != nil {
+		`SELECT id FROM order_line WHERE order_id = $1 LIMIT 1`, orderID).
+		Scan(&lineID); err != nil {
 		t.Fatalf("đọc dòng hàng: %v", err)
 	}
-	return maDon, maDong, fo.sellerID
+	return orderID, lineID, fo.sellerID
 }
 
-// TestKhachTraHangDiTronLuong — PH-37.
+// TestACustomerReturnGoesEndToEnd — PH-37.
 //
 // Xin trả → nhà bán duyệt → nhận hàng → hoàn tiền, tất cả qua HTTP thật.
 //
 // Hai bất biến quan trọng nhất được kiểm ở TẦNG DATABASE, không qua
 // response: hàng hoàn KHÔNG vào tồn khả dụng, và sổ cái CÓ bút toán hoàn.
-func TestKhachTraHangDiTronLuong(t *testing.T) {
+func TestACustomerReturnGoesEndToEnd(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maDon, maDong, sellerID := a.dungDonDaGiao(t)
+	orderID, lineID, sellerID := a.buildDeliveredOrder(t)
 
-	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", map[string]any{
+	res := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/returns", map[string]any{
 		"lines": []any{map[string]any{
-			"order_line_id": maDong, "quantity": 1,
+			"order_line_id": lineID, "quantity": 1,
 			"reason_code": "SIZE_TOO_SMALL", "reason_detail": "chật quá",
 		}},
-	}, hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"}))
+	}, merge(idemKey(), map[string]string{"X-Guest-Phone": "0900321321"}))
 	if res.code != http.StatusCreated {
 		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
 	}
@@ -83,10 +83,10 @@ func TestKhachTraHangDiTronLuong(t *testing.T) {
 	}
 
 	// Tiền hoàn phải bằng giá thực trả của dòng.
-	tien, _ := yc["refund_amount"].(map[string]any)
-	soTien, _ := tien["amount"].(float64)
-	if soTien <= 0 {
-		t.Errorf("số tiền hoàn là %v", soTien)
+	cash, _ := yc["refund_amount"].(map[string]any)
+	amount, _ := cash["amount"].(float64)
+	if amount <= 0 {
+		t.Errorf("số tiền hoàn là %v", amount)
 	}
 
 	// --- nhà bán duyệt rồi nhận hàng ---
@@ -94,8 +94,8 @@ func TestKhachTraHangDiTronLuong(t *testing.T) {
 		t.Fatalf("duyệt: %v", err)
 	}
 
-	truocKhaDung := a.tonKhoKhaDung(t, maDon)
-	truocButToan := a.demDong("ledger_entry", "reference_id = $1", maYC)
+	beforeAvailable := a.availableStock(t, orderID)
+	beforeEntry := a.countRows("ledger_entry", "reference_id = $1", maYC)
 
 	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
 		t.Fatalf("nhận hàng và hoàn tiền: %v", err)
@@ -106,65 +106,65 @@ func TestKhachTraHangDiTronLuong(t *testing.T) {
 	// docs/07-workflows/return.md mục 4: vi phạm quy tắc này nghĩa là bán
 	// lại hàng hỏng cho khách khác, và thiệt hại uy tín lớn hơn nhiều giá
 	// trị món hàng.
-	sauKhaDung := a.tonKhoKhaDung(t, maDon)
-	if sauKhaDung != truocKhaDung {
+	afterAvailable := a.availableStock(t, orderID)
+	if afterAvailable != beforeAvailable {
 		t.Errorf("tồn KHẢ DỤNG đổi %d → %d khi nhận hàng hoàn — "+
 			"hàng hoàn phải vào trạng thái Returned, chờ kiểm định",
-			truocKhaDung, sauKhaDung)
+			beforeAvailable, afterAvailable)
 	}
 
 	// BẤT BIẾN 2: sổ cái có bút toán hoàn.
-	if n := a.demDong("ledger_entry", "reference_id = $1", maYC) - truocButToan; n < 1 {
+	if n := a.countRows("ledger_entry", "reference_id = $1", maYC) - beforeEntry; n < 1 {
 		t.Errorf("có %d bút toán hoàn tiền, cần ít nhất 1 — "+
 			"khách được trả hàng mà tiền không được đảo ngược", n)
 	}
 }
 
-// TestKhongTraDuocDonCuaNguoiKhac — bất biến BẢO MẬT.
-func TestKhongTraDuocDonCuaNguoiKhac(t *testing.T) {
+// TestYouCannotReturnAnothersOrder — bất biến BẢO MẬT.
+func TestYouCannotReturnAnothersOrder(t *testing.T) {
 	a := newAPITest(t)
-	maDon, maDong, _ := a.dungDonDaGiao(t)
+	orderID, lineID, _ := a.buildDeliveredOrder(t)
 
 	// Không có số điện thoại của khách → không được đụng vào đơn.
-	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", map[string]any{
+	res := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/returns", map[string]any{
 		"lines": []any{map[string]any{
-			"order_line_id": maDong, "quantity": 1, "reason_code": "CHANGED_MIND",
+			"order_line_id": lineID, "quantity": 1, "reason_code": "CHANGED_MIND",
 		}},
-	}, khoaIdem())
+	}, idemKey())
 	if res.code != http.StatusNotFound {
 		t.Errorf("người lạ xin trả hàng: HTTP %d, cần 404 — %s", res.code, res.raw)
 	}
 }
 
-// TestXinTraHaiLanChoCungMonBiChan.
+// TestRequestingAReturnTwiceForOneItemIsBlocked.
 //
 // Không có chặn này, khách gửi hai yêu cầu cho cùng một món và được hoàn
 // tiền hai lần cho một lần mua.
-func TestXinTraHaiLanChoCungMonBiChan(t *testing.T) {
+func TestRequestingAReturnTwiceForOneItemIsBlocked(t *testing.T) {
 	a := newAPITest(t)
-	maDon, maDong, _ := a.dungDonDaGiao(t)
+	orderID, lineID, _ := a.buildDeliveredOrder(t)
 
 	than := map[string]any{
 		"lines": []any{map[string]any{
-			"order_line_id": maDong, "quantity": 1, "reason_code": "CHANGED_MIND",
+			"order_line_id": lineID, "quantity": 1, "reason_code": "CHANGED_MIND",
 		}},
 	}
-	h := hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"})
+	h := merge(idemKey(), map[string]string{"X-Guest-Phone": "0900321321"})
 
-	if res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", than, h); res.code != http.StatusCreated {
+	if res := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/returns", than, h); res.code != http.StatusCreated {
 		t.Fatalf("lần đầu: HTTP %d — %s", res.code, res.raw)
 	}
 
-	h2 := hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"})
-	lai := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", than, h2)
-	if lai.code == http.StatusCreated {
+	h2 := merge(idemKey(), map[string]string{"X-Guest-Phone": "0900321321"})
+	again := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/returns", than, h2)
+	if again.code == http.StatusCreated {
 		t.Error("xin trả LẦN HAI cho cùng một món vẫn thành công — " +
 			"khách được hoàn tiền hai lần cho một lần mua")
 	}
 }
 
-// tonKhoKhaDung đọc tổng tồn khả dụng của các SKU trong đơn.
-func (a *apiTest) tonKhoKhaDung(t *testing.T, orderID string) int {
+// availableStock đọc tổng tồn khả dụng của các SKU trong đơn.
+func (a *apiTest) availableStock(t *testing.T, orderID string) int {
 	t.Helper()
 	var n int
 	if err := a.db.Pool().QueryRow(context.Background(), `
@@ -177,7 +177,7 @@ func (a *apiTest) tonKhoKhaDung(t *testing.T, orderID string) int {
 	return n
 }
 
-// TestKiemDinhDuaHangHoanTroLaiBanDuoc.
+// TestInspectionPutsReturnedGoodsBackOnSale.
 //
 // # Vì sao bước này quyết định
 //
@@ -198,18 +198,18 @@ func (a *apiTest) tonKhoKhaDung(t *testing.T, orderID string) int {
 // Đã kiểm bằng cách phá: bỏ lớp domain thì bài này VẪN XANH, vì tồn kho
 // chặn. Cả hai đều đúng và đều cần — nhưng lớp domain là thứ trả về lỗi
 // đọc được cho nhà bán, còn tồn kho chỉ trả 500.
-func TestKiemDinhDuaHangHoanTroLaiBanDuoc(t *testing.T) {
+func TestInspectionPutsReturnedGoodsBackOnSale(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maDon, maDong, sellerID := a.dungDonDaGiao(t)
-	tokBan := a.dangNhapNhaBan(t, sellerID)
+	orderID, lineID, sellerID := a.buildDeliveredOrder(t)
+	tokSeller := a.logInAsSeller(t, sellerID)
 
-	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", map[string]any{
+	res := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/returns", map[string]any{
 		"lines": []any{map[string]any{
-			"order_line_id": maDong, "quantity": 1, "reason_code": "SIZE_TOO_SMALL",
+			"order_line_id": lineID, "quantity": 1, "reason_code": "SIZE_TOO_SMALL",
 		}},
-	}, hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"}))
+	}, merge(idemKey(), map[string]string{"X-Guest-Phone": "0900321321"}))
 	if res.code != http.StatusCreated {
 		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
 	}
@@ -223,16 +223,16 @@ func TestKiemDinhDuaHangHoanTroLaiBanDuoc(t *testing.T) {
 		t.Fatalf("nhận hàng: %v", err)
 	}
 
-	truoc := a.tonKhoTheoTrangThai(t, maDon)
-	if truoc.hoan == 0 {
+	before := a.stockByStatus(t, orderID)
+	if before.refunded == 0 {
 		t.Fatalf("sau khi nhận hàng, tồn Returned là 0 — hàng chưa vào kho")
 	}
 
 	// KIỂM ĐỊNH ĐẠT — qua HTTP, đường trước đây không tồn tại.
 	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
 		map[string]any{
-			"lines": []any{map[string]any{"order_line_id": maDong, "passed": true}},
-		}, hopNhat(bearer(tokBan), khoaIdem()))
+			"lines": []any{map[string]any{"order_line_id": lineID, "passed": true}},
+		}, merge(bearer(tokSeller), idemKey()))
 	if got.code != http.StatusOK {
 		t.Fatalf("kiểm định: HTTP %d — %s", got.code, got.raw)
 	}
@@ -240,32 +240,32 @@ func TestKiemDinhDuaHangHoanTroLaiBanDuoc(t *testing.T) {
 	// Đo MỨC THAY ĐỔI, không phải con số tuyệt đối: SKU dùng chung với
 	// các bài khác trong cùng lượt chạy, và tổng tuyệt đối là đo cả dữ
 	// liệu của người khác.
-	sau := a.tonKhoTheoTrangThai(t, maDon)
-	if sau.khaDung-truoc.khaDung != 1 {
+	after := a.stockByStatus(t, orderID)
+	if after.khaDung-before.khaDung != 1 {
 		t.Errorf("hàng ĐẠT kiểm định: khả dụng đổi %d → %d, cần +1 — "+
 			"hàng hoàn không quay lại bán được và nằm chết trong kho",
-			truoc.khaDung, sau.khaDung)
+			before.khaDung, after.khaDung)
 	}
-	if truoc.hoan-sau.hoan != 1 {
+	if before.refunded-after.refunded != 1 {
 		t.Errorf("tồn Returned đổi %d → %d, cần −1 — hàng không rời trạng "+
-			"thái chờ kiểm định", truoc.hoan, sau.hoan)
+			"thái chờ kiểm định", before.refunded, after.refunded)
 	}
 
 	// KIỂM HAI LẦN phải bị chặn: hàng vào Available gấp đôi là tồn kho
 	// tăng thêm số hàng không có thật.
-	lai := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+	again := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
 		map[string]any{
-			"lines": []any{map[string]any{"order_line_id": maDong, "passed": true}},
-		}, hopNhat(bearer(tokBan), khoaIdem()))
-	if lai.code == http.StatusOK {
+			"lines": []any{map[string]any{"order_line_id": lineID, "passed": true}},
+		}, merge(bearer(tokSeller), idemKey()))
+	if again.code == http.StatusOK {
 		t.Error("kiểm định LẦN HAI vẫn thành công — tồn kho tăng thêm hàng không có thật")
 	}
-	if cuoi := a.tonKhoTheoTrangThai(t, maDon); cuoi.khaDung != sau.khaDung {
-		t.Errorf("kiểm lần hai làm khả dụng đổi %d → %d", sau.khaDung, cuoi.khaDung)
+	if cuoi := a.stockByStatus(t, orderID); cuoi.khaDung != after.khaDung {
+		t.Errorf("kiểm lần hai làm khả dụng đổi %d → %d", after.khaDung, cuoi.khaDung)
 	}
 }
 
-// TestLoaiHangPhaiNeuLyDo.
+// TestScrappingGoodsRequiresAReason.
 //
 // Lý do loại là đầu vào cho việc làm việc với nhà cung cấp và quyết ai
 // chịu chi phí. "Hỏng" không có mô tả thì không làm được gì với nó.
@@ -273,18 +273,18 @@ func TestKiemDinhDuaHangHoanTroLaiBanDuoc(t *testing.T) {
 // Cũng có HAI lớp: kiểm ở domain và CHECK `return_line_fail_needs_note` ở
 // database. Bỏ lớp domain thì bài vẫn xanh vì database chặn — nhưng khi
 // đó nhà bán nhận 500 thay vì một thông điệp nói rõ thiếu gì.
-func TestLoaiHangPhaiNeuLyDo(t *testing.T) {
+func TestScrappingGoodsRequiresAReason(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maDon, maDong, sellerID := a.dungDonDaGiao(t)
-	tokBan := a.dangNhapNhaBan(t, sellerID)
+	orderID, lineID, sellerID := a.buildDeliveredOrder(t)
+	tokSeller := a.logInAsSeller(t, sellerID)
 
-	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns", map[string]any{
+	res := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/returns", map[string]any{
 		"lines": []any{map[string]any{
-			"order_line_id": maDong, "quantity": 1, "reason_code": "DEFECTIVE",
+			"order_line_id": lineID, "quantity": 1, "reason_code": "DEFECTIVE",
 		}},
-	}, hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"}))
+	}, merge(idemKey(), map[string]string{"X-Guest-Phone": "0900321321"}))
 	if res.code != http.StatusCreated {
 		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
 	}
@@ -301,48 +301,48 @@ func TestLoaiHangPhaiNeuLyDo(t *testing.T) {
 	// Loại hàng mà KHÔNG nêu lý do.
 	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
 		map[string]any{
-			"lines": []any{map[string]any{"order_line_id": maDong, "passed": false}},
-		}, hopNhat(bearer(tokBan), khoaIdem()))
+			"lines": []any{map[string]any{"order_line_id": lineID, "passed": false}},
+		}, merge(bearer(tokSeller), idemKey()))
 	if got.code == http.StatusOK {
 		t.Error("loại hàng KHÔNG nêu lý do vẫn được chấp nhận")
 	}
 
 	// Có lý do thì được, và hàng KHÔNG quay lại bán được.
-	truoc := a.tonKhoTheoTrangThai(t, maDon)
+	before := a.stockByStatus(t, orderID)
 	ok := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
 		map[string]any{
 			"lines": []any{map[string]any{
-				"order_line_id": maDong, "passed": false,
+				"order_line_id": lineID, "passed": false,
 				"note": "rách đường may vai trái",
 			}},
-		}, hopNhat(bearer(tokBan), khoaIdem()))
+		}, merge(bearer(tokSeller), idemKey()))
 	if ok.code != http.StatusOK {
 		t.Fatalf("loại hàng có lý do: HTTP %d — %s", ok.code, ok.raw)
 	}
 
-	sau := a.tonKhoTheoTrangThai(t, maDon)
-	if sau.khaDung != truoc.khaDung {
+	after := a.stockByStatus(t, orderID)
+	if after.khaDung != before.khaDung {
 		t.Errorf("hàng LOẠI vẫn vào khả dụng: %d → %d — bán lại hàng hỏng "+
-			"cho khách khác", truoc.khaDung, sau.khaDung)
+			"cho khách khác", before.khaDung, after.khaDung)
 	}
-	if sau.hong-truoc.hong != 1 {
+	if after.broken-before.broken != 1 {
 		t.Errorf("hàng loại vào Damaged đổi %d → %d, cần +1",
-			truoc.hong, sau.hong)
+			before.broken, after.broken)
 	}
 }
 
-type tonKhoTrangThai struct{ khaDung, hoan, hong int }
+type stockStatus struct{ khaDung, refunded, broken int }
 
-func (a *apiTest) tonKhoTheoTrangThai(t *testing.T, orderID string) tonKhoTrangThai {
+func (a *apiTest) stockByStatus(t *testing.T, orderID string) stockStatus {
 	t.Helper()
-	var tk tonKhoTrangThai
+	var tk stockStatus
 	if err := a.db.Pool().QueryRow(context.Background(), `
 		SELECT coalesce(sum(quantity_available), 0),
 		       coalesce(sum(quantity_returned), 0),
 		       coalesce(sum(quantity_damaged), 0)
 		  FROM inventory_item
 		 WHERE sku_id IN (SELECT sku_id FROM order_line WHERE order_id = $1)`,
-		orderID).Scan(&tk.khaDung, &tk.hoan, &tk.hong); err != nil {
+		orderID).Scan(&tk.khaDung, &tk.refunded, &tk.broken); err != nil {
 		t.Fatalf("đọc tồn kho: %v", err)
 	}
 	return tk

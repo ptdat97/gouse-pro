@@ -9,7 +9,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 )
 
-// TestHoSoNhaBanDiTronTuNopToiDuyet.
+// TestASellerProfileGoesFromSubmitToApproval.
 //
 // # Vì sao bài này tồn tại
 //
@@ -26,10 +26,10 @@ import (
 // Bài này đi TRỌN đường mà người vận hành thật đi: nộp → vào hàng đợi →
 // duyệt. Nó KHÔNG gọi thẳng service ở bước giữa, vì chính chỗ đó là chỗ
 // từng đứt.
-func TestHoSoNhaBanDiTronTuNopToiDuyet(t *testing.T) {
+func TestASellerProfileGoesFromSubmitToApproval(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	tok := a.createAccountWithRole(t, identity.RoleAdmin)
 
 	sel, err := a.mods.seller.ApplyAsSeller(ctx, seller.ApplicationRequest{
 		Name: "Xưởng Trọn Đường", Slug: "xuong-tron-duong",
@@ -49,7 +49,7 @@ func TestHoSoNhaBanDiTronTuNopToiDuyet(t *testing.T) {
 	}
 
 	h := func() map[string]string {
-		x := khoaIdem()
+		x := idemKey()
 		x["Authorization"] = "Bearer " + tok
 		return x
 	}
@@ -94,7 +94,7 @@ func TestHoSoNhaBanDiTronTuNopToiDuyet(t *testing.T) {
 	}
 }
 
-// TestXinTraHangPhatTinHieuKemLyDo.
+// TestARequestedReturnEmitsASignalWithItsReason.
 //
 // # Vì sao bài này ở tầng app
 //
@@ -105,40 +105,40 @@ func TestHoSoNhaBanDiTronTuNopToiDuyet(t *testing.T) {
 // `SignalReturn` được khai trong domain supply-chain từ đầu, kèm chú thích
 // nói rõ lý do hoàn là dữ liệu CHẤT LƯỢNG của thời trang — và không bên
 // phát nào tồn tại. Đây là mắt xích đó.
-func TestXinTraHangPhatTinHieuKemLyDo(t *testing.T) {
+func TestARequestedReturnEmitsASignalWithItsReason(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maDon, maDong, _ := a.dungDonDaGiao(t)
-	if maDon == "" {
+	orderID, lineID, _ := a.buildDeliveredOrder(t)
+	if orderID == "" {
 		t.Skip("không dựng được đơn đã giao")
 	}
 
-	res := a.call(http.MethodPost, "/api/v1/orders/"+maDon+"/returns",
+	res := a.call(http.MethodPost, "/api/v1/orders/"+orderID+"/returns",
 		map[string]any{"lines": []any{map[string]any{
-			"order_line_id": maDong, "quantity": 1,
+			"order_line_id": lineID, "quantity": 1,
 			"reason_code": "SIZE_TOO_SMALL",
 		}}},
-		hopNhat(khoaIdem(), map[string]string{"X-Guest-Phone": "0900321321"}))
+		merge(idemKey(), map[string]string{"X-Guest-Phone": "0900321321"}))
 	if res.code != http.StatusCreated {
 		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
 	}
 
-	var soEvent int
-	var lyDo string
+	var eventCount int
+	var reason string
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(*), coalesce(max(payload->'lines'->0->>'reason_code'), '')
 		  FROM event_outbox
 		 WHERE event_type = 'returns.requested'
-		   AND payload->>'order_id' = $1`, maDon).Scan(&soEvent, &lyDo); err != nil {
+		   AND payload->>'order_id' = $1`, orderID).Scan(&eventCount, &reason); err != nil {
 		t.Fatalf("đọc outbox: %v", err)
 	}
-	if soEvent != 1 {
+	if eventCount != 1 {
 		t.Fatalf("xin trả hàng phát %d event returns.requested, cần 1 — "+
-			"lý do hoàn không vào được dữ liệu chất lượng", soEvent)
+			"lý do hoàn không vào được dữ liệu chất lượng", eventCount)
 	}
-	if lyDo != "SIZE_TOO_SMALL" {
+	if reason != "SIZE_TOO_SMALL" {
 		t.Errorf("mã lý do trong payload = %q, cần SIZE_TOO_SMALL — thiếu "+
-			"nó thì tín hiệu chỉ nói CÓ hàng bị trả, không nói VÌ SAO", lyDo)
+			"nó thì tín hiệu chỉ nói CÓ hàng bị trả, không nói VÌ SAO", reason)
 	}
 }

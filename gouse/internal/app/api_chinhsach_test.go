@@ -27,93 +27,93 @@ import (
 //
 // Xem docs/09-operations/cau-hinh-nghiep-vu.md.
 
-const lyDoThu = "Kiem chung tham so chinh sach co tac dung that hay khong"
+const captureReason = "Kiem chung tham so chinh sach co tac dung that hay khong"
 
-// phiCuaPhien mở một phiên thanh toán rồi trả về phí vận chuyển của nó.
-func (a *apiTest) phiCuaPhien(t *testing.T, email, sdt, phuongThuc string) int64 {
+// checkoutShippingFee mở một phiên thanh toán rồi trả về phí vận chuyển của nó.
+func (a *apiTest) checkoutShippingFee(t *testing.T, email, sdt, phuongThuc string) int64 {
 	t.Helper()
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id": maGio, "guest_email": email, "guest_phone": sdt,
-	}, khoaIdem())
+		"cart_id": cartID, "guest_email": email, "guest_phone": sdt,
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
 			"recipient_name": "Khách Phí", "phone": sdt,
 			"street_address": "1 Đường Thử", "ward": "P1",
 			"district": "Q1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
-	res = a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": phuongThuc}, khoaIdem())
+		}, idemKey())
+	res = a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": phuongThuc}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("đặt phương thức giao: HTTP %d — %s", res.code, res.raw)
 	}
 
 	var phi int64
 	if err := a.db.Pool().QueryRow(context.Background(),
-		`SELECT shipping_fee FROM checkout WHERE id = $1`, maPhien).
+		`SELECT shipping_fee FROM checkout WHERE id = $1`, checkoutID).
 		Scan(&phi); err != nil {
 		t.Fatalf("đọc phí của phiên: %v", err)
 	}
 	return phi
 }
 
-// TestPhiVanChuyenDoiTheoCauHinh — mục 3 của bản kiểm kê.
+// TestTheShippingFeeFollowsTheConfig — mục 3 của bản kiểm kê.
 //
 // Phí này là con số HIỆN TRÊN MÀN HÌNH THANH TOÁN. Đổi nó là việc chạy
 // khuyến mãi hoặc đàm phán lại với hãng — không việc nào nên chờ một lần
 // triển khai.
-func TestPhiVanChuyenDoiTheoCauHinh(t *testing.T) {
+func TestTheShippingFeeFollowsTheConfig(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	tok := a.createAccountWithRole(t, identity.RoleAdmin)
 
-	truoc := a.phiCuaPhien(t, "phi1@example.com", "0900010001", "STANDARD")
-	if truoc != 30_000 {
+	before := a.checkoutShippingFee(t, "phi1@example.com", "0900010001", "STANDARD")
+	if before != 30_000 {
 		t.Fatalf("phí mặc định = %d, cần 30000 — mặc định phải đúng bằng "+
-			"giá trị đang chạy TRƯỚC khi có tham số", truoc)
+			"giá trị đang chạy TRƯỚC khi có tham số", before)
 	}
 
-	if res := a.datCauHinh(t, tok, opsconfig.KeyShippingFeeStandard, 25_000,
-		lyDoThu); res.code != http.StatusOK {
+	if res := a.setConfig(t, tok, opsconfig.KeyShippingFeeStandard, 25_000,
+		captureReason); res.code != http.StatusOK {
 		t.Fatalf("đặt phí: HTTP %d — %s", res.code, res.raw)
 	}
 
-	sau := a.phiCuaPhien(t, "phi2@example.com", "0900010002", "STANDARD")
-	if sau != 25_000 {
+	after := a.checkoutShippingFee(t, "phi2@example.com", "0900010002", "STANDARD")
+	if after != 25_000 {
 		t.Errorf("sau khi đổi, phí thu của khách = %d, cần 25000 — tham số "+
-			"không tới được màn hình thanh toán", sau)
+			"không tới được màn hình thanh toán", after)
 	}
 }
 
-// TestSoNgayGiaoDoiTheoCauHinh — mục 3, nửa còn lại.
+// TestTheDeliveryDaysFollowTheConfig — mục 3, nửa còn lại.
 //
 // Số ngày là LỜI HỨA với khách: nó thành ngày giao dự kiến trên trang theo
 // dõi đơn, tính từ lúc bàn giao cho hãng.
-func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
+func TestTheDeliveryDaysFollowTheConfig(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	tok := a.createAccountWithRole(t, identity.RoleAdmin)
 
-	if res := a.datCauHinh(t, tok, opsconfig.KeyShippingDaysStandard, 5,
-		lyDoThu); res.code != http.StatusOK {
+	if res := a.setConfig(t, tok, opsconfig.KeyShippingDaysStandard, 5,
+		captureReason); res.code != http.StatusOK {
 		t.Fatalf("đặt số ngày: HTTP %d — %s", res.code, res.raw)
 	}
 
-	maDon := a.datDonCOD(t, "ngaygiao")
-	a.phatEvent(t)
-	foID, sellerID := a.donThucHienCuaDon(t, maDon)
+	orderID := a.placeCODOrder(t, "ngaygiao")
+	a.emitEvent(t)
+	foID, sellerID := a.fulfillmentOfOrder(t, orderID)
 	if foID == "" {
 		t.Skip("không tạo được đơn thực hiện")
 	}
@@ -129,7 +129,7 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 		}
 	}
 
-	truocKhiBanGiao := types.Now()
+	beforeHandover := types.Now()
 	if err := a.mods.fulfillment.HandOverToCarrier(ctx,
 		fulfillment.HandOverRequest{
 			SellerID: sellerID, FulfillmentID: foID,
@@ -138,13 +138,13 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 		t.Fatalf("bàn giao: %v", err)
 	}
 
-	var ngayDuKien *time.Time
+	var expectedDay *time.Time
 	if err := a.db.Pool().QueryRow(ctx,
 		`SELECT estimated_delivery_date FROM fulfillment_order WHERE id = $1`,
-		foID).Scan(&ngayDuKien); err != nil {
+		foID).Scan(&expectedDay); err != nil {
 		t.Fatalf("đọc ngày giao dự kiến: %v", err)
 	}
-	if ngayDuKien == nil {
+	if expectedDay == nil {
 		t.Fatal("không có ngày giao dự kiến sau khi bàn giao")
 	}
 
@@ -161,26 +161,26 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 	//
 	// Cả hai vế nay đi qua cùng một hàm, nên chúng không thể lệch nhau vì
 	// múi giờ nữa.
-	can := types.StartOfDay(truocKhiBanGiao.AddDate(0, 0, 5)).Format("2006-01-02")
-	got := types.StartOfDay(*ngayDuKien).Format("2006-01-02")
+	can := types.StartOfDay(beforeHandover.AddDate(0, 0, 5)).Format("2006-01-02")
+	got := types.StartOfDay(*expectedDay).Format("2006-01-02")
 	if got != can {
 		t.Errorf("hứa giao ngày %s, cần %s (bàn giao + 5 ngày) — lời hứa "+
 			"giao hàng không đổi theo cấu hình", got, can)
 	}
 }
 
-// TestSanHoaHongChanDuyetDuoiSan — mục 5.
+// TestTheCommissionFloorBlocksApprovalBelowIt — mục 5.
 //
 // Không có sàn thì duyệt nhầm một nhà bán ở 0% là nền tảng không thu được
 // đồng nào trên MỌI đơn của họ, và không gì báo.
-func TestSanHoaHongChanDuyetDuoiSan(t *testing.T) {
+func TestTheCommissionFloorBlocksApprovalBelowIt(t *testing.T) {
 	a := newAPITest(t)
-	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
+	tok := a.createAccountWithRole(t, identity.RoleAdmin)
 
-	duyet := func(nhan string, tyLe int) reply {
+	approve := func(label string, tyLe int) reply {
 		t.Helper()
-		maNB := a.nhaBanChoDuyet(t, nhan, tok)
-		h := khoaIdem()
+		maNB := a.sellerPendingApproval(t, label, tok)
+		h := idemKey()
 		h["Authorization"] = "Bearer " + tok
 		return a.call(http.MethodPost,
 			"/api/v1/admin/sellers/"+maNB+"/approve",
@@ -189,49 +189,49 @@ func TestSanHoaHongChanDuyetDuoiSan(t *testing.T) {
 
 	// Sàn mặc định 0: duyệt ở 3% phải QUA — đúng bằng hành vi trước khi
 	// có tham số này.
-	if res := duyet("aduoi", 300); res.code != http.StatusOK {
+	if res := approve("aduoi", 300); res.code != http.StatusOK {
 		t.Fatalf("sàn mặc định 0 mà vẫn chặn duyệt ở 3%%: HTTP %d — %s",
 			res.code, res.raw)
 	}
 
-	if res := a.datCauHinh(t, tok, opsconfig.KeyCommissionRateFloor, 500,
-		lyDoThu); res.code != http.StatusOK {
+	if res := a.setConfig(t, tok, opsconfig.KeyCommissionRateFloor, 500,
+		captureReason); res.code != http.StatusOK {
 		t.Fatalf("đặt sàn: HTTP %d — %s", res.code, res.raw)
 	}
 
-	if res := duyet("bduoi", 300); res.code == http.StatusOK {
+	if res := approve("bduoi", 300); res.code == http.StatusOK {
 		t.Error("sàn 5% mà vẫn duyệt được nhà bán ở 3% — nền tảng mất " +
 			"hoa hồng trên mọi đơn của họ, và không gì báo")
 	}
 
 	// Sàn phải chặn ĐÚNG cái cần chặn, không phải chặn tất cả.
-	if res := duyet("ctren", 800); res.code != http.StatusOK {
+	if res := approve("ctren", 800); res.code != http.StatusOK {
 		t.Errorf("sàn 5%% mà chặn cả nhà bán ở 8%%: HTTP %d — %s",
 			res.code, res.raw)
 	}
 }
 
-// nhaBanChoDuyet NỘP một hồ sơ nhà bán mới và trả mã của nó.
+// sellerPendingApproval NỘP một hồ sơ nhà bán mới và trả mã của nó.
 //
 // Nộp mới mỗi lần chứ không tìm hồ sơ có sẵn: bài kiểm duyệt ba lần với ba
 // tỷ lệ khác nhau, và một hồ sơ chỉ duyệt được MỘT lần. Dùng lại hồ sơ cũ
 // thì lần thứ hai hỏng vì sai trạng thái — một lý do chẳng liên quan gì
 // tới sàn hoa hồng.
-func (a *apiTest) nhaBanChoDuyet(t *testing.T, nhan, tokAdmin string) string {
+func (a *apiTest) sellerPendingApproval(t *testing.T, label, tokAdmin string) string {
 	t.Helper()
 
 	sel, err := a.mods.seller.ApplyAsSeller(context.Background(),
 		seller.ApplicationRequest{
-			Name:       "Xưởng " + nhan,
-			Slug:       "xuong-" + nhan,
+			Name:       "Xưởng " + label,
+			Slug:       "xuong-" + label,
 			SellerType: "BUSINESS",
-			LegalName:  "Công ty TNHH " + nhan,
-			TaxCode:    "0" + nhan[:1] + "12345678",
-			Email:      nhan + "@example.com",
-			Phone:      "0900" + nhan[:1] + "00000",
+			LegalName:  "Công ty TNHH " + label,
+			TaxCode:    "0" + label[:1] + "12345678",
+			Email:      label + "@example.com",
+			Phone:      "0900" + label[:1] + "00000",
 			BankAccount: seller.BankAccountInput{
 				BankCode: "VCB", AccountNumber: "1234567890",
-				AccountHolder: "CONG TY " + nhan,
+				AccountHolder: "CONG TY " + label,
 			},
 		})
 	if err != nil {
@@ -243,7 +243,7 @@ func (a *apiTest) nhaBanChoDuyet(t *testing.T, nhan, tokAdmin string) string {
 	// Trước đây đoạn này phải đi vòng bằng SQL: `SubmitForReview` có đủ ở
 	// domain và application mà KHÔNG cửa nào ở production gọi tới, nên hồ
 	// sơ nộp thật không bao giờ duyệt được.
-	h := khoaIdem()
+	h := idemKey()
 	h["Authorization"] = "Bearer " + tokAdmin
 	if res := a.call(http.MethodPost,
 		"/api/v1/admin/sellers/"+sel.ID+"/submit-review", nil, h); res.code != http.StatusOK {

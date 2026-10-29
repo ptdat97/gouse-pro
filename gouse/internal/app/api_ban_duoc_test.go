@@ -12,7 +12,7 @@ import (
 	marketdom "github.com/fashion-commerce/platform/internal/modules/marketplace/domain"
 )
 
-// TestHaiGocNhinTraLoiGiongNhauVeBanDuoc khóa một bất biến LIÊN TẦNG:
+// TestBothViewsAgreeOnSellability khóa một bất biến LIÊN TẦNG:
 // `is_sellable` phải là CÙNG một câu trả lời ở Seller Center và ở cửa hàng.
 //
 // # Vì sao cần bài test đi qua HTTP
@@ -30,16 +30,16 @@ import (
 // Center chưa bao giờ có tín hiệu "hết hàng" hay "tài khoản đang bị đình
 // chỉ" — không phải vì ai đó tắt nó đi, mà vì câu trả lời chưa bao giờ
 // tính tới hai điều đó.
-func TestHaiGocNhinTraLoiGiongNhauVeBanDuoc(t *testing.T) {
+func TestBothViewsAgreeOnSellability(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	nb := dungNhaBan(t, a, "nhabanbanduoc")
-	skuID := dungSkuThuongHieuMo(t, a)
+	nb := buildSeller(t, a, "nhabanbanduoc")
+	skuID := buildOpenBrandSKU(t, a)
 
-	gia, _ := money.New(259_000, money.VND)
+	priceObj, _ := money.New(259_000, money.VND)
 	offer, err := a.mods.marketplace.Service().CreateOffer(ctx, marketapp.CreateOfferInput{
-		SKUID: ids.ID(skuID), SellerID: ids.ID(nb.sellerID), Price: gia,
+		SKUID: ids.ID(skuID), SellerID: ids.ID(nb.sellerID), Price: priceObj,
 		Condition: marketdom.ConditionNew, HandlingTimeHours: 24,
 		MinOrderQuantity: 1, Activate: true,
 	})
@@ -54,20 +54,20 @@ func TestHaiGocNhinTraLoiGiongNhauVeBanDuoc(t *testing.T) {
 	}
 	productID := sp[skuID].ID
 
-	loc, err := a.mods.inventory.EnsureLocation(ctx, "Kho bán được", "SELLER-"+nb.sellerID, "SELLER")
+	filtered, err := a.mods.inventory.EnsureLocation(ctx, "Kho bán được", "SELLER-"+nb.sellerID, "SELLER")
 	if err != nil {
 		t.Fatalf("tạo kho: %v", err)
 	}
-	// datTonKho ĐẶT số khả dụng về đúng một con số, không cộng dồn: bài
+	// setStock ĐẶT số khả dụng về đúng một con số, không cộng dồn: bài
 	// test cần biết chính xác đang còn bao nhiêu ở mỗi bước.
 	var itemID string
-	datTonKho := func(t *testing.T, soLuong int) {
+	setStock := func(t *testing.T, qty int) {
 		t.Helper()
 		if itemID == "" {
 			it, err := a.mods.inventory.Receive(ctx, inventory.ReceiveRequest{
-				SKUID: skuID, LocationID: loc,
+				SKUID: skuID, LocationID: filtered,
 				OwnerID:  inventory.OwnerForSeller(nb.sellerID, false),
-				Quantity: soLuong, PerformedBy: "test",
+				Quantity: qty, PerformedBy: "test",
 			})
 			if err != nil {
 				t.Fatalf("nhập kho: %v", err)
@@ -75,14 +75,14 @@ func TestHaiGocNhinTraLoiGiongNhauVeBanDuoc(t *testing.T) {
 			itemID = it.ID
 			return
 		}
-		if err := a.mods.inventory.SetAvailable(ctx, itemID, soLuong,
+		if err := a.mods.inventory.SetAvailable(ctx, itemID, qty,
 			"dat ton kho cho bai kiem tra tin hieu ban duoc", "test"); err != nil {
-			t.Fatalf("đặt tồn kho = %d: %v", soLuong, err)
+			t.Fatalf("đặt tồn kho = %d: %v", qty, err)
 		}
 	}
 
-	// gocNhinNhaBan đọc is_sellable từ GET /api/v1/seller/offers.
-	gocNhinNhaBan := func(t *testing.T) bool {
+	// fromSellerView đọc is_sellable từ GET /api/v1/seller/offers.
+	fromSellerView := func(t *testing.T) bool {
 		t.Helper()
 		res := a.call(http.MethodGet, "/api/v1/seller/offers", nil,
 			map[string]string{"Authorization": "Bearer " + nb.token})
@@ -101,15 +101,15 @@ func TestHaiGocNhinTraLoiGiongNhauVeBanDuoc(t *testing.T) {
 			if st, _ := m["status"].(string); st != "ACTIVE" {
 				t.Fatalf("status = %q, cần ACTIVE — hết hàng không phải trạng thái offer", st)
 			}
-			ban, _ := m["is_sellable"].(bool)
-			return ban
+			shop2, _ := m["is_sellable"].(bool)
+			return shop2
 		}
 		t.Fatalf("không thấy offer của mình trong danh sách: %s", res.raw)
 		return false
 	}
 
-	// gocNhinKhach đọc is_sellable từ trang sản phẩm công khai.
-	gocNhinKhach := func(t *testing.T) bool {
+	// fromCustomerView đọc is_sellable từ trang sản phẩm công khai.
+	fromCustomerView := func(t *testing.T) bool {
 		t.Helper()
 		res := a.call(http.MethodGet, "/api/v1/products/"+productID+"/offers", nil, nil)
 		if res.code != http.StatusOK {
@@ -121,8 +121,8 @@ func TestHaiGocNhinTraLoiGiongNhauVeBanDuoc(t *testing.T) {
 			if id, _ := m["id"].(string); id != offer.ID().String() {
 				continue
 			}
-			ban, _ := m["is_sellable"].(bool)
-			return ban
+			shop2, _ := m["is_sellable"].(bool)
+			return shop2
 		}
 		// Offer KHÔNG hiện là một câu trả lời khác hẳn "hiện nhưng không
 		// mua được", và đặc tả đòi hết hàng thì VẪN hiện.
@@ -130,35 +130,35 @@ func TestHaiGocNhinTraLoiGiongNhauVeBanDuoc(t *testing.T) {
 		return false
 	}
 
-	giongNhau := func(t *testing.T, tinhHuong string, mong bool) {
+	identical := func(t *testing.T, cases string, mong bool) {
 		t.Helper()
-		nhaBan, khach := gocNhinNhaBan(t), gocNhinKhach(t)
-		if nhaBan != khach {
+		shop, customer := fromSellerView(t), fromCustomerView(t)
+		if shop != customer {
 			t.Errorf("%s: nhà bán thấy is_sellable=%v còn khách thấy %v — "+
-				"cùng một câu hỏi, hai câu trả lời", tinhHuong, nhaBan, khach)
+				"cùng một câu hỏi, hai câu trả lời", cases, shop, customer)
 		}
-		if nhaBan != mong {
-			t.Errorf("%s: is_sellable=%v, mong %v", tinhHuong, nhaBan, mong)
+		if shop != mong {
+			t.Errorf("%s: is_sellable=%v, mong %v", cases, shop, mong)
 		}
 	}
 
 	t.Run("còn hàng, nhà bán hoạt động", func(t *testing.T) {
-		datTonKho(t, 12)
-		giongNhau(t, "còn hàng", true)
+		setStock(t, 12)
+		identical(t, "còn hàng", true)
 	})
 
 	t.Run("hết hàng", func(t *testing.T) {
-		datTonKho(t, 0)
-		giongNhau(t, "hết hàng", false)
+		setStock(t, 0)
+		identical(t, "hết hàng", false)
 	})
 
 	t.Run("nhà bán bị đình chỉ", func(t *testing.T) {
-		datTonKho(t, 12) // kho đầy lại: chỉ còn đình chỉ là lý do
+		setStock(t, 12) // kho đầy lại: chỉ còn đình chỉ là lý do
 
 		if _, err := a.mods.seller.Service().Suspend(ctx, ids.ID(nb.sellerID),
 			"kiem tra tin hieu dinh chi"); err != nil {
 			t.Fatalf("đình chỉ nhà bán: %v", err)
 		}
-		giongNhau(t, "nhà bán bị đình chỉ", false)
+		identical(t, "nhà bán bị đình chỉ", false)
 	})
 }

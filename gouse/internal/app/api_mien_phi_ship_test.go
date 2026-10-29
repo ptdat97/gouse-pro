@@ -33,10 +33,10 @@ import (
 // chắc chắn vượt ngưỡng rồi khẳng định BẤT BIẾN: phí bằng 0 thì
 // `shipping_method` vẫn phải có mặt. Nếu ai đó nâng ngưỡng lên mười triệu,
 // bài này không im lặng xanh — nó sẽ báo rằng giỏ chưa đạt miễn phí ship.
-func TestMienPhiShipVanBietDaChonCachGiao(t *testing.T) {
+func TestFreeShippingStillRemembersTheChosenMethod(t *testing.T) {
 	a := newAPITest(t)
 
-	offerA, offerB := a.haiOfferKhacNhaBan(t)
+	offerA, offerB := a.twoOffersDifferentSellers(t)
 	if offerA == "" || offerB == "" {
 		t.Skip("không có đủ hai nhà bán bán được hàng")
 	}
@@ -45,7 +45,7 @@ func TestMienPhiShipVanBietDaChonCachGiao(t *testing.T) {
 	for _, off := range []string{offerA, offerB} {
 		if res := a.call(http.MethodPost, "/api/v1/cart/items",
 			map[string]any{"offer_id": off, "quantity": 2},
-			khoaIdem()); res.code != http.StatusOK {
+			idemKey()); res.code != http.StatusOK {
 			t.Fatalf("thêm %s vào giỏ: HTTP %d — %s", off, res.code, res.raw)
 		}
 	}
@@ -54,17 +54,17 @@ func TestMienPhiShipVanBietDaChonCachGiao(t *testing.T) {
 	if res.code != http.StatusOK {
 		t.Fatalf("đọc giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id": maGio, "guest_email": emailMoi("mienphiship"),
+		"cart_id": cartID, "guest_email": newEmail("mienphiship"),
 		"guest_phone": "0900333222",
-	}, khoaIdem())
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
 	// Chưa chọn thì trường phải VẮNG MẶT — `omitempty`, không phải chuỗi
 	// rỗng. Có mặt với giá trị rỗng sẽ làm `Boolean(...)` ở giao diện vẫn
@@ -73,25 +73,25 @@ func TestMienPhiShipVanBietDaChonCachGiao(t *testing.T) {
 		t.Errorf("phiên chưa chọn cách giao mà đã khai shipping_method=%v", v)
 	}
 
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
 			"recipient_name": "Khách Miễn Phí", "phone": "0900333222",
 			"street_address": "2 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
+		}, idemKey())
 
-	res = a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+	res = a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("chọn cách giao: HTTP %d — %s", res.code, res.raw)
 	}
 
-	phi := soTien(t, res.body, "shipping_fee")
-	tienHang := soTien(t, res.body, "subtotal")
+	phi := amount(t, res.body, "shipping_fee")
+	goodsTotal := amount(t, res.body, "subtotal")
 
 	if phi != 0 {
 		t.Skipf("giỏ %d đ chưa đạt ngưỡng miễn phí ship (phí %d đ) — "+
-			"bài này chỉ có nghĩa khi phí bằng 0", tienHang, phi)
+			"bài này chỉ có nghĩa khi phí bằng 0", goodsTotal, phi)
 	}
 
 	// ĐÂY LÀ BẤT BIẾN.
@@ -102,7 +102,7 @@ func TestMienPhiShipVanBietDaChonCachGiao(t *testing.T) {
 	}
 
 	// Và đọc lại phiên cũng phải thấy, không chỉ ở phản hồi của lệnh ghi.
-	res = a.call(http.MethodGet, "/api/v1/checkout/"+maPhien, nil, nil)
+	res = a.call(http.MethodGet, "/api/v1/checkout/"+checkoutID, nil, nil)
 	if res.code != http.StatusOK {
 		t.Fatalf("đọc lại phiên: HTTP %d — %s", res.code, res.raw)
 	}
@@ -113,15 +113,15 @@ func TestMienPhiShipVanBietDaChonCachGiao(t *testing.T) {
 }
 
 // soTien đọc `{amount, currency}` ở một khóa của phản hồi.
-func soTien(t *testing.T, body map[string]any, khoa string) int64 {
+func amount(t *testing.T, body map[string]any, key string) int64 {
 	t.Helper()
-	m, ok := body[khoa].(map[string]any)
+	m, ok := body[key].(map[string]any)
 	if !ok {
-		t.Fatalf("phản hồi thiếu %s", khoa)
+		t.Fatalf("phản hồi thiếu %s", key)
 	}
 	f, ok := m["amount"].(float64)
 	if !ok {
-		t.Fatalf("%s.amount không phải số: %v", khoa, m["amount"])
+		t.Fatalf("%s.amount không phải số: %v", key, m["amount"])
 	}
 	return int64(f)
 }

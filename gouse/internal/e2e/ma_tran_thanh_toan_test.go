@@ -24,11 +24,11 @@ import (
 // Nửa đối xứng của "thu tiền xong thì mở khóa". Không có bài này thì một
 // lỗi làm mở khóa vô điều kiện vẫn xanh ở mọi bài còn lại — và hàng đi ra
 // cho đơn mà nhà cung cấp đã báo THẤT BẠI.
-func TestMT_TraTruocThatBaiThiHangVanNamIm(t *testing.T) {
+func TestMT_AFailedPrepaymentLeavesGoodsUntouched(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "CARD")
+	shop, fos := w.placeOrderWith(t, "CARD")
 
 	// Không có `order.paid` nào được phát: thanh toán thất bại nghĩa là
 	// đơn KHÔNG bao giờ tới trạng thái PAID.
@@ -38,13 +38,13 @@ func TestMT_TraTruocThatBaiThiHangVanNamIm(t *testing.T) {
 		t.Error("thanh toán thất bại mà nhà bán vẫn xử lý được đơn")
 	}
 
-	tien, phaiThu := w.soDu(t)
-	if tien != 0 {
-		t.Errorf("tiền mặt = %d sau khi thanh toán thất bại, mong 0", tien)
+	amount, receivable := w.balance(t)
+	if amount != 0 {
+		t.Errorf("tiền mặt = %d sau khi thanh toán thất bại, mong 0", amount)
 	}
-	if phaiThu <= 0 {
+	if receivable <= 0 {
 		t.Errorf("khoản phải thu = %d, mong dương — đơn vẫn là một khoản "+
-			"khách nợ cho tới khi bị hủy", phaiThu)
+			"khách nợ cho tới khi bị hủy", receivable)
 	}
 }
 
@@ -56,21 +56,21 @@ func TestMT_TraTruocThatBaiThiHangVanNamIm(t *testing.T) {
 //
 // Chạy THẬT song song bằng goroutine, không mô phỏng bằng cách gọi tuần tự
 // hai lần: gọi tuần tự chỉ kiểm idempotency, không kiểm tranh chấp.
-func TestMT_ThuTienDongThoiChiGhiMotLan(t *testing.T) {
+func TestMT_ConcurrentCapturePostsOnce(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	w.datDonVoiPhuongThuc(t, "CARD")
-	orderID := w.orderIDCuoi.String()
+	w.placeOrderWith(t, "CARD")
+	orderID := w.lastOrderID.String()
 
 	const songSong = 4
 	var wg sync.WaitGroup
-	loi := make([]error, songSong)
+	failure := make([]error, songSong)
 	wg.Add(songSong)
 	for i := 0; i < songSong; i++ {
 		go func(i int) {
 			defer wg.Done()
-			loi[i] = w.ord.MarkOrderPaid(ctx, orderID)
+			failure[i] = w.ord.MarkOrderPaid(ctx, orderID)
 		}(i)
 	}
 	wg.Wait()
@@ -78,25 +78,25 @@ func TestMT_ThuTienDongThoiChiGhiMotLan(t *testing.T) {
 	// ĐÚNG MỘT lần được phép thành công: máy trạng thái của đơn chỉ cho
 	// PENDING_PAYMENT → PAID một lần. Các lần còn lại phải bị TỪ CHỐI,
 	// không phải âm thầm bỏ qua.
-	var thanhCong int
-	for _, e := range loi {
+	var succeeded int
+	for _, e := range failure {
 		if e == nil {
-			thanhCong++
+			succeeded++
 		}
 	}
-	if thanhCong != 1 {
+	if succeeded != 1 {
 		t.Errorf("%d/%d lời gọi MarkOrderPaid thành công, mong đúng 1",
-			thanhCong, songSong)
+			succeeded, songSong)
 	}
 
 	w.drain()
 
-	tien, phaiThu := w.soDu(t)
-	if phaiThu != 0 {
-		t.Errorf("khoản phải thu = %d sau khi thu tiền, mong 0", phaiThu)
+	amount, receivable := w.balance(t)
+	if receivable != 0 {
+		t.Errorf("khoản phải thu = %d sau khi thu tiền, mong 0", receivable)
 	}
-	if tien <= 0 {
-		t.Fatalf("tiền mặt = %d, mong dương", tien)
+	if amount <= 0 {
+		t.Fatalf("tiền mặt = %d, mong dương", amount)
 	}
 
 	// Số bút toán thu tiền phải đúng MỘT.
@@ -117,27 +117,27 @@ func TestMT_ThuTienDongThoiChiGhiMotLan(t *testing.T) {
 // Outbox giao ÍT NHẤT MỘT LẦN, nên event lặp là thiết kế chứ không phải
 // sự cố. Bài này chạy cả hai bên nhận của `order.paid` cùng lúc — mở khóa
 // và ghi sổ — vì chúng phải cùng chịu được việc lặp.
-func TestMT_PhatLaiOrderPaidKhongLamHaiLan(t *testing.T) {
+func TestMT_RepublishingOrderPaidDoesNotActTwice(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "BANK_TRANSFER")
-	if err := w.ord.MarkOrderPaid(ctx, w.orderIDCuoi.String()); err != nil {
+	shop, fos := w.placeOrderWith(t, "BANK_TRANSFER")
+	if err := w.ord.MarkOrderPaid(ctx, w.lastOrderID.String()); err != nil {
 		t.Fatalf("MarkOrderPaid: %v", err)
 	}
 	w.drain()
 
-	tien, _ := w.soDu(t)
+	amount, _ := w.balance(t)
 
 	// Phát lại ba lần liên tiếp.
 	for i := 0; i < 3; i++ {
-		w.phatLaiOrderPaid(t)
+		w.republishOrderPaid(t)
 		w.drain()
 	}
 
-	tien2, _ := w.soDu(t)
-	if tien2 != tien {
-		t.Errorf("tiền mặt %d → %d sau ba lần phát lại", tien, tien2)
+	amount2, _ := w.balance(t)
+	if amount2 != amount {
+		t.Errorf("tiền mặt %d → %d sau ba lần phát lại", amount, amount2)
 	}
 
 	// Và đơn vẫn giao được: phát lại KHÔNG được khóa ngược.

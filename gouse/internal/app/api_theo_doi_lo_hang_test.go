@@ -8,7 +8,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 )
 
-// TestKhachTheoDoiLoHangThayNgayGiaoDuKien.
+// TestTrackingAShipmentShowsTheEstimatedDeliveryDay.
 //
 // # Vì sao bài này tồn tại
 //
@@ -22,21 +22,21 @@ import (
 //
 // Một trường được tính đúng ở domain mà không tới được response thì với
 // khách nó vẫn không tồn tại.
-func TestKhachTheoDoiLoHangThayNgayGiaoDuKien(t *testing.T) {
+func TestTrackingAShipmentShowsTheEstimatedDeliveryDay(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maDon := a.datDonCOD(t, "theodoi")
-	a.phatEvent(t)
+	orderID := a.placeCODOrder(t, "theodoi")
+	a.emitEvent(t)
 
-	foID, sellerID := a.donThucHienCuaDon(t, maDon)
+	foID, sellerID := a.fulfillmentOfOrder(t, orderID)
 	if foID == "" {
 		t.Skip("không tạo được đơn thực hiện")
 	}
 
 	xem := func() map[string]any {
 		t.Helper()
-		res := a.call(http.MethodGet, "/api/v1/orders/"+maDon+"/shipments", nil,
+		res := a.call(http.MethodGet, "/api/v1/orders/"+orderID+"/shipments", nil,
 			map[string]string{"X-Guest-Phone": "0900333222"})
 		if res.code != http.StatusOK {
 			t.Fatalf("theo dõi lô hàng: HTTP %d — %s", res.code, res.raw)
@@ -74,8 +74,8 @@ func TestKhachTheoDoiLoHangThayNgayGiaoDuKien(t *testing.T) {
 
 	lo := xem()
 
-	ngay, _ := lo["estimated_delivery_date"].(string)
-	if ngay == "" {
+	day, _ := lo["estimated_delivery_date"].(string)
+	if day == "" {
 		t.Error("đã bàn giao mà khách KHÔNG thấy ngày giao dự kiến — " +
 			"trường tính đúng ở domain nhưng không tới được response thì " +
 			"với khách nó vẫn không tồn tại")
@@ -91,17 +91,17 @@ func TestKhachTheoDoiLoHangThayNgayGiaoDuKien(t *testing.T) {
 	}
 }
 
-// TestKhachKhongXemDuocLoHangCuaDonNguoiKhac.
+// TestACustomerCannotSeeAnothersShipment.
 //
 // Tuyến này trả mã vận đơn và trạng thái giao hàng — đủ để lần ra một đơn
 // không phải của mình. Chưa bài nào từng kiểm hàng rào đó.
-func TestKhachKhongXemDuocLoHangCuaDonNguoiKhac(t *testing.T) {
+func TestACustomerCannotSeeAnothersShipment(t *testing.T) {
 	a := newAPITest(t)
 
-	maDon := a.datDonCOD(t, "lohangnguoikhac")
-	a.phatEvent(t)
+	orderID := a.placeCODOrder(t, "lohangnguoikhac")
+	a.emitEvent(t)
 
-	res := a.call(http.MethodGet, "/api/v1/orders/"+maDon+"/shipments", nil,
+	res := a.call(http.MethodGet, "/api/v1/orders/"+orderID+"/shipments", nil,
 		map[string]string{"X-Guest-Phone": "0900999888"})
 	if res.code == http.StatusOK {
 		t.Errorf("số điện thoại KHÁC vẫn xem được lô hàng của đơn này — "+

@@ -10,7 +10,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 )
 
-// TestNhaBanTuDangKyQuaHTTP — PH-35.
+// TestASellerSelfRegistersOverHTTP — PH-35.
 //
 // # Vì sao bài này tồn tại
 //
@@ -18,11 +18,11 @@ import (
 // chạy được, nhưng KHÔNG có route. Cách duy nhất tạo nhà bán là công cụ
 // dòng lệnh `cmd/taonhaban`. Một cái chợ mà người bán phải nhờ admin chạy
 // lệnh mới vào được thì chưa phải cái chợ.
-func TestNhaBanTuDangKyQuaHTTP(t *testing.T) {
+func TestASellerSelfRegistersOverHTTP(t *testing.T) {
 	a := newAPITest(t)
 
-	tok := a.dangKyVaDangNhap(emailMoi("nguoinop"))
-	const soTaiKhoan = "1903888777666"
+	tok := a.registerAndLogIn(newEmail("nguoinop"))
+	const accountNumber = "1903888777666"
 
 	res := a.call(http.MethodPost, "/api/v1/sellers", map[string]any{
 		"seller_type":   "BUSINESS",
@@ -32,10 +32,10 @@ func TestNhaBanTuDangKyQuaHTTP(t *testing.T) {
 		"contact_phone": "0900112233",
 		"bank_account": map[string]any{
 			"bank_code":      "VCB",
-			"account_number": soTaiKhoan,
+			"account_number": accountNumber,
 			"account_holder": "CONG TY TNHH XUONG MAY THU NGHIEM",
 		},
-	}, hopNhat(bearer(tok), khoaIdem()))
+	}, merge(bearer(tok), idemKey()))
 
 	if res.code != http.StatusCreated {
 		t.Fatalf("nộp hồ sơ: HTTP %d — %s", res.code, res.raw)
@@ -48,12 +48,12 @@ func TestNhaBanTuDangKyQuaHTTP(t *testing.T) {
 	}
 
 	// Response KHÔNG được mang theo số tài khoản.
-	if strings.Contains(res.raw, soTaiKhoan) {
+	if strings.Contains(res.raw, accountNumber) {
 		t.Error("response CHỨA số tài khoản đầy đủ")
 	}
 }
 
-// TestSoTaiKhoanKhongNamDangRoTrongDatabase — bất biến BẢO MẬT.
+// TestTheAccountNumberIsNotStoredInClear — bất biến BẢO MẬT.
 //
 // docs/09-operations/security.md mục 5 xếp thông tin thanh toán vào nhóm
 // "mã hóa khi lưu". Bài này kiểm điều đó ở nơi duy nhất kiểm được: quét
@@ -61,12 +61,12 @@ func TestNhaBanTuDangKyQuaHTTP(t *testing.T) {
 //
 // Quét cả bảng chứ không chỉ cột đã biết là chủ ý: ai đó thêm một cột
 // "ghi chú" rồi vô tình chép số tài khoản vào đó thì bài này vẫn bắt được.
-func TestSoTaiKhoanKhongNamDangRoTrongDatabase(t *testing.T) {
+func TestTheAccountNumberIsNotStoredInClear(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	tok := a.dangKyVaDangNhap(emailMoi("bimat"))
-	const soTaiKhoan = "9988776655443322"
+	tok := a.registerAndLogIn(newEmail("bimat"))
+	const accountNumber = "9988776655443322"
 
 	res := a.call(http.MethodPost, "/api/v1/sellers", map[string]any{
 		"seller_type":   "INDIVIDUAL",
@@ -75,26 +75,26 @@ func TestSoTaiKhoanKhongNamDangRoTrongDatabase(t *testing.T) {
 		"contact_phone": "0900445566",
 		"bank_account": map[string]any{
 			"bank_code":      "TCB",
-			"account_number": soTaiKhoan,
+			"account_number": accountNumber,
 			"account_holder": "NGUYEN VAN A",
 		},
-	}, hopNhat(bearer(tok), khoaIdem()))
+	}, merge(bearer(tok), idemKey()))
 	if res.code != http.StatusCreated {
 		t.Fatalf("nộp hồ sơ: HTTP %d — %s", res.code, res.raw)
 	}
 	nb, _ := res.body["seller"].(map[string]any)
 	maNB, _ := nb["id"].(string)
 
-	var soCotChua int
+	var columnsNotYet int
 	err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(*) FROM (
 			SELECT jsonb_each_text(to_jsonb(s)) AS kv FROM seller s WHERE s.id = $1
-		) x WHERE (x.kv).value LIKE '%' || $2 || '%'`, maNB, soTaiKhoan).Scan(&soCotChua)
+		) x WHERE (x.kv).value LIKE '%' || $2 || '%'`, maNB, accountNumber).Scan(&columnsNotYet)
 	if err != nil {
 		t.Fatalf("quét cột: %v", err)
 	}
-	if soCotChua > 0 {
-		t.Errorf("%d cột của bảng seller chứa số tài khoản ở DẠNG RÕ", soCotChua)
+	if columnsNotYet > 0 {
+		t.Errorf("%d cột của bảng seller chứa số tài khoản ở DẠNG RÕ", columnsNotYet)
 	}
 
 	// Bốn số cuối thì PHẢI có — đó là thứ màn hình hiển thị.
@@ -109,16 +109,16 @@ func TestSoTaiKhoanKhongNamDangRoTrongDatabase(t *testing.T) {
 
 	// Và bản mã phải đọc lại được — mã hóa mà không giải mã được thì
 	// không trả tiền cho nhà bán được, tức là còn tệ hơn.
-	lai, err := a.mods.seller.GetBankAccount(ctx, maNB)
+	again, err := a.mods.seller.GetBankAccount(ctx, maNB)
 	if err != nil {
 		t.Fatalf("đọc lại số tài khoản: %v", err)
 	}
-	if lai != soTaiKhoan {
-		t.Errorf("giải mã ra %q, gốc %q", lai, soTaiKhoan)
+	if again != accountNumber {
+		t.Errorf("giải mã ra %q, gốc %q", again, accountNumber)
 	}
 }
 
-// TestXacMinhTaiKhoanKhongCoThiTuChoi.
+// TestVerifyingAMissingAccountIsRejected.
 //
 // Trước đây `VerifyBankAccount` luôn thành công, kể cả khi chưa có tài
 // khoản nào. Kết quả là dữ liệu thật có nhà bán ACTIVE mang cờ "đã xác
@@ -134,7 +134,7 @@ func TestSoTaiKhoanKhongNamDangRoTrongDatabase(t *testing.T) {
 //
 // Đó là phòng thủ chiều sâu chạy đúng, nhưng nói rõ ra vẫn hơn để ngầm
 // hiểu — người đọc sau sẽ tưởng bài này canh lớp domain.
-func TestXacMinhTaiKhoanKhongCoThiTuChoi(t *testing.T) {
+func TestVerifyingAMissingAccountIsRejected(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 

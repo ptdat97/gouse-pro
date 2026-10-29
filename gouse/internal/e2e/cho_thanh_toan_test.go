@@ -13,9 +13,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment/domain"
 )
 
-// datDonVoiPhuongThuc đặt một đơn qua chuỗi thật rồi phát hết event.
-func (w *world) datDonVoiPhuongThuc(
-	t *testing.T, phuongThuc string,
+// placeOrderWith đặt một đơn qua chuỗi thật rồi phát hết event.
+func (w *world) placeOrderWith(
+	t *testing.T, payMethod string,
 ) (sellerID ids.ID, fos []fulfillment.FulfillmentView) {
 	t.Helper()
 	ctx := context.Background()
@@ -44,9 +44,9 @@ func (w *world) datDonVoiPhuongThuc(
 		t.Fatalf("SetShippingMethod: %v", err)
 	}
 	res, err := w.checkout.CompleteCheckout(
-		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), phuongThuc, "")
+		ctx, c.ID(), ids.MustNew(ids.PrefixRequest).String(), payMethod, "")
 	if err != nil {
-		t.Fatalf("CompleteCheckout(%s): %v", phuongThuc, err)
+		t.Fatalf("CompleteCheckout(%s): %v", payMethod, err)
 	}
 	w.drain()
 
@@ -57,7 +57,7 @@ func (w *world) datDonVoiPhuongThuc(
 	if len(list) != 1 {
 		t.Fatalf("có %d đơn thực hiện, mong 1", len(list))
 	}
-	w.orderIDCuoi = res.OrderID
+	w.lastOrderID = res.OrderID
 	return shop, list
 }
 
@@ -66,11 +66,11 @@ func (w *world) datDonVoiPhuongThuc(
 // Trước thay đổi này, nhà bán đưa được một đơn CARD chưa trả đồng nào đi
 // hết tới HANDED_OVER: hàng rời kho cho một khoản tiền không bao giờ tới.
 // Đo được lúc phát hiện: 3166 đơn PENDING_PAYMENT, 3171 đơn thực hiện.
-func TestDonTraTruocKhongGiaoDuocTruocKhiThuTien(t *testing.T) {
+func TestAPrepaidOrderCannotShipBeforeCapture(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "CARD")
+	shop, fos := w.placeOrderWith(t, "CARD")
 	fo := fos[0]
 
 	var pay string
@@ -97,28 +97,28 @@ func TestDonTraTruocKhongGiaoDuocTruocKhiThuTien(t *testing.T) {
 // Với COD tiền về LÚC GIAO, nên chờ thanh toán trước khi giao là chặn
 // chính đường thu tiền. Không có bài này thì một lần khóa quá tay sẽ làm
 // đứng toàn bộ COD mà mọi bài khác vẫn xanh.
-func TestDonCODGiaoDuocNgay(t *testing.T) {
+func TestACODOrderShipsImmediately(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "COD")
+	shop, fos := w.placeOrderWith(t, "COD")
 
 	if err := w.ful.ConfirmFulfillment(ctx, shop.String(), fos[0].ID); err != nil {
 		t.Fatalf("đơn COD phải xử lý được ngay: %v", err)
 	}
 }
 
-// TestThuTienXongThiMoKhoaGiaoHang — đầu kia của cửa chặn.
+// TestCaptureUnlocksFulfillment — đầu kia của cửa chặn.
 //
 // Đi qua chuỗi THẬT: order.MarkPaid ghi trạng thái và phát `order.paid`
 // trong cùng giao dịch, dispatcher đưa tới fulfillment, fulfillment mở
 // khóa. Thiếu bất kỳ mắt nào thì đơn trả trước bị khóa VĨNH VIỄN — hỏng
 // nặng hơn hẳn thứ quy tắc này nhắm tới.
-func TestThuTienXongThiMoKhoaGiaoHang(t *testing.T) {
+func TestCaptureUnlocksFulfillment(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
-	shop, fos := w.datDonVoiPhuongThuc(t, "BANK_TRANSFER")
+	shop, fos := w.placeOrderWith(t, "BANK_TRANSFER")
 	fo := fos[0]
 
 	if err := w.ful.ConfirmFulfillment(ctx, shop.String(), fo.ID); err == nil {
@@ -126,7 +126,7 @@ func TestThuTienXongThiMoKhoaGiaoHang(t *testing.T) {
 	}
 
 	// Tiền về.
-	if err := w.ord.MarkOrderPaid(ctx, w.orderIDCuoi.String()); err != nil {
+	if err := w.ord.MarkOrderPaid(ctx, w.lastOrderID.String()); err != nil {
 		t.Fatalf("MarkPaid: %v", err)
 	}
 	w.drain()
@@ -141,8 +141,8 @@ func TestThuTienXongThiMoKhoaGiaoHang(t *testing.T) {
 // Kiểm ở tầng domain rằng MỌI bước tiến đều bị chặn, không chỉ bước đầu.
 // Nếu quy tắc nằm rải ở từng use case thì hàm thêm vào tháng sau sẽ quên,
 // và cái quên đó nghĩa là hàng rời kho.
-func TestKhoaChanMoiBuocTien(t *testing.T) {
-	fo := foChoThanhToan(t)
+func TestTheLockBlocksEveryForwardStep(t *testing.T) {
+	fo := foAwaitingPayment(t)
 
 	for _, b := range []struct {
 		ten string
@@ -161,8 +161,8 @@ func TestKhoaChanMoiBuocTien(t *testing.T) {
 	}
 }
 
-// foChoThanhToan dựng một đơn thực hiện ĐANG KHÓA, không cần database.
-func foChoThanhToan(t *testing.T) *domain.FulfillmentOrder {
+// foAwaitingPayment dựng một đơn thực hiện ĐANG KHÓA, không cần database.
+func foAwaitingPayment(t *testing.T) *domain.FulfillmentOrder {
 	t.Helper()
 	fos, err := domain.SplitIntoFulfillmentOrders(domain.SplitInput{
 		OrderID:         ids.MustNew(ids.PrefixOrder),

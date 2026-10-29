@@ -16,7 +16,7 @@ import (
 	marketdom "github.com/fashion-commerce/platform/internal/modules/marketplace/domain"
 )
 
-// TestTienNhaBanChuyenSangRutDuocKhiHetHanDoiTra.
+// TestSellerFundsBecomeAvailableWhenTheReturnWindowPasses.
 //
 // # Bất biến
 //
@@ -26,29 +26,29 @@ import (
 //
 // Bài này đi trọn: đặt đơn của nhà bán NGOÀI → giao → đẩy quá hạn đổi trả
 // → chạy job → kiểm số dư qua HTTP.
-func TestTienNhaBanChuyenSangRutDuocKhiHetHanDoiTra(t *testing.T) {
+func TestSellerFundsBecomeAvailableWhenTheReturnWindowPasses(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
 	// Nhà bán NGOÀI: own brand không có ai để trả tiền.
-	B := dungNhaBan(t, a, "nhabansodu"+ids.MustNew(ids.PrefixRequest).String()[24:])
-	skuID := dungSkuThuongHieuMo(t, a)
+	B := buildSeller(t, a, "nhabansodu"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	skuID := buildOpenBrandSKU(t, a)
 
-	gia, _ := money.New(250_000, money.VND)
+	priceObj, _ := money.New(250_000, money.VND)
 	offer, err := a.mods.marketplace.Service().CreateOffer(ctx, marketapp.CreateOfferInput{
-		SKUID: ids.ID(skuID), SellerID: ids.ID(B.sellerID), Price: gia,
+		SKUID: ids.ID(skuID), SellerID: ids.ID(B.sellerID), Price: priceObj,
 		Condition: marketdom.ConditionNew, HandlingTimeHours: 24,
 		MinOrderQuantity: 1, Activate: true,
 	})
 	if err != nil {
 		t.Skipf("không tạo được offer: %v", err)
 	}
-	loc, err := a.mods.inventory.EnsureLocation(ctx, "Kho số dư", "SELLER-"+B.sellerID, "SELLER")
+	filtered, err := a.mods.inventory.EnsureLocation(ctx, "Kho số dư", "SELLER-"+B.sellerID, "SELLER")
 	if err != nil {
 		t.Fatalf("tạo kho: %v", err)
 	}
 	if _, err := a.mods.inventory.Receive(ctx, inventory.ReceiveRequest{
-		SKUID: skuID, LocationID: loc,
+		SKUID: skuID, LocationID: filtered,
 		OwnerID:  inventory.OwnerForSeller(B.sellerID, false),
 		Quantity: 5, PerformedBy: "test",
 	}); err != nil {
@@ -57,21 +57,21 @@ func TestTienNhaBanChuyenSangRutDuocKhiHetHanDoiTra(t *testing.T) {
 
 	// Đặt đơn CHỈ có hàng của nhà bán này.
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": offer.ID().String(), "quantity": 1}, khoaIdem())
+		map[string]any{"offer_id": offer.ID().String(), "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
-	maDon := a.datDonTuGio(t, maGio, "sodu@example.com", "0900864209")
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
+	orderID := a.placeOrderFromCart(t, cartID, "sodu@example.com", "0900864209")
 
-	a.phatEvent(t)
+	a.emitEvent(t)
 
 	// Số dư SAU khi đặt đơn: tiền ở ĐANG CHỜ, chưa rút được.
-	cho, rut := a.soDuNhaBan(t, B.token)
-	if cho <= 0 {
+	pending, rut := a.sellerBalance(t, B.token)
+	if pending <= 0 {
 		t.Fatalf("sau khi đặt đơn, số dư đang chờ là %v — doanh thu không "+
-			"được ghi cho nhà bán", cho)
+			"được ghi cho nhà bán", pending)
 	}
 	if rut != 0 {
 		t.Errorf("chưa hết hạn đổi trả mà đã rút được %v — nhà bán rút tiền "+
@@ -79,7 +79,7 @@ func TestTienNhaBanChuyenSangRutDuocKhiHetHanDoiTra(t *testing.T) {
 	}
 
 	// --- giao hàng ---
-	fo := a.timFulfillment(t, maDon)
+	fo := a.findFulfillment(t, orderID)
 	if fo.id == "" {
 		t.Skip("không tạo được đơn thực hiện")
 	}
@@ -101,8 +101,8 @@ func TestTienNhaBanChuyenSangRutDuocKhiHetHanDoiTra(t *testing.T) {
 	}
 
 	// Vừa giao xong: VẪN chưa rút được.
-	a.phatEvent(t)
-	if _, rut := a.soDuNhaBan(t, B.token); rut != 0 {
+	a.emitEvent(t)
+	if _, rut := a.sellerBalance(t, B.token); rut != 0 {
 		t.Errorf("vừa giao xong đã rút được %v — hạn đổi trả chưa hết", rut)
 	}
 
@@ -115,19 +115,19 @@ func TestTienNhaBanChuyenSangRutDuocKhiHetHanDoiTra(t *testing.T) {
 	if n, err := a.mods.fulfillment.CompleteDelivered(ctx, 10); err != nil || n == 0 {
 		t.Fatalf("hoàn tất đơn quá hạn: n=%d err=%v", n, err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	choSau, rutSau := a.soDuNhaBan(t, B.token)
-	if rutSau <= 0 {
+	waitAfter, withdrawAfter := a.sellerBalance(t, B.token)
+	if withdrawAfter <= 0 {
 		t.Errorf("hết hạn đổi trả mà số dư rút được vẫn là %v — "+
-			"nhà bán không bao giờ nhận được tiền", rutSau)
+			"nhà bán không bao giờ nhận được tiền", withdrawAfter)
 	}
-	if choSau != 0 {
-		t.Errorf("số dư đang chờ còn %v sau khi chuyển, cần 0", choSau)
+	if waitAfter != 0 {
+		t.Errorf("số dư đang chờ còn %v sau khi chuyển, cần 0", waitAfter)
 	}
-	if rutSau != cho {
+	if withdrawAfter != pending {
 		t.Errorf("chuyển %v sang rút được nhưng ban đầu đang chờ %v — "+
-			"số tiền không khớp", rutSau, cho)
+			"số tiền không khớp", withdrawAfter, pending)
 	}
 
 	// PHÁT LẠI event KHÔNG được chuyển lần hai.
@@ -142,29 +142,29 @@ func TestTienNhaBanChuyenSangRutDuocKhiHetHanDoiTra(t *testing.T) {
 		    WHERE event_type = 'fulfillment_order.completed')`); err != nil {
 		t.Fatalf("xóa dấu đã xử lý: %v", err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	if _, rutLai := a.soDuNhaBan(t, B.token); rutLai != rutSau {
+	if _, withdrawAgain := a.sellerBalance(t, B.token); withdrawAgain != withdrawAfter {
 		t.Errorf("phát lại event làm số dư rút được đổi %v → %v — "+
-			"nhà bán rút được gấp đôi số tiền thật", rutSau, rutLai)
+			"nhà bán rút được gấp đôi số tiền thật", withdrawAfter, withdrawAgain)
 	}
 }
 
-// soDuNhaBan đọc số dư qua HTTP, trả (đang chờ, rút được).
-func (a *apiTest) soDuNhaBan(t *testing.T, token string) (float64, float64) {
+// sellerBalance đọc số dư qua HTTP, trả (đang chờ, rút được).
+func (a *apiTest) sellerBalance(t *testing.T, token string) (float64, float64) {
 	t.Helper()
 	res := a.call(http.MethodGet, "/api/v1/seller/balance", nil, bearer(token))
 	if res.code != http.StatusOK {
 		t.Fatalf("đọc số dư: HTTP %d — %s", res.code, res.raw)
 	}
-	cho, _ := res.body["pending"].(map[string]any)
+	pending, _ := res.body["pending"].(map[string]any)
 	rut, _ := res.body["available"].(map[string]any)
-	c, _ := cho["amount"].(float64)
+	c, _ := pending["amount"].(float64)
 	r, _ := rut["amount"].(float64)
 	return c, r
 }
 
-// TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan.
+// TestASettlementGathersAvailableFundsAndNotTwice.
 //
 // # Bất biến
 //
@@ -183,19 +183,19 @@ func (a *apiTest) soDuNhaBan(t *testing.T, token string) (float64, float64) {
 // tại". Nên lớp lọc là tối ưu, không phải bảo đảm — và nếu ai đó gỡ ràng
 // buộc UNIQUE vì thấy "đã có kiểm ở tầng ứng dụng rồi", nhà bán sẽ được
 // trả tiền hai lần.
-func TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan(t *testing.T) {
+func TestASettlementGathersAvailableFundsAndNotTwice(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	B, rut := a.dungNhaBanCoTienRutDuoc(t)
+	B, rut := a.buildSellerWithAvailableFunds(t)
 	if rut <= 0 {
 		t.Fatalf("không dựng được số dư rút được (%v)", rut)
 	}
 
-	den := types.Now().Add(time.Minute)
-	tu := den.Add(-7 * 24 * time.Hour)
+	until := types.Now().Add(time.Minute)
+	tu := until.Add(-7 * 24 * time.Hour)
 
-	n, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, den, 1000)
+	n, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, until, 1000)
 	if err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)
 	}
@@ -219,52 +219,52 @@ func TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan(t *testing.T) {
 	}
 
 	// CHẠY LẠI job: KHÔNG được gom lần hai.
-	lai, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, den, 1000)
+	again, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, until, 1000)
 	if err != nil {
 		t.Fatalf("chạy lại job: %v", err)
 	}
-	if lai != 0 {
+	if again != 0 {
 		t.Errorf("chạy lại tạo thêm %d đợt — bút toán bị gom hai lần, "+
-			"nhà bán được trả tiền gấp đôi", lai)
+			"nhà bán được trả tiền gấp đôi", again)
 	}
 
 	// Đếm theo ĐÚNG nhà bán này: bảng dùng chung với các bài khác trong
 	// cùng lượt chạy, và đếm toàn bảng là đo cả dữ liệu của người khác.
-	var soDong int
+	var rowCount int
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(*) FROM settlement_line sl
 		  JOIN settlement s ON s.id = sl.settlement_id
-		 WHERE s.seller_id = $1`, B.sellerID).Scan(&soDong); err != nil {
+		 WHERE s.seller_id = $1`, B.sellerID).Scan(&rowCount); err != nil {
 		t.Fatalf("đếm dòng đối soát: %v", err)
 	}
-	if soDong != 1 {
-		t.Errorf("nhà bán này có %d dòng đối soát, cần 1", soDong)
+	if rowCount != 1 {
+		t.Errorf("nhà bán này có %d dòng đối soát, cần 1", rowCount)
 	}
 }
 
-// dungNhaBanCoTienRutDuoc dựng một nhà bán đã bán được và hết hạn đổi trả.
-func (a *apiTest) dungNhaBanCoTienRutDuoc(t *testing.T) (nhaBanThu, float64) {
+// buildSellerWithAvailableFunds dựng một nhà bán đã bán được và hết hạn đổi trả.
+func (a *apiTest) buildSellerWithAvailableFunds(t *testing.T) (testSeller, float64) {
 	t.Helper()
 	ctx := context.Background()
 
-	B := dungNhaBan(t, a, "nhabanstl"+ids.MustNew(ids.PrefixRequest).String()[24:])
-	skuID := dungSkuThuongHieuMo(t, a)
+	B := buildSeller(t, a, "nhabanstl"+ids.MustNew(ids.PrefixRequest).String()[24:])
+	skuID := buildOpenBrandSKU(t, a)
 
-	gia, _ := money.New(300_000, money.VND)
+	priceObj, _ := money.New(300_000, money.VND)
 	offer, err := a.mods.marketplace.Service().CreateOffer(ctx, marketapp.CreateOfferInput{
-		SKUID: ids.ID(skuID), SellerID: ids.ID(B.sellerID), Price: gia,
+		SKUID: ids.ID(skuID), SellerID: ids.ID(B.sellerID), Price: priceObj,
 		Condition: marketdom.ConditionNew, HandlingTimeHours: 24,
 		MinOrderQuantity: 1, Activate: true,
 	})
 	if err != nil {
 		t.Skipf("không tạo được offer: %v", err)
 	}
-	loc, err := a.mods.inventory.EnsureLocation(ctx, "Kho đối soát", "SELLER-"+B.sellerID, "SELLER")
+	filtered, err := a.mods.inventory.EnsureLocation(ctx, "Kho đối soát", "SELLER-"+B.sellerID, "SELLER")
 	if err != nil {
 		t.Fatalf("tạo kho: %v", err)
 	}
 	if _, err := a.mods.inventory.Receive(ctx, inventory.ReceiveRequest{
-		SKUID: skuID, LocationID: loc,
+		SKUID: skuID, LocationID: filtered,
 		OwnerID:  inventory.OwnerForSeller(B.sellerID, false),
 		Quantity: 5, PerformedBy: "test",
 	}); err != nil {
@@ -272,16 +272,16 @@ func (a *apiTest) dungNhaBanCoTienRutDuoc(t *testing.T) (nhaBanThu, float64) {
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": offer.ID().String(), "quantity": 1}, khoaIdem())
+		map[string]any{"offer_id": offer.ID().String(), "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
-	maDon := a.datDonTuGio(t, maGio, "doisoat@example.com", "0900112233")
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
+	orderID := a.placeOrderFromCart(t, cartID, "doisoat@example.com", "0900112233")
 
-	a.phatEvent(t)
-	fo := a.timFulfillment(t, maDon)
+	a.emitEvent(t)
+	fo := a.findFulfillment(t, orderID)
 	if fo.id == "" {
 		t.Skip("không tạo được đơn thực hiện")
 	}
@@ -310,8 +310,8 @@ func (a *apiTest) dungNhaBanCoTienRutDuoc(t *testing.T) (nhaBanThu, float64) {
 	if _, err := a.mods.fulfillment.CompleteDelivered(ctx, 10); err != nil {
 		t.Fatalf("hoàn tất đơn: %v", err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	_, rut := a.soDuNhaBan(t, B.token)
+	_, rut := a.sellerBalance(t, B.token)
 	return B, rut
 }

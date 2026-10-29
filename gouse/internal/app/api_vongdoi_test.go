@@ -11,7 +11,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/identity"
 )
 
-// TestVongDoiDonHangDiTroiVen — PH-33 phần 2.
+// TestTheOrderLifecycleRunsToCompletion — PH-33 phần 2.
 //
 // # Vì sao bài này tồn tại
 //
@@ -25,23 +25,23 @@ import (
 // Available. Không ai được trả tiền, và không có gì báo là đang kẹt.
 //
 // Bài này đi trọn vòng đời qua HTTP: đặt → bàn giao → đã giao → hoàn tất.
-func TestVongDoiDonHangDiTroiVen(t *testing.T) {
+func TestTheOrderLifecycleRunsToCompletion(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maPhien := a.dungPhienSanHoanTat("vongdoi@example.com", "0900444333")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete("vongdoi@example.com", "0900444333")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
 
 	// Đơn thực hiện do module fulfillment tạo khi nghe checkout.completed.
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	fo := a.timFulfillment(t, maDon)
+	fo := a.findFulfillment(t, orderID)
 	if fo.id == "" {
 		t.Skip("chưa có đơn thực hiện — bên nhận tách đơn không chạy trong bài này")
 	}
@@ -50,7 +50,7 @@ func TestVongDoiDonHangDiTroiVen(t *testing.T) {
 	//
 	// Máy trạng thái không cho nhảy cóc, và đó là quy tắc đúng: không ai
 	// bàn giao được món hàng chưa nhặt khỏi kệ.
-	for _, buoc := range []struct {
+	for _, steps := range []struct {
 		ten string
 		lam func() error
 	}{
@@ -64,8 +64,8 @@ func TestVongDoiDonHangDiTroiVen(t *testing.T) {
 			})
 		}},
 	} {
-		if err := buoc.lam(); err != nil {
-			t.Fatalf("%s: %v", buoc.ten, err)
+		if err := steps.lam(); err != nil {
+			t.Fatalf("%s: %v", steps.ten, err)
 		}
 	}
 
@@ -73,10 +73,10 @@ func TestVongDoiDonHangDiTroiVen(t *testing.T) {
 	//
 	// Đi qua HTTP, không gọi tắt vào module: chính đường HTTP là thứ
 	// trước đây KHÔNG tồn tại.
-	tokBan := a.dangNhapNhaBan(t, fo.sellerID)
+	tokSeller := a.logInAsSeller(t, fo.sellerID)
 	got := a.call(http.MethodPost,
 		"/api/v1/seller/fulfillment-orders/"+fo.id+"/deliver", nil,
-		hopNhat(bearer(tokBan), khoaIdem()))
+		merge(bearer(tokSeller), idemKey()))
 	if got.code != http.StatusOK {
 		t.Fatalf("xác nhận đã giao: HTTP %d — %s", got.code, got.raw)
 	}
@@ -85,8 +85,8 @@ func TestVongDoiDonHangDiTroiVen(t *testing.T) {
 	}
 
 	// Đơn HÀNG (không phải đơn thực hiện) cũng phải đi theo, qua event.
-	a.phatEvent(t)
-	if tt := a.trangThaiDon(t, maDon); tt != "DELIVERED" {
+	a.emitEvent(t)
+	if tt := a.orderStatus(t, orderID); tt != "DELIVERED" {
 		t.Errorf("đơn hàng ở %q sau khi mọi nguồn hàng đã giao, cần DELIVERED", tt)
 	}
 
@@ -109,21 +109,21 @@ func TestVongDoiDonHangDiTroiVen(t *testing.T) {
 	}
 }
 
-type foThu struct{ id, sellerID string }
+type testFO struct{ id, sellerID string }
 
-func (a *apiTest) timFulfillment(t *testing.T, orderID string) foThu {
+func (a *apiTest) findFulfillment(t *testing.T, orderID string) testFO {
 	t.Helper()
-	var f foThu
+	var f testFO
 	err := a.db.Pool().QueryRow(context.Background(),
 		`SELECT id, seller_id FROM fulfillment_order WHERE order_id = $1 LIMIT 1`,
 		orderID).Scan(&f.id, &f.sellerID)
 	if err != nil {
-		return foThu{}
+		return testFO{}
 	}
 	return f
 }
 
-func (a *apiTest) trangThaiDon(t *testing.T, orderID string) string {
+func (a *apiTest) orderStatus(t *testing.T, orderID string) string {
 	t.Helper()
 	var s string
 	if err := a.db.Pool().QueryRow(context.Background(),
@@ -133,7 +133,7 @@ func (a *apiTest) trangThaiDon(t *testing.T, orderID string) string {
 	return s
 }
 
-func hopNhat(a, b map[string]string) map[string]string {
+func merge(a, b map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range a {
 		out[k] = v
@@ -144,18 +144,18 @@ func hopNhat(a, b map[string]string) map[string]string {
 	return out
 }
 
-// dangNhapNhaBan gắn một tài khoản mới vào gian hàng CÓ SẴN rồi đăng nhập.
+// logInAsSeller gắn một tài khoản mới vào gian hàng CÓ SẴN rồi đăng nhập.
 //
-// Khác dungNhaBan ở chỗ nó không tạo gian hàng mới: bài này cần thao tác
+// Khác buildSeller ở chỗ nó không tạo gian hàng mới: bài này cần thao tác
 // đúng trên gian hàng mà đơn thực hiện thuộc về.
-func (a *apiTest) dangNhapNhaBan(t *testing.T, sellerID string) string {
+func (a *apiTest) logInAsSeller(t *testing.T, sellerID string) string {
 	t.Helper()
 	ctx := context.Background()
 
-	email := emailMoi("chunhaban")
-	const matKhau = "MatKhauDuDai@2026"
+	email := newEmail("chunhaban")
+	const password = "MatKhauDuDai@2026"
 	u, err := a.mods.identity.Register(ctx, identity.RegisterRequest{
-		Email: email, Password: matKhau,
+		Email: email, Password: password,
 	})
 	if err != nil {
 		t.Fatalf("tạo tài khoản nhà bán: %v", err)
@@ -165,7 +165,7 @@ func (a *apiTest) dangNhapNhaBan(t *testing.T, sellerID string) string {
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/auth/login",
-		map[string]any{"email": email, "password": matKhau}, nil)
+		map[string]any{"email": email, "password": password}, nil)
 	tok, _ := res.body["access_token"].(string)
 	if tok == "" {
 		t.Fatalf("đăng nhập nhà bán: %s", res.raw)

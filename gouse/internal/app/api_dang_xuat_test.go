@@ -8,7 +8,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/ids"
 )
 
-// TestDangXuatThuHoiPhien.
+// TestLogoutRevokesTheSession.
 //
 // # Vì sao bài này tồn tại
 //
@@ -22,9 +22,9 @@ import (
 //
 // Nên bài này KHÔNG chỉ kiểm cookie đã xóa. Nó giữ lại token và thử dùng
 // sau khi đăng xuất, đúng cách kẻ giữ token sẽ làm.
-func TestDangXuatThuHoiPhien(t *testing.T) {
+func TestLogoutRevokesTheSession(t *testing.T) {
 	a := newAPITest(t)
-	a.dangKyVaDangNhap(emailMoi("dangxuat"))
+	a.registerAndLogIn(newEmail("dangxuat"))
 
 	token := a.cookies["refresh_token"]
 	if token == "" {
@@ -39,7 +39,7 @@ func TestDangXuatThuHoiPhien(t *testing.T) {
 	// Token có thể vừa được XOAY khi làm mới — lấy bản hiện hành.
 	token = a.cookies["refresh_token"]
 
-	res := a.call(http.MethodPost, "/api/v1/auth/logout", nil, khoaIdem())
+	res := a.call(http.MethodPost, "/api/v1/auth/logout", nil, idemKey())
 	if res.code != http.StatusNoContent && res.code != http.StatusOK {
 		t.Fatalf("đăng xuất: HTTP %d — %s", res.code, res.raw)
 	}
@@ -62,28 +62,28 @@ func TestDangXuatThuHoiPhien(t *testing.T) {
 	}
 }
 
-// TestDangXuatMotThietBiKhongDuoiThietBiKhac.
+// TestLoggingOutOneDeviceDoesNotEvictTheOthers.
 //
 // Đăng xuất trên điện thoại KHÔNG được đá người dùng ra khỏi máy tính.
 //
 // Sai theo hướng này khó thấy hơn hướng kia: người dùng chỉ thấy mình bị
 // đăng xuất "vô cớ" và không nối được với hành động vừa làm trên máy khác.
-func TestDangXuatMotThietBiKhongDuoiThietBiKhac(t *testing.T) {
+func TestLoggingOutOneDeviceDoesNotEvictTheOthers(t *testing.T) {
 	a := newAPITest(t)
-	email := emailMoi("haithietbi")
-	const matKhau = "MatKhauDuDai@2026"
+	email := newEmail("haithietbi")
+	const password = "MatKhauDuDai@2026"
 
 	res := a.call(http.MethodPost, "/api/v1/auth/register",
-		map[string]any{"email": email, "password": matKhau},
+		map[string]any{"email": email, "password": password},
 		map[string]string{"Idempotency-Key": ids.MustNew(ids.PrefixRequest).String()})
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("đăng ký: HTTP %d — %s", res.code, res.raw)
 	}
 
-	dangNhap := func() string {
+	logIn := func() string {
 		t.Helper()
 		r := a.call(http.MethodPost, "/api/v1/auth/login",
-			map[string]any{"email": email, "password": matKhau}, nil)
+			map[string]any{"email": email, "password": password}, nil)
 		if r.code != http.StatusOK {
 			t.Fatalf("đăng nhập: HTTP %d — %s", r.code, r.raw)
 		}
@@ -94,29 +94,29 @@ func TestDangXuatMotThietBiKhongDuoiThietBiKhac(t *testing.T) {
 		return tok
 	}
 
-	dienThoai := dangNhap()
-	mayTinh := dangNhap()
-	if dienThoai == mayTinh {
+	phone := logIn()
+	device := logIn()
+	if phone == device {
 		t.Fatal("hai lần đăng nhập cấp CÙNG một token — hai thiết bị đang " +
 			"dùng chung một phiên, và đăng xuất ở đâu cũng đá cả hai")
 	}
 
 	// Đăng xuất trên ĐIỆN THOẠI.
-	a.cookies["refresh_token"] = dienThoai
+	a.cookies["refresh_token"] = phone
 	if res := a.call(http.MethodPost, "/api/v1/auth/logout", nil,
-		khoaIdem()); res.code != http.StatusNoContent && res.code != http.StatusOK {
+		idemKey()); res.code != http.StatusNoContent && res.code != http.StatusOK {
 		t.Fatalf("đăng xuất: HTTP %d — %s", res.code, res.raw)
 	}
 
 	// Phiên MÁY TÍNH phải còn sống.
-	a.cookies["refresh_token"] = mayTinh
+	a.cookies["refresh_token"] = device
 	if res := a.call(http.MethodPost, "/api/v1/auth/refresh", nil, nil); res.code != http.StatusOK {
 		t.Errorf("phiên thiết bị KHÁC chết theo: HTTP %d — %s — đăng xuất "+
 			"trên điện thoại đã đá người dùng khỏi máy tính", res.code, res.raw)
 	}
 }
 
-// TestLoiPhienKhongNoiVeMatKhau.
+// TestASessionErrorSaysNothingAboutThePassword.
 //
 // # Vì sao bài này tồn tại
 //
@@ -129,9 +129,9 @@ func TestDangXuatMotThietBiKhongDuoiThietBiKhac(t *testing.T) {
 // trực hỗ trợ đọc log sẽ soi bảng mật khẩu thay vì bảng phiên.
 //
 // Bài này khóa NỘI DUNG câu trả lời, không chỉ mã lỗi.
-func TestLoiPhienKhongNoiVeMatKhau(t *testing.T) {
+func TestASessionErrorSaysNothingAboutThePassword(t *testing.T) {
 	a := newAPITest(t)
-	a.dangKyVaDangNhap(emailMoi("loiphien"))
+	a.registerAndLogIn(newEmail("loiphien"))
 
 	cu := a.cookies["refresh_token"]
 	if cu == "" {

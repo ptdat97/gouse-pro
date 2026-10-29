@@ -7,7 +7,7 @@ import (
 	notifdom "github.com/fashion-commerce/platform/internal/modules/notification/domain"
 )
 
-// TestHaiBanHangDongYPhaiTrungNhau.
+// TestTheTwoConsentCopiesMustAgree.
 //
 // `notification` CHÉP hai chuỗi loại đồng ý thay vì import `customer`: nó
 // không phụ thuộc module ấy, và kéo cả một module vào chỉ vì hai chuỗi là
@@ -20,21 +20,21 @@ import (
 //
 // Gói `app` là nơi duy nhất biết cả hai module, nên phép đối chiếu nằm ở
 // đây.
-func TestHaiBanHangDongYPhaiTrungNhau(t *testing.T) {
+func TestTheTwoConsentCopiesMustAgree(t *testing.T) {
 	for _, c := range []struct {
-		notif string
-		khach customerdom.ConsentType
+		notif    string
+		customer customerdom.ConsentType
 	}{
 		{notifdom.ConsentEmailMarketing, customerdom.ConsentMarketingEmail},
 		{notifdom.ConsentSMSMarketing, customerdom.ConsentMarketingSMS},
 	} {
-		if c.notif != string(c.khach) {
+		if c.notif != string(c.customer) {
 			t.Errorf("notification dùng %q, customer dùng %q — "+
 				"`HasConsent` sẽ trả false cho mọi khách và kênh này chết "+
-				"im lặng", c.notif, c.khach)
+				"im lặng", c.notif, c.customer)
 		}
-		if !customerdom.ValidConsentType(c.khach) {
-			t.Errorf("%q không phải loại đồng ý hợp lệ của customer", c.khach)
+		if !customerdom.ValidConsentType(c.customer) {
+			t.Errorf("%q không phải loại đồng ý hợp lệ của customer", c.customer)
 		}
 	}
 }

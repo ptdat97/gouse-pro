@@ -23,51 +23,51 @@ import (
 // Chỉ đo `quantity_available` thì một bản cài cộng vào khả dụng mà quên trừ
 // cam kết sẽ xanh — và hệ quả của nó là tồn kho tự nhân lên: cùng một món
 // được đếm hai lần, nên nền tảng bán thứ không có.
-func TestHuyDonThucHienThiTraHangVeKho(t *testing.T) {
+func TestCancellingAFulfillmentReturnsGoodsToStock(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	_, dsFO := a.donHaiNhaBanDaTraTien(t, "nhakho")
-	huy := dsFO[0]
+	_, dsFO := a.paidTwoSellerOrder(t, "nhakho")
+	cancelled := dsFO[0]
 
 	// Chụp tồn kho của ĐÚNG các món trong đơn thực hiện sắp hủy.
 	//
 	// Theo `fulfillment_order_line` chứ không theo cả đơn: nhà bán còn lại
 	// không bị hủy, nên gộp cả đơn sẽ trộn hai nhóm số vào nhau.
-	truoc := a.tonKhoCuaDonThucHien(t, huy.id)
-	if len(truoc) == 0 {
+	before := a.fulfillmentStock(t, cancelled.id)
+	if len(before) == 0 {
 		t.Skip("đơn thực hiện không có dòng nào tra ra tồn kho")
 	}
 
-	coCamKet := false
-	for _, v := range truoc {
-		if v.camKet > 0 {
-			coCamKet = true
+	hasCommitment := false
+	for _, v := range before {
+		if v.committed > 0 {
+			hasCommitment = true
 		}
 	}
-	if !coCamKet {
+	if !hasCommitment {
 		t.Fatalf("trước khi hủy, không món nào ở trạng thái CAM KẾT: %v — "+
-			"đơn đã thanh toán thì hàng phải đang được giữ cho nó", truoc)
+			"đơn đã thanh toán thì hàng phải đang được giữ cho nó", before)
 	}
 
 	if err := a.mods.fulfillment.CancelFulfillment(
-		ctx, huy.sellerID, huy.id, "hết hàng",
+		ctx, cancelled.sellerID, cancelled.id, "hết hàng",
 	); err != nil {
 		t.Fatalf("hủy đơn thực hiện: %v", err)
 	}
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	sau := a.tonKhoCuaDonThucHien(t, huy.id)
-	for sku, t0 := range truoc {
-		t1, ok := sau[sku]
+	after := a.fulfillmentStock(t, cancelled.id)
+	for sku, t0 := range before {
+		t1, ok := after[sku]
 		if !ok {
 			t.Errorf("sku %s biến mất khỏi tồn kho sau khi hủy", sku)
 			continue
 		}
 
-		if t1.camKet >= t0.camKet {
+		if t1.committed >= t0.committed {
 			t.Errorf("sku %s: cam kết %d → %d — hủy đơn mà hàng vẫn bị giữ "+
-				"cho một đơn không còn tồn tại", sku, t0.camKet, t1.camKet)
+				"cho một đơn không còn tồn tại", sku, t0.committed, t1.committed)
 		}
 		if t1.khaDung <= t0.khaDung {
 			t.Errorf("sku %s: khả dụng %d → %d — hàng có thật trên kệ nhưng "+
@@ -77,24 +77,24 @@ func TestHuyDonThucHienThiTraHangVeKho(t *testing.T) {
 		// TỔNG phải GIỮ NGUYÊN: nhả hàng là CHUYỂN trạng thái, không phải
 		// tạo thêm hàng. Thiếu khẳng định này thì một bản cài cộng vào khả
 		// dụng mà quên trừ cam kết vẫn xanh ở hai điều trên.
-		if t0.khaDung+t0.camKet != t1.khaDung+t1.camKet {
+		if t0.khaDung+t0.committed != t1.khaDung+t1.committed {
 			t.Errorf("sku %s: tổng (khả dụng + cam kết) đổi %d → %d — nhả "+
 				"hàng phải CHUYỂN trạng thái, không tạo thêm hàng",
-				sku, t0.khaDung+t0.camKet, t1.khaDung+t1.camKet)
+				sku, t0.khaDung+t0.committed, t1.khaDung+t1.committed)
 		}
 	}
 }
 
-type mucTonKho struct{ khaDung, camKet int }
+type stockLevel struct{ khaDung, committed int }
 
-// tonKhoCuaDonThucHien trả tồn kho theo SKU của các món trong một đơn
+// fulfillmentStock trả tồn kho theo SKU của các món trong một đơn
 // thực hiện.
 //
 // Gộp theo SKU trên mọi kho và mọi chủ sở hữu: bài test không quan tâm hàng
 // nằm ở đâu, chỉ quan tâm nó CHUYỂN từ cam kết sang khả dụng.
-func (a *apiTest) tonKhoCuaDonThucHien(
+func (a *apiTest) fulfillmentStock(
 	t *testing.T, foID string,
-) map[string]mucTonKho {
+) map[string]stockLevel {
 	t.Helper()
 
 	rows, err := a.db.Pool().Query(context.Background(), `
@@ -111,11 +111,11 @@ func (a *apiTest) tonKhoCuaDonThucHien(
 	}
 	defer rows.Close()
 
-	out := map[string]mucTonKho{}
+	out := map[string]stockLevel{}
 	for rows.Next() {
 		var sku string
-		var m mucTonKho
-		if err := rows.Scan(&sku, &m.khaDung, &m.camKet); err != nil {
+		var m stockLevel
+		if err := rows.Scan(&sku, &m.khaDung, &m.committed); err != nil {
 			t.Fatalf("đọc tồn kho: %v", err)
 		}
 		out[sku] = m

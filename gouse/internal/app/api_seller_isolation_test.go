@@ -19,18 +19,18 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/seller"
 )
 
-// nhaBanThu là một nhà bán đã ACTIVE kèm tài khoản đăng nhập được.
-type nhaBanThu struct {
+// testSeller là một nhà bán đã ACTIVE kèm tài khoản đăng nhập được.
+type testSeller struct {
 	sellerID string
 	token    string
 }
 
-// dungNhaBan đưa một nhà bán qua ĐỦ vòng đời rồi cấp token.
+// buildSeller đưa một nhà bán qua ĐỦ vòng đời rồi cấp token.
 //
 // Không ghi thẳng ACTIVE vào database: một nhà bán không bao giờ tồn tại
 // được ngoài đời sẽ khiến bài test nói dối. Vai trò gán KÈM PHẠM VI — đó
 // mới là thứ bài test này kiểm.
-func dungNhaBan(t *testing.T, a *apiTest, ten string) nhaBanThu {
+func buildSeller(t *testing.T, a *apiTest, ten string) testSeller {
 	t.Helper()
 	ctx := context.Background()
 
@@ -69,9 +69,9 @@ func dungNhaBan(t *testing.T, a *apiTest, ten string) nhaBanThu {
 	}
 
 	email := ten + "-owner@apitest.local"
-	const matKhau = "MatKhauDuDai@2026"
+	const password = "MatKhauDuDai@2026"
 	u, err := a.mods.identity.Register(ctx, identity.RegisterRequest{
-		Email: email, Password: matKhau,
+		Email: email, Password: password,
 	})
 	if err != nil {
 		t.Fatalf("tạo tài khoản: %v", err)
@@ -84,15 +84,15 @@ func dungNhaBan(t *testing.T, a *apiTest, ten string) nhaBanThu {
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/auth/login",
-		map[string]any{"email": email, "password": matKhau}, nil)
+		map[string]any{"email": email, "password": password}, nil)
 	tok, _ := res.body["access_token"].(string)
 	if tok == "" {
 		t.Fatalf("đăng nhập %s: %s", email, res.raw)
 	}
-	return nhaBanThu{sellerID: v.ID, token: tok}
+	return testSeller{sellerID: v.ID, token: tok}
 }
 
-// TestNhaBanKhongChamDuocTaiNguyenCuaNhaBanKhac — bất biến BẢO MẬT.
+// TestASellerCannotTouchAnothersResources — bất biến BẢO MẬT.
 //
 // # Vì sao kiểm vai trò là KHÔNG ĐỦ
 //
@@ -107,23 +107,23 @@ func dungNhaBan(t *testing.T, a *apiTest, ten string) nhaBanThu {
 //
 // Phân biệt "không có quyền" với "không tồn tại" cho kẻ dò biết mã nào CÓ
 // THẬT. Với một cái chợ, đó là rò rỉ danh sách hàng của đối thủ.
-func TestNhaBanKhongChamDuocTaiNguyenCuaNhaBanKhac(t *testing.T) {
+func TestASellerCannotTouchAnothersResources(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	A := dungNhaBan(t, a, "nhabana")
-	B := dungNhaBan(t, a, "nhabanb")
+	A := buildSeller(t, a, "nhabana")
+	B := buildSeller(t, a, "nhabanb")
 
 	// Nhà bán A có một offer và một bản ghi tồn kho THẬT.
 	//
 	// SKU phải thuộc thương hiệu MỞ: dữ liệu mẫu chỉ có một sản phẩm và
 	// nó thuộc thương hiệu RESTRICTED — chỉ chủ thương hiệu bán được. Đó
 	// là quy tắc đúng, nên bài test dựng hàng của mình thay vì lách.
-	skuID := dungSkuThuongHieuMo(t, a)
+	skuID := buildOpenBrandSKU(t, a)
 
-	gia, _ := money.New(199_000, money.VND)
+	priceObj, _ := money.New(199_000, money.VND)
 	offer, err := a.mods.marketplace.Service().CreateOffer(ctx, marketapp.CreateOfferInput{
-		SKUID: ids.ID(skuID), SellerID: ids.ID(A.sellerID), Price: gia,
+		SKUID: ids.ID(skuID), SellerID: ids.ID(A.sellerID), Price: priceObj,
 		Condition: marketdom.ConditionNew, HandlingTimeHours: 24,
 		MinOrderQuantity: 1, Activate: true,
 	})
@@ -131,12 +131,12 @@ func TestNhaBanKhongChamDuocTaiNguyenCuaNhaBanKhac(t *testing.T) {
 		t.Skipf("không tạo được offer cho nhà bán A: %v", err)
 	}
 
-	loc, err := a.mods.inventory.EnsureLocation(ctx, "Kho A", "SELLER-"+A.sellerID, "SELLER")
+	filtered, err := a.mods.inventory.EnsureLocation(ctx, "Kho A", "SELLER-"+A.sellerID, "SELLER")
 	if err != nil {
 		t.Fatalf("tạo kho: %v", err)
 	}
 	if _, err := a.mods.inventory.Receive(ctx, inventory.ReceiveRequest{
-		SKUID: skuID, LocationID: loc,
+		SKUID: skuID, LocationID: filtered,
 		OwnerID:  inventory.OwnerForSeller(A.sellerID, false),
 		Quantity: 25, PerformedBy: "test",
 	}); err != nil {
@@ -144,7 +144,7 @@ func TestNhaBanKhongChamDuocTaiNguyenCuaNhaBanKhac(t *testing.T) {
 	}
 
 	// Mọi đường mà nhà bán B có thể thử chạm vào tài nguyên của A.
-	thu := []struct {
+	cases := []struct {
 		ten    string
 		method string
 		path   string
@@ -167,9 +167,9 @@ func TestNhaBanKhongChamDuocTaiNguyenCuaNhaBanKhac(t *testing.T) {
 		},
 	}
 
-	for _, tt := range thu {
+	for _, tt := range cases {
 		t.Run(tt.ten, func(t *testing.T) {
-			h := khoaIdem()
+			h := idemKey()
 			h["Authorization"] = "Bearer " + B.token
 			got := a.call(tt.method, tt.path, tt.body, h)
 
@@ -186,15 +186,15 @@ func TestNhaBanKhongChamDuocTaiNguyenCuaNhaBanKhac(t *testing.T) {
 
 	// Và tài nguyên của A phải NGUYÊN VẸN sau mọi lần thử.
 	t.Run("tài nguyên của A không đổi", func(t *testing.T) {
-		sau, err := a.mods.marketplace.Service().GetOffer(ctx, offer.ID())
+		after, err := a.mods.marketplace.Service().GetOffer(ctx, offer.ID())
 		if err != nil {
 			t.Fatalf("đọc lại offer: %v", err)
 		}
-		if sau.Price().Amount() != 199_000 {
-			t.Errorf("giá offer của A bị đổi thành %d", sau.Price().Amount())
+		if after.Price().Amount() != 199_000 {
+			t.Errorf("giá offer của A bị đổi thành %d", after.Price().Amount())
 		}
-		if string(sau.Status()) != "ACTIVE" {
-			t.Errorf("trạng thái offer của A bị đổi thành %s", sau.Status())
+		if string(after.Status()) != "ACTIVE" {
+			t.Errorf("trạng thái offer của A bị đổi thành %s", after.Status())
 		}
 
 		items, err := a.mods.inventory.GetItemsBySKUs(ctx, []string{skuID}, "")
@@ -210,8 +210,8 @@ func TestNhaBanKhongChamDuocTaiNguyenCuaNhaBanKhac(t *testing.T) {
 	})
 }
 
-// dungSkuThuongHieuMo tạo một SKU mà NHÀ BÁN NGOÀI được phép chào bán.
-func dungSkuThuongHieuMo(t *testing.T, a *apiTest) string {
+// buildOpenBrandSKU tạo một SKU mà NHÀ BÁN NGOÀI được phép chào bán.
+func buildOpenBrandSKU(t *testing.T, a *apiTest) string {
 	t.Helper()
 	ctx := context.Background()
 
@@ -246,9 +246,9 @@ func dungSkuThuongHieuMo(t *testing.T, a *apiTest) string {
 			},
 		})
 	if err != nil {
-		san, loiTim := a.mods.catalog.Service().GetSizeChartFor(
+		san, searchErr := a.mods.catalog.Service().GetSizeChartFor(
 			ctx, brandID, catalogdom.ProductTypeTop)
-		if loiTim != nil {
+		if searchErr != nil {
 			t.Fatalf("tạo bảng size: %v", err)
 		}
 		chart = san

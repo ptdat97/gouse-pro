@@ -25,12 +25,12 @@ type customerResolver struct{ api customer.API }
 
 var _ httpserver.CustomerResolver = (*customerResolver)(nil)
 
-// khachTu dựng resolver, hoặc nil khi chưa có module customer.
+// customerFrom dựng resolver, hoặc nil khi chưa có module customer.
 //
 // nil là chấp nhận được ở mọi nơi dùng nó: khi đó khách đăng nhập bị coi
 // như vãng lai — mất tính liên tục giữa các thiết bị, nhưng không ai bị
 // chặn khỏi việc mua hàng.
-func khachTu(api customer.API) httpserver.CustomerResolver {
+func customerFrom(api customer.API) httpserver.CustomerResolver {
 	if api == nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 	// resolver nil là chấp nhận được: khi đó khách đăng nhập bị coi như
 	// vãng lai và giỏ gắn với cookie phiên. Mất tính liên tục giữa các
 	// thiết bị, nhưng không ai bị chặn khỏi việc mua hàng.
-	resolver := khachTu(m.customer)
+	resolver := customerFrom(m.customer)
 
 	shopper := func(inner *http.ServeMux, extra ...httpserver.Middleware) http.Handler {
 		chain := []httpserver.Middleware{httpserver.ResolveShopper(resolver)}
@@ -254,27 +254,27 @@ func registerShoppingRoutes(mux *http.ServeMux, log *slog.Logger, m Modules) {
 	}
 }
 
-// laDangNhapHong cho biết một phản hồi đăng nhập có tính là lượt hỏng không.
+// isBadLogin cho biết một phản hồi đăng nhập có tính là lượt hỏng không.
 //
 // 401 là sai email hoặc sai mật khẩu — đúng thứ cần đếm.
 //
 // 400 (thân request sai định dạng) KHÔNG tính: nó là lỗi của client chứ
 // không phải một lượt đoán, và tính nó vào thì một giao diện lỗi tự khóa
 // người dùng của chính nó.
-func laDangNhapHong(status int) bool {
+func isBadLogin(status int) bool {
 	return status == http.StatusUnauthorized
 }
 
-// guiXacMinhEmail nối customer tới module notification.
+// sendEmailVerification nối customer tới module notification.
 //
 // Adapter nằm ở đây vì module customer KHÔNG import notification: nó chỉ
 // khai một cổng hẹp với đúng một hàm. Chiều phụ thuộc giữ nguyên, và bản
 // giả trong test không phải cài cả `notification.API`.
-type guiXacMinhEmail struct{ api notification.API }
+type sendEmailVerification struct{ api notification.API }
 
-var _ customer.NotifierPort = (*guiXacMinhEmail)(nil)
+var _ customer.NotifierPort = (*sendEmailVerification)(nil)
 
-func (g *guiXacMinhEmail) SendEmailVerification(
+func (g *sendEmailVerification) SendEmailVerification(
 	ctx context.Context, userID, email, token string,
 ) error {
 	if g.api == nil {

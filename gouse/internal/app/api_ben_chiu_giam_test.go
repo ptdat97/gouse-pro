@@ -26,7 +26,7 @@ import (
 //
 // Module promotion ĐÃ có sẵn quy tắc chia (`AllocateCost`, ba bên chịu).
 // Bài này kiểm rằng quy tắc đó thật sự tới được đơn hàng.
-func TestKhuyenMaiDoNhaBanChiuPhaiGhiDungBenChiu(t *testing.T) {
+func TestASellerBornePromotionRecordsTheRightBearer(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -51,22 +51,22 @@ func TestKhuyenMaiDoNhaBanChiuPhaiGhiDungBenChiu(t *testing.T) {
 		t.Fatalf("tạo mã: %v", err)
 	}
 
-	maDon := a.datDonCoMa(t, ma, "benchiu")
+	orderID := a.placeOrderWithCode(t, ma, "benchiu")
 
 	var bearer string
-	var soTien int64
+	var amount int64
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT adj.cost_bearer, adj.amount
 		  FROM order_line_adjustment adj
 		  JOIN order_line l ON l.id = adj.order_line_id
 		 WHERE l.order_id = $1 AND adj.adjustment_type = 'PROMOTION'
-		 LIMIT 1`, maDon).Scan(&bearer, &soTien); err != nil {
+		 LIMIT 1`, orderID).Scan(&bearer, &amount); err != nil {
 		t.Fatalf("đọc khoản điều chỉnh: %v", err)
 	}
 
 	if bearer != "SELLER" {
 		t.Errorf("cost_bearer = %q, cần SELLER — chương trình do nhà bán chạy "+
-			"mà nền tảng đang gánh %d đ", bearer, -soTien)
+			"mà nền tảng đang gánh %d đ", bearer, -amount)
 	}
 
 	// SỔ CÁI phải trừ đúng bên, không chỉ đơn hàng.
@@ -74,9 +74,9 @@ func TestKhuyenMaiDoNhaBanChiuPhaiGhiDungBenChiu(t *testing.T) {
 	// Hai nơi ghi cùng một sự thật: `order_line_adjustment.cost_bearer` cho
 	// đối soát, và bút toán cho số dư. Lệch nhau thì báo cáo nào cũng có vẻ
 	// đúng khi đọc riêng, và không ai phát hiện cho tới lúc chi tiền.
-	a.phatEvent(t)
+	a.emitEvent(t)
 
-	var choNhaBan, choNenTang int64
+	var forSeller, forPlatform int64
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT COALESCE(SUM(l.amount) FILTER (
 		           WHERE l.account_type = 'SELLER_PAYABLE'
@@ -88,67 +88,67 @@ func TestKhuyenMaiDoNhaBanChiuPhaiGhiDungBenChiu(t *testing.T) {
 		  JOIN ledger_entry e ON e.id = l.entry_id
 		 WHERE e.reference_id = $1
 		   AND e.description = 'Giảm giá cho khách'`,
-		maDon).Scan(&choNhaBan, &choNenTang); err != nil {
+		orderID).Scan(&forSeller, &forPlatform); err != nil {
 		t.Fatalf("đọc bút toán giảm giá: %v", err)
 	}
 
-	if choNhaBan != -soTien {
+	if forSeller != -amount {
 		t.Errorf("sổ cái trừ nhà bán %d đ, cần %d — khoản giảm của chương "+
 			"trình do nhà bán chạy phải trừ vào tiền phải trả gian hàng đó",
-			choNhaBan, -soTien)
+			forSeller, -amount)
 	}
-	if choNenTang != 0 {
+	if forPlatform != 0 {
 		t.Errorf("sổ cái trừ doanh thu nền tảng %d đ, cần 0 — nền tảng đang "+
-			"gánh hộ khoản nhà bán đã đồng ý chịu", choNenTang)
+			"gánh hộ khoản nhà bán đã đồng ý chịu", forPlatform)
 	}
 }
 
-// datDonCoMa đặt một đơn có áp mã giảm giá, trả về mã đơn.
-func (a *apiTest) datDonCoMa(t *testing.T, ma, nhan string) string {
+// placeOrderWithCode đặt một đơn có áp mã giảm giá, trả về mã đơn.
+func (a *apiTest) placeOrderWithCode(t *testing.T, ma, label string) string {
 	t.Helper()
 
-	maOffer := a.timOfferBanDuoc()
+	maOffer := a.findSellableOffer()
 	if maOffer == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, khoaIdem())
+		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
-	gio, _ := res.body["cart"].(map[string]any)
-	maGio, _ := gio["id"].(string)
+	cartBody, _ := res.body["cart"].(map[string]any)
+	cartID, _ := cartBody["id"].(string)
 
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
-		"cart_id": maGio, "guest_email": emailMoi(nhan), "guest_phone": "0900555111",
-	}, khoaIdem())
+		"cart_id": cartID, "guest_email": newEmail(label), "guest_phone": "0900555111",
+	}, idemKey())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	maPhien, _ := res.body["id"].(string)
+	checkoutID, _ := res.body["id"].(string)
 
-	if got := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/coupon",
-		map[string]any{"code": ma}, khoaIdem()); got.code != http.StatusOK {
+	if got := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
+		map[string]any{"code": ma}, idemKey()); got.code != http.StatusOK {
 		t.Fatalf("áp mã: HTTP %d — %s", got.code, got.raw)
 	}
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-address",
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
 		map[string]any{
 			"recipient_name": "Khách Thử", "phone": "0900555111",
 			"street_address": "1 Đường Thử", "ward": "P1",
 			"district": "Q1", "province": "TP.HCM", "country_code": "VN",
-		}, khoaIdem())
-	a.call(http.MethodPatch, "/api/v1/checkout/"+maPhien+"/shipping-method",
-		map[string]any{"shipping_method": "STANDARD"}, khoaIdem())
+		}, idemKey())
+	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
+		map[string]any{"shipping_method": "STANDARD"}, idemKey())
 
-	res = a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	res = a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	return maDon
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
+	return orderID
 }
 
 // TestKhuyenMaiCHIADOIPhaiTruDungTyLe.
@@ -164,7 +164,7 @@ func (a *apiTest) datDonCoMa(t *testing.T, ma, nhan string) string {
 // giảm giá ghi trọn về một bên. Với chương trình chia đôi, phần của nhà
 // bán không bao giờ bị trừ — nền tảng gánh hộ. Sai theo hướng đó thì nhà
 // bán không mất tiền nên không ai báo, và nó sống rất lâu.
-func TestKhuyenMaiChiaDoiPhaiTruDungTyLe(t *testing.T) {
+func TestASharedPromotionDeductsTheExactRatio(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
@@ -191,23 +191,23 @@ func TestKhuyenMaiChiaDoiPhaiTruDungTyLe(t *testing.T) {
 		t.Fatalf("tạo mã: %v", err)
 	}
 
-	maDon := a.datDonCoMa(t, ma, "chiadoi")
-	a.phatEvent(t)
+	orderID := a.placeOrderWithCode(t, ma, "chiadoi")
+	a.emitEvent(t)
 
-	var giam int64
+	var discount int64
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT COALESCE(SUM(-adj.amount), 0)
 		  FROM order_line_adjustment adj
 		  JOIN order_line l ON l.id = adj.order_line_id
 		 WHERE l.order_id = $1 AND adj.adjustment_type = 'PROMOTION'`,
-		maDon).Scan(&giam); err != nil {
+		orderID).Scan(&discount); err != nil {
 		t.Fatalf("đọc khoản giảm: %v", err)
 	}
-	if giam <= 0 {
-		t.Fatalf("khoản giảm = %d, phải dương", giam)
+	if discount <= 0 {
+		t.Fatalf("khoản giảm = %d, phải dương", discount)
 	}
 
-	var choNhaBan, choNenTang int64
+	var forSeller, forPlatform int64
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT COALESCE(SUM(l.amount) FILTER (
 		           WHERE l.account_type = 'SELLER_PAYABLE'
@@ -219,18 +219,18 @@ func TestKhuyenMaiChiaDoiPhaiTruDungTyLe(t *testing.T) {
 		  JOIN ledger_entry e ON e.id = l.entry_id
 		 WHERE e.reference_id = $1
 		   AND e.description = 'Giảm giá cho khách'`,
-		maDon).Scan(&choNhaBan, &choNenTang); err != nil {
+		orderID).Scan(&forSeller, &forPlatform); err != nil {
 		t.Fatalf("đọc bút toán giảm giá: %v", err)
 	}
 
 	// Bất biến quan trọng nhất: tổng hai phần bằng ĐÚNG số tiền giảm.
-	if choNhaBan+choNenTang != giam {
+	if forSeller+forPlatform != discount {
 		t.Errorf("tổng đã trừ = %d (nhà bán %d + nền tảng %d), cần %d — "+
 			"lệch một đồng ở đây là khoản KHÔNG AI CHỊU",
-			choNhaBan+choNenTang, choNhaBan, choNenTang, giam)
+			forSeller+forPlatform, forSeller, forPlatform, discount)
 	}
-	if choNhaBan == 0 {
+	if forSeller == 0 {
 		t.Errorf("nhà bán bị trừ 0 đ trong chương trình CHIA ĐÔI — nền tảng "+
-			"đang gánh trọn %d đ", choNenTang)
+			"đang gánh trọn %d đ", forPlatform)
 	}
 }

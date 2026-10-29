@@ -1044,12 +1044,12 @@ func (s *Service) attachShippingGroups(ctx context.Context, c *domain.Checkout) 
 
 	perSource := make([]domain.SourceFee, 0, len(estimate.PerSource))
 	for _, n := range estimate.PerSource {
-		tien, err := money.New(n.Amount, c.Currency())
+		amount, err := money.New(n.Amount, c.Currency())
 		if err != nil {
 			return
 		}
 		perSource = append(perSource, domain.SourceFee{
-			SellerID: ids.ID(n.SellerID), Phi: tien, Days: n.Days,
+			SellerID: ids.ID(n.SellerID), Phi: amount, Days: n.Days,
 		})
 	}
 

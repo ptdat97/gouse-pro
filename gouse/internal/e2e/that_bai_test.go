@@ -11,7 +11,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/inventory"
 )
 
-// TestMotMonHetHangThiNhaHetHangDaGiu — kịch bản "không đủ hàng giữa chừng".
+// TestOneOutOfStockItemReleasesEverythingHeld — kịch bản "không đủ hàng giữa chừng".
 //
 // # Vì sao đây là nhánh dễ bỏ quên nhất
 //
@@ -23,16 +23,16 @@ import (
 // ứng: khách A không mua được vì khách B vừa thất bại.
 //
 // Lỗi này KHÔNG hiện ra ở đường thành công, và không có thông báo nào.
-func TestMotMonHetHangThiNhaHetHangDaGiu(t *testing.T) {
+func TestOneOutOfStockItemReleasesEverythingHeld(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	shop := ids.MustNew(ids.PrefixSeller)
 
-	duHang := ids.MustNew(ids.PrefixSKU)
-	w.stockFor(duHang, shop, 50)
+	stockedSKU := ids.MustNew(ids.PrefixSKU)
+	w.stockFor(stockedSKU, shop, 50)
 
-	thieuHang := ids.MustNew(ids.PrefixSKU)
-	w.stockFor(thieuHang, shop, 2)
+	shortSKU := ids.MustNew(ids.PrefixSKU)
+	w.stockFor(shortSKU, shop, 2)
 
 	cartID := ids.MustNew(ids.PrefixCart)
 	w.cart.put(checkoutapp.CartSnapshot{
@@ -42,9 +42,9 @@ func TestMotMonHetHangThiNhaHetHangDaGiu(t *testing.T) {
 		Currency:   money.VND,
 		Items: []checkoutapp.CartItemSnapshot{
 			// Món này giữ được…
-			line(shop, duHang, 300_000, 3),
+			line(shop, stockedSKU, 300_000, 3),
 			// …món này thì không: cần 5, kho có 2.
-			line(shop, thieuHang, 200_000, 5),
+			line(shop, shortSKU, 200_000, 5),
 		},
 	})
 
@@ -59,21 +59,21 @@ func TestMotMonHetHangThiNhaHetHangDaGiu(t *testing.T) {
 	}
 
 	// Món giữ được phải được NHẢ LẠI, đủ 50, không giữ chỗ nào.
-	avail, _ := w.stock(duHang, shop)
+	avail, _ := w.stock(stockedSKU, shop)
 	if avail != 50 {
 		t.Errorf("món đủ hàng còn %d khả dụng, cần 50 — hàng bị khóa vô ích", avail)
 	}
-	if giu := w.reserved(duHang, shop); giu != 0 {
-		t.Errorf("còn %d đang giữ chỗ sau khi phiên thất bại, cần 0", giu)
+	if held := w.reserved(stockedSKU, shop); held != 0 {
+		t.Errorf("còn %d đang giữ chỗ sau khi phiên thất bại, cần 0", held)
 	}
 
 	// Món thiếu hàng không được đụng tới.
-	if avail, _ := w.stock(thieuHang, shop); avail != 2 {
+	if avail, _ := w.stock(shortSKU, shop); avail != 2 {
 		t.Errorf("món thiếu hàng còn %d, cần 2", avail)
 	}
 }
 
-// TestHoanTatHaiLanCungKhoaChiRaMotDon — kịch bản "gửi trùng request".
+// TestCompletingTwiceWithOneKeyYieldsOneOrder — kịch bản "gửi trùng request".
 //
 // Khách bấm "Đặt hàng" hai lần, hoặc mạng chập chờn khiến client gửi lại.
 // Hai đơn cho một giỏ nghĩa là khách bị trừ tiền hai lần và kho bị trừ
@@ -82,7 +82,7 @@ func TestMotMonHetHangThiNhaHetHangDaGiu(t *testing.T) {
 // Khác test idempotency của riêng module order ở chỗ: bài này đi qua CẢ
 // chuỗi, nên nó cũng khẳng định tồn kho chỉ chuyển sang cam kết MỘT lần
 // — event phát lại không được cộng dồn.
-func TestHoanTatHaiLanCungKhoaChiRaMotDon(t *testing.T) {
+func TestCompletingTwiceWithOneKeyYieldsOneOrder(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	shop := ids.MustNew(ids.PrefixSeller)
@@ -113,18 +113,18 @@ func TestHoanTatHaiLanCungKhoaChiRaMotDon(t *testing.T) {
 	}
 
 	// CÙNG một khóa, gửi hai lần.
-	khoa := ids.MustNew(ids.PrefixRequest).String()
-	lan1, err := w.checkout.CompleteCheckout(ctx, c.ID(), khoa, "COD", "")
+	key := ids.MustNew(ids.PrefixRequest).String()
+	first, err := w.checkout.CompleteCheckout(ctx, c.ID(), key, "COD", "")
 	if err != nil {
 		t.Fatalf("hoàn tất lần 1: %v", err)
 	}
-	lan2, err := w.checkout.CompleteCheckout(ctx, c.ID(), khoa, "COD", "")
+	second, err := w.checkout.CompleteCheckout(ctx, c.ID(), key, "COD", "")
 	if err != nil {
 		t.Fatalf("hoàn tất lần 2: %v", err)
 	}
 
-	if lan1.OrderID != lan2.OrderID {
-		t.Fatalf("hai đơn khác nhau: %s và %s", lan1.OrderID, lan2.OrderID)
+	if first.OrderID != second.OrderID {
+		t.Fatalf("hai đơn khác nhau: %s và %s", first.OrderID, second.OrderID)
 	}
 
 	w.drain()
@@ -137,7 +137,7 @@ func TestHoanTatHaiLanCungKhoaChiRaMotDon(t *testing.T) {
 	}
 
 	// Và đúng MỘT đơn thực hiện, không phải hai.
-	fos, err := w.ful.GetOrderFulfillments(ctx, lan1.OrderID.String())
+	fos, err := w.ful.GetOrderFulfillments(ctx, first.OrderID.String())
 	if err != nil {
 		t.Fatalf("GetOrderFulfillments: %v", err)
 	}
@@ -146,13 +146,13 @@ func TestHoanTatHaiLanCungKhoaChiRaMotDon(t *testing.T) {
 	}
 }
 
-// TestOwnBrandVaNhaBanKhongDungChungKhoKhiHetHang khóa chặt quy tắc
+// TestOwnBrandAndSellerDoNotShareStockWhenItRunsOut khóa chặt quy tắc
 // KHÔNG có đường lùi, ở mức TOÀN HỆ THỐNG.
 //
 // Test cùng tên trong gói checkout kiểm điều này với inventory thật nhưng
 // order và event giả. Bài này đi hết chuỗi: nếu có ai đó ở tầng trên
 // "chữa cháy" bằng cách đổi sang kho khác, chỗ đó sẽ lộ ra ở đây.
-func TestOwnBrandVaNhaBanKhongDungChungKhoKhiHetHang(t *testing.T) {
+func TestOwnBrandAndSellerDoNotShareStockWhenItRunsOut(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 

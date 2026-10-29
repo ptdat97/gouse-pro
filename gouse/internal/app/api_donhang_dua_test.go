@@ -11,36 +11,36 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/order"
 )
 
-// dongHoChanOrder dừng ở lần gọi đầu, đúng khe giữa đọc và ghi của
+// blockingOrderClock dừng ở lần gọi đầu, đúng khe giữa đọc và ghi của
 // CancelOwnOrder:
 //
 //	o := s.orders.FindByID(...)                ← đọc
 //	o.CancelWithReason(reason, s.clock.Now())  ← chỗ này
 //	s.orders.Update(ctx, o)                    ← ghi
-type dongHoChanOrder struct {
-	mu     sync.Mutex
-	daChan bool
-	toiRoi chan struct{}
-	diTiep chan struct{}
+type blockingOrderClock struct {
+	mu      sync.Mutex
+	daChan  bool
+	toiRoi  chan struct{}
+	proceed chan struct{}
 }
 
-func newDongHoChanOrder() *dongHoChanOrder {
-	return &dongHoChanOrder{toiRoi: make(chan struct{}), diTiep: make(chan struct{})}
+func newBlockingOrderClock() *blockingOrderClock {
+	return &blockingOrderClock{toiRoi: make(chan struct{}), proceed: make(chan struct{})}
 }
 
-func (d *dongHoChanOrder) Now() time.Time {
+func (d *blockingOrderClock) Now() time.Time {
 	d.mu.Lock()
-	lanDau := !d.daChan
+	firstTime := !d.daChan
 	d.daChan = true
 	d.mu.Unlock()
-	if lanDau {
+	if firstTime {
 		close(d.toiRoi)
-		<-d.diTiep
+		<-d.proceed
 	}
 	return types.Now()
 }
 
-// TestHuyDonKhongDeGhiDeTienDoGiaoHang.
+// TestCancellingAnOrderDoesNotOverwriteDeliveryProgress.
 //
 // # Bất biến
 //
@@ -60,60 +60,60 @@ func (d *dongHoChanOrder) Now() time.Time {
 // của người kia biến mất — không lỗi, không cảnh báo.
 //
 // Bài này dừng lượt hủy đúng giữa khe bằng đồng hồ, không trông chờ xác suất.
-func TestHuyDonKhongDeGhiDeTienDoGiaoHang(t *testing.T) {
+func TestCancellingAnOrderDoesNotOverwriteDeliveryProgress(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	dongHo := newDongHoChanOrder()
-	cham, err := order.New(order.Config{
-		Storage: "postgres", DB: a.db, Clock: dongHo,
+	clock := newBlockingOrderClock()
+	graded, err := order.New(order.Config{
+		Storage: "postgres", DB: a.db, Clock: clock,
 	})
 	if err != nil {
 		t.Fatalf("dựng order thứ hai: %v", err)
 	}
 
-	maPhien := a.dungPhienSanHoanTat("dua@example.com", "0900777222")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete("dua@example.com", "0900777222")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
 
 	// T2 — khách bấm Hủy, dừng ngay sau khi đọc đơn.
-	loiT2 := make(chan error, 1)
+	errT2Ch := make(chan error, 1)
 	go func() {
-		loiT2 <- cham.CancelOrder(ctx, maDon, "khách đổi ý")
+		errT2Ch <- graded.CancelOrder(ctx, orderID, "khách đổi ý")
 	}()
 
 	select {
-	case <-dongHo.toiRoi:
+	case <-clock.toiRoi:
 	case <-time.After(5 * time.Second):
 		t.Fatal("T2 không tới được chỗ chặn — đường code đã đổi?")
 	}
 
 	// T1 — nhà bán bàn giao: worker cập nhật tiến độ, đơn thành SHIPPED.
-	if err := a.mods.order.ApplyFulfillmentProgress(ctx, maDon,
+	if err := a.mods.order.ApplyFulfillmentProgress(ctx, orderID,
 		[]order.FulfillmentProgressInput{{Shipped: true}}); err != nil {
 		t.Fatalf("cập nhật tiến độ: %v", err)
 	}
-	if tt := a.trangThaiDon(t, maDon); tt != "SHIPPED" {
+	if tt := a.orderStatus(t, orderID); tt != "SHIPPED" {
 		t.Fatalf("sau bàn giao đơn ở %q, cần SHIPPED", tt)
 	}
 
-	close(dongHo.diTiep)
+	close(clock.proceed)
 
 	var errT2 error
 	select {
-	case errT2 = <-loiT2:
+	case errT2 = <-errT2Ch:
 	case <-time.After(10 * time.Second):
 		t.Fatal("T2 không kết thúc")
 	}
 
 	// ---------------------------------------------------------------
 
-	if tt := a.trangThaiDon(t, maDon); tt == "CANCELLED" {
+	if tt := a.orderStatus(t, orderID); tt == "CANCELLED" {
 		t.Error("đơn ĐÃ RỜI KHO bị ghi thành CANCELLED — " +
 			"hàng đã đi mà hệ thống tin là đã hủy")
 	}

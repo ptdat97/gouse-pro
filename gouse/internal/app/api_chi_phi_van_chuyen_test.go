@@ -10,7 +10,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/logger"
 )
 
-// giaCoDinh là bảng giá hãng vận chuyển cho test.
+// fixedPrice là bảng giá hãng vận chuyển cho test.
 //
 // # Vì sao nó NHẠY với phương thức giao
 //
@@ -21,16 +21,16 @@ import (
 // đầu vào đang thiếu.
 //
 // Nay phương thức rỗng trả 0, nên bài test đỏ ngay nếu dây bị đứt lại.
-type giaCoDinh int64
+type fixedPrice int64
 
-func (g giaCoDinh) PricePerParcel(phuongThuc string) int64 {
+func (g fixedPrice) PricePerParcel(phuongThuc string) int64 {
 	if phuongThuc == "" {
 		return 0
 	}
 	return int64(g)
 }
 
-// TestChiPhiHangVanChuyenVaoSoKhiBanGiao.
+// TestCarrierCostIsPostedAtHandover.
 //
 // # Bất biến
 //
@@ -43,16 +43,16 @@ func (g giaCoDinh) PricePerParcel(phuongThuc string) int64 {
 // Thiếu vế chi phí thì doanh thu bị THỔI LÊN đúng bằng khoản chưa ghi, và
 // lãi/lỗ mảng vận chuyển — con số duy nhất trả lời "thu phí ship như vậy
 // là lãi hay lỗ" — không tồn tại.
-func TestChiPhiHangVanChuyenVaoSoKhiBanGiao(t *testing.T) {
+func TestCarrierCostIsPostedAtHandover(t *testing.T) {
 	a := newAPITest(t)
 
-	const giaTraHang = 18_000
+	const returnPrice = 18_000
 
-	maDon := a.datDonCOD(t, "chiphiship")
-	a.phatEventKemChiPhi(t, giaTraHang)
+	orderID := a.placeCODOrder(t, "chiphiship")
+	a.emitEventWithCost(t, returnPrice)
 
-	foID, sellerID := a.donThucHienCuaDon(t, maDon)
-	tokNB := a.taoTokenNhaBan(t, sellerID)
+	foID, sellerID := a.fulfillmentOfOrder(t, orderID)
+	tokNB := a.createSellerToken(t, sellerID)
 
 	// TRƯỚC khi bàn giao: chưa có nghĩa vụ nào với hãng.
 	//
@@ -60,85 +60,85 @@ func TestChiPhiHangVanChuyenVaoSoKhiBanGiao(t *testing.T) {
 	// độ vẫn qua bài test — khóa idempotency giữ cho tổng đúng, nên chỉ
 	// THỜI ĐIỂM sai, và thời điểm sai nghĩa là sổ ghi một nghĩa vụ chưa
 	// phát sinh.
-	if chiPhi, noHang := a.soDuVanChuyen(t, foID); chiPhi != 0 || noHang != 0 {
-		t.Errorf("chưa bàn giao mà đã ghi chi phí %d / nợ hãng %d", chiPhi, noHang)
+	if chiPhi, owedGoods := a.shippingBalance(t, foID); chiPhi != 0 || owedGoods != 0 {
+		t.Errorf("chưa bàn giao mà đã ghi chi phí %d / nợ hãng %d", chiPhi, owedGoods)
 	}
 
 	res := a.call(http.MethodPost,
 		"/api/v1/seller/fulfillment-orders/"+foID+"/ship",
 		map[string]any{"shipping_provider": "GHN", "tracking_number": "GHN-CP-1"},
-		hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokNB}))
+		merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokNB}))
 	if res.code != http.StatusOK {
 		t.Fatalf("bàn giao: HTTP %d — %s", res.code, res.raw)
 	}
-	a.phatEventKemChiPhi(t, giaTraHang)
+	a.emitEventWithCost(t, returnPrice)
 
-	chiPhi, noHang := a.soDuVanChuyen(t, foID)
-	if chiPhi != giaTraHang {
+	chiPhi, owedGoods := a.shippingBalance(t, foID)
+	if chiPhi != returnPrice {
 		t.Errorf("SHIPPING_EXPENSE = %d, cần %d — bàn giao rồi mà chi phí "+
-			"chưa vào sổ", chiPhi, giaTraHang)
+			"chưa vào sổ", chiPhi, returnPrice)
 	}
-	if noHang != giaTraHang {
-		t.Errorf("CARRIER_PAYABLE = %d, cần %d", noHang, giaTraHang)
+	if owedGoods != returnPrice {
+		t.Errorf("CARRIER_PAYABLE = %d, cần %d", owedGoods, returnPrice)
 	}
 
 	// Phát lại event tiến độ KHÔNG được tính chi phí lần hai.
-	a.phatLaiTienDo(t)
-	a.phatEventKemChiPhi(t, giaTraHang)
+	a.republishProgress(t)
+	a.emitEventWithCost(t, returnPrice)
 
-	chiPhi2, _ := a.soDuVanChuyen(t, foID)
-	if chiPhi2 != chiPhi {
+	cost2, _ := a.shippingBalance(t, foID)
+	if cost2 != chiPhi {
 		t.Errorf("chi phí %d → %d sau khi phát lại event — tính hai lần cho "+
-			"một kiện hàng", chiPhi, chiPhi2)
+			"một kiện hàng", chiPhi, cost2)
 	}
 }
 
-// TestChuaKhaiGiaHangThiKhongGhiButToanNao.
+// TestWithNoCarrierPriceNoEntryIsPosted.
 //
 // Hệ thống KHÔNG biết giá thỏa thuận với hãng: biểu phí của fulfillment là
 // phí KHÁCH TRẢ. Chưa khai thì không ghi — đặt một con số mặc định sẽ làm
 // lãi vận chuyển trông như một sự thật đã đo, trong khi không ai đo cả.
-func TestChuaKhaiGiaHangThiKhongGhiButToanNao(t *testing.T) {
+func TestWithNoCarrierPriceNoEntryIsPosted(t *testing.T) {
 	a := newAPITest(t)
 
-	maDon := a.datDonCOD(t, "chuakhaigia")
-	a.phatEventKemChiPhi(t, 0) // 0 = chưa khai
+	orderID := a.placeCODOrder(t, "chuakhaigia")
+	a.emitEventWithCost(t, 0) // 0 = chưa khai
 
-	foID, sellerID := a.donThucHienCuaDon(t, maDon)
-	tokNB := a.taoTokenNhaBan(t, sellerID)
+	foID, sellerID := a.fulfillmentOfOrder(t, orderID)
+	tokNB := a.createSellerToken(t, sellerID)
 
 	res := a.call(http.MethodPost,
 		"/api/v1/seller/fulfillment-orders/"+foID+"/ship",
 		map[string]any{"shipping_provider": "GHN", "tracking_number": "GHN-CP-2"},
-		hopNhat(khoaIdem(), map[string]string{"Authorization": "Bearer " + tokNB}))
+		merge(idemKey(), map[string]string{"Authorization": "Bearer " + tokNB}))
 	if res.code != http.StatusOK {
 		t.Fatalf("bàn giao: HTTP %d — %s", res.code, res.raw)
 	}
-	a.phatEventKemChiPhi(t, 0)
+	a.emitEventWithCost(t, 0)
 
-	chiPhi, noHang := a.soDuVanChuyen(t, foID)
-	if chiPhi != 0 || noHang != 0 {
+	chiPhi, owedGoods := a.shippingBalance(t, foID)
+	if chiPhi != 0 || owedGoods != 0 {
 		t.Errorf("chưa khai giá mà vẫn ghi sổ: chi phí %d, nợ hãng %d — "+
-			"con số này từ đâu ra?", chiPhi, noHang)
+			"con số này từ đâu ra?", chiPhi, owedGoods)
 	}
 }
 
-// phatEventKemChiPhi phát event kèm bên nhận ghi chi phí vận chuyển.
-func (a *apiTest) phatEventKemChiPhi(t *testing.T, gia int64) {
+// emitEventWithCost phát event kèm bên nhận ghi chi phí vận chuyển.
+func (a *apiTest) emitEventWithCost(t *testing.T, priceObj int64) {
 	t.Helper()
 	log := logger.New("error", "text")
 	bus := eventbus.NewDispatcher(a.db.Pool(), log)
-	a.dangKyBenNhan(bus, log)
+	a.registerReceivers(bus, log)
 	bus.Subscribe(payment.NewCarrierCostHandler(
-		a.mods.payment, giaCoDinh(gia), log))
+		a.mods.payment, fixedPrice(priceObj), log))
 
 	if _, err := bus.DispatchBatch(context.Background(), 200); err != nil {
 		t.Fatalf("phát event: %v", err)
 	}
 }
 
-// soDuVanChuyen trả số dư SHIPPING_EXPENSE và CARRIER_PAYABLE của MỘT kiện.
-func (a *apiTest) soDuVanChuyen(t *testing.T, foID string) (chiPhi, noHang int64) {
+// shippingBalance trả số dư SHIPPING_EXPENSE và CARRIER_PAYABLE của MỘT kiện.
+func (a *apiTest) shippingBalance(t *testing.T, foID string) (chiPhi, owedGoods int64) {
 	t.Helper()
 	if err := a.db.Pool().QueryRow(context.Background(), `
 		SELECT COALESCE(SUM(l.amount) FILTER (
@@ -147,14 +147,14 @@ func (a *apiTest) soDuVanChuyen(t *testing.T, foID string) (chiPhi, noHang int64
 		           WHERE l.account_type = 'CARRIER_PAYABLE'), 0)
 		  FROM ledger_line  l
 		  JOIN ledger_entry e ON e.id = l.entry_id
-		 WHERE e.reference_id = $1`, foID).Scan(&chiPhi, &noHang); err != nil {
+		 WHERE e.reference_id = $1`, foID).Scan(&chiPhi, &owedGoods); err != nil {
 		t.Fatalf("đọc số dư vận chuyển: %v", err)
 	}
-	return chiPhi, noHang
+	return chiPhi, owedGoods
 }
 
-// phatLaiTienDo đưa event tiến độ trở lại hàng đợi chưa xử lý.
-func (a *apiTest) phatLaiTienDo(t *testing.T) {
+// republishProgress đưa event tiến độ trở lại hàng đợi chưa xử lý.
+func (a *apiTest) republishProgress(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := a.db.Pool().Exec(ctx, `
@@ -171,20 +171,20 @@ func (a *apiTest) phatLaiTienDo(t *testing.T) {
 	}
 }
 
-// datDonCOD đặt một đơn COD, không áp mã giảm giá.
-func (a *apiTest) datDonCOD(t *testing.T, nhan string) string {
+// placeCODOrder đặt một đơn COD, không áp mã giảm giá.
+func (a *apiTest) placeCODOrder(t *testing.T, label string) string {
 	t.Helper()
 
-	maPhien := a.dungPhienSanHoanTat(emailMoi(nhan), "0900333222")
-	res := a.call(http.MethodPost, "/api/v1/checkout/"+maPhien+"/complete",
-		map[string]any{"payment_method": "COD"}, khoaIdem())
+	checkoutID := a.buildCheckoutReadyToComplete(newEmail(label), "0900333222")
+	res := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
+		map[string]any{"payment_method": "COD"}, idemKey())
 	if res.code != http.StatusOK && res.code != http.StatusCreated {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}
-	don, _ := res.body["order"].(map[string]any)
-	maDon, _ := don["id"].(string)
-	if maDon == "" {
+	ord, _ := res.body["order"].(map[string]any)
+	orderID, _ := ord["id"].(string)
+	if orderID == "" {
 		t.Fatalf("không lấy được mã đơn: %s", res.raw)
 	}
-	return maDon
+	return orderID
 }

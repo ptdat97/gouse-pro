@@ -11,7 +11,7 @@ import (
 	checkoutapp "github.com/fashion-commerce/platform/internal/modules/checkout/application"
 )
 
-// TestMuoiKhachTranhBaMonKhongAiMuaQua — bất biến QUAN TRỌNG NHẤT của cả
+// TestTenBuyersRacingForThreeItemsNobodyOversells — bất biến QUAN TRỌNG NHẤT của cả
 // hệ thống, kiểm ở mức TOÀN CHUỖI.
 //
 //	available >= 0   luôn đúng
@@ -27,18 +27,18 @@ import (
 // kho, giữ hàng, ghi phiên. Nhiều bước hơn nghĩa là nhiều chỗ hơn để một
 // lần đọc-rồi-ghi lọt ra ngoài vòng khóa. Bán quá hàng là lỗi KHÔNG sửa
 // được bằng xin lỗi: hàng không tồn tại thì không giao được.
-func TestMuoiKhachTranhBaMonKhongAiMuaQua(t *testing.T) {
+func TestTenBuyersRacingForThreeItemsNobodyOversells(t *testing.T) {
 	w := newWorld(t)
 	shop := ids.MustNew(ids.PrefixSeller)
 
-	const kho = 3
-	const khach = 10
+	const location = 3
+	const customer = 10
 
 	skuID := ids.MustNew(ids.PrefixSKU)
-	w.stockFor(skuID, shop, kho)
+	w.stockFor(skuID, shop, location)
 
 	// Mỗi khách một giỏ RIÊNG, mỗi giỏ mua 1 món.
-	carts := make([]ids.ID, khach)
+	carts := make([]ids.ID, customer)
 	for i := range carts {
 		carts[i] = ids.MustNew(ids.PrefixCart)
 		w.cart.put(checkoutapp.CartSnapshot{
@@ -57,10 +57,10 @@ func TestMuoiKhachTranhBaMonKhongAiMuaQua(t *testing.T) {
 	start.Add(1)
 
 	var mu sync.Mutex
-	var thanhCong int
-	var loiLa []error
+	var succeeded int
+	var errsGot []error
 
-	for i := 0; i < khach; i++ {
+	for i := 0; i < customer; i++ {
 		done.Add(1)
 		go func(cartID ids.ID) {
 			defer done.Done()
@@ -75,27 +75,27 @@ func TestMuoiKhachTranhBaMonKhongAiMuaQua(t *testing.T) {
 			defer mu.Unlock()
 			switch {
 			case err == nil:
-				thanhCong++
+				succeeded++
 			case errors.Is(err, checkoutapp.ErrOutOfStock):
 				// Đúng như mong đợi: hết hàng thì bị từ chối.
 			default:
-				loiLa = append(loiLa, err)
+				errsGot = append(errsGot, err)
 			}
 		}(carts[i])
 	}
 	start.Done()
 	done.Wait()
 
-	for _, err := range loiLa {
+	for _, err := range errsGot {
 		t.Errorf("lỗi ngoài dự kiến (không phải hết hàng): %v", err)
 	}
 
-	if thanhCong != kho {
-		t.Errorf("%d khách giữ được hàng, kho chỉ có %d", thanhCong, kho)
+	if succeeded != location {
+		t.Errorf("%d khách giữ được hàng, kho chỉ có %d", succeeded, location)
 	}
 
 	avail, _ := w.stock(skuID, shop)
-	giu := w.reserved(skuID, shop)
+	held := w.reserved(skuID, shop)
 
 	if avail < 0 {
 		t.Errorf("TỒN KHO ÂM: %d — đã bán quá hàng", avail)
@@ -103,12 +103,12 @@ func TestMuoiKhachTranhBaMonKhongAiMuaQua(t *testing.T) {
 	if avail != 0 {
 		t.Errorf("còn %d khả dụng, cần 0 (đã giữ hết)", avail)
 	}
-	if giu != kho {
-		t.Errorf("đang giữ %d, cần đúng %d", giu, kho)
+	if held != location {
+		t.Errorf("đang giữ %d, cần đúng %d", held, location)
 	}
 }
 
-// TestHaiTabCungGioChiGiuHangMotLan — cùng MỘT khách, hai tab.
+// TestTwoTabsOnOneCartHoldStockOnce — cùng MỘT khách, hai tab.
 //
 // Khác bài trên ở chỗ đây không phải nhiều người tranh nhau mà là một
 // người bấm hai lần. Mở phiên thứ hai cho cùng một giỏ sẽ giữ hàng LẦN
@@ -133,7 +133,7 @@ func TestMuoiKhachTranhBaMonKhongAiMuaQua(t *testing.T) {
 // Ghi lại điều này vì nó dễ dẫn tới kết luận sai theo cả hai chiều: thấy
 // test xanh sau khi phá một lớp mà tưởng test vô dụng, hoặc tưởng một lớp
 // là đủ nên gỡ lớp kia.
-func TestHaiTabCungGioChiGiuHangMotLan(t *testing.T) {
+func TestTwoTabsOnOneCartHoldStockOnce(t *testing.T) {
 	w := newWorld(t)
 	shop := ids.MustNew(ids.PrefixSeller)
 
@@ -154,7 +154,7 @@ func TestHaiTabCungGioChiGiuHangMotLan(t *testing.T) {
 	start.Add(1)
 
 	var mu sync.Mutex
-	phien := map[string]bool{}
+	checkout := map[string]bool{}
 
 	for i := 0; i < 8; i++ {
 		done.Add(1)
@@ -169,32 +169,32 @@ func TestHaiTabCungGioChiGiuHangMotLan(t *testing.T) {
 				return
 			}
 			mu.Lock()
-			phien[c.ID().String()] = true
+			checkout[c.ID().String()] = true
 			mu.Unlock()
 		}()
 	}
 	start.Done()
 	done.Wait()
 
-	if len(phien) != 1 {
-		t.Errorf("%d phiên được mở cho MỘT giỏ, cần 1", len(phien))
+	if len(checkout) != 1 {
+		t.Errorf("%d phiên được mở cho MỘT giỏ, cần 1", len(checkout))
 	}
 
 	// Giữ đúng 4, không phải 8 hay 32.
 	avail, _ := w.stock(skuID, shop)
-	giu := w.reserved(skuID, shop)
-	if avail != 6 || giu != 4 {
+	held := w.reserved(skuID, shop)
+	if avail != 6 || held != 4 {
 		t.Errorf("tồn kho %d khả dụng / %d giữ chỗ, cần 6/4 — giữ hàng nhiều lần",
-			avail, giu)
+			avail, held)
 	}
 }
 
-// TestHoanTatDongThoiKhongSinhHangTuKhongKhi là NỬA CÒN LẠI của bất biến
+// TestConcurrentCompletionCreatesNoStockFromNothing là NỬA CÒN LẠI của bất biến
 // quan trọng nhất hệ thống — phần mà backlog mục 2.12 ghi là còn thiếu.
 //
 // # Hai bài trên dừng ở đâu, và vì sao chưa đủ
 //
-// `TestMuoiKhachTranhBaMonKhongAiMuaQua` chứng minh `StartCheckout` an
+// `TestTenBuyersRacingForThreeItemsNobodyOversells` chứng minh `StartCheckout` an
 // toàn: đúng ba người GIỮ được hàng. Nhưng nó dừng ở đó — hàng mới chỉ
 // chuyển Available → Reserved.
 //
@@ -232,18 +232,18 @@ func TestHaiTabCungGioChiGiuHangMotLan(t *testing.T) {
 // Ghi lại vì nó dễ dẫn tới kết luận sai theo cả hai chiều: thấy phá mà
 // test vẫn xanh rồi tưởng bài test vô dụng, hoặc tưởng cứ phá gì cũng
 // phải đỏ mới là test tốt.
-func TestHoanTatDongThoiKhongSinhHangTuKhongKhi(t *testing.T) {
+func TestConcurrentCompletionCreatesNoStockFromNothing(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	shop := ids.MustNew(ids.PrefixSeller)
 
-	const kho = 3
-	const khach = 10
+	const location = 3
+	const customer = 10
 
 	skuID := ids.MustNew(ids.PrefixSKU)
-	w.stockFor(skuID, shop, kho)
+	w.stockFor(skuID, shop, location)
 
-	carts := make([]ids.ID, khach)
+	carts := make([]ids.ID, customer)
 	for i := range carts {
 		carts[i] = ids.MustNew(ids.PrefixCart)
 		w.cart.put(checkoutapp.CartSnapshot{
@@ -260,10 +260,10 @@ func TestHoanTatDongThoiKhongSinhHangTuKhongKhi(t *testing.T) {
 	start.Add(1)
 
 	var mu sync.Mutex
-	var datDuoc int
-	var loiLa []error
+	var placed int
+	var errsGot []error
 
-	for i := 0; i < khach; i++ {
+	for i := 0; i < customer; i++ {
 		done.Add(1)
 		go func(cartID ids.ID) {
 			defer done.Done()
@@ -277,20 +277,20 @@ func TestHoanTatDongThoiKhongSinhHangTuKhongKhi(t *testing.T) {
 				mu.Lock()
 				defer mu.Unlock()
 				if !errors.Is(err, checkoutapp.ErrOutOfStock) {
-					loiLa = append(loiLa, err)
+					errsGot = append(errsGot, err)
 				}
 				return
 			}
 
 			if _, err := w.checkout.SetShippingAddress(ctx, c.ID(), address()); err != nil {
 				mu.Lock()
-				loiLa = append(loiLa, err)
+				errsGot = append(errsGot, err)
 				mu.Unlock()
 				return
 			}
 			if _, err := w.checkout.SetShippingMethod(ctx, c.ID(), "STANDARD"); err != nil {
 				mu.Lock()
-				loiLa = append(loiLa, err)
+				errsGot = append(errsGot, err)
 				mu.Unlock()
 				return
 			}
@@ -302,22 +302,22 @@ func TestHoanTatDongThoiKhongSinhHangTuKhongKhi(t *testing.T) {
 			defer mu.Unlock()
 			switch {
 			case err == nil:
-				datDuoc++
+				placed++
 			case errors.Is(err, checkoutapp.ErrOutOfStock):
 			default:
-				loiLa = append(loiLa, err)
+				errsGot = append(errsGot, err)
 			}
 		}(carts[i])
 	}
 	start.Done()
 	done.Wait()
 
-	for _, err := range loiLa {
+	for _, err := range errsGot {
 		t.Errorf("lỗi ngoài dự kiến: %v", err)
 	}
 
-	if datDuoc != kho {
-		t.Errorf("%d khách đặt được đơn, kho chỉ có %d", datDuoc, kho)
+	if placed != location {
+		t.Errorf("%d khách đặt được đơn, kho chỉ có %d", placed, location)
 	}
 
 	// Vét outbox: đây là chỗ Reserved → Committed thật sự xảy ra. Trước
@@ -325,34 +325,34 @@ func TestHoanTatDongThoiKhongSinhHangTuKhongKhi(t *testing.T) {
 	w.drain()
 
 	avail, committed := w.stock(skuID, shop)
-	giu := w.reserved(skuID, shop)
+	held := w.reserved(skuID, shop)
 
 	if avail < 0 {
 		t.Errorf("TỒN KHO ÂM: %d — đã bán quá hàng", avail)
 	}
 
 	// BẢO TOÀN. Đây là khẳng định chính của bài test.
-	if tong := avail + giu + committed; tong != kho {
+	if tong := avail + held + committed; tong != location {
 		t.Errorf("available(%d) + reserved(%d) + committed(%d) = %d, "+
 			"nhưng chỉ nhập %d món — hàng %s",
-			avail, giu, committed, tong, kho,
-			map[bool]string{true: "SINH RA TỪ KHÔNG KHÍ", false: "BỐC HƠI"}[tong > kho])
+			avail, held, committed, tong, location,
+			map[bool]string{true: "SINH RA TỪ KHÔNG KHÍ", false: "BỐC HƠI"}[tong > location])
 	}
 
 	// Và hàng phải đi HẾT sang đã-cam-kết: mỗi đơn đặt được là một món
 	// rời kho. Còn sót ở `reserved` nghĩa là có event không tới đích, tức
 	// hàng bị khóa cho một đơn đã xong — không ai đi tìm nó.
-	if committed != kho {
+	if committed != location {
 		t.Errorf("đã cam kết %d, cần %d — event Reserved→Committed chưa "+
-			"tới đích cho %d món", committed, kho, kho-committed)
+			"tới đích cho %d món", committed, location, location-committed)
 	}
-	if giu != 0 {
+	if held != 0 {
 		t.Errorf("còn %d món ở trạng thái GIỮ sau khi mọi đơn đã đặt và "+
-			"outbox đã vét — hàng bị khóa cho đơn đã xong", giu)
+			"outbox đã vét — hàng bị khóa cho đơn đã xong", held)
 	}
 }
 
-// TestVetOutboxHaiLanKhongTruKhoHaiLan — cùng bất biến bảo toàn, nhưng
+// TestDrainingTheOutboxTwiceDoesNotDeductStockTwice — cùng bất biến bảo toàn, nhưng
 // dưới việc PHÁT LẠI event.
 //
 // Outbox là at-least-once: cùng một event SẼ được phát lại khi worker
@@ -362,14 +362,14 @@ func TestHoanTatDongThoiKhongSinhHangTuKhongKhi(t *testing.T) {
 //
 // PH-31 là đúng lớp lỗi này, chỉ ngược chiều: nhả giữ hàng hai lần SINH
 // RA hàng. Bài này khóa chiều còn lại.
-func TestVetOutboxHaiLanKhongTruKhoHaiLan(t *testing.T) {
+func TestDrainingTheOutboxTwiceDoesNotDeductStockTwice(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	shop := ids.MustNew(ids.PrefixSeller)
 
-	const kho = 5
+	const location = 5
 	skuID := ids.MustNew(ids.PrefixSKU)
-	w.stockFor(skuID, shop, kho)
+	w.stockFor(skuID, shop, location)
 
 	cartID := ids.MustNew(ids.PrefixCart)
 	w.cart.put(checkoutapp.CartSnapshot{
@@ -397,25 +397,25 @@ func TestVetOutboxHaiLanKhongTruKhoHaiLan(t *testing.T) {
 	}
 
 	w.drain()
-	availSau1, committedSau1 := w.stock(skuID, shop)
+	availAfter1, committedAfter1 := w.stock(skuID, shop)
 
 	// Vét LẦN HAI. Event đã `published` nên vòng này không có gì để phát —
 	// nhưng nếu có đường nào phát lại được, đây là chỗ nó lộ ra.
 	w.drain()
-	availSau2, committedSau2 := w.stock(skuID, shop)
+	availAfter2, committedAfter2 := w.stock(skuID, shop)
 
-	if availSau2 != availSau1 || committedSau2 != committedSau1 {
+	if availAfter2 != availAfter1 || committedAfter2 != committedAfter1 {
 		t.Errorf("vét outbox lần hai làm ĐỔI tồn kho: "+
 			"(%d khả dụng, %d cam kết) → (%d, %d) — Reserved→Committed "+
-			"không idempotent", availSau1, committedSau1, availSau2, committedSau2)
+			"không idempotent", availAfter1, committedAfter1, availAfter2, committedAfter2)
 	}
 
-	giu := w.reserved(skuID, shop)
-	if tong := availSau2 + giu + committedSau2; tong != kho {
+	held := w.reserved(skuID, shop)
+	if tong := availAfter2 + held + committedAfter2; tong != location {
 		t.Errorf("available(%d) + reserved(%d) + committed(%d) = %d, "+
-			"nhưng chỉ nhập %d món", availSau2, giu, committedSau2, tong, kho)
+			"nhưng chỉ nhập %d món", availAfter2, held, committedAfter2, tong, location)
 	}
-	if committedSau2 != 2 {
-		t.Errorf("đã cam kết %d, cần đúng 2 (số món khách mua)", committedSau2)
+	if committedAfter2 != 2 {
+		t.Errorf("đã cam kết %d, cần đúng 2 (số món khách mua)", committedAfter2)
 	}
 }

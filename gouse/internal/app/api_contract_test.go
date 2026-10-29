@@ -26,7 +26,7 @@ import (
 // mới cho tầng test. Viết tay có cái giá là phải sửa khi đặc tả đổi, và
 // đó là cái giá ĐÚNG: đổi hợp đồng công khai nên là một hành động có ý
 // thức, không phải thứ trôi qua im lặng.
-func TestResponseCoDuTruongDacTaHua(t *testing.T) {
+func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 	a := newAPITest(t)
 
 	// Lấy một sản phẩm có thật từ dữ liệu mẫu.
@@ -144,13 +144,13 @@ func TestResponseCoDuTruongDacTaHua(t *testing.T) {
 		// lỗi này từng làm cửa hàng không bán được gì.
 		canCo(t, o, "id", "sku_id", "seller_id", "price", "is_sellable")
 
-		gia, _ := o["price"].(map[string]any)
-		canCo(t, gia, "amount", "currency")
+		priceObj, _ := o["price"].(map[string]any)
+		canCo(t, priceObj, "amount", "currency")
 	})
 
 	t.Run("SellerRef công khai", func(t *testing.T) {
 		got := a.call(http.MethodGet,
-			"/api/v1/sellers?ids="+maNhaBanDauTien(t, a), nil, nil)
+			"/api/v1/sellers?ids="+firstSellerID(t, a), nil, nil)
 		if got.code != http.StatusOK {
 			t.Fatalf("HTTP %d — %s", got.code, got.raw)
 		}
@@ -163,17 +163,17 @@ func TestResponseCoDuTruongDacTaHua(t *testing.T) {
 
 		// Và KHÔNG có gì ngoài ba trường công khai. Endpoint này không có
 		// xác thực, nên mỗi trường thừa là một rò rỉ.
-		choPhep := map[string]bool{"id": true, "name": true, "is_official": true}
+		allowed := map[string]bool{"id": true, "name": true, "is_official": true}
 		for k := range s {
-			if !choPhep[k] {
+			if !allowed[k] {
 				t.Errorf("trường %q lọt ra endpoint công khai không xác thực", k)
 			}
 		}
 	})
 }
 
-// maNhaBanDauTien lấy mã nhà bán từ offer của dữ liệu mẫu.
-func maNhaBanDauTien(t *testing.T, a *apiTest) string {
+// firstSellerID lấy mã nhà bán từ offer của dữ liệu mẫu.
+func firstSellerID(t *testing.T, a *apiTest) string {
 	t.Helper()
 	res := a.call(http.MethodGet, "/api/v1/products", nil, nil)
 	ds, _ := res.body["data"].([]any)
@@ -197,9 +197,9 @@ func maNhaBanDauTien(t *testing.T, a *apiTest) string {
 //
 // Kiểm cả "có mặt" lẫn "khác rỗng": một trường trả về `""` hay `null` thì
 // về mặt JSON là có, nhưng với bên gọi thì không khác gì thiếu.
-func canCo(t *testing.T, obj map[string]any, truong ...string) {
+func canCo(t *testing.T, obj map[string]any, field ...string) {
 	t.Helper()
-	for _, k := range truong {
+	for _, k := range field {
 		v, ok := obj[k]
 		if !ok {
 			t.Errorf("thiếu trường %q — đặc tả khai là bắt buộc", k)
@@ -222,11 +222,11 @@ func canCo(t *testing.T, obj map[string]any, truong ...string) {
 //
 // Trạng thái "không có ai bán" phải được nói RÕ bằng sự vắng mặt, để bên
 // gọi buộc phải xử lý nó thay vì vô tình hiển thị một con số sai.
-func TestKhongCoOfferBanDuocThiVangMat(t *testing.T) {
+func TestWithNoSellableOfferItIsAbsent(t *testing.T) {
 	a := newAPITest(t)
 
 	// Sản phẩm vừa tạo, CHƯA ai chào bán.
-	skuID := dungSkuThuongHieuMo(t, a)
+	skuID := buildOpenBrandSKU(t, a)
 
 	res := a.call(http.MethodGet, "/api/v1/products?limit=50", nil, nil)
 	ds, _ := res.body["data"].([]any)
@@ -263,8 +263,8 @@ func TestKhongCoOfferBanDuocThiVangMat(t *testing.T) {
 		if id, _ := m["product_id"].(string); id != maSP {
 			continue
 		}
-		gia, _ := m["price_from"].(map[string]any)
-		amount, _ := gia["amount"].(float64)
+		priceObj, _ := m["price_from"].(map[string]any)
+		amount, _ := priceObj["amount"].(float64)
 		t.Errorf("sản phẩm KHÔNG có offer bán được vẫn có giá %v — "+
 			"phải VẮNG MẶT khỏi kết quả", amount)
 	}

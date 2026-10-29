@@ -33,11 +33,11 @@ type opsConfigHandler struct {
 }
 
 func (h *opsConfigHandler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/admin/config", http.HandlerFunc(h.danhSach))
+	mux.Handle("GET /api/v1/admin/config", http.HandlerFunc(h.listed))
 	mux.Handle("PUT /api/v1/admin/config/{key}", http.HandlerFunc(h.dat))
 }
 
-type thamSoJSON struct {
+type paramJSON struct {
 	Key     string  `json:"key"`
 	Type    string  `json:"type"`
 	Value   float64 `json:"value"`
@@ -64,16 +64,16 @@ type thamSoJSON struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
-func (h *opsConfigHandler) danhSach(w http.ResponseWriter, r *http.Request) {
+func (h *opsConfigHandler) listed(w http.ResponseWriter, r *http.Request) {
 	ds, err := h.cfg.List(r.Context())
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 
-	ra := make([]thamSoJSON, 0, len(ds))
+	ra := make([]paramJSON, 0, len(ds))
 	for _, g := range ds {
-		t := thamSoJSON{
+		t := paramJSON{
 			Key: g.Param.Key, Type: string(g.Param.Kind),
 			Value: g.Current, Default: g.Param.Default,
 			Min: g.Param.Min, Max: g.Param.Max,
@@ -91,7 +91,7 @@ func (h *opsConfigHandler) danhSach(w http.ResponseWriter, r *http.Request) {
 	h.ok(w, r, map[string]any{"data": ra})
 }
 
-type datThamSoRequest struct {
+type setRequestParam struct {
 	Value float64 `json:"value"`
 
 	// Reason BẮT BUỘC, tối thiểu 20 ký tự.
@@ -110,8 +110,8 @@ type datThamSoRequest struct {
 // Ghi vết TRƯỚC khi đổi, và ghi vết hỏng thì KHÔNG đổi — cùng thứ tự với
 // `order.GetOrderAsAdmin` và `customer.GetAsAdmin`.
 func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
-	khoa := r.PathValue("key")
-	tham, co := opsconfig.Lookup(khoa)
+	key := r.PathValue("key")
+	param, co := opsconfig.Lookup(key)
 	if !co {
 		// 404 chứ không phải 400: khóa là một tài nguyên, và sổ đăng ký
 		// ĐÓNG nên khóa lạ đơn giản là không tồn tại.
@@ -120,7 +120,7 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req datThamSoRequest
+	var req setRequestParam
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
@@ -129,8 +129,8 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lyDo := strings.TrimSpace(req.Reason)
-	if err := audit.ValidateReason(lyDo); err != nil {
+	reason := strings.TrimSpace(req.Reason)
+	if err := audit.ValidateReason(reason); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"reason phải là lý do có ý nghĩa, tối thiểu 20 ký tự — "+
 				"đổi tham số vận hành ảnh hưởng tới nhà bán, và một lần đổi "+
@@ -138,7 +138,7 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := tham.Validate(req.Value); err != nil {
+	if err := param.Validate(req.Value); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed, err.Error()))
 		return
 	}
@@ -166,11 +166,11 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 	var cu float64
 	err := h.cfg.Set(r.Context(),
 		opsconfig.SetInput{
-			Key: khoa, Value: req.Value,
-			UpdatedBy: ac.UserID, Reason: lyDo,
+			Key: key, Value: req.Value,
+			UpdatedBy: ac.UserID, Reason: reason,
 		},
-		func(ctx context.Context, tx opsconfig.Tx, giaTriCu float64) error {
-			cu = giaTriCu
+		func(ctx context.Context, tx opsconfig.Tx, oldValue float64) error {
+			cu = oldValue
 			// Giá trị CŨ đi vào vết, và đọc dưới khóa nên nó ĐÚNG kể cả
 			// khi hai quản trị viên đổi cùng lúc. "Đổi thành 24" không
 			// trả lời được câu hỏi quan trọng nhất khi điều tra: đổi từ
@@ -180,29 +180,29 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 				ActorID:      ac.UserID,
 				Action:       "ops_config.set",
 				ResourceType: audit.ResourceConfig,
-				ResourceID:   khoa,
-				Reason:       lyDo,
+				ResourceID:   key,
+				Reason:       reason,
 				RequestID:    logger.RequestIDFromContext(ctx),
 				Metadata: map[string]any{
-					"gia_tri_cu":  giaTriCu,
+					"gia_tri_cu":  oldValue,
 					"gia_tri_moi": req.Value,
 				},
 			})
 		})
 	if err != nil {
-		h.fail(w, r, dichLoiCauHinh(err))
+		h.fail(w, r, translateConfigError(err))
 		return
 	}
 
 	h.log.InfoContext(r.Context(), "đổi tham số vận hành",
-		"khoa", khoa, "cu", cu, "moi", req.Value, "boi", ac.UserID)
+		"khoa", key, "cu", cu, "moi", req.Value, "boi", ac.UserID)
 
 	h.ok(w, r, map[string]any{
-		"key": khoa, "value": req.Value, "previous_value": cu,
+		"key": key, "value": req.Value, "previous_value": cu,
 	})
 }
 
-func dichLoiCauHinh(err error) error {
+func translateConfigError(err error) error {
 	switch {
 	case errors.Is(err, opsconfig.ErrNoKey):
 		return apierror.New(apierror.CodeNotFound,

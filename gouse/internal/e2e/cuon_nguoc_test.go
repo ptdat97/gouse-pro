@@ -12,22 +12,22 @@ import (
 	"github.com/fashion-commerce/platform/internal/platform/eventbus"
 )
 
-// benNhanHayHong là bên nhận GHI DỮ LIỆU rồi THẤT BẠI ở n lần đầu.
+// flakyHandler là bên nhận GHI DỮ LIỆU rồi THẤT BẠI ở n lần đầu.
 //
 // Ghi trước rồi mới lỗi là điểm mấu chốt: nếu dispatcher không cuộn ngược,
 // phần ghi đó sẽ còn lại. Một bên nhận chỉ trả lỗi mà không ghi gì thì
 // không kiểm chứng được điều đó.
-type benNhanHayHong struct {
-	mu      sync.Mutex
-	solan   int
-	hongDen int
-	daGhi   []string
-	pool    interface {
+type flakyHandler struct {
+	mu        sync.Mutex
+	solan     int
+	failUntil int
+	logged    []string
+	pool      interface {
 		Exec(context.Context, string, ...any)
 	}
 }
 
-func (h *benNhanHayHong) Name() string { return "e2e.ben_nhan_hay_hong" }
+func (h *flakyHandler) Name() string { return "e2e.ben_nhan_hay_hong" }
 
 // MaxEventVersion khai theo kịp phiên bản mới nhất của `checkout.completed`.
 //
@@ -35,21 +35,21 @@ func (h *benNhanHayHong) Name() string { return "e2e.ben_nhan_hay_hong" }
 // — nên tồn kho không chuyển sang cam kết và bài test đỏ ở một chỗ chẳng
 // liên quan gì tới điều nó muốn kiểm. Đó là cái giá của cơ chế hoãn
 // (ADR-0016), và nó áp cả cho bản giả trong test.
-func (h *benNhanHayHong) MaxEventVersion(eventType string) int {
+func (h *flakyHandler) MaxEventVersion(eventType string) int {
 	if eventType == eventbus.TypeCheckoutCompleted {
 		return 9
 	}
 	return eventbus.DefaultMaxEventVersion
 }
 
-func (h *benNhanHayHong) EventTypes() []string {
+func (h *flakyHandler) EventTypes() []string {
 	return []string{eventbus.TypeCheckoutCompleted}
 }
 
-func (h *benNhanHayHong) Handle(ctx context.Context, e eventbus.Event) error {
+func (h *flakyHandler) Handle(ctx context.Context, e eventbus.Event) error {
 	h.mu.Lock()
 	h.solan++
-	lan := h.solan
+	attempt := h.solan
 	h.mu.Unlock()
 
 	tx, err := eventbus.MustTxFrom(ctx)
@@ -60,18 +60,18 @@ func (h *benNhanHayHong) Handle(ctx context.Context, e eventbus.Event) error {
 	// GHI vào database bằng giao dịch của dispatcher.
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO e2e_dau_vet (id, ghi_chu) VALUES ($1, $2)`,
-		e.ID.String(), "lần "+string(rune('0'+lan)),
+		e.ID.String(), "lần "+string(rune('0'+attempt)),
 	); err != nil {
 		return err
 	}
 
-	if lan <= h.hongDen {
+	if attempt <= h.failUntil {
 		return errors.New("bên nhận hỏng có chủ ý")
 	}
 	return nil
 }
 
-// TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo — kịch bản "giao dịch cuộn
+// TestAFailingHandlerRollsBackItsOwnWrites — kịch bản "giao dịch cuộn
 // ngược", ở đúng chỗ nó quan trọng nhất.
 //
 // # Bất biến
@@ -95,7 +95,7 @@ func (h *benNhanHayHong) Handle(ctx context.Context, e eventbus.Event) error {
 // Tách rời thì phần ghi có thể thành công trong khi đánh dấu thất bại —
 // lần thử lại chạy LẦN THỨ HAI. Với tồn kho, lần thứ hai là hàng không có
 // thật.
-func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
+func TestAFailingHandlerRollsBackItsOwnWrites(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -111,8 +111,8 @@ func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
 	}
 
 	// Hỏng ĐÚNG một lần rồi thành công.
-	hong := &benNhanHayHong{hongDen: 1}
-	w.bus.Subscribe(hong)
+	broken := &flakyHandler{failUntil: 1}
+	w.bus.Subscribe(broken)
 
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
@@ -157,7 +157,7 @@ func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
 	}
 
 	// 1. Phần ghi của bên nhận hỏng phải BIẾN MẤT.
-	if n := demDauVet(t, w); n != 0 {
+	if n := countTraces(t, w); n != 0 {
 		t.Errorf("còn %d dòng của bên nhận đã lỗi, cần 0 — không cuộn ngược", n)
 	}
 
@@ -171,7 +171,7 @@ func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
 	// Vòng phát thứ hai: thử lại và thành công.
 	w.drain()
 
-	if n := demDauVet(t, w); n != 1 {
+	if n := countTraces(t, w); n != 1 {
 		t.Errorf("sau khi thử lại còn %d dòng, cần 1 — event không được thử lại", n)
 	}
 
@@ -191,7 +191,7 @@ func TestBenNhanHongThiCuonNguocPhanGhiCuaChinhNo(t *testing.T) {
 	}
 }
 
-func demDauVet(t *testing.T, w *world) int {
+func countTraces(t *testing.T, w *world) int {
 	t.Helper()
 	var n int
 	if err := w.db.Pool().QueryRow(
@@ -202,4 +202,4 @@ func demDauVet(t *testing.T, w *world) int {
 	return n
 }
 
-var _ eventbus.Handler = (*benNhanHayHong)(nil)
+var _ eventbus.Handler = (*flakyHandler)(nil)

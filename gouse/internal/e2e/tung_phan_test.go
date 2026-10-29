@@ -10,9 +10,9 @@ import (
 	"github.com/fashion-commerce/platform/internal/modules/fulfillment"
 )
 
-// datHaiNhaBan dựng một đơn có hàng của HAI nhà bán, trả về hai mã đơn
+// placeAcrossTwoSellers dựng một đơn có hàng của HAI nhà bán, trả về hai mã đơn
 // thực hiện theo đúng thứ tự (shopA, shopB).
-func datHaiNhaBan(
+func placeAcrossTwoSellers(
 	t *testing.T, w *world, shopA, shopB ids.ID,
 ) (string, string, string) {
 	t.Helper()
@@ -77,12 +77,12 @@ func datHaiNhaBan(
 	return res.OrderID.String(), foA, foB
 }
 
-// giaoToiBuoc đẩy một đơn thực hiện tới trạng thái mong muốn.
-func giaoToiBuoc(t *testing.T, w *world, seller, foID string, denBuoc string) {
+// deliverToStep đẩy một đơn thực hiện tới trạng thái mong muốn.
+func deliverToStep(t *testing.T, w *world, seller, foID string, toStep string) {
 	t.Helper()
 	ctx := context.Background()
 
-	buoc := []struct {
+	step := []struct {
 		ten string
 		lam func() error
 	}{
@@ -99,19 +99,19 @@ func giaoToiBuoc(t *testing.T, w *world, seller, foID string, denBuoc string) {
 		{"DELIVERED", func() error { return w.ful.MarkDelivered(ctx, seller, foID) }},
 	}
 
-	for _, b := range buoc {
+	for _, b := range step {
 		if err := b.lam(); err != nil {
 			t.Fatalf("%s: %v", b.ten, err)
 		}
 		w.drain()
-		if b.ten == denBuoc {
+		if b.ten == toStep {
 			return
 		}
 	}
 }
 
-// trangThaiDon đọc trạng thái tổng hợp của đơn hàng.
-func trangThaiDon(t *testing.T, w *world, orderID string) string {
+// orderStatus đọc trạng thái tổng hợp của đơn hàng.
+func orderStatus(t *testing.T, w *world, orderID string) string {
 	t.Helper()
 	v, err := w.ord.GetOrder(context.Background(), orderID)
 	if err != nil {
@@ -120,7 +120,7 @@ func trangThaiDon(t *testing.T, w *world, orderID string) string {
 	return v.Status
 }
 
-// TestGiaoTungPhan — một nhà bán đã xuất hàng, nhà bán kia chưa.
+// TestPartialDelivery — một nhà bán đã xuất hàng, nhà bán kia chưa.
 //
 // # Vì sao trạng thái tổng hợp phải phân biệt được
 //
@@ -130,55 +130,55 @@ func trangThaiDon(t *testing.T, w *world, orderID string) string {
 // hướng bi quan ("đang xử lý" khi một nửa đã tới nơi).
 //
 // Cả hai đều dẫn tới cùng một hệ quả: khách gọi lên hỏi hàng của tôi đâu.
-func TestGiaoTungPhan(t *testing.T) {
+func TestPartialDelivery(t *testing.T) {
 	w := newWorld(t)
 	shopA := ids.MustNew(ids.PrefixSeller)
 	shopB := ids.MustNew(ids.PrefixSeller)
 
-	orderID, foA, _ := datHaiNhaBan(t, w, shopA, shopB)
+	orderID, foA, _ := placeAcrossTwoSellers(t, w, shopA, shopB)
 
 	// Chỉ nhà bán A bàn giao vận chuyển.
-	giaoToiBuoc(t, w, shopA.String(), foA, "HANDED_OVER")
+	deliverToStep(t, w, shopA.String(), foA, "HANDED_OVER")
 
-	if got := trangThaiDon(t, w, orderID); got != "PARTIALLY_SHIPPED" {
+	if got := orderStatus(t, w, orderID); got != "PARTIALLY_SHIPPED" {
 		t.Errorf("trạng thái đơn = %s, cần PARTIALLY_SHIPPED", got)
 	}
 }
 
-// TestGiaoDuTungPhanRoiDuHet — từ giao một phần tới giao đủ.
+// TestPartialDeliveriesEventuallyCompleteTheOrder — từ giao một phần tới giao đủ.
 //
 // Bài này khóa cả HAI phía của quy tắc: một nửa thì phải là "một phần",
 // và đủ cả thì phải chuyển sang trạng thái cuối. Chỉ kiểm một phía thì
 // một cài đặt luôn trả "PARTIALLY_DELIVERED" vẫn xanh.
-func TestGiaoDuTungPhanRoiDuHet(t *testing.T) {
+func TestPartialDeliveriesEventuallyCompleteTheOrder(t *testing.T) {
 	w := newWorld(t)
 	shopA := ids.MustNew(ids.PrefixSeller)
 	shopB := ids.MustNew(ids.PrefixSeller)
 
-	orderID, foA, foB := datHaiNhaBan(t, w, shopA, shopB)
+	orderID, foA, foB := placeAcrossTwoSellers(t, w, shopA, shopB)
 
-	giaoToiBuoc(t, w, shopA.String(), foA, "DELIVERED")
-	if got := trangThaiDon(t, w, orderID); got != "PARTIALLY_DELIVERED" {
+	deliverToStep(t, w, shopA.String(), foA, "DELIVERED")
+	if got := orderStatus(t, w, orderID); got != "PARTIALLY_DELIVERED" {
 		t.Fatalf("sau khi A giao xong: %s, cần PARTIALLY_DELIVERED", got)
 	}
 
-	giaoToiBuoc(t, w, shopB.String(), foB, "DELIVERED")
-	if got := trangThaiDon(t, w, orderID); got != "DELIVERED" {
+	deliverToStep(t, w, shopB.String(), foB, "DELIVERED")
+	if got := orderStatus(t, w, orderID); got != "DELIVERED" {
 		t.Errorf("sau khi cả hai giao xong: %s, cần DELIVERED", got)
 	}
 }
 
-// TestHuyMotPhanDonVanConHieuLuc — một nhà bán hủy, đơn KHÔNG hủy theo.
+// TestAPartialCancelLeavesTheOrderValid — một nhà bán hủy, đơn KHÔNG hủy theo.
 //
 // Đây là chỗ dễ sai theo hướng tai hại: coi đơn là đã hủy khi mới một
 // nguồn hàng hủy nghĩa là khách mất phần hàng còn lại mà không ai báo.
-func TestHuyMotPhanDonVanConHieuLuc(t *testing.T) {
+func TestAPartialCancelLeavesTheOrderValid(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	shopA := ids.MustNew(ids.PrefixSeller)
 	shopB := ids.MustNew(ids.PrefixSeller)
 
-	orderID, foA, foB := datHaiNhaBan(t, w, shopA, shopB)
+	orderID, foA, foB := placeAcrossTwoSellers(t, w, shopA, shopB)
 
 	if err := w.ful.CancelFulfillment(
 		ctx, shopA.String(), foA, "hết hàng thật"); err != nil {
@@ -186,21 +186,21 @@ func TestHuyMotPhanDonVanConHieuLuc(t *testing.T) {
 	}
 	w.drain()
 
-	if got := trangThaiDon(t, w, orderID); got != "PARTIALLY_CANCELLED" {
+	if got := orderStatus(t, w, orderID); got != "PARTIALLY_CANCELLED" {
 		t.Errorf("trạng thái đơn = %s, cần PARTIALLY_CANCELLED", got)
 	}
 
 	// Phần của B vẫn đi tiếp bình thường.
-	giaoToiBuoc(t, w, shopB.String(), foB, "DELIVERED")
-	if got := trangThaiDon(t, w, orderID); got == "CANCELLED" {
+	deliverToStep(t, w, shopB.String(), foB, "DELIVERED")
+	if got := orderStatus(t, w, orderID); got == "CANCELLED" {
 		t.Error("đơn bị coi là đã hủy dù nhà bán B đã giao xong")
 	}
 }
 
-// TestHuyMotPhanTraHangDUNGCHUSOHUU là nửa còn thiếu của PH-2 — bất biến
+// TestAPartialCancelReturnsGoodsToTheRightOwner là nửa còn thiếu của PH-2 — bất biến
 // ownership dưới HỦY TỪNG PHẦN.
 //
-// # Vì sao bài `TestHuyMotPhanDonVanConHieuLuc` chưa đủ
+// # Vì sao bài `TestAPartialCancelLeavesTheOrderValid` chưa đủ
 //
 // Nó kiểm TRẠNG THÁI ĐƠN sau khi hủy một phần (`PARTIALLY_CANCELLED`, và
 // phần của B vẫn đi tiếp). Đúng và cần — nhưng nó không nhìn tới tồn kho
@@ -231,7 +231,7 @@ func TestHuyMotPhanDonVanConHieuLuc(t *testing.T) {
 // Hủy phần của A mà hàng chạy về kho của B: A vĩnh viễn thiếu 2 món, B tự
 // nhiên thừa 2 món. Không lỗi nào báo, không con số nào âm, và cả hai bên
 // chỉ phát hiện ở lần kiểm kê thật.
-func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
+func TestAPartialCancelReturnsGoodsToTheRightOwner(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -245,9 +245,9 @@ func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
 	// không bao giờ phải làm việc — kiểm chứng: bỏ `inventory_owner_id`
 	// khỏi mệnh đề WHERE với dữ liệu kho-riêng thì bài test VẪN XANH.
 	skuID := ids.MustNew(ids.PrefixSKU)
-	kho := w.khoChung()
-	w.stockTaiKho(skuID, w.ownerOf(shopA), kho, 20)
-	w.stockTaiKho(skuID, w.ownerOf(shopB), kho, 20)
+	location := w.sharedLocation()
+	w.stockAtLocation(skuID, w.ownerOf(shopA), location, 20)
+	w.stockAtLocation(skuID, w.ownerOf(shopB), location, 20)
 
 	cartID := ids.MustNew(ids.PrefixCart)
 	w.cart.put(checkoutapp.CartSnapshot{
@@ -279,20 +279,20 @@ func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
 	w.drain()
 
 	// Sau khi đặt: mỗi bên bị trừ ĐÚNG phần của mình.
-	kiemKho := func(t *testing.T, moc string, muonA, camA, muonB, camB int) {
+	checkStock := func(t *testing.T, mark string, wantA, committedA, wantB, committedB int) {
 		t.Helper()
 		availA, commitA := w.stock(skuID, w.ownerOf(shopA))
 		availB, commitB := w.stock(skuID, w.ownerOf(shopB))
-		if availA != muonA || commitA != camA {
+		if availA != wantA || commitA != committedA {
 			t.Errorf("%s — nhà bán A: %d khả dụng / %d cam kết, cần %d/%d",
-				moc, availA, commitA, muonA, camA)
+				mark, availA, commitA, wantA, committedA)
 		}
-		if availB != muonB || commitB != camB {
+		if availB != wantB || commitB != committedB {
 			t.Errorf("%s — nhà bán B: %d khả dụng / %d cam kết, cần %d/%d",
-				moc, availB, commitB, muonB, camB)
+				mark, availB, commitB, wantB, committedB)
 		}
 	}
-	kiemKho(t, "sau khi đặt đơn", 18, 2, 19, 1)
+	checkStock(t, "sau khi đặt đơn", 18, 2, 19, 1)
 
 	fos, err := w.ful.GetOrderFulfillments(ctx, res.OrderID.String())
 	if err != nil {
@@ -318,7 +318,7 @@ func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
 	//
 	// Vế thứ hai mới là vế khó: nó là thứ đỏ lên khi hàng trả về chạy
 	// nhầm kho.
-	kiemKho(t, "sau khi hủy phần của A", 20, 0, 19, 1)
+	checkStock(t, "sau khi hủy phần của A", 20, 0, 19, 1)
 
 	// Và tổng của TỪNG chủ phải bảo toàn — 20 món mỗi bên như lúc nhập.
 	for _, tt := range []struct {
@@ -326,11 +326,11 @@ func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
 		owner ids.ID
 	}{{"A", w.ownerOf(shopA)}, {"B", w.ownerOf(shopB)}} {
 		avail, commit := w.stock(skuID, tt.owner)
-		giu := w.reserved(skuID, tt.owner)
-		if tong := avail + giu + commit; tong != 20 {
+		held := w.reserved(skuID, tt.owner)
+		if tong := avail + held + commit; tong != 20 {
 			t.Errorf("nhà bán %s: available(%d) + reserved(%d) + committed(%d) "+
 				"= %d, nhưng chỉ nhập 20 — hàng đã đi lạc giữa hai chủ",
-				tt.ten, avail, giu, commit, tong)
+				tt.ten, avail, held, commit, tong)
 		}
 	}
 }
@@ -345,7 +345,7 @@ func TestHuyMotPhanTraHangDUNGCHUSOHUU(t *testing.T) {
 //
 // Đó là hai việc khác nhau: biểu phí đúng mà tầng trên vẫn dùng bảng cũ
 // thì mọi test domain vẫn xanh, và khách vẫn bị thu sai.
-func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
+func TestShippingFeeIsPerSourceEndToEnd(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 
@@ -357,9 +357,9 @@ func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
 	w.stockFor(skuA, w.ownerOf(shopA), 10)
 	w.stockFor(skuB, w.ownerOf(shopB), 10)
 
-	// phiCuaDon dựng một đơn với danh sách món cho trước và trả phí ship
+	// orderShippingFee dựng một đơn với danh sách món cho trước và trả phí ship
 	// ĐÃ ĐÓNG BĂNG trên đơn.
-	phiCuaDon := func(t *testing.T, items []checkoutapp.CartItemSnapshot) int64 {
+	orderShippingFee := func(t *testing.T, items []checkoutapp.CartItemSnapshot) int64 {
 		t.Helper()
 
 		cartID := ids.MustNew(ids.PrefixCart)
@@ -388,12 +388,12 @@ func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
 			t.Fatalf("CompleteCheckout: %v", err)
 		}
 
-		don, err := w.ord.GetOrder(ctx, res.OrderID.String())
+		ord, err := w.ord.GetOrder(ctx, res.OrderID.String())
 		if err != nil {
 			t.Fatalf("GetOrder: %v", err)
 		}
 		w.drain()
-		return don.ShippingFee.Value
+		return ord.ShippingFee.Value
 	}
 
 	// Mọi đơn ở đây phải nằm DƯỚI ngưỡng miễn phí vận chuyển (mặc định
@@ -403,34 +403,34 @@ func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
 	// được cài — một cách hay để bài test tự nhắc rằng nó phụ thuộc vào
 	// một con số chính sách. Ngưỡng có bài riêng:
 	// `TestMienPhiVanChuyenKhiDatNguong`.
-	motNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
+	oneSeller := orderShippingFee(t, []checkoutapp.CartItemSnapshot{
 		line(shopA, skuA, 100_000, 1),
 	})
-	haiNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
+	twoSellers := orderShippingFee(t, []checkoutapp.CartItemSnapshot{
 		line(shopA, skuA, 100_000, 1),
 		line(shopB, skuB, 120_000, 1),
 	})
 
-	if motNhaBan <= 0 {
-		t.Fatalf("phí đơn một nhà bán = %d, phải > 0", motNhaBan)
+	if oneSeller <= 0 {
+		t.Fatalf("phí đơn một nhà bán = %d, phải > 0", oneSeller)
 	}
 
 	// HAI nguồn = HAI kiện = HAI lần phí.
-	if haiNhaBan != motNhaBan*2 {
+	if twoSellers != oneSeller*2 {
 		t.Errorf("đơn hai nhà bán thu %d, đơn một nhà bán thu %d — "+
 			"phí phải NHÂN ĐÔI vì hàng đi thành hai kiện. Thu một lần "+
 			"nghĩa là nền tảng bù phần chênh trên mọi đơn nhiều nhà bán",
-			haiNhaBan, motNhaBan)
+			twoSellers, oneSeller)
 	}
 
 	// Nhiều MÓN của CÙNG một nhà bán vẫn là MỘT kiện — không nhân lên.
-	haiMonMotNhaBan := phiCuaDon(t, []checkoutapp.CartItemSnapshot{
+	twoItemsOneSeller := orderShippingFee(t, []checkoutapp.CartItemSnapshot{
 		line(shopA, skuA, 100_000, 2),
 	})
-	if haiMonMotNhaBan != motNhaBan {
+	if twoItemsOneSeller != oneSeller {
 		t.Errorf("hai món cùng một nhà bán thu %d, một món thu %d — "+
 			"cùng nhà bán thì cùng một kiện, phí không được nhân theo SỐ MÓN",
-			haiMonMotNhaBan, motNhaBan)
+			twoItemsOneSeller, oneSeller)
 	}
 }
 
@@ -446,14 +446,14 @@ func TestPhiVanChuyenTinhTheoNguonQuaCaChuoi(t *testing.T) {
 // Đó là hai việc khác nhau, và khoảng cách giữa chúng chính là chỗ PH-40
 // đã nằm im: `SetTax` tồn tại đủ ba tầng và KHÔNG AI GỌI, nên thuế luôn
 // bằng 0 trong khi domain hoàn toàn có khả năng tính đúng.
-func TestThueVaMienPhiShipDiVaoDon(t *testing.T) {
+func TestTaxAndFreeShippingReachTheOrder(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	shop := ids.MustNew(ids.PrefixSeller)
 	skuID := ids.MustNew(ids.PrefixSKU)
 	w.stockFor(skuID, w.ownerOf(shop), 50)
 
-	datDon := func(t *testing.T, gia int64, sl int) (phi, thue, tong int64) {
+	placeOrder := func(t *testing.T, price int64, sl int) (phi, tax, tong int64) {
 		t.Helper()
 		cartID := ids.MustNew(ids.PrefixCart)
 		w.cart.put(checkoutapp.CartSnapshot{
@@ -461,7 +461,7 @@ func TestThueVaMienPhiShipDiVaoDon(t *testing.T) {
 			CustomerID: ids.MustNew(ids.PrefixCustomer),
 			GuestEmail: "khach@example.com",
 			Currency:   money.VND,
-			Items:      []checkoutapp.CartItemSnapshot{line(shop, skuID, gia, sl)},
+			Items:      []checkoutapp.CartItemSnapshot{line(shop, skuID, price, sl)},
 		})
 
 		c, err := w.checkout.StartCheckout(ctx,
@@ -480,25 +480,25 @@ func TestThueVaMienPhiShipDiVaoDon(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CompleteCheckout: %v", err)
 		}
-		don, err := w.ord.GetOrder(ctx, res.OrderID.String())
+		ord, err := w.ord.GetOrder(ctx, res.OrderID.String())
 		if err != nil {
 			t.Fatalf("GetOrder: %v", err)
 		}
 		w.drain()
-		return don.ShippingFee.Value, don.TaxAmount.Value, don.Total.Value
+		return ord.ShippingFee.Value, ord.TaxAmount.Value, ord.Total.Value
 	}
 
 	t.Run("dưới ngưỡng: có phí ship, thuế tách từ cả phí", func(t *testing.T) {
 		// tiền hàng 100.000 + phí 30.000 = 130.000 khách trả (đã gồm VAT).
 		// Thuế tách ra: 130.000 × 800/10800 = 9.630.
-		phi, thue, tong := datDon(t, 100_000, 1)
+		phi, tax, tong := placeOrder(t, 100_000, 1)
 
 		if phi != 30_000 {
 			t.Errorf("phí ship = %d, mong 30000 (dưới ngưỡng 499.000)", phi)
 		}
-		if thue != 9_630 {
+		if tax != 9_630 {
 			t.Errorf("thuế trên ĐƠN = %d, mong 9630 — thuế bằng 0 ở đây "+
-				"đúng là PH-40: domain tính được mà không ai gọi", thue)
+				"đúng là PH-40: domain tính được mà không ai gọi", tax)
 		}
 		// Tổng = tiền hàng + phí, KHÔNG cộng thuế: giá đã gồm VAT.
 		if tong != 130_000 {
@@ -509,14 +509,14 @@ func TestThueVaMienPhiShipDiVaoDon(t *testing.T) {
 
 	t.Run("đạt ngưỡng: miễn phí ship, thuế tách từ tiền hàng", func(t *testing.T) {
 		// 500.000 ≥ 499.000 → phí 0. Thuế = 500.000 × 800/10800 = 37.037.
-		phi, thue, tong := datDon(t, 500_000, 1)
+		phi, tax, tong := placeOrder(t, 500_000, 1)
 
 		if phi != 0 {
 			t.Errorf("phí ship = %d, mong 0 — đơn 500.000đ đạt ngưỡng "+
 				"499.000đ", phi)
 		}
-		if thue != 37_037 {
-			t.Errorf("thuế = %d, mong 37037 — phần VAT trong 500.000", thue)
+		if tax != 37_037 {
+			t.Errorf("thuế = %d, mong 37037 — phần VAT trong 500.000", tax)
 		}
 		if tong != 500_000 {
 			t.Errorf("tổng = %d, mong 500000 — khách trả đúng giá đã thấy", tong)
