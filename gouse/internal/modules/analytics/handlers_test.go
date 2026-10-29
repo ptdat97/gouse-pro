@@ -96,7 +96,7 @@ func TestOrderPlacedFeedsGMV(t *testing.T) {
 	dispatch(t, bus)
 
 	if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
-		PeriodStart: types.BayGio(),
+		PeriodStart: types.Now(),
 		Granularity: analytics.GranularityDay,
 	}); err != nil {
 		t.Fatalf("ComputeMetrics: %v", err)
@@ -104,7 +104,7 @@ func TestOrderPlacedFeedsGMV(t *testing.T) {
 
 	got, err := m.GetMetric(ctx, analytics.MetricRequest{
 		Name:        analytics.MetricGMV,
-		PeriodStart: types.BayGio(),
+		PeriodStart: types.Now(),
 		Granularity: analytics.GranularityDay,
 	})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestMultiSellerOrderSplitsPerSeller(t *testing.T) {
 	})
 	dispatch(t, bus)
 
-	now := types.BayGio()
+	now := types.Now()
 	for _, sellerID := range []string{sellerA, sellerB, ""} {
 		if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
 			PeriodStart: now,
@@ -186,7 +186,7 @@ func TestManyLinesOneSellerIsOneOrder(t *testing.T) {
 	})
 	dispatch(t, bus)
 
-	now := types.BayGio()
+	now := types.Now()
 	if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
 		PeriodStart: now,
 		Granularity: analytics.GranularityDay,
@@ -556,8 +556,8 @@ func TestCheckoutFeedsConversionFunnel(t *testing.T) {
 	for _, ten := range []string{analytics.EventCheckoutStart, analytics.EventCheckoutExpired} {
 		n, err := m.CountEvents(ctx, analytics.CountRequest{
 			Name: ten,
-			From: types.BayGio().Add(-time.Hour),
-			To:   types.BayGio().Add(time.Hour),
+			From: types.Now().Add(-time.Hour),
+			To:   types.Now().Add(time.Hour),
 		})
 		if err != nil {
 			t.Fatalf("đếm %s: %v", ten, err)

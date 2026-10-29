@@ -37,7 +37,7 @@ func (d *dongHoChanOrder) Now() time.Time {
 		close(d.toiRoi)
 		<-d.diTiep
 	}
-	return types.BayGio()
+	return types.Now()
 }
 
 // TestHuyDonKhongDeGhiDeTienDoGiaoHang.

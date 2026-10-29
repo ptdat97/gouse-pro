@@ -116,18 +116,18 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	// Mốc ngày cắt theo GIỜ NGHIỆP VỤ (UTC+7) — xem types.MuiGioNghiepVu.
-	if f.From, err = types.PhanTichNgay(q.Get("from")); err != nil {
+	if f.From, err = types.ParseDay(q.Get("from")); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"from phải theo định dạng YYYY-MM-DD"))
 		return
 	}
-	if f.To, err = types.PhanTichNgay(q.Get("to")); err != nil {
+	if f.To, err = types.ParseDay(q.Get("to")); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,
 			"to phải theo định dạng YYYY-MM-DD"))
 		return
 	}
 	if !f.To.IsZero() {
-		f.To = types.CuoiNgay(f.To)
+		f.To = types.EndOfDay(f.To)
 	}
 
 	orders, err := h.svc.ListOrders(r.Context(), f)

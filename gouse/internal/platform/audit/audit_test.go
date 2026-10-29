@@ -363,7 +363,7 @@ func TestQueryTimeRange(t *testing.T) {
 		t.Fatalf("ghi nhật ký: %v", err)
 	}
 
-	now := types.BayGio()
+	now := types.Now()
 
 	got, _, err := r.Query(ctx, audit.Filter{
 		From: now.Add(-time.Hour),

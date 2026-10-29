@@ -329,7 +329,7 @@ func TestKeepsBusinessTimeNotWriteTime(t *testing.T) {
 	ctx := context.Background()
 
 	// Tín hiệu xảy ra 3 ngày trước.
-	occurred := types.BayGio().Add(-72 * time.Hour).Truncate(time.Second)
+	occurred := types.Now().Add(-72 * time.Hour).Truncate(time.Second)
 
 	if err := m.RecordSignal(ctx, supplychain.SignalRequest{
 		Type:       supplychain.SignalView,

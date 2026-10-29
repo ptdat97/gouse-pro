@@ -37,7 +37,7 @@ func (m Money) Allocate(ratios []int64) ([]Money, error) {
 		// Kiểm TRƯỚC khi cộng, vì sau khi tràn thì `totalRatio` âm và mọi
 		// phép sau đó vô nghĩa.
 		if totalRatio > math.MaxInt64-r {
-			return nil, fmt.Errorf("%w: tổng tỷ lệ vượt giới hạn", ErrTranSo)
+			return nil, fmt.Errorf("%w: tổng tỷ lệ vượt giới hạn", ErrOverflow)
 		}
 		totalRatio += r
 	}
@@ -74,7 +74,7 @@ func (m Money) Allocate(ratios []int64) ([]Money, error) {
 		// `bits.Mul64` cho tích 128 bit, `bits.Div64` chia nó về 64 bit.
 		// Thương chắc chắn vừa vì `r <= totalRatio`, nên `share <= amount`.
 		hi, lo := bits.Mul64(uint64(amount), uint64(r))
-		share := int64(chia128(hi, lo, uint64(totalRatio)))
+		share := int64(div128(hi, lo, uint64(totalRatio)))
 		results[i] = Money{amount: share, currency: m.currency}
 		allocated += share
 	}
@@ -177,8 +177,8 @@ func (m Money) ApplyRate(rate types.BasisPoints, mode Rounding) Money {
 func (m Money) ExtractRate(rate types.BasisPoints, mode Rounding) Money {
 	const scale = 10000
 
-	mauSo := uint64(scale + int64(rate.Value()))
-	if mauSo == 0 {
+	denominator := uint64(scale + int64(rate.Value()))
+	if denominator == 0 {
 		return Money{amount: 0, currency: m.currency}
 	}
 
@@ -189,12 +189,12 @@ func (m Money) ExtractRate(rate types.BasisPoints, mode Rounding) Money {
 	}
 
 	hi, lo := bits.Mul64(uint64(amount), uint64(rate.Value()))
-	result := int64(chia128(hi, lo, mauSo))
+	result := int64(div128(hi, lo, denominator))
 
 	if mode == RoundHalfUp {
-		// Phần dư: tich − result×mauSo, so với nửa mẫu số.
-		du := int64(lo - uint64(result)*mauSo)
-		if du*2 >= int64(mauSo) {
+		// Phần dư: tich − result×denominator, so với nửa mẫu số.
+		remainder := int64(lo - uint64(result)*denominator)
+		if remainder*2 >= int64(denominator) {
 			result++
 		}
 	}
@@ -205,12 +205,12 @@ func (m Money) ExtractRate(rate types.BasisPoints, mode Rounding) Money {
 	return Money{amount: result, currency: m.currency}
 }
 
-// chia128 chia số 128 bit (hi:lo) cho y, trả thương 64 bit.
+// div128 chia số 128 bit (hi:lo) cho y, trả thương 64 bit.
 //
 // `bits.Div64` PANIC khi thương không vừa 64 bit. Ở đây điều đó không xảy
 // ra vì `r <= totalRatio` nên thương `<= amount`, nhưng kiểm vẫn rẻ hơn
 // một lần panic trên đường tính tiền.
-func chia128(hi, lo, y uint64) uint64 {
+func div128(hi, lo, y uint64) uint64 {
 	if y == 0 || hi >= y {
 		// Không thể tới đây với dữ liệu hợp lệ. Trả 0 thay vì panic: một
 		// phần bằng 0 làm phần dư gánh lại và tổng vẫn đúng, còn panic

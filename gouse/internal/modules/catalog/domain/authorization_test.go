@@ -28,7 +28,7 @@ func newAuth(t *testing.T, from, until time.Time) *domain.BrandAuthorization {
 func TestAuthorizationRequiresDocument(t *testing.T) {
 	// Không có giấy tờ thì không có ủy quyền — đây là bằng chứng pháp lý
 	// khi chủ thương hiệu khiếu nại hàng giả.
-	now := types.BayGio()
+	now := types.Now()
 	_, err := domain.NewBrandAuthorization(domain.NewAuthorizationParams{
 		BrandID:    ids.MustNew(ids.PrefixBrand),
 		SellerID:   ids.MustNew(ids.PrefixSeller),
@@ -41,7 +41,7 @@ func TestAuthorizationRequiresDocument(t *testing.T) {
 }
 
 func TestAuthorizationRejectsInvalidDateRange(t *testing.T) {
-	now := types.BayGio()
+	now := types.Now()
 	_, err := domain.NewBrandAuthorization(domain.NewAuthorizationParams{
 		BrandID:     ids.MustNew(ids.PrefixBrand),
 		SellerID:    ids.MustNew(ids.PrefixSeller),
@@ -95,7 +95,7 @@ func TestAuthorizationValidityWindow(t *testing.T) {
 }
 
 func TestAuthorizationRevokeBlocksImmediately(t *testing.T) {
-	base := types.BayGio()
+	base := types.Now()
 	a := newAuth(t, base, base.Add(365*24*time.Hour))
 	_ = a.Approve("nv.hoa", base)
 

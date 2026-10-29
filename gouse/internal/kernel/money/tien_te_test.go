@@ -7,7 +7,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 )
 
-// TestChuanHoaChuHoaTienTe.
+// TestCurrencyNormalizesToUppercase.
 //
 // `valid()` bản đầu chỉ kiểm `len(c) == 3`, nên "vnd" đi lọt vào hệ thống,
 // nằm được trong cột `CHAR(3)` (không có ràng buộc chữ hoa), rồi ra tới
@@ -19,37 +19,37 @@ import (
 //
 // Chuẩn hóa ở `New` che cả đường ĐỌC LẠI: kho lưu trữ dựng Money bằng hàm
 // này, nên dữ liệu cũ mang chữ thường được sửa lúc đọc.
-func TestChuanHoaChuHoaTienTe(t *testing.T) {
-	for _, vao := range []money.Currency{"vnd", "Vnd", "vND", "VND"} {
-		m, err := money.New(250_000, vao)
+func TestCurrencyNormalizesToUppercase(t *testing.T) {
+	for _, input := range []money.Currency{"vnd", "Vnd", "vND", "VND"} {
+		m, err := money.New(250_000, input)
 		if err != nil {
-			t.Fatalf("New(%q): %v", vao, err)
+			t.Fatalf("New(%q): %v", input, err)
 		}
 		if m.Currency() != "VND" {
 			t.Errorf("New(%q) cho currency %q, cần VND — chữ thường lọt "+
-				"xuống giao diện làm giá hiện sai 100 lần", vao, m.Currency())
+				"xuống giao diện làm giá hiện sai 100 lần", input, m.Currency())
 		}
 	}
 }
 
-// TestTuChoiMaTienTeHong.
+// TestAMalformedCurrencyCodeIsRejected.
 //
 // Mã không phải ba chữ cái làm `Intl.NumberFormat` ở giao diện NÉM lỗi, và
 // một lỗi ném lúc render làm trắng cả trang.
 //
 // Chặn từ gốc rẻ hơn: giao diện vẫn có lớp phòng thủ riêng, nhưng dữ liệu
 // hỏng không nên vào được hệ thống ngay từ đầu.
-func TestTuChoiMaTienTeHong(t *testing.T) {
-	for _, vao := range []money.Currency{"", "VN", "VNDD", "12 ", "€$¥", "V1D"} {
-		if _, err := money.New(1000, vao); !errors.Is(err, money.ErrInvalidCurrency) {
-			t.Errorf("New(%q) cho lỗi %v, cần ErrInvalidCurrency", vao, err)
+func TestAMalformedCurrencyCodeIsRejected(t *testing.T) {
+	for _, input := range []money.Currency{"", "VN", "VNDD", "12 ", "€$¥", "V1D"} {
+		if _, err := money.New(1000, input); !errors.Is(err, money.ErrInvalidCurrency) {
+			t.Errorf("New(%q) cho lỗi %v, cần ErrInvalidCurrency", input, err)
 		}
 	}
 }
 
-// TestChuanHoaKhongLamHongPhepSoSanh: hai Money khác chữ hoa thường phải
+// TestNormalizingDoesNotBreakComparison: hai Money khác chữ hoa thường phải
 // coi là CÙNG đơn vị, không phải khác.
-func TestChuanHoaKhongLamHongPhepSoSanh(t *testing.T) {
+func TestNormalizingDoesNotBreakComparison(t *testing.T) {
 	a, err := money.New(100, "vnd")
 	if err != nil {
 		t.Fatal(err)

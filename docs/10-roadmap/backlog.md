@@ -2918,7 +2918,7 @@ bỏ sót ca đêm.
 
 **Lỗi có ở HAI endpoint**, cùng một hàm `parseDate` chép đôi:
 `GET /admin/audit-log` và `GET /admin/orders`. Gộp về
-`types.PhanTichNgay` + `types.CuoiNgay` trong kernel.
+`types.ParseDay` + `types.EndOfDay` trong kernel.
 
 **Dùng `FixedZone` chứ không `LoadLocation("Asia/Ho_Chi_Minh")`**, có lý
 do: `LoadLocation` cần cơ sở dữ liệu múi giờ trên máy chủ, mà ảnh container
@@ -2933,7 +2933,7 @@ buộc), KHÔNG phải vì múi giờ. Tức là phần nối dây của endpoin
 chưa được kiểm. Đã viết bài riêng cho nó, rồi phá lại bằng một hàm giữ
 nguyên xử lý chuỗi rỗng và chỉ đổi múi giờ — lần này đỏ đúng lý do.
 
-Bốn bài đơn vị cho `types.PhanTichNgay`/`CuoiNgay`, trong đó có bài khóa
+Bốn bài đơn vị cho `types.ParseDay`/`EndOfDay`, trong đó có bài khóa
 giả định "múi giờ không đổi theo mùa" — đổi sang một múi giờ CÓ giờ mùa hè
 thì mốc ngày lệch một tiếng trong nửa năm, kiểu lỗi chỉ lộ theo mùa.
 
@@ -4379,7 +4379,7 @@ bán chuẩn bị là phần của người khác.
 **Múi giờ là cái bẫy ở đây.** Cột kiểu `DATE` chỉ mang ngày lịch. Cắt ngày
 theo UTC thì gần một phần ba số giờ trong ngày cho ra ngày khác với lịch
 của khách: 02:00 ngày 12/09 giờ Việt Nam là 19:00 ngày **11/09** theo UTC.
-Đã thêm `types.DauNgay` và một bài test ghim đúng vùng nguy hiểm đó.
+Đã thêm `types.StartOfDay` và một bài test ghim đúng vùng nguy hiểm đó.
 
 #### Hàng rào cho cả LỚP lỗi này
 
@@ -4931,7 +4931,7 @@ Linux, `time.Now()` có độ phân giải nano thật.
 Đây đúng là loại khác biệt mà CI tồn tại để bắt — và nó bắt được ở **lượt
 chạy đầu tiên**. Bộ test đã xanh hàng tháng trên máy phát triển.
 
-**Sửa ở GỐC, không nới test.** `types.BayGio()` trả "bây giờ" theo độ chính
+**Sửa ở GỐC, không nới test.** `types.Now()` trả "bây giờ" theo độ chính
 xác hệ thống LƯU ĐƯỢC, và 17 bản `systemClock` cùng 42 chỗ trong test đều
 dùng nó. Cùng nguyên tắc đã áp cho cột `DATE` ở P3-36: làm bộ nhớ khớp với
 kho lưu trữ, thay vì che sai lệch bằng một phép so lỏng hơn.
@@ -7567,8 +7567,8 @@ khác là một phép phá CHƯA chứng minh gì.
 token xác minh email và một mã domain event không phân biệt được bằng tiền
 tố — thứ mà mọi `ids.Parse` trong hệ thống dựa vào.
 
-`TestTienToKhongTrung` (thêm 27/09/2026) đọc chính `ids.go` và ĐỎ khi có hai
-hằng số trùng tiền tố. Cặp này được khai trong sổ `trungCoLyDo` kèm lý do,
+`TestIDPrefixesAreUnique` (thêm 27/09/2026) đọc chính `ids.go` và ĐỎ khi có hai
+hằng số trùng tiền tố. Cặp này được khai trong sổ `duplicateWithReason` kèm lý do,
 vì sửa nó cần **migration dữ liệu**: đổi tiền tố nghĩa là mọi mã đã phát ra
 không parse được nữa.
 

@@ -94,7 +94,7 @@ func TestBrandProtectionLevels(t *testing.T) {
 	}
 
 	// Đổi mức bảo vệ
-	now := types.BayGio()
+	now := types.Now()
 	if err := b.SetProtectionLevel(domain.ProtectionRestricted, now); err != nil {
 		t.Fatalf("đổi mức bảo vệ hợp lệ không được lỗi: %v", err)
 	}

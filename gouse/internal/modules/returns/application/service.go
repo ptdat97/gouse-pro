@@ -17,7 +17,7 @@ type Clock interface{ Now() time.Time }
 
 type systemClock struct{}
 
-func (systemClock) Now() time.Time { return types.BayGio() }
+func (systemClock) Now() time.Time { return types.Now() }
 
 // SystemClock là đồng hồ thật.
 var SystemClock Clock = systemClock{}

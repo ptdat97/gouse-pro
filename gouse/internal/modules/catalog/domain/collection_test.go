@@ -36,7 +36,7 @@ func TestCollectionRequiresBrand(t *testing.T) {
 }
 
 func TestCollectionRejectsInvalidSeasonDates(t *testing.T) {
-	base := types.BayGio()
+	base := types.Now()
 	_, err := domain.NewCollection(domain.NewCollectionParams{
 		BrandID: ids.MustNew(ids.PrefixBrand),
 		Name:    "X", Slug: "x",
@@ -96,7 +96,7 @@ func TestCollectionLifecycle(t *testing.T) {
 }
 
 func TestCollectionRejectsInvalidTransitions(t *testing.T) {
-	base := types.BayGio()
+	base := types.Now()
 
 	t.Run("không quay lại ACTIVE sau khi ARCHIVED", func(t *testing.T) {
 		// Mở lại bộ sưu tập đã đóng làm sai lệch chỉ số sell-through

@@ -21,8 +21,8 @@ func (a *apiTest) dungMaCoGioiHan(
 		Name: "Giới hạn lượt " + ma, Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: phanTramBP,
 		MaxUses:  tranLuot,
-		StartsAt: types.BayGio().Add(-time.Hour),
-		EndsAt:   types.BayGio().Add(24 * time.Hour),
+		StartsAt: types.Now().Add(-time.Hour),
+		EndsAt:   types.Now().Add(24 * time.Hour),
 		Currency: "VND",
 	})
 	if err != nil {

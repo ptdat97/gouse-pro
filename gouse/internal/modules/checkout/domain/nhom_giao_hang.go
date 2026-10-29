@@ -141,7 +141,7 @@ func buildShippingGroups(
 
 		// Ngày chuẩn bị xong, quy về ĐẦU NGÀY theo giờ nghiệp vụ: lời hứa
 		// giao hàng là một NGÀY, không phải một mốc giờ.
-		readyAt := types.DauNgay(now.Add(time.Duration(hours) * time.Hour))
+		readyAt := types.StartOfDay(now.Add(time.Duration(hours) * time.Hour))
 
 		fee, err := money.New(allocations[i], fee.Currency())
 		if err != nil {

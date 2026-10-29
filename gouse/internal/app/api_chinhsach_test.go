@@ -129,7 +129,7 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 		}
 	}
 
-	truocKhiBanGiao := types.BayGio()
+	truocKhiBanGiao := types.Now()
 	if err := a.mods.fulfillment.HandOverToCarrier(ctx,
 		fulfillment.HandOverRequest{
 			SellerID: sellerID, FulfillmentID: foID,
@@ -161,8 +161,8 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 	//
 	// Cả hai vế nay đi qua cùng một hàm, nên chúng không thể lệch nhau vì
 	// múi giờ nữa.
-	can := types.DauNgay(truocKhiBanGiao.AddDate(0, 0, 5)).Format("2006-01-02")
-	got := types.DauNgay(*ngayDuKien).Format("2006-01-02")
+	can := types.StartOfDay(truocKhiBanGiao.AddDate(0, 0, 5)).Format("2006-01-02")
+	got := types.StartOfDay(*ngayDuKien).Format("2006-01-02")
 	if got != can {
 		t.Errorf("hứa giao ngày %s, cần %s (bàn giao + 5 ngày) — lời hứa "+
 			"giao hàng không đổi theo cấu hình", got, can)

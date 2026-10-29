@@ -35,8 +35,8 @@ func TestKhuyenMaiDoNhaBanChiuPhaiGhiDungBenChiu(t *testing.T) {
 		Name: "Nhà bán tự giảm", Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: 1000,
 		CostBearer: "SELLER",
-		StartsAt:   types.BayGio().Add(-time.Hour),
-		EndsAt:     types.BayGio().Add(24 * time.Hour),
+		StartsAt:   types.Now().Add(-time.Hour),
+		EndsAt:     types.Now().Add(24 * time.Hour),
 		Currency:   "VND",
 	})
 	if err != nil {
@@ -175,8 +175,8 @@ func TestKhuyenMaiChiaDoiPhaiTruDungTyLe(t *testing.T) {
 		CostBearer:       "SHARED",
 		PlatformShareBPS: 5000,
 		SellerShareBPS:   5000,
-		StartsAt:         types.BayGio().Add(-time.Hour),
-		EndsAt:           types.BayGio().Add(24 * time.Hour),
+		StartsAt:         types.Now().Add(-time.Hour),
+		EndsAt:           types.Now().Add(24 * time.Hour),
 		Currency:         "VND",
 	})
 	if err != nil {

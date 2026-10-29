@@ -44,7 +44,7 @@ func TestRereadingAnOrderLosesNoField(t *testing.T) {
 		OfferID: ids.MustNew(ids.PrefixOffer), SKUID: ids.MustNew(ids.PrefixSKU),
 		SellerID:    ids.MustNew(ids.PrefixSeller),
 		ProductName: "Áo thử vòng đọc ghi", VariantDescription: "Trắng / M",
-		UnitPrice: amt(199000), Quantity: 2, Now: types.BayGio(),
+		UnitPrice: amt(199000), Quantity: 2, Now: types.Now(),
 	})
 	if err != nil {
 		t.Fatalf("dựng dòng hàng: %v", err)
@@ -65,7 +65,7 @@ func TestRereadingAnOrderLosesNoField(t *testing.T) {
 		Lines:            []*orderdom.Line{line},
 		IdempotencyKey:   "req_" + ids.MustNew(ids.PrefixRequest).String()[4:],
 		SourceCheckoutID: ids.MustNew(ids.PrefixCheckout),
-		Now:              types.BayGio(),
+		Now:              types.Now(),
 	})
 	if err != nil {
 		t.Fatalf("dựng đơn: %v", err)
@@ -136,7 +136,7 @@ func TestRereadingAnOrderLosesNoField(t *testing.T) {
 	//
 	// Đó lại đúng là trường từng gây hỏng. Nên phải đẩy nó khác 0 rồi mới
 	// so, bằng chính đường mà production đi.
-	if err := readBack.MarkPaid(types.BayGio()); err != nil {
+	if err := readBack.MarkPaid(types.Now()); err != nil {
 		t.Fatalf("đánh dấu đã thanh toán: %v", err)
 	}
 	if err := store.Update(ctx, readBack); err != nil {
@@ -155,7 +155,7 @@ func TestRereadingAnOrderLosesNoField(t *testing.T) {
 
 	// Và lần cập nhật kế tiếp phải chạy được: đó chính là thứ hỏng lần
 	// trước — lần một thành công, mọi lần sau thất bại im lặng.
-	if err := again.CancelWithReason("kiểm chuyển trạng thái lần hai", types.BayGio()); err != nil {
+	if err := again.CancelWithReason("kiểm chuyển trạng thái lần hai", types.Now()); err != nil {
 		t.Fatalf("hủy đơn: %v", err)
 	}
 	if err := store.Update(ctx, again); err != nil {

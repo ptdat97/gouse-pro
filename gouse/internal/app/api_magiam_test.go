@@ -19,8 +19,8 @@ func (a *apiTest) dungMaGiamGia(t *testing.T, ma string, phanTramBP int32) {
 	pr, err := a.mods.promotion.CreatePromotion(ctx, promotion.CreatePromotionRequest{
 		Name: "Thử phân bổ " + ma, Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: phanTramBP,
-		StartsAt: types.BayGio().Add(-time.Hour),
-		EndsAt:   types.BayGio().Add(24 * time.Hour),
+		StartsAt: types.Now().Add(-time.Hour),
+		EndsAt:   types.Now().Add(24 * time.Hour),
 		Currency: "VND",
 	})
 	if err != nil {

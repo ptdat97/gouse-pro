@@ -19,7 +19,7 @@ func TestColorHexNormalizesToUppercase(t *testing.T) {
 			domain.AttrColor:    "Đỏ",
 			domain.AttrColorHex: "#ff0000",
 		},
-		Now: types.BayGio(),
+		Now: types.Now(),
 	})
 	if err != nil {
 		t.Fatalf("NewVariant: %v", err)
@@ -49,7 +49,7 @@ func TestMalformedColorHexIsRejected(t *testing.T) {
 				domain.AttrColor:    "Đỏ",
 				domain.AttrColorHex: ma,
 			},
-			Now: types.BayGio(),
+			Now: types.Now(),
 		})
 		if !errors.Is(err, domain.ErrInvalidColorHex) {
 			t.Errorf("mã %q: lỗi = %v, mong ErrInvalidColorHex", ma, err)
@@ -64,7 +64,7 @@ func TestMalformedColorHexIsRejected(t *testing.T) {
 func TestColorHexIsOptional(t *testing.T) {
 	v, err := domain.NewVariant(domain.NewVariantParams{
 		Attributes: map[string]string{domain.AttrColor: "Đỏ"},
-		Now:        types.BayGio(),
+		Now:        types.Now(),
 	})
 	if err != nil {
 		t.Fatalf("biến thể không có mã màu phải tạo được: %v", err)
@@ -89,7 +89,7 @@ func TestColorHexStaysOutOfTheIdentityKey(t *testing.T) {
 				domain.AttrSize:     "M",
 				domain.AttrColorHex: hex,
 			},
-			Now: types.BayGio(),
+			Now: types.Now(),
 		})
 		if err != nil {
 			t.Fatalf("NewVariant(%s): %v", hex, err)

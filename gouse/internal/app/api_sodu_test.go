@@ -192,7 +192,7 @@ func TestDoiSoatGomKhoanRutDuocVaKhongGomHaiLan(t *testing.T) {
 		t.Fatalf("không dựng được số dư rút được (%v)", rut)
 	}
 
-	den := types.BayGio().Add(time.Minute)
+	den := types.Now().Add(time.Minute)
 	tu := den.Add(-7 * 24 * time.Hour)
 
 	n, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, den, 1000)

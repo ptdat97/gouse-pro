@@ -2,7 +2,7 @@ package types
 
 import "time"
 
-// MuiGioNghiepVu là múi giờ mà nền tảng vận hành: Việt Nam, UTC+7.
+// BusinessTZ là múi giờ mà nền tảng vận hành: Việt Nam, UTC+7.
 //
 // # Vì sao cần một múi giờ nghiệp vụ, trong khi mọi mốc đều lưu UTC
 //
@@ -28,28 +28,28 @@ import "time"
 //
 // Việt Nam giữ nguyên +07:00 từ 1975 và không có giờ mùa hè, nên một múi
 // giờ cố định là mô tả ĐÚNG, không phải xấp xỉ cho tiện.
-var MuiGioNghiepVu = time.FixedZone("ICT", 7*60*60)
+var BusinessTZ = time.FixedZone("ICT", 7*60*60)
 
-// PhanTichNgay đọc chuỗi YYYY-MM-DD thành nửa đêm theo giờ nghiệp vụ.
+// ParseDay đọc chuỗi YYYY-MM-DD thành nửa đêm theo giờ nghiệp vụ.
 //
 // Chuỗi rỗng trả về thời điểm zero, nghĩa là "không giới hạn".
-func PhanTichNgay(s string) (time.Time, error) {
+func ParseDay(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, nil
 	}
-	return time.ParseInLocation("2006-01-02", s, MuiGioNghiepVu)
+	return time.ParseInLocation("2006-01-02", s, BusinessTZ)
 }
 
-// CuoiNgay trả thời điểm cuối cùng của ngày chứa `t`, theo giờ nghiệp vụ.
+// EndOfDay trả thời điểm cuối cùng của ngày chứa `t`, theo giờ nghiệp vụ.
 //
 // "đến ngày 31/08" phải bao gồm CẢ NGÀY 31, không dừng lúc 00:00 sáng hôm
 // đó — nếu không, người lọc theo tháng mất sạch bản ghi của ngày cuối
 // tháng mà không có lỗi nào báo.
-func CuoiNgay(t time.Time) time.Time {
+func EndOfDay(t time.Time) time.Time {
 	return t.Add(24*time.Hour - time.Nanosecond)
 }
 
-// DauNgay cắt `t` về nửa đêm của ngày chứa nó, theo giờ nghiệp vụ.
+// StartOfDay cắt `t` về nửa đêm của ngày chứa nó, theo giờ nghiệp vụ.
 //
 // # Vì sao cần cắt, và vì sao phải cắt theo GIỜ VIỆT NAM
 //
@@ -62,12 +62,12 @@ func CuoiNgay(t time.Time) time.Time {
 // ngày: 20:00 ngày 11/09 giờ Việt Nam là 13:00 cùng ngày theo UTC — nhưng
 // 02:00 ngày 12/09 giờ Việt Nam lại là 19:00 ngày 11/09 theo UTC. Khách ở
 // Việt Nam đọc ngày theo lịch của họ.
-func DauNgay(t time.Time) time.Time {
-	tv := t.In(MuiGioNghiepVu)
-	return time.Date(tv.Year(), tv.Month(), tv.Day(), 0, 0, 0, 0, MuiGioNghiepVu)
+func StartOfDay(t time.Time) time.Time {
+	tv := t.In(BusinessTZ)
+	return time.Date(tv.Year(), tv.Month(), tv.Day(), 0, 0, 0, 0, BusinessTZ)
 }
 
-// BayGio là "bây giờ" theo độ chính xác mà hệ thống LƯU ĐƯỢC.
+// Now là "bây giờ" theo độ chính xác mà hệ thống LƯU ĐƯỢC.
 //
 // # Vì sao cắt về MICRO giây
 //
@@ -86,6 +86,6 @@ func DauNgay(t time.Time) time.Time {
 //
 // Đây chính là loại khác biệt mà CI tồn tại để bắt: bộ test xanh suốt trên
 // máy phát triển và đỏ ở lượt chạy đầu tiên trên Linux.
-func BayGio() time.Time {
+func Now() time.Time {
 	return time.Now().UTC().Truncate(time.Microsecond)
 }

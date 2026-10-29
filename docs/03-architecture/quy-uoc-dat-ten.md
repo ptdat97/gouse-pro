@@ -209,6 +209,22 @@ Thước đo đúng không phải ĐỘ DÀI mà là: tên cũ có phải một 
 hợp lệ không. Danh sách phải loại tay: `ghi doc tra lai moc sau truoc den
 cho khong gia tien ky phan nhan dau bao cong dao don goc lech dong huy buoc`.
 
+### Phép ĐO danh sách loại trừ — dùng từ lượt `internal/kernel`
+
+Thay vì nhớ, đếm: tên cũ nào xuất hiện trong chú thích NGOÀI backtick nhiều
+dòng thì là văn xuôi.
+
+```bash
+tho=$(grep -rn '^\s*//' --include='*.go' <dir> | grep -w "$old" | grep -vc '`')
+[ "$tho" -ge 5 ] && echo "LOẠI (văn xuôi): $old"
+```
+
+Lượt `internal/kernel` loại đúng `ngay` (62 dòng) và `trong` (18 dòng), và
+để lại `CuoiNgay` (2 dòng — tên hàm thật). Không chỗ văn xuôi nào bị đụng.
+
+Ngưỡng 5 là kinh nghiệm: một tên hàm được nhắc tới 1–3 lần trong chú thích
+doc của chính nó; một từ tiếng Việt xuất hiện hàng chục lần.
+
 ### Danh sách từ Việt KHÔNG DẤU phải ĐẦY, không gần đầy
 
 Lượt `checkout` loại sẵn 29 tên theo bài học hai lượt trước, nhưng quên
@@ -520,8 +536,8 @@ XONG   modules/order                    91   (kernel) + 2 method của customer
 XONG   modules/payment                 216   (kernel) + 1 method của checkout
 XONG   modules/fulfillment             248   (kernel)
 XONG   modules/checkout                170   (kernel, GỐC) — HẾT 21 MODULE
-CÒN    internal/platform 217 · cmd 360 · internal/e2e 105 ·
-       internal/kernel 38 · internal/app 57
+XONG   internal/kernel                  45   (ids, money, types)
+CÒN    internal/platform 217 · cmd 360 · internal/e2e 105 · internal/app 57
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,

@@ -36,7 +36,7 @@ func TestChiTietDoiSoatNoiDuocNoGomNhungGi(t *testing.T) {
 		t.Fatalf("không dựng được số dư rút được (%v)", rutDuoc)
 	}
 
-	den := types.BayGio().Add(time.Minute)
+	den := types.Now().Add(time.Minute)
 	if _, err := a.mods.payment.NewSettlementForPeriod(
 		ctx, den.Add(-7*24*time.Hour), den, 1000); err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)

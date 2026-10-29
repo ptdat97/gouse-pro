@@ -77,7 +77,7 @@ func TestTheDeadlineOnScreenMatchesTheGrading(t *testing.T) {
 			// Chênh lệch đó có thật nhưng dưới một giây, và một hạn hiển
 			// thị cho người đọc thì tính bằng giây là đúng. Xem ghi chú ở
 			// `HandoverDeadline`.
-			createdAt := types.BayGio().Truncate(time.Second).Add(-72 * time.Hour)
+			createdAt := types.Now().Truncate(time.Second).Add(-72 * time.Hour)
 			deliveredAt := createdAt.Add(sla + tt.lateBy)
 			if _, err := h.pool.Exec(ctx, `
 				UPDATE fulfillment_order
@@ -89,7 +89,7 @@ func TestTheDeadlineOnScreenMatchesTheGrading(t *testing.T) {
 			// Câu trả lời của SQL — thứ đi vào điểm hiệu suất.
 			store := fulfillmentpg.NewFulfillmentStore(h.pool)
 			stats, err := store.CountForPerformance(ctx, sellerA,
-				createdAt.Add(-time.Hour), types.BayGio(), sla)
+				createdAt.Add(-time.Hour), types.Now(), sla)
 			if err != nil {
 				t.Fatalf("CountForPerformance: %v", err)
 			}

@@ -9,7 +9,7 @@ import (
 	"github.com/fashion-commerce/platform/internal/kernel/money"
 )
 
-// TestPhanBoSoLonVanDungTyLe.
+// TestAllocateKeepsTheRatioOnLargeAmounts.
 //
 // # Vì sao "tổng khớp" KHÔNG đủ để kiểm phép chia tiền
 //
@@ -26,11 +26,11 @@ import (
 // Hậu quả thật: `promotion.AllocateToLines` chia giảm giá xuống từng dòng
 // hàng, và số tiền đó là căn cứ hoàn tiền khi khách trả MỘT món. Chia sai
 // nghĩa là hoàn sai.
-func TestPhanBoSoLonVanDungTyLe(t *testing.T) {
+func TestAllocateKeepsTheRatioOnLargeAmounts(t *testing.T) {
 	ca := []struct {
 		ten    string
-		soTien int64
-		tyLe   []int64
+		amount int64
+		ratios []int64
 		mong   []int64
 	}{
 		{
@@ -53,20 +53,20 @@ func TestPhanBoSoLonVanDungTyLe(t *testing.T) {
 
 	for _, c := range ca {
 		t.Run(c.ten, func(t *testing.T) {
-			m, err := money.New(c.soTien, "VND")
+			m, err := money.New(c.amount, "VND")
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
-			phan, err := m.Allocate(c.tyLe)
+			parts, err := m.Allocate(c.ratios)
 			if err != nil {
 				t.Fatalf("Allocate: %v", err)
 			}
-			if len(phan) != len(c.mong) {
-				t.Fatalf("có %d phần, cần %d", len(phan), len(c.mong))
+			if len(parts) != len(c.mong) {
+				t.Fatalf("có %d phần, cần %d", len(parts), len(c.mong))
 			}
 
 			var tong int64
-			for i, p := range phan {
+			for i, p := range parts {
 				tong += p.Amount()
 				if p.Amount() != c.mong[i] {
 					t.Errorf("phần %d = %d, cần %d — tỷ lệ SAI dù tổng có "+
@@ -74,14 +74,14 @@ func TestPhanBoSoLonVanDungTyLe(t *testing.T) {
 				}
 			}
 			// Tổng vẫn phải khớp — nhưng đó là điều kiện CẦN, không đủ.
-			if tong != c.soTien {
-				t.Errorf("tổng = %d, cần %d", tong, c.soTien)
+			if tong != c.amount {
+				t.Errorf("tổng = %d, cần %d", tong, c.amount)
 			}
 		})
 	}
 }
 
-// TestPhanBoKhongTreo.
+// TestAllocateLeavesNothingDangling.
 //
 // Ở một tỷ lệ khác, tràn số làm `share` ÂM, nên `allocated` âm khổng lồ và
 // phần dư `amount - allocated` thành gần 9e18. Vòng rải phần dư chạy tới
@@ -89,10 +89,10 @@ func TestPhanBoSoLonVanDungTyLe(t *testing.T) {
 //
 // Một request treo giữ luôn kết nối database của nó, nên vài request như
 // vậy là đủ làm cạn pool và kéo sập cả API.
-func TestPhanBoKhongTreo(t *testing.T) {
-	xong := make(chan struct{})
+func TestAllocateLeavesNothingDangling(t *testing.T) {
+	done := make(chan struct{})
 	go func() {
-		defer close(xong)
+		defer close(done)
 		m, err := money.New(math.MaxInt64/4, "VND")
 		if err != nil {
 			return
@@ -101,7 +101,7 @@ func TestPhanBoKhongTreo(t *testing.T) {
 	}()
 
 	select {
-	case <-xong:
+	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("Allocate không trả về — tràn số làm vòng rải phần dư " +
 			"chạy tới ~9e18 lần, và một request treo giữ luôn kết nối " +
@@ -109,18 +109,18 @@ func TestPhanBoKhongTreo(t *testing.T) {
 	}
 }
 
-// TestTongTyLeTranThiBaoLoi: tổng tỷ lệ cũng tràn được.
+// TestARatioSumOverflowReportsAnError: tổng tỷ lệ cũng tràn được.
 //
 // Mười dòng, mỗi dòng 2 tỷ là đủ vượt trần khi cộng dồn — và sau khi tràn
 // thì `totalRatio` âm, mọi phép chia sau đó vô nghĩa.
-func TestTongTyLeTranThiBaoLoi(t *testing.T) {
+func TestARatioSumOverflowReportsAnError(t *testing.T) {
 	m, err := money.New(1_000_000, "VND")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tyLe := []int64{math.MaxInt64 - 10, 100}
-	if _, err := m.Allocate(tyLe); !errors.Is(err, money.ErrTranSo) {
-		t.Errorf("tổng tỷ lệ tràn mà lỗi là %v, cần ErrTranSo — "+
+	ratios := []int64{math.MaxInt64 - 10, 100}
+	if _, err := m.Allocate(ratios); !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("tổng tỷ lệ tràn mà lỗi là %v, cần ErrOverflow — "+
 			"tràn im lặng làm totalRatio ÂM và mọi phép chia sau đó "+
 			"cho ra số vô nghĩa", err)
 	}

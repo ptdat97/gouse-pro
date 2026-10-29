@@ -190,7 +190,7 @@ func fullParams(t *testing.T) domain.RestoreFOParams {
 		// Ngày giao dự kiến lưu ở cột kiểu DATE — dựng nó ĐÃ CẮT về ngày
 		// theo giờ nghiệp vụ, đúng như domain đặt. Đặt kèm giờ phút thì
 		// bài test đỏ vì một sai lệch không có thật.
-		EstimatedDelivery: types.DauNgay(luc.Add(72 * time.Hour)),
+		EstimatedDelivery: types.StartOfDay(luc.Add(72 * time.Hour)),
 		CompletedAt:       luc.Add(96 * time.Hour),
 		ConfirmedAt:       luc.Add(time.Hour),
 		PackedAt:          luc.Add(2 * time.Hour),
@@ -298,11 +298,11 @@ func compare(t *testing.T, original, after domain.RestoreFOParams, skip map[stri
 			// là hai thời điểm cách nhau 7 tiếng — khác nhau, dù cùng một
 			// ngày và cùng một ý nghĩa.
 			if byDay[ten] {
-				if types.DauNgay(tx) != types.DauNgay(ty) {
+				if types.StartOfDay(tx) != types.StartOfDay(ty) {
 					t.Errorf("trường %s lệch NGÀY sau khi lưu rồi đọc lại: "+
 						"%s → %s", ten,
-						tx.In(types.MuiGioNghiepVu).Format("2006-01-02"),
-						ty.In(types.MuiGioNghiepVu).Format("2006-01-02"))
+						tx.In(types.BusinessTZ).Format("2006-01-02"),
+						ty.In(types.BusinessTZ).Format("2006-01-02"))
 				}
 				continue
 			}
@@ -382,7 +382,7 @@ func TestTheEstimatedDeliveryDayIsNotOffByOne(t *testing.T) {
 			}
 
 			got := reread.EstimatedDelivery().
-				In(types.MuiGioNghiepVu).Format("2006-01-02")
+				In(types.BusinessTZ).Format("2006-01-02")
 			if got != tc.wantDay {
 				t.Errorf("ngày giao dự kiến = %s, cần %s — khách đọc ngày "+
 					"theo lịch Việt Nam, không theo UTC", got, tc.wantDay)

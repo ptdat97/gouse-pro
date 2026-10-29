@@ -182,11 +182,11 @@ func BenchmarkNew(b *testing.B) {
 
 // ------------------------------------------------ Tiền tố không được TRÙNG
 
-// trungCoLyDo là những tiền tố trùng nhau ĐÃ TỒN TẠI, kèm lý do.
+// duplicateWithReason là những tiền tố trùng nhau ĐÃ TỒN TẠI, kèm lý do.
 //
 // Sổ này tồn tại để một lần trùng cũ không chặn hàng rào chống trùng MỚI.
 // Nó CHỈ ĐƯỢC RÚT NGẮN.
-var trungCoLyDo = map[string]string{
+var duplicateWithReason = map[string]string{
 	"evt": "PrefixEmailToken và PrefixEvent cùng dùng `evt` từ đầu. Sửa " +
 		"nghĩa là đổi định dạng mã của những hàng ĐÃ CÓ trong database, " +
 		"tức một migration dữ liệu — xem P3-82.",
@@ -207,7 +207,7 @@ var trungCoLyDo = map[string]string{
 //
 // Ngày 25/09/2026 đã có MỘT lần trùng, tìm ra khi thêm hai tiền tố cho
 // module affiliate. Bài này chặn lần thứ hai.
-func TestTienToKhongTrung(t *testing.T) {
+func TestIDPrefixesAreUnique(t *testing.T) {
 	// Đọc chính file nguồn: một danh sách chép tay ở đây sẽ lệch với danh
 	// sách thật, và khi ấy bài test gác một thứ không tồn tại.
 	src, err := os.ReadFile("ids.go")
@@ -216,34 +216,34 @@ func TestTienToKhongTrung(t *testing.T) {
 	}
 
 	re := regexp.MustCompile(`(Prefix\w+)\s+Prefix = "(\w+)"`)
-	theoTienTo := map[string][]string{}
+	byPrefix := map[string][]string{}
 	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
-		theoTienTo[m[2]] = append(theoTienTo[m[2]], m[1])
+		byPrefix[m[2]] = append(byPrefix[m[2]], m[1])
 	}
-	if len(theoTienTo) < 40 {
+	if len(byPrefix) < 40 {
 		t.Fatalf("chỉ đọc được %d tiền tố — đổi cách khai thì phải sửa cả "+
-			"bài test này", len(theoTienTo))
+			"bài test này", len(byPrefix))
 	}
 
-	for tienTo, tens := range theoTienTo {
-		if len(tens) == 1 {
+	for prefix, names := range byPrefix {
+		if len(names) == 1 {
 			continue
 		}
-		if _, coLyDo := trungCoLyDo[tienTo]; coLyDo {
+		if _, hasReason := duplicateWithReason[prefix]; hasReason {
 			continue
 		}
-		sort.Strings(tens)
+		sort.Strings(names)
 		t.Errorf("tiền tố %q bị %d hằng số cùng dùng: %s\n"+
 			"Mã có tiền tố giống nhau thì `ids.Parse` không phân biệt được "+
 			"chúng, và phép kiểm kiểu ở biên thành không kiểm gì.",
-			tienTo, len(tens), strings.Join(tens, ", "))
+			prefix, len(names), strings.Join(names, ", "))
 	}
 
 	// Sổ trỏ tới một tiền tố KHÔNG còn trùng cũng là một dòng nói dối.
-	for tienTo := range trungCoLyDo {
-		if len(theoTienTo[tienTo]) <= 1 {
-			t.Errorf("`trungCoLyDo` còn dòng cho %q mà nó không còn trùng — "+
-				"xóa đi, sổ này chỉ được rút ngắn", tienTo)
+	for prefix := range duplicateWithReason {
+		if len(byPrefix[prefix]) <= 1 {
+			t.Errorf("`duplicateWithReason` còn dòng cho %q mà nó không còn trùng — "+
+				"xóa đi, sổ này chỉ được rút ngắn", prefix)
 		}
 	}
 }

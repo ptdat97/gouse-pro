@@ -38,7 +38,7 @@ func orderFor(t *testing.T, customerID ids.ID, guestEmail, guestPhone string) *d
 		Currency:       money.VND,
 		Lines:          []*domain.Line{line},
 		IdempotencyKey: string(ids.MustNew(ids.PrefixOrder)),
-		Now:            types.BayGio(),
+		Now:            types.Now(),
 	})
 	if err != nil {
 		t.Fatalf("NewOrder: %v", err)

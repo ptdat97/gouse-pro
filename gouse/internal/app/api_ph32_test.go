@@ -49,7 +49,7 @@ func (d *dongHoChanCheckout) Now() time.Time {
 		close(d.toiRoi)
 		<-d.diTiep
 	}
-	return types.BayGio()
+	return types.Now()
 }
 
 // TestPH32_PhienHetHanTrongLucDangHoanTat.
@@ -195,7 +195,7 @@ func TestPH32_GiuDeHoanTatChanJobDonHan(t *testing.T) {
 	// Khách bấm "Đặt hàng": phiên được giữ lại thêm một quãng ân hạn.
 	kho := checkoutpg.NewCheckoutStore(a.db.Pool())
 	if err := kho.ClaimForCompletion(
-		ctx, ids.ID(maPhien), types.BayGio(), 30*time.Second); err != nil {
+		ctx, ids.ID(maPhien), types.Now(), 30*time.Second); err != nil {
 		t.Fatalf("giữ để hoàn tất: %v", err)
 	}
 

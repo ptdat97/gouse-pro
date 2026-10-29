@@ -634,7 +634,7 @@ func (f *FulfillmentOrder) HandOver(
 		schedule = DefaultFeeSchedule
 	}
 	if tier, ok := schedule[ShipMethod(f.shippingMethod)]; ok {
-		f.estimatedDelivery = types.DauNgay(now.AddDate(0, 0, tier.EstimatedDays))
+		f.estimatedDelivery = types.StartOfDay(now.AddDate(0, 0, tier.EstimatedDays))
 	}
 	return nil
 }

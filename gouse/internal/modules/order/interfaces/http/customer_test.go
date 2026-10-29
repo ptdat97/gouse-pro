@@ -177,7 +177,7 @@ func newOrder(t *testing.T, customerID ids.ID, guestPhone string) *domain.Order 
 		ShippingFee:    money.MustNew(30_000, money.VND),
 		Lines:          []*domain.Line{line},
 		IdempotencyKey: string(ids.MustNew(ids.PrefixOrder)),
-		Now:            types.BayGio(),
+		Now:            types.Now(),
 	})
 	if err != nil {
 		t.Fatalf("tạo đơn hàng: %v", err)

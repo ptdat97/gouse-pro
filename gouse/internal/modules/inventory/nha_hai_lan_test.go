@@ -54,7 +54,7 @@ func (d *blockingClock) Now() time.Time {
 		close(d.arrived)
 		<-d.proceed
 	}
-	return types.BayGio()
+	return types.Now()
 }
 
 // TestDoubleReleaseRaceDeterministic dựng lại ĐÚNG cơ chế của PH-31.
