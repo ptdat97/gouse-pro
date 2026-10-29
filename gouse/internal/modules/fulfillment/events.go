@@ -449,7 +449,7 @@ func NewUnlockHandler(m *Module, log *slog.Logger) *UnlockOnOrderPaid {
 var _ eventbus.Handler = (*UnlockOnOrderPaid)(nil)
 
 func (h *UnlockOnOrderPaid) Name() string {
-	return "fulfillment.mo_khoa_khi_da_tra_tien"
+	return "fulfillment.unlock_on_order_paid"
 }
 
 func (h *UnlockOnOrderPaid) EventTypes() []string {
@@ -512,7 +512,7 @@ func NewCancelByOrderHandler(m *Module, log *slog.Logger) *CancelOnOrderCancelle
 var _ eventbus.Handler = (*CancelOnOrderCancelled)(nil)
 
 func (h *CancelOnOrderCancelled) Name() string {
-	return "fulfillment.huy_khi_don_bi_huy"
+	return "fulfillment.cancel_on_order_cancelled"
 }
 
 func (h *CancelOnOrderCancelled) EventTypes() []string {

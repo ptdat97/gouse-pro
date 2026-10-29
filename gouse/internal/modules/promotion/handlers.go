@@ -40,7 +40,7 @@ func NewRecordUseHandler(m *Module, log *slog.Logger) *RecordUseOnCheckoutComple
 var _ eventbus.Handler = (*RecordUseOnCheckoutCompleted)(nil)
 
 func (h *RecordUseOnCheckoutCompleted) Name() string {
-	return "promotion.ghi_luot_dung_khi_hoan_tat"
+	return "promotion.record_use_on_checkout_completed"
 }
 
 func (h *RecordUseOnCheckoutCompleted) EventTypes() []string {
@@ -111,7 +111,7 @@ func NewReleaseUseHandler(m *Module, log *slog.Logger) *ReleaseUseOnOrderCancell
 var _ eventbus.Handler = (*ReleaseUseOnOrderCancelled)(nil)
 
 func (h *ReleaseUseOnOrderCancelled) Name() string {
-	return "promotion.giai_phong_luot_khi_huy_don"
+	return "promotion.release_use_on_order_cancelled"
 }
 
 func (h *ReleaseUseOnOrderCancelled) EventTypes() []string {

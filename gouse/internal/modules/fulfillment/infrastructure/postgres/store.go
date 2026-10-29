@@ -81,7 +81,7 @@ func insertFO(ctx context.Context, tx pgx.Tx, fo *domain.FulfillmentOrder) error
 			fulfillment_type, customer_id, notify_email, notify_phone,
 			ship_recipient_name, ship_phone, ship_street,
 			ship_ward, ship_district, ship_province, ship_country_code,
-			created_at, updated_at, cho_thanh_toan, shipping_method
+			created_at, updated_at, awaiting_payment, shipping_method
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
 		          $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
 		ON CONFLICT (id) DO NOTHING`,
@@ -155,7 +155,7 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		       shipping_provider = $7, tracking_number = $8,
 		       confirmed_at = $9, packed_at = $10, shipped_at = $11,
 		       delivered_at = $12, cancelled_at = $13, completed_at = $14,
-		       updated_at = $15, cho_thanh_toan = $18,
+		       updated_at = $15, awaiting_payment = $18,
 		       estimated_delivery_date = $19,
 		       version = version + 1
 		 WHERE id = $1 AND seller_id = $16 AND version = $17`,
@@ -174,7 +174,7 @@ func (s *FulfillmentStore) Update(ctx context.Context, fo *domain.FulfillmentOrd
 		// ghi — và mỗi lần ghi phát một event tiến độ, nên khách nhận hai
 		// email "đơn đã gửi".
 		fo.Version(),
-		// cho_thanh_toan ghi được ở đây vì đó là đường MỞ KHÓA: event
+		// awaiting_payment ghi được ở đây vì đó là đường MỞ KHÓA: event
 		// `order.paid` đọc đơn, gọi UnlockPayment, rồi ghi lại.
 		fo.AwaitingPayment(),
 		// estimated_delivery_date: gán lúc BÀN GIAO, nên chỉ đường cập
@@ -212,7 +212,7 @@ const foCols = `
 	stock_location_id, fulfillment_type, shipping_method, shipping_provider,
 	tracking_number, estimated_delivery_date,
 	confirmed_at, packed_at, shipped_at, delivered_at, cancelled_at,
-	completed_at, created_at, updated_at, version, cho_thanh_toan`
+	completed_at, created_at, updated_at, version, awaiting_payment`
 
 // FindByTracking tra đơn thực hiện theo NHÀ VẬN CHUYỂN và mã vận đơn.
 //

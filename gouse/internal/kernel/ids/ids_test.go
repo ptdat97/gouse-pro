@@ -186,11 +186,12 @@ func BenchmarkNew(b *testing.B) {
 //
 // Sổ này tồn tại để một lần trùng cũ không chặn hàng rào chống trùng MỚI.
 // Nó CHỈ ĐƯỢC RÚT NGẮN.
-var duplicateWithReason = map[string]string{
-	"evt": "PrefixEmailToken và PrefixEvent cùng dùng `evt` từ đầu. Sửa " +
-		"nghĩa là đổi định dạng mã của những hàng ĐÃ CÓ trong database, " +
-		"tức một migration dữ liệu — xem P3-82.",
-}
+// Tới 29/10/2026 sổ này RỖNG: cặp `evt` duy nhất trong nó đã được gỡ ở
+// migration 000064 (`PrefixEmailToken` thành `emt`). Lý do hoãn ghi ở đây
+// hoá ra dựa trên một tiền đề SAI — liên kết xác minh gửi cho khách mang
+// TOKEN THÔ, tra cứu đi theo `token_hash`, nên `id` không xuất hiện ở đâu
+// ngoài database. Xem P3-82.
+var duplicateWithReason = map[string]string{}
 
 // Mỗi tiền tố phải là DUY NHẤT.
 //

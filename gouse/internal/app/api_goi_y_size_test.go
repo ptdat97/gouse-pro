@@ -66,14 +66,14 @@ func TestTheSizeSuggestionComesFromReturnHistory(t *testing.T) {
 	}
 
 	// Mua size M → gợi ý M, căn cứ YẾU.
-	record("M", "DA_MUA", "ord-1")
+	record("M", "PURCHASED", "ord-1")
 	v := suggestion()
 	if v == nil || v.SuggestedSize != "M" || v.Reason != "PREVIOUS_PURCHASE" {
 		t.Fatalf("sau khi mua M: %+v, cần M / PREVIOUS_PURCHASE", v)
 	}
 
 	// Trả vì CHẬT → gợi ý L, và căn cứ đổi sang lịch sử trả hàng.
-	record("M", "CHAT", "ret-1")
+	record("M", "TIGHT", "ret-1")
 	v = suggestion()
 	if v == nil || v.SuggestedSize != "L" {
 		t.Fatalf("sau khi trả vì chật: %+v, cần L — phàn nàn phải thắng "+

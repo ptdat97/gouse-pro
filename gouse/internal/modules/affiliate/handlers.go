@@ -45,7 +45,7 @@ func NewAttributeHandler(m *Module, log *slog.Logger) *AttributeOnOrderPaid {
 var _ eventbus.Handler = (*AttributeOnOrderPaid)(nil)
 
 func (h *AttributeOnOrderPaid) Name() string {
-	return "affiliate.quy_cong_khi_da_tra_tien"
+	return "affiliate.attribute_on_order_paid"
 }
 
 func (h *AttributeOnOrderPaid) EventTypes() []string {
@@ -106,7 +106,7 @@ func NewReverseHandler(m *Module, log *slog.Logger) *ReverseOnOrderCancelled {
 
 var _ eventbus.Handler = (*ReverseOnOrderCancelled)(nil)
 
-func (h *ReverseOnOrderCancelled) Name() string { return "affiliate.dao_khi_huy_don" }
+func (h *ReverseOnOrderCancelled) Name() string { return "affiliate.reverse_on_order_cancelled" }
 
 func (h *ReverseOnOrderCancelled) EventTypes() []string {
 	return []string{eventbus.TypeOrderCancelled}
@@ -180,7 +180,7 @@ func NewUnlockHandler(m *Module, log *slog.Logger) *UnlockOnReturnWindowPassed {
 var _ eventbus.Handler = (*UnlockOnReturnWindowPassed)(nil)
 
 func (h *UnlockOnReturnWindowPassed) Name() string {
-	return "affiliate.mo_khoa_khi_het_han_doi_tra"
+	return "affiliate.unlock_on_return_window_passed"
 }
 
 func (h *UnlockOnReturnWindowPassed) EventTypes() []string {
@@ -247,7 +247,7 @@ func NewReverseOnFulfillmentHandler(m *Module, log *slog.Logger) *ReverseOnFulfi
 var _ eventbus.Handler = (*ReverseOnFulfillmentCancelled)(nil)
 
 func (h *ReverseOnFulfillmentCancelled) Name() string {
-	return "affiliate.dao_khi_huy_don_thuc_hien"
+	return "affiliate.reverse_on_fulfillment_cancelled"
 }
 
 func (h *ReverseOnFulfillmentCancelled) EventTypes() []string {

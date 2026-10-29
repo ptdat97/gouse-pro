@@ -32,7 +32,7 @@ func NewSizeObservationHandler(m *Module, log *slog.Logger) *RecordSizeObservati
 
 var _ eventbus.Handler = (*RecordSizeObservation)(nil)
 
-func (h *RecordSizeObservation) Name() string { return "recommendation.ghi_quan_sat_size" }
+func (h *RecordSizeObservation) Name() string { return "recommendation.record_size_observation" }
 
 func (h *RecordSizeObservation) EventTypes() []string {
 	return []string{

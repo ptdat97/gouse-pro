@@ -3637,7 +3637,7 @@ chỉ diễn đạt được từ 06/09 khi P3-9 nối `payment_method`.
 ```text
 order.MarkPaid          nay phát `order.paid` TRONG cùng giao dịch
 checkout.completed      lên PHIÊN BẢN 2, thêm `payment_method`
-fulfillment_order       thêm cột `cho_thanh_toan` (migration 000044)
+fulfillment_order       thêm cột `awaiting_payment` (migration 000044, đổi tên ở 000063)
 FulfillmentOrder.transition  chặn MỌI bước tiến khi đang khóa, trừ HỦY
 fulfillment.UnlockByOrder    bên nhận `order.paid` mở khóa
 ```
@@ -4133,8 +4133,8 @@ cạn. **Một mã phát ra dùng được vô hạn lần bởi vô hạn ngư�
 
 ```text
 checkout.completed  thêm `coupon_code`, lên PHIÊN BẢN 7 (7 bên nhận khai lại)
-promotion.ghi_luot_dung_khi_hoan_tat   ghi lượt khi phiên hoàn tất
-promotion.giai_phong_luot_khi_huy_don  trả lượt khi đơn bị hủy
+promotion.record_use_on_checkout_completed   ghi lượt khi phiên hoàn tất
+promotion.release_use_on_order_cancelled  trả lượt khi đơn bị hủy
 cmd/doisoatluot                        dọn quá khứ, mặc định CHỈ BÁO CÁO
 ```
 
@@ -4991,7 +4991,7 @@ Nếu lần push này vẫn đỏ thì cần nội dung log — hoặc cài `gh`
 là *"cần lịch sử mua hàng (Phase 2)"*. Từ 13/09 lý do đó hết đúng.
 
 **Lưu QUAN SÁT, không lưu kết luận.** Bảng `size_observation` giữ
-`(khách, thương hiệu, size, DA_MUA|CHAT|RONG)`. Không có cột "size gợi ý
+`(khách, thương hiệu, size, PURCHASED|TIGHT|LOOSE)`. Không có cột "size gợi ý
 đã tính sẵn" — cùng lý do sổ cái lưu bút toán chứ không lưu số dư: quy tắc
 gợi ý SẼ đổi, và đổi quy tắc không được làm mất dữ liệu đã quan sát.
 
@@ -7561,21 +7561,38 @@ khác là một phép phá CHƯA chứng minh gì.
 
 ---
 
-### P3-82 — hai hằng số dùng chung tiền tố `evt`
+### P3-82 — ĐÃ LÀM 29/10/2026 — hai hằng số dùng chung tiền tố `evt`
 
 `ids.PrefixEmailToken` và `ids.PrefixEvent` đều là `"evt"`. Nghĩa là một mã
 token xác minh email và một mã domain event không phân biệt được bằng tiền
 tố — thứ mà mọi `ids.Parse` trong hệ thống dựa vào.
 
-`TestIDPrefixesAreUnique` (thêm 27/09/2026) đọc chính `ids.go` và ĐỎ khi có hai
-hằng số trùng tiền tố. Cặp này được khai trong sổ `duplicateWithReason` kèm lý do,
-vì sửa nó cần **migration dữ liệu**: đổi tiền tố nghĩa là mọi mã đã phát ra
-không parse được nữa.
+**Lý do hoãn trước đây là một tiền đề SAI.** Mục này từng ghi: "sửa nó cần
+migration dữ liệu: đổi tiền tố nghĩa là mọi mã đã phát ra không parse được
+nữa". Đọc lại đường xác minh thì không phải:
 
-Việc cần làm: chọn tiền tố mới cho một trong hai (`emt` cho email token là
-lựa chọn ít va đập hơn — bảng `email_token` nhỏ và có hạn dùng ngắn), viết
-migration đổi cột, rồi bỏ khai báo trong sổ.
+```go
+// identity/infrastructure/postgres/email_token.go:47
+FROM email_verification_token WHERE token_hash = $1
+```
 
+Liên kết gửi cho khách mang **token thô**, và tra cứu đi theo `token_hash`.
+Cột `id` chỉ là khoá chính nội bộ: không xuất hiện trong liên kết nào, và
+không có khoá ngoại nào trỏ tới (kiểm bằng `pg_constraint` với
+`contype='f'`: 0 hàng). Đổi nó không làm hỏng một liên kết đã gửi nào.
+
+Việc nằm chờ một tháng vì một câu phỏng đoán không ai kiểm lại. Bài học
+không phải "đừng hoãn" mà là: **lý do hoãn cũng phải đo được**, cùng chuẩn
+với lý do làm. Một dòng "cần migration dữ liệu" nghe hợp lý đủ để không ai
+hỏi lại.
+
+`emt` cho email token, `evt` giữ nguyên cho event: bảng token nhỏ (4 hàng
+trên môi trường phát triển, hạn dùng ngắn), còn `event_outbox.event_id` có
+16.061 hàng.
+
+**Đã làm** (migration 000064): `UPDATE` tiền tố 4 hàng, đổi `CHECK` từ
+`evt\_%` sang `emt\_%`, đổi hằng số Go, và **sổ `duplicateWithReason` của
+`ids_test.go` nay RỖNG** — `TestIDPrefixesAreUnique` không còn ngoại lệ nào.
 ---
 
 ### P3-83 — ĐÃ LÀM 01/10/2026 — `order_line.creator_commission_rate`: cột tỷ lệ TIỀN ở kernel mà không ai ghi

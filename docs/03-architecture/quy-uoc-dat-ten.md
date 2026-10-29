@@ -621,7 +621,7 @@ tên file                    phần lớn còn tiếng Việt
                             đã đổi, như `tien_goc.go` → `commission_base.go`
 ```
 
-### Tên DB đã đổi — migration 000062 (24/10/2026)
+### Tên DB đã đổi — migration 000062 (24/10/2026), rồi 000063–65
 
 ```text
 1 bảng    quan_sat_size → size_observation
@@ -645,6 +645,80 @@ nào.
 
 **PostgreSQL KHÔNG đổi tên chỉ mục khi đổi tên bảng.** Quên chúng để lại
 `quan_sat_size_khach_idx` trên một bảng không còn tên ấy.
+
+### Ba migration NỮA mới khép được tầng DB — 000063/64/65 (29/10/2026)
+
+000062 tưởng là xong. Phép rà lược đồ (`information_schema` +
+`pg_constraint` + `pg_indexes`, lọc tên tiếng Việt) nói **28 tên còn lại**:
+
+```text
+000063  1 cột   cho_thanh_toan → awaiting_payment   (lọt khỏi 000062)
+        23 ràng buộc            tên sinh ra từ bảng/cột ĐÃ ĐỔI
+        3 chỉ mục
+000064  3 giá trị enum          DA_MUA/CHAT/RONG → PURCHASED/TIGHT/LOOSE
+        1 tiền tố mã            evt → emt  (P3-82)
+000065  11 tên handler          dữ liệu, xem dưới
+```
+
+**PostgreSQL không đổi tên RÀNG BUỘC khi đổi tên bảng hay cột.** Hệ quả
+không phải thẩm mỹ — nó nằm trong THÔNG BÁO LỖI:
+
+```text
+ERROR: null value in column "key" violates not-null constraint
+constraint "ops_config_khoa_not_null"
+```
+
+Người đọc lỗi đi tìm cột `khoa` và không có cột nào tên thế. `size_observation`
+còn 14 ràng buộc mang tên bảng cũ `quan_sat_size`, kể cả khoá chính.
+
+### Đổi TÊN khác đổi DỮ LIỆU, và `Handler.Name()` là dữ liệu
+
+```go
+// eventbus/dispatcher.go:208
+INSERT INTO event_processed (event_id, handler) VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+```
+
+Tên handler là KHOÁ IDEMPOTENCY trong database. Đổi nó ở Go mà không đổi dữ
+liệu thì mọi cặp (event, handler) đã xử lý không còn khớp, và một event phát
+lại — chuyện bình thường của giao hàng ít-nhất-một-lần — sẽ được xử lý LẠI:
+bút toán ghi hai lần, lượt dùng mã trừ hai lần.
+
+Đo trước khi làm: `event_processed` có 42.362 hàng, 169 thuộc 11 handler cần
+đổi. Phép kiểm sau khi làm không phải "test xanh" mà là:
+
+```bash
+comm -23 <tên handler trong DB> <Name() của Go>   # phải RỖNG
+```
+
+Cùng loại dữ liệu: giá trị enum (`size_observation.outcome`) và tiền tố mã
+(`email_verification_token.id`). Cả ba đều cần `UPDATE`, và phép đảo phải
+đổi lại TỪNG HÀNG — không chỉ đổi ràng buộc.
+
+### Database KHUÔN của test không tự migrate
+
+`testdb` dùng `gouse_test` làm khuôn rồi `CREATE DATABASE ... TEMPLATE` cho
+mỗi gói. Thêm migration mà quên migrate khuôn thì `make check` KHÔNG nói
+"khuôn tụt hậu" — nó đỏ ở một bài test không liên quan:
+
+```text
+--- FAIL: TestASellerBornePromotionRecordsTheRightBearer
+    sổ cái trừ nhà bán 0 đ, cần 49000
+```
+
+Vì lỗi handler IM LẶNG: `drain()` ghi lỗi vào `event_outbox.last_error` rồi
+đi tiếp, nên bài test chỉ thấy một bút toán thiếu. Mất một lượt bisect
+(`git stash` rồi chạy lại ở HEAD) mới biết là do mình.
+
+Sau khi thêm migration: `migrate -database "$TEST_DATABASE_URL" up`.
+
+### `| head` cắt mất bằng chứng
+
+`grep -rn cho_thanh_toan ... | head` trả 10 dòng và tôi tin là hết. Dòng thứ
+11 ở `internal/e2e` làm một bài test đỏ sau đó. Cùng lớp với `| tail && echo`:
+một pipeline rút gọn bằng chứng rồi để người đọc kết luận trên phần đã rút.
+
+Phép rà cuối thì ĐỪNG rút gọn.
 
 **Phân biệt CONSTRAINT với INDEX trước khi viết lệnh.** Bản đầu xếp
 `email_verification_token_con_hieu_luc` vào khối `RENAME CONSTRAINT`;

@@ -1016,7 +1016,7 @@ func (s *Service) RecordShippingCostWith(
 		FulfillmentID:  in.FulfillmentID,
 		Cost:           in.ChiPhi,
 		IdempotencyKey: in.IdempotencyKey,
-		CreatedBy:      "payment.ghi_chi_phi_hang_van_chuyen",
+		CreatedBy:      "payment.record_carrier_cost_on_handover",
 		Now:            s.clock.Now(),
 	})
 	if err != nil {

@@ -96,7 +96,7 @@ func TestBB3_AnUnlockedOrderMustBePaid(t *testing.T) {
 		SELECT f.id, o.status, COALESCE(NULLIF(o.payment_method, ''), '(trống)')
 		  FROM fulfillment_order f
 		  JOIN "order" o ON o.id = f.order_id
-		 WHERE f.cho_thanh_toan = FALSE`)
+		 WHERE f.awaiting_payment = FALSE`)
 	if err != nil {
 		t.Fatalf("quét đơn đã mở khóa: %v", err)
 	}

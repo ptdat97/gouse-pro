@@ -153,7 +153,7 @@ func (a *apiTest) lockedAwaitingPayment(t *testing.T, foID string) bool {
 	t.Helper()
 	var key bool
 	if err := a.db.Pool().QueryRow(context.Background(),
-		`SELECT cho_thanh_toan FROM fulfillment_order WHERE id = $1`,
+		`SELECT awaiting_payment FROM fulfillment_order WHERE id = $1`,
 		foID).Scan(&key); err != nil {
 		t.Fatalf("đọc cờ chờ thanh toán: %v", err)
 	}

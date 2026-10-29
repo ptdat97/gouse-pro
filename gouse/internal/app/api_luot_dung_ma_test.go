@@ -206,7 +206,7 @@ func TestARedeliveredEventIsNotCountedTwice(t *testing.T) {
 	ctx := context.Background()
 	if _, err := a.db.Pool().Exec(ctx,
 		`DELETE FROM event_processed WHERE handler = $1`,
-		"promotion.ghi_luot_dung_khi_hoan_tat"); err != nil {
+		"promotion.record_use_on_checkout_completed"); err != nil {
 		t.Fatalf("xóa dấu đã xử lý: %v", err)
 	}
 	if _, err := a.db.Pool().Exec(ctx, `

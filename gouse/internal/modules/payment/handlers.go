@@ -283,7 +283,7 @@ func NewPaymentHandler(m *Module, log *slog.Logger) *RecordPaymentOnOrderPaid {
 var _ eventbus.Handler = (*RecordPaymentOnOrderPaid)(nil)
 
 func (h *RecordPaymentOnOrderPaid) Name() string {
-	return "payment.ghi_thu_tien_khi_don_da_tra"
+	return "payment.record_payment_on_order_paid"
 }
 
 func (h *RecordPaymentOnOrderPaid) EventTypes() []string {
@@ -370,7 +370,7 @@ func NewCarrierCostHandler(
 var _ eventbus.Handler = (*RecordCarrierCostOnHandover)(nil)
 
 func (h *RecordCarrierCostOnHandover) Name() string {
-	return "payment.ghi_chi_phi_hang_van_chuyen"
+	return "payment.record_carrier_cost_on_handover"
 }
 
 func (h *RecordCarrierCostOnHandover) EventTypes() []string {

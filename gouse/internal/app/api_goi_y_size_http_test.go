@@ -58,7 +58,7 @@ func TestTheSizeSuggestionShowsUpOverHTTP(t *testing.T) {
 	if _, err := a.db.Pool().Exec(ctx, `
 		INSERT INTO size_observation (customer_id, brand_id, size, outcome,
 		                           source_type, source_id, observed_at)
-		VALUES ($1,$2,$3,'DA_MUA','test','ord_test_goiy_http', now())`,
+		VALUES ($1,$2,$3,'PURCHASED','test','ord_test_goiy_http', now())`,
 		custID, maTH, size); err != nil {
 		t.Fatalf("ghi quan sát: %v", err)
 	}

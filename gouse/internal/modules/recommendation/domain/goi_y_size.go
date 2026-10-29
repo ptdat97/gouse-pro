@@ -26,13 +26,13 @@ const (
 	//
 	// Tín hiệu YẾU. Khách giữ hàng có thể vì vừa, cũng có thể vì ngại trả
 	// — nên nó chỉ được dùng khi không có tín hiệu mạnh hơn.
-	OutcomePurchased Outcome = "DA_MUA"
+	OutcomePurchased Outcome = "PURCHASED"
 
 	// OutcomeTight: trả hàng vì chật. Lần sau nên LÊN một size.
-	OutcomeTight Outcome = "CHAT"
+	OutcomeTight Outcome = "TIGHT"
 
 	// OutcomeLoose: trả hàng vì rộng. Lần sau nên XUỐNG một size.
-	OutcomeLoose Outcome = "RONG"
+	OutcomeLoose Outcome = "LOOSE"
 )
 
 // Observation là một lần khách nói ra điều gì đó về một size.
