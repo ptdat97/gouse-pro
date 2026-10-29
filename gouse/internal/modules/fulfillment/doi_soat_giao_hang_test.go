@@ -159,9 +159,9 @@ func TestThresholdsComeFromOperationalConfig(t *testing.T) {
 	}
 
 	// Hạ ngưỡng xuống 24 giờ — cùng gói đó nay là mất tin.
-	if err := cfg.Dat(ctx, opsconfig.DatInput{
-		Khoa: opsconfig.KeyNguongBatTinGiaoHang, GiaTri: 24,
-		SuaBoi: "test", LyDo: "hạ ngưỡng để kiểm chứng cấu hình có tác dụng ngay",
+	if err := cfg.Set(ctx, opsconfig.SetInput{
+		Key: opsconfig.KeyDeliverySilenceHours, Value: 24,
+		UpdatedBy: "test", Reason: "hạ ngưỡng để kiểm chứng cấu hình có tác dụng ngay",
 	}, nil); err != nil {
 		t.Fatalf("đặt cấu hình: %v", err)
 	}

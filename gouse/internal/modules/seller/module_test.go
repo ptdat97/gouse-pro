@@ -641,8 +641,8 @@ func activeSeller(t *testing.T, m *seller.Module, slug string) *seller.SellerVie
 //
 // Sinh ngẫu nhiên mỗi lần chạy sẽ khiến dữ liệu mã hóa từ lượt trước không
 // đọc lại được, và lỗi ấy trông y hệt lỗi mã hóa thật.
-func encryptedForTest() *privacy.BoMaHoa {
-	bm, err := privacy.NewBoMaHoa("dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=")
+func encryptedForTest() *privacy.Cipher {
+	bm, err := privacy.NewCipher("dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=")
 	if err != nil {
 		panic(err)
 	}

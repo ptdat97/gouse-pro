@@ -65,7 +65,7 @@ type thamSoJSON struct {
 }
 
 func (h *opsConfigHandler) danhSach(w http.ResponseWriter, r *http.Request) {
-	ds, err := h.cfg.DanhSach(r.Context())
+	ds, err := h.cfg.List(r.Context())
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -74,17 +74,17 @@ func (h *opsConfigHandler) danhSach(w http.ResponseWriter, r *http.Request) {
 	ra := make([]thamSoJSON, 0, len(ds))
 	for _, g := range ds {
 		t := thamSoJSON{
-			Key: g.Tham.Khoa, Type: string(g.Tham.Kieu),
-			Value: g.HienTai, Default: g.Tham.MacDinh,
-			Min: g.Tham.Min, Max: g.Tham.Max,
-			IsDefault:   g.LaMacDinh,
-			Description: g.Tham.MoTa,
-			Impact:      g.Tham.HeQua,
-			UpdatedBy:   g.SuaBoi,
-			Reason:      g.LyDo,
+			Key: g.Param.Key, Type: string(g.Param.Kind),
+			Value: g.Current, Default: g.Param.Default,
+			Min: g.Param.Min, Max: g.Param.Max,
+			IsDefault:   g.IsDefault,
+			Description: g.Param.Description,
+			Impact:      g.Param.Impact,
+			UpdatedBy:   g.UpdatedBy,
+			Reason:      g.Reason,
 		}
-		if !g.SuaLuc.IsZero() {
-			t.UpdatedAt = g.SuaLuc.UTC().Format(time.RFC3339)
+		if !g.UpdatedAt.IsZero() {
+			t.UpdatedAt = g.UpdatedAt.UTC().Format(time.RFC3339)
 		}
 		ra = append(ra, t)
 	}
@@ -111,7 +111,7 @@ type datThamSoRequest struct {
 // `order.GetOrderAsAdmin` và `customer.GetAsAdmin`.
 func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 	khoa := r.PathValue("key")
-	tham, co := opsconfig.Tham(khoa)
+	tham, co := opsconfig.Lookup(khoa)
 	if !co {
 		// 404 chứ không phải 400: khóa là một tài nguyên, và sổ đăng ký
 		// ĐÓNG nên khóa lạ đơn giản là không tồn tại.
@@ -138,7 +138,7 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := tham.KiemGiaTri(req.Value); err != nil {
+	if err := tham.Validate(req.Value); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed, err.Error()))
 		return
 	}
@@ -164,10 +164,10 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 	// Dùng WriteSensitive chứ không WriteTx: đây đúng là thao tác nhạy
 	// cảm, và nó cưỡng chế lý do thêm một lần ở chốt cuối.
 	var cu float64
-	err := h.cfg.Dat(r.Context(),
-		opsconfig.DatInput{
-			Khoa: khoa, GiaTri: req.Value,
-			SuaBoi: ac.UserID, LyDo: lyDo,
+	err := h.cfg.Set(r.Context(),
+		opsconfig.SetInput{
+			Key: khoa, Value: req.Value,
+			UpdatedBy: ac.UserID, Reason: lyDo,
 		},
 		func(ctx context.Context, tx opsconfig.Tx, giaTriCu float64) error {
 			cu = giaTriCu
@@ -204,11 +204,11 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 
 func dichLoiCauHinh(err error) error {
 	switch {
-	case errors.Is(err, opsconfig.ErrKhongCoKhoa):
+	case errors.Is(err, opsconfig.ErrNoKey):
 		return apierror.New(apierror.CodeNotFound,
 			"Không có tham số cấu hình với khóa này")
-	case errors.Is(err, opsconfig.ErrNgoaiBien),
-		errors.Is(err, opsconfig.ErrSaiKieu):
+	case errors.Is(err, opsconfig.ErrOutOfRange),
+		errors.Is(err, opsconfig.ErrWrongKind):
 		return apierror.New(apierror.CodeValidationFailed, err.Error())
 	default:
 		return apierror.From(err)

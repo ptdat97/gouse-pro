@@ -112,7 +112,7 @@ func run() error {
 	// trông như chạy được vì bản vừa đổi thấy đúng, còn những bản kia thì
 	// không, và không có gì báo.
 	if oc := m.OpsConfig(); oc != nil {
-		go oc.ChayNapLaiDinhKy(ctx, opsConfigReloadInterval)
+		go oc.RunPeriodicReload(ctx, opsConfigReloadInterval)
 	}
 
 	mux := http.NewServeMux()

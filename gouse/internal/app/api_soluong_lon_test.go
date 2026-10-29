@@ -99,7 +99,7 @@ func TestDoiTranSoLuongTuGiaoDienCoHieuLucNgay(t *testing.T) {
 	}
 
 	// Nâng trần lên 50 triệu.
-	if got := a.datCauHinh(t, admin, opsconfig.KeyTranSoLuongSKU, 50_000_000,
+	if got := a.datCauHinh(t, admin, opsconfig.KeyMaxQuantityPerSKU, 50_000_000,
 		"nâng trần tồn kho cho mặt hàng đếm bằng đơn vị nhỏ như cúc và chỉ",
 	); got.code != http.StatusOK {
 		t.Fatalf("đổi trần: HTTP %d — %s", got.code, got.raw)
@@ -122,7 +122,7 @@ func TestTranSoLuongKhongDatVuotSucChuaDuoc(t *testing.T) {
 	a := newAPITest(t)
 	admin := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
 
-	got := a.datCauHinh(t, admin, opsconfig.KeyTranSoLuongSKU, 5_000_000_000,
+	got := a.datCauHinh(t, admin, opsconfig.KeyMaxQuantityPerSKU, 5_000_000_000,
 		"thử đặt trần nghiệp vụ vượt sức chứa của cột trong database")
 	if got.code != http.StatusBadRequest {
 		t.Errorf("đặt trần 5 tỷ (> sức chứa int32): HTTP %d, cần 400 — %s",

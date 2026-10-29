@@ -466,16 +466,16 @@ var _ application.PolicyPort = (*policyAdapter)(nil)
 
 func (a *policyAdapter) BuyBoxWeights() domain.BuyBoxWeights {
 	return domain.BuyBoxWeights{
-		Price:       a.cfg.DocSoNguyen(opsconfig.KeyTrongSoGia),
-		Handling:    a.cfg.DocSoNguyen(opsconfig.KeyTrongSoChuanBi),
-		Performance: a.cfg.DocSoNguyen(opsconfig.KeyTrongSoHieuSuat),
+		Price:       a.cfg.ReadInt(opsconfig.KeyBuyBoxWeightPrice),
+		Handling:    a.cfg.ReadInt(opsconfig.KeyBuyBoxWeightHandling),
+		Performance: a.cfg.ReadInt(opsconfig.KeyBuyBoxWeightPerformance),
 	}
 }
 
 func (a *policyAdapter) DefaultPerformanceScore() int {
-	return a.cfg.DocSoNguyen(opsconfig.KeyDiemHieuSuatMacDinh)
+	return a.cfg.ReadInt(opsconfig.KeyDefaultPerformanceScore)
 }
 
 func (a *policyAdapter) DefaultHandlingHours() int {
-	return a.cfg.DocSoNguyen(opsconfig.KeyGioChuanBiMacDinh)
+	return a.cfg.ReadInt(opsconfig.KeyDefaultHandlingHours)
 }

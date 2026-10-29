@@ -593,5 +593,5 @@ type returnWindowAdapter struct{ cfg *opsconfig.Store }
 var _ application.ReturnWindowPort = (*returnWindowAdapter)(nil)
 
 func (a *returnWindowAdapter) ReturnWindow() time.Duration {
-	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
+	return a.cfg.ReadDuration(opsconfig.KeyReturnWindow)
 }

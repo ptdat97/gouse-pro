@@ -294,7 +294,7 @@ func Load() (*Config, error) {
 				"đăng ký sẽ bị từ chối"))
 	}
 	if encKey != "" {
-		if _, err := privacy.NewBoMaHoa(encKey); err != nil {
+		if _, err := privacy.NewCipher(encKey); err != nil {
 			collect(fmt.Errorf("ENCRYPTION_KEY không hợp lệ: %w — "+
 				"sinh khóa mới bằng: openssl rand -base64 32", err))
 		}

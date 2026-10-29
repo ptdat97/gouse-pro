@@ -231,7 +231,7 @@ func (h *PublicHandler) apply(w http.ResponseWriter, r *http.Request) {
 		BankAccount: domain.BankAccount{
 			BankCode: strings.TrimSpace(req.BankAccount.BankCode),
 			Holder:   strings.TrimSpace(req.BankAccount.AccountHolder),
-			Last4:    privacy.BonSoCuoi(req.BankAccount.AccountNumber),
+			Last4:    privacy.Last4(req.BankAccount.AccountNumber),
 		},
 		FullAccountNumber: strings.TrimSpace(req.BankAccount.AccountNumber),
 	})

@@ -238,9 +238,9 @@ func Build(
 		// Khóa mã hóa có thể rỗng khi phát triển: module vẫn khởi tạo,
 		// nhưng mọi hồ sơ đăng ký kèm tài khoản ngân hàng sẽ bị TỪ CHỐI.
 		// Thà không nhận còn hơn lưu số tài khoản ở dạng rõ.
-		var boMaHoa *privacy.BoMaHoa
+		var boMaHoa *privacy.Cipher
 		if cfg.Auth.EncryptionKey != "" {
-			boMaHoa, err = privacy.NewBoMaHoa(cfg.Auth.EncryptionKey)
+			boMaHoa, err = privacy.NewCipher(cfg.Auth.EncryptionKey)
 			if err != nil {
 				return Modules{}, fmt.Errorf("app: khóa mã hóa: %w", err)
 			}
@@ -904,7 +904,7 @@ func RegisterRoutes(
 				if m.opsConfig == nil {
 					return 0
 				}
-				return m.opsConfig.DocSoNguyen(opsconfig.KeyTranSuKienMotPhien)
+				return m.opsConfig.ReadInt(opsconfig.KeyMaxEventsPerSession)
 			}, time.Minute),
 			log).Register(mux)
 	}

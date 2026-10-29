@@ -86,7 +86,7 @@ func TestPhiVanChuyenDoiTheoCauHinh(t *testing.T) {
 			"giá trị đang chạy TRƯỚC khi có tham số", truoc)
 	}
 
-	if res := a.datCauHinh(t, tok, opsconfig.KeyPhiGiaoTieuChuan, 25_000,
+	if res := a.datCauHinh(t, tok, opsconfig.KeyShippingFeeStandard, 25_000,
 		lyDoThu); res.code != http.StatusOK {
 		t.Fatalf("đặt phí: HTTP %d — %s", res.code, res.raw)
 	}
@@ -106,7 +106,7 @@ func TestSoNgayGiaoDoiTheoCauHinh(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
 
-	if res := a.datCauHinh(t, tok, opsconfig.KeyNgayGiaoTieuChuan, 5,
+	if res := a.datCauHinh(t, tok, opsconfig.KeyShippingDaysStandard, 5,
 		lyDoThu); res.code != http.StatusOK {
 		t.Fatalf("đặt số ngày: HTTP %d — %s", res.code, res.raw)
 	}
@@ -194,7 +194,7 @@ func TestSanHoaHongChanDuyetDuoiSan(t *testing.T) {
 			res.code, res.raw)
 	}
 
-	if res := a.datCauHinh(t, tok, opsconfig.KeyHoaHongSan, 500,
+	if res := a.datCauHinh(t, tok, opsconfig.KeyCommissionRateFloor, 500,
 		lyDoThu); res.code != http.StatusOK {
 		t.Fatalf("đặt sàn: HTTP %d — %s", res.code, res.raw)
 	}

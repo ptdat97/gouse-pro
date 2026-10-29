@@ -610,7 +610,7 @@ func run() error {
 			// vẫn do người duyệt, nên nới nhịp không nới một kiểm soát
 			// tiền nào.
 			nhipTu: func() time.Duration {
-				return opsConfigStore.DocThoiLuong(opsconfig.KeyNhipTaoDoiSoat)
+				return opsConfigStore.ReadDuration(opsconfig.KeySettlementBatchInterval)
 			},
 		},
 		{
@@ -1281,9 +1281,9 @@ func (g *carrierPrice) PricePerParcel(phuongThuc string) int64 {
 	}
 	switch phuongThuc {
 	case "EXPRESS":
-		return int64(g.cfg.DocSoNguyen(opsconfig.KeyGiaHangNhanh))
+		return int64(g.cfg.ReadInt(opsconfig.KeyCarrierCostExpress))
 	case "STANDARD":
-		return int64(g.cfg.DocSoNguyen(opsconfig.KeyGiaHangTieuChuan))
+		return int64(g.cfg.ReadInt(opsconfig.KeyCarrierCostStandard))
 	default:
 		// Phương thức lạ: không đoán. Ghi một con số sai còn tệ hơn thiếu,
 		// vì thiếu thì `cmd/doisoatso` báo, còn sai thì không ai biết.

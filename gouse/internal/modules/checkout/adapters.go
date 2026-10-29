@@ -480,13 +480,13 @@ type policyAdapter struct{ cfg *opsconfig.Store }
 var _ application.PolicyPort = (*policyAdapter)(nil)
 
 func (a *policyAdapter) DefaultHandlingHours() int {
-	return int(a.cfg.Doc(opsconfig.KeyGioChuanBiMacDinh))
+	return int(a.cfg.Read(opsconfig.KeyDefaultHandlingHours))
 }
 
 func (a *policyAdapter) TaxRateBP() int32 {
-	return int32(a.cfg.Doc(opsconfig.KeyThueSuat))
+	return int32(a.cfg.Read(opsconfig.KeyTaxRate))
 }
 
 func (a *policyAdapter) FreeShippingThreshold() int64 {
-	return int64(a.cfg.Doc(opsconfig.KeyNguongMienPhiShip))
+	return int64(a.cfg.Read(opsconfig.KeyFreeShippingThreshold))
 }

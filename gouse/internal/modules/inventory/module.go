@@ -519,7 +519,7 @@ type capAdapter struct{ cfg *opsconfig.Store }
 var _ application.CapPort = (*capAdapter)(nil)
 
 func (a *capAdapter) QuantityCap() int {
-	return a.cfg.DocSoNguyen(opsconfig.KeyTranSoLuongSKU)
+	return a.cfg.ReadInt(opsconfig.KeyMaxQuantityPerSKU)
 }
 
 // eventPublisher nối cổng ra của tầng application với outbox.

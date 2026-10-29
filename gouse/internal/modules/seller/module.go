@@ -46,7 +46,7 @@ type Config struct {
 	//
 	// Nil thì module vẫn khởi tạo được, nhưng nhà bán KHÔNG khai được tài
 	// khoản — thà từ chối còn hơn ghi số tài khoản ở dạng rõ.
-	Encrypted *privacy.BoMaHoa
+	Encrypted *privacy.Cipher
 
 	// Audit là nơi ghi nhật ký thao tác nhạy cảm.
 	//
@@ -149,7 +149,7 @@ func (m *Module) ApplyAsSeller(ctx context.Context, req ApplicationRequest) (*Se
 		BankAccount: domain.BankAccount{
 			BankCode: strings.TrimSpace(req.BankAccount.BankCode),
 			Holder:   strings.TrimSpace(req.BankAccount.AccountHolder),
-			Last4:    privacy.BonSoCuoi(req.BankAccount.AccountNumber),
+			Last4:    privacy.Last4(req.BankAccount.AccountNumber),
 		},
 		FullAccountNumber: strings.TrimSpace(req.BankAccount.AccountNumber),
 	})
@@ -325,11 +325,11 @@ type policyAdapter struct{ cfg *opsconfig.Store }
 var _ application.PolicyPort = (*policyAdapter)(nil)
 
 func (a *policyAdapter) CommissionFloor() int32 {
-	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongSan))
+	return int32(a.cfg.ReadInt(opsconfig.KeyCommissionRateFloor))
 }
 
 func (a *policyAdapter) SuggestedCommission() int32 {
-	return int32(a.cfg.DocSoNguyen(opsconfig.KeyHoaHongDeXuat))
+	return int32(a.cfg.ReadInt(opsconfig.KeyDefaultCommissionRate))
 }
 
 // SuggestedCommission trả mức hoa hồng ĐIỀN SẴN cho màn hình duyệt nhà bán.

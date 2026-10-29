@@ -22,7 +22,7 @@ func (a *apiTest) khoiPhucCauHinh(t *testing.T, khoa string) {
 			`DELETE FROM ops_config WHERE key = $1`, khoa); err != nil {
 			t.Fatalf("khôi phục cấu hình %s: %v", khoa, err)
 		}
-		if err := a.mods.opsConfig.NapLai(context.Background()); err != nil {
+		if err := a.mods.opsConfig.Reload(context.Background()); err != nil {
 			t.Fatalf("nạp lại cấu hình: %v", err)
 		}
 	})
@@ -54,7 +54,7 @@ func TestCauHinhDoiNgayLapTuc(t *testing.T) {
 		t.Fatalf("SLA ban đầu = %v, cần 48", got)
 	}
 
-	res := a.datCauHinh(t, tok, opsconfig.KeySLAGiaoHang, 24,
+	res := a.datCauHinh(t, tok, opsconfig.KeyDeliverySLA, 24,
 		"siết hạn giao hàng theo cam kết dịch vụ quý 4 đã thống nhất")
 	if res.code != http.StatusOK {
 		t.Fatalf("đổi cấu hình: HTTP %d — %s", res.code, res.raw)
@@ -93,7 +93,7 @@ func TestCauHinhGhiVetKemGiaTriCu(t *testing.T) {
 	}
 	truoc := dem()
 
-	res := a.datCauHinh(t, tok, opsconfig.KeyMauToiThieu, 25,
+	res := a.datCauHinh(t, tok, opsconfig.KeyMinSample, 25,
 		"nâng cỡ mẫu tối thiểu để giảm khiếu nại của gian hàng mới mở")
 	if res.code != http.StatusOK {
 		t.Fatalf("đổi cấu hình: HTTP %d — %s", res.code, res.raw)
@@ -135,7 +135,7 @@ func TestCauHinhDoiLyDo(t *testing.T) {
 	tok := a.taoTaiKhoanVaiTro(t, identity.RoleAdmin)
 
 	for _, lyDo := range []string{"", "sửa", "test test test test"} {
-		res := a.datCauHinh(t, tok, opsconfig.KeyNguongHuyDon, 0.05, lyDo)
+		res := a.datCauHinh(t, tok, opsconfig.KeyCancelRateThreshold, 0.05, lyDo)
 		if res.code != http.StatusBadRequest {
 			t.Errorf("lý do %q được chấp nhận: HTTP %d — %s",
 				lyDo, res.code, res.raw)
@@ -155,12 +155,12 @@ func TestCauHinhChanGiaTriNgoaiBien(t *testing.T) {
 		khoa   string
 		giaTri float64
 	}{
-		{opsconfig.KeyMauToiThieu, 0},      // dưới Min
-		{opsconfig.KeyMauToiThieu, 2.5},    // không nguyên
-		{opsconfig.KeyNguongHuyDon, 1.5},   // tỷ lệ > 1
-		{opsconfig.KeyNguongHuyDon, -0.1},  // âm
-		{opsconfig.KeySLAGiaoHang, 0},      // hạn giao 0 giờ
-		{opsconfig.KeySLAGiaoHang, 100000}, // hơn 11 năm
+		{opsconfig.KeyMinSample, 0},              // dưới Min
+		{opsconfig.KeyMinSample, 2.5},            // không nguyên
+		{opsconfig.KeyCancelRateThreshold, 1.5},  // tỷ lệ > 1
+		{opsconfig.KeyCancelRateThreshold, -0.1}, // âm
+		{opsconfig.KeyDeliverySLA, 0},            // hạn giao 0 giờ
+		{opsconfig.KeyDeliverySLA, 100000},       // hơn 11 năm
 	}
 	for _, x := range xau {
 		res := a.datCauHinh(t, tok, x.khoa, x.giaTri,
@@ -212,9 +212,9 @@ func TestCauHinhChiSoDangKyMoiHienRa(t *testing.T) {
 	}
 
 	ds, _ := res.body["data"].([]any)
-	if len(ds) != len(opsconfig.MoiThamSo()) {
+	if len(ds) != len(opsconfig.AllParams()) {
 		t.Fatalf("trả %d tham số, sổ đăng ký có %d",
-			len(ds), len(opsconfig.MoiThamSo()))
+			len(ds), len(opsconfig.AllParams()))
 	}
 
 	for _, x := range ds {
@@ -286,7 +286,7 @@ func TestCauHinhGhiVetHongThiKhongDoi(t *testing.T) {
 	h := khoaIdem()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPut,
-		"/api/v1/admin/config/"+opsconfig.KeyNguongHuyDon,
+		"/api/v1/admin/config/"+opsconfig.KeyCancelRateThreshold,
 		map[string]any{
 			"value":  0.07,
 			"reason": "nới ngưỡng hủy theo thỏa thuận với nhóm vận hành quý này",
@@ -314,7 +314,7 @@ func TestCauHinhHaiNguoiDoiCungLucVetVanDung(t *testing.T) {
 	a := newAPITest(t)
 	tok, actorID := a.taoTaiKhoanVaiTroCoID(t, identity.RoleAdmin)
 	ctx := context.Background()
-	a.khoiPhucCauHinh(t, opsconfig.KeySLAGiaoHang)
+	a.khoiPhucCauHinh(t, opsconfig.KeyDeliverySLA)
 
 	const macDinh = 48.0
 	moi := []float64{24, 36}
@@ -327,7 +327,7 @@ func TestCauHinhHaiNguoiDoiCungLucVetVanDung(t *testing.T) {
 			h := khoaIdem()
 			h["Authorization"] = "Bearer " + tok
 			a.call(http.MethodPut,
-				"/api/v1/admin/config/"+opsconfig.KeySLAGiaoHang,
+				"/api/v1/admin/config/"+opsconfig.KeyDeliverySLA,
 				map[string]any{
 					"value":  v,
 					"reason": "đổi hạn giao trong bài kiểm thử hai người cùng sửa",
@@ -345,7 +345,7 @@ func TestCauHinhHaiNguoiDoiCungLucVetVanDung(t *testing.T) {
 		   -- Lọc theo NGƯỜI THỰC HIỆN của riêng bài này: nhật ký là bảng
 		   -- dùng chung, và bài khác cũng đổi đúng tham số này.
 		   AND actor_id = $2
-		 ORDER BY occurred_at`, opsconfig.KeySLAGiaoHang, actorID)
+		 ORDER BY occurred_at`, opsconfig.KeyDeliverySLA, actorID)
 	if err != nil {
 		t.Fatalf("đọc vết: %v", err)
 	}
@@ -418,8 +418,8 @@ func TestCauHinhDocKhongKhoa(t *testing.T) {
 				case <-dung:
 					return
 				default:
-					_ = store.Doc(opsconfig.KeySLAGiaoHang)
-					_ = store.DocSoNguyen(opsconfig.KeyMauToiThieu)
+					_ = store.Read(opsconfig.KeyDeliverySLA)
+					_ = store.ReadInt(opsconfig.KeyMinSample)
 				}
 			}
 		}()
@@ -427,7 +427,7 @@ func TestCauHinhDocKhongKhoa(t *testing.T) {
 
 	// Trong lúc đó, GHI qua đường HTTP thật.
 	for i := 0; i < 3; i++ {
-		res := a.datCauHinh(t, tok, opsconfig.KeySLAGiaoHang, float64(24+i),
+		res := a.datCauHinh(t, tok, opsconfig.KeyDeliverySLA, float64(24+i),
 			"đổi hạn giao trong bài kiểm thử đọc ghi song song")
 		if res.code != http.StatusOK {
 			t.Errorf("đổi lần %d: HTTP %d — %s", i, res.code, res.raw)

@@ -452,16 +452,16 @@ func lostContactThresholdFrom(cfg *opsconfig.Store) func() time.Duration {
 		return nil
 	}
 	return func() time.Duration {
-		return cfg.DocThoiLuong(opsconfig.KeyNguongBatTinGiaoHang)
+		return cfg.ReadDuration(opsconfig.KeyDeliverySilenceHours)
 	}
 }
 
 func (a *thresholdsAdapter) Thresholds() domain.Thresholds {
 	return domain.Thresholds{
-		DeliverySLA: a.cfg.DocThoiLuong(opsconfig.KeySLAGiaoHang),
-		CancelRate:  a.cfg.Doc(opsconfig.KeyNguongHuyDon),
-		OnTimeRate:  a.cfg.Doc(opsconfig.KeyNguongGiaoDungHan),
-		MinSample:   a.cfg.DocSoNguyen(opsconfig.KeyMauToiThieu),
+		DeliverySLA: a.cfg.ReadDuration(opsconfig.KeyDeliverySLA),
+		CancelRate:  a.cfg.Read(opsconfig.KeyCancelRateThreshold),
+		OnTimeRate:  a.cfg.Read(opsconfig.KeyOnTimeThreshold),
+		MinSample:   a.cfg.ReadInt(opsconfig.KeyMinSample),
 	}
 }
 
@@ -474,7 +474,7 @@ type returnWindowAdapter struct{ cfg *opsconfig.Store }
 var _ application.ReturnWindowPort = (*returnWindowAdapter)(nil)
 
 func (a *returnWindowAdapter) ReturnWindow() time.Duration {
-	return a.cfg.DocThoiLuong(opsconfig.KeyHanDoiTra)
+	return a.cfg.ReadDuration(opsconfig.KeyReturnWindow)
 }
 
 // feeScheduleAdapter đọc biểu phí vận chuyển từ cấu hình vận hành.
@@ -488,12 +488,12 @@ var _ application.FeeSchedulePort = (*feeScheduleAdapter)(nil)
 func (a *feeScheduleAdapter) FeeSchedule() domain.FeeSchedule {
 	return domain.FeeSchedule{
 		domain.ShipStandard: {
-			FeePerSource:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoTieuChuan)),
-			EstimatedDays: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoTieuChuan),
+			FeePerSource:  int64(a.cfg.ReadInt(opsconfig.KeyShippingFeeStandard)),
+			EstimatedDays: a.cfg.ReadInt(opsconfig.KeyShippingDaysStandard),
 		},
 		domain.ShipExpress: {
-			FeePerSource:  int64(a.cfg.DocSoNguyen(opsconfig.KeyPhiGiaoNhanh)),
-			EstimatedDays: a.cfg.DocSoNguyen(opsconfig.KeyNgayGiaoNhanh),
+			FeePerSource:  int64(a.cfg.ReadInt(opsconfig.KeyShippingFeeExpress)),
+			EstimatedDays: a.cfg.ReadInt(opsconfig.KeyShippingDaysExpress),
 		},
 	}
 }

@@ -21,16 +21,16 @@ var _ fulfillmenthttp.WebhookLog = (*ghiSuKien)(nil)
 func (g *ghiSuKien) Log(
 	ctx context.Context, nhaCungCap, maSuKien, loaiSuKien string, than []byte,
 ) (fulfillmenthttp.LoggedEvent, error) {
-	su, err := g.r.Ghi(ctx, nhaCungCap, maSuKien, loaiSuKien, than)
+	su, err := g.r.Log(ctx, nhaCungCap, maSuKien, loaiSuKien, than)
 	return fulfillmenthttp.LoggedEvent{
 		ID:              su.ID,
-		AlreadyReceived: su.DaNhanTruocDo,
-		AlreadyDone:     su.DaXuLyXong,
+		AlreadyReceived: su.AlreadyReceived,
+		AlreadyDone:     su.AlreadyDone,
 	}, err
 }
 
 func (g *ghiSuKien) MarkDone(ctx context.Context, id string, loi error) error {
-	return g.r.DanhDauXong(ctx, id, loi)
+	return g.r.MarkDone(ctx, id, loi)
 }
 
 // biMatWebhook tra khóa HMAC theo mã nhà cung cấp.
@@ -55,16 +55,16 @@ var _ paymenthttp.WebhookLog = (*ghiSuKienThanhToan)(nil)
 func (g *ghiSuKienThanhToan) Log(
 	ctx context.Context, nhaCungCap, maSuKien, loaiSuKien string, than []byte,
 ) (paymenthttp.LoggedEvent, error) {
-	su, err := g.r.Ghi(ctx, nhaCungCap, maSuKien, loaiSuKien, than)
+	su, err := g.r.Log(ctx, nhaCungCap, maSuKien, loaiSuKien, than)
 	return paymenthttp.LoggedEvent{
 		ID:              su.ID,
-		AlreadyReceived: su.DaNhanTruocDo,
-		AlreadyDone:     su.DaXuLyXong,
+		AlreadyReceived: su.AlreadyReceived,
+		AlreadyDone:     su.AlreadyDone,
 	}, err
 }
 
 func (g *ghiSuKienThanhToan) MarkDone(ctx context.Context, id string, loi error) error {
-	return g.r.DanhDauXong(ctx, id, loi)
+	return g.r.MarkDone(ctx, id, loi)
 }
 
 // biMatWebhookThanhToan dùng CHUNG bảng khóa với webhook vận chuyển.

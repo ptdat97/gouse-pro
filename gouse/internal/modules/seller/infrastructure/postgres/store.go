@@ -26,10 +26,10 @@ type Store struct {
 	// maHoa mã hóa số tài khoản ngân hàng. Có thể nil: khi đó nhà bán vẫn
 	// lưu được nhưng KHÔNG khai được tài khoản — thà từ chối còn hơn ghi
 	// số tài khoản ở dạng rõ.
-	encrypted *privacy.BoMaHoa
+	encrypted *privacy.Cipher
 }
 
-func NewStore(pool *pgxpool.Pool, encrypted *privacy.BoMaHoa) *Store {
+func NewStore(pool *pgxpool.Pool, encrypted *privacy.Cipher) *Store {
 	return &Store{pool: pool, encrypted: encrypted}
 }
 
@@ -302,7 +302,7 @@ func (s *Store) SaveWithBankAccount(
 				"không nhận được tài khoản ngân hàng")
 	}
 
-	kin, err := s.encrypted.MaHoa(strings.TrimSpace(fullNumber))
+	kin, err := s.encrypted.Encrypt(strings.TrimSpace(fullNumber))
 	if err != nil {
 		return fmt.Errorf("seller: mã hóa số tài khoản: %w", err)
 	}
@@ -355,5 +355,5 @@ func (s *Store) GetBankAccount(ctx context.Context, id ids.ID) (string, error) {
 	if kin == "" {
 		return "", domain.ErrNoBankAccount
 	}
-	return s.encrypted.GiaiMa(kin)
+	return s.encrypted.Decrypt(kin)
 }

@@ -19,9 +19,9 @@ import (
 // miễn phí ship cho mọi đơn — hai lỗi tốn tiền, xảy ra im lặng, chỉ vì
 // một bản dựng quên nối dây.
 func (s *Service) moneyPolicy(unit money.Currency) (domain.MoneyPolicy, error) {
-	taxRateBP := int32(configValue(opsconfig.KeyThueSuat))
-	threshold := int64(configValue(opsconfig.KeyNguongMienPhiShip))
-	handlingHours := int(configValue(opsconfig.KeyGioChuanBiMacDinh))
+	taxRateBP := int32(configValue(opsconfig.KeyTaxRate))
+	threshold := int64(configValue(opsconfig.KeyFreeShippingThreshold))
+	handlingHours := int(configValue(opsconfig.KeyDefaultHandlingHours))
 
 	if s.policy != nil {
 		taxRateBP = s.policy.TaxRateBP()
@@ -45,11 +45,11 @@ func (s *Service) moneyPolicy(unit money.Currency) (domain.MoneyPolicy, error) {
 }
 
 func configValue(key string) float64 {
-	t, ok := opsconfig.Tham(key)
+	t, ok := opsconfig.Lookup(key)
 	if !ok {
 		return 0
 	}
-	return t.MacDinh
+	return t.Default
 }
 
 // applyMoney tính LẠI phí vận chuyển và thuế từ trạng thái hiện tại.

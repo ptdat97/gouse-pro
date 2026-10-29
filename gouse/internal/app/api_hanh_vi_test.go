@@ -131,7 +131,7 @@ func TestGioiHanSuKienTheoPhien(t *testing.T) {
 
 	// Hạ ngưỡng xuống 3 để bài chạy nhanh — và đó chính là điểm: ngưỡng
 	// là tham số vận hành, chỉnh được khi thấy lưu lượng thật.
-	if res := a.datCauHinh(t, tok, opsconfig.KeyTranSuKienMotPhien, 3,
+	if res := a.datCauHinh(t, tok, opsconfig.KeyMaxEventsPerSession, 3,
 		"Ha nguong de kiem chung gioi han theo phien co tac dung"); res.code != http.StatusOK {
 		t.Fatalf("đặt ngưỡng: HTTP %d — %s", res.code, res.raw)
 	}

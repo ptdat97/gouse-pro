@@ -212,7 +212,7 @@ chủ ý (ADR-0015 mục 2).
 ```text
 1. Trả lời ba câu ở mục 1. Không qua được thì dừng.
 2. Khai trong internal/platform/opsconfig/registry.go:
-     khóa · kiểu · Min · Max · MacDinh · MoTa · impact
+     Key · Kind · Min · Max · Default · Description · Impact
 3. ĐỌC TẠI CHỖ DÙNG, mỗi lần dùng — không chụp lúc khởi động.
    Đổi giá thỏa thuận với hãng phải có tác dụng ở kiện hàng KẾ TIẾP.
 4. Mặc định phải là giá trị ĐANG chạy hôm nay. Thêm một tham số không

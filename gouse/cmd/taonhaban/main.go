@@ -153,9 +153,9 @@ func main() {
 // ngân hàng của nhà bán mẫu thành rác sau khi tiến trình kết thúc. Chấp
 // nhận được: dữ liệu mẫu tồn tại để bấm thử giao diện, không để đối soát.
 // Ai cần đọc lại thì đặt ENCRYPTION_KEY — cùng khóa mà `api` đang dùng.
-func boMaHoa() (*privacy.BoMaHoa, error) {
+func boMaHoa() (*privacy.Cipher, error) {
 	if k := os.Getenv("ENCRYPTION_KEY"); k != "" {
-		return privacy.NewBoMaHoa(k)
+		return privacy.NewCipher(k)
 	}
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -163,7 +163,7 @@ func boMaHoa() (*privacy.BoMaHoa, error) {
 	}
 	fmt.Println("cảnh báo : ENCRYPTION_KEY trống — dùng khóa tạm, " +
 		"số tài khoản ngân hàng của nhà bán mẫu sẽ không đọc lại được")
-	return privacy.NewBoMaHoa(base64.StdEncoding.EncodeToString(b[:]))
+	return privacy.NewCipher(base64.StdEncoding.EncodeToString(b[:]))
 }
 
 func dungNhaBan(ctx context.Context, sel *seller.Module) string {

@@ -13,32 +13,32 @@ import (
 )
 
 var (
-	// ErrKhongCoKhoa khi khóa không có trong sổ đăng ký.
+	// ErrNoKey khi khóa không có trong sổ đăng ký.
 	//
 	// Sổ đăng ký ĐÓNG là hàng rào chính của gói này: gõ sai tên khóa thì
 	// lỗi ngay, không tạo ra một tham số ma mà không đoạn mã nào đọc.
-	ErrKhongCoKhoa = errors.New("opsconfig: khóa không có trong sổ đăng ký")
+	ErrNoKey = errors.New("opsconfig: khóa không có trong sổ đăng ký")
 
-	// ErrNgoaiBien khi giá trị nằm ngoài biên đã khai.
-	ErrNgoaiBien = errors.New("opsconfig: giá trị ngoài biên cho phép")
+	// ErrOutOfRange khi giá trị nằm ngoài biên đã khai.
+	ErrOutOfRange = errors.New("opsconfig: giá trị ngoài biên cho phép")
 
-	// ErrSaiKieu khi giá trị sai kiểu.
-	ErrSaiKieu = errors.New("opsconfig: giá trị sai kiểu")
+	// ErrWrongKind khi giá trị sai kiểu.
+	ErrWrongKind = errors.New("opsconfig: giá trị sai kiểu")
 )
 
-// GiaTri là một tham số kèm giá trị hiện tại và vết sửa gần nhất.
-type GiaTri struct {
-	Tham ThamSo
+// Value là một tham số kèm giá trị hiện tại và vết sửa gần nhất.
+type Value struct {
+	Param Param
 
-	// HienTai là giá trị đang dùng.
-	HienTai float64
+	// Current là giá trị đang dùng.
+	Current float64
 
-	// LaMacDinh cho biết chưa ai đặt giá trị này.
-	LaMacDinh bool
+	// IsDefault cho biết chưa ai đặt giá trị này.
+	IsDefault bool
 
-	SuaLuc time.Time
-	SuaBoi string
-	LyDo   string
+	UpdatedAt time.Time
+	UpdatedBy string
+	Reason    string
 }
 
 // Store đọc và ghi tham số vận hành.
@@ -50,7 +50,7 @@ type GiaTri struct {
 // và tệ hơn: database chậm hay chết sẽ làm hỏng một tính năng vốn chỉ cần
 // một con số.
 //
-// Nên `Doc` KHÔNG trả lỗi. Không có giá trị trong bộ đệm thì nó trả GIÁ
+// Nên `Read` KHÔNG trả lỗi. Không có giá trị trong bộ đệm thì nó trả GIÁ
 // TRỊ MẶC ĐỊNH đã biên dịch vào mã. Hệ thống chạy tiếp bằng con số cũ,
 // đúng như trước khi có gói này — hỏng theo hướng an toàn.
 type Store struct {
@@ -65,7 +65,7 @@ type Store struct {
 	//
 	// Ghi thì thay CẢ map, không sửa map đang có — nên người đọc luôn thấy
 	// một ảnh chụp nhất quán, không thấy trạng thái nửa chừng.
-	dem atomic.Pointer[map[string]float64]
+	count atomic.Pointer[map[string]float64]
 }
 
 // NewStore tạo store và nạp bộ đệm lần đầu.
@@ -74,14 +74,14 @@ type Store struct {
 // đúng là hành vi của hệ thống trước khi có gói này.
 func NewStore(ctx context.Context, pool *pgxpool.Pool) *Store {
 	s := &Store{pool: pool}
-	rong := map[string]float64{}
-	s.dem.Store(&rong)
-	_ = s.NapLai(ctx)
+	empty := map[string]float64{}
+	s.count.Store(&empty)
+	_ = s.Reload(ctx)
 	return s
 }
 
-// NapLai đọc lại toàn bộ tham số từ database vào bộ đệm.
-func (s *Store) NapLai(ctx context.Context) error {
+// Reload đọc lại toàn bộ tham số từ database vào bộ đệm.
+func (s *Store) Reload(ctx context.Context) error {
 	if s == nil || s.pool == nil {
 		return nil
 	}
@@ -93,7 +93,7 @@ func (s *Store) NapLai(ctx context.Context) error {
 	}
 	defer rows.Close()
 
-	moi := map[string]float64{}
+	fresh := map[string]float64{}
 	for rows.Next() {
 		var k string
 		var v float64
@@ -105,72 +105,72 @@ func (s *Store) NapLai(ctx context.Context) error {
 		// Xóa một khóa khỏi mã nguồn mà database vẫn còn dòng cũ là
 		// chuyện bình thường khi triển khai lại; dòng đó không được phép
 		// làm hỏng việc nạp những khóa còn dùng.
-		t, ok := Tham(k)
+		t, ok := Lookup(k)
 		if !ok {
 			continue
 		}
 		// Giá trị ngoài biên cũng bỏ qua: biên có thể siết lại sau khi
 		// giá trị đã được đặt, và một giá trị không còn hợp lệ thì mặc
 		// định an toàn hơn.
-		if t.KiemGiaTri(v) != nil {
+		if t.Validate(v) != nil {
 			continue
 		}
-		moi[k] = v
+		fresh[k] = v
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("opsconfig: duyệt tham số: %w", err)
 	}
 
-	s.dem.Store(&moi)
+	s.count.Store(&fresh)
 	return nil
 }
 
-// Doc trả giá trị đang dùng của một khóa.
+// Read trả giá trị đang dùng của một khóa.
 //
 // KHÔNG trả lỗi, có chủ ý — xem chú thích của Store. Khóa không có trong
 // sổ đăng ký trả 0; đó là lỗi lập trình và sẽ lộ ra ở test, không phải
 // tình huống cần xử lý lúc chạy.
-func (s *Store) Doc(khoa string) float64 {
-	t, ok := Tham(khoa)
+func (s *Store) Read(key string) float64 {
+	t, ok := Lookup(key)
 	if !ok {
 		return 0
 	}
 	if s == nil {
-		return t.MacDinh
+		return t.Default
 	}
 
-	dem := s.dem.Load()
-	if dem == nil {
-		return t.MacDinh
+	count := s.count.Load()
+	if count == nil {
+		return t.Default
 	}
-	v, co := (*dem)[khoa]
-	if !co {
-		return t.MacDinh
+	v, ok := (*count)[key]
+	if !ok {
+		return t.Default
 	}
 	return v
 }
 
-// DocThoiLuong đọc một tham số kiểu thời lượng.
-func (s *Store) DocThoiLuong(khoa string) time.Duration {
-	t, ok := Tham(khoa)
+// ReadDuration đọc một tham số kiểu thời lượng.
+func (s *Store) ReadDuration(key string) time.Duration {
+	t, ok := Lookup(key)
 	if !ok {
 		return 0
 	}
-	return t.ThoiLuong(s.Doc(khoa))
+	return t.Duration(s.Read(key))
 }
 
-// DocSoNguyen đọc một tham số kiểu số nguyên.
-func (s *Store) DocSoNguyen(khoa string) int {
-	return int(s.Doc(khoa))
+// ReadInt đọc một tham số kiểu số nguyên.
+func (s *Store) ReadInt(key string) int {
+	return int(s.Read(key))
 }
 
-// DanhSach trả mọi tham số kèm giá trị hiện tại, cho giao diện quản trị.
-func (s *Store) DanhSach(ctx context.Context) ([]GiaTri, error) {
-	daDat := map[string]struct {
-		v    float64
-		luc  time.Time
-		boi  string
-		lyDo string
+// List trả mọi tham số kèm giá trị hiện tại, cho giao diện quản trị.
+func (s *Store) List(ctx context.Context) ([]Value, error) {
+	alreadySet := map[string]struct {
+		v      float64
+		at     time.Time
+		by     string
+		reason string
 	}{}
 
 	if s != nil && s.pool != nil {
@@ -181,49 +181,49 @@ func (s *Store) DanhSach(ctx context.Context) ([]GiaTri, error) {
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var k, boi, lyDo string
+			var k, by, reason string
 			var v float64
-			var luc time.Time
-			if err := rows.Scan(&k, &v, &luc, &boi, &lyDo); err != nil {
+			var at time.Time
+			if err := rows.Scan(&k, &v, &at, &by, &reason); err != nil {
 				return nil, fmt.Errorf("opsconfig: đọc dòng: %w", err)
 			}
-			daDat[k] = struct {
-				v    float64
-				luc  time.Time
-				boi  string
-				lyDo string
-			}{v, luc, boi, lyDo}
+			alreadySet[k] = struct {
+				v      float64
+				at     time.Time
+				by     string
+				reason string
+			}{v, at, by, reason}
 		}
 		if err := rows.Err(); err != nil {
 			return nil, fmt.Errorf("opsconfig: duyệt: %w", err)
 		}
 	}
 
-	ra := make([]GiaTri, 0, len(soDangKy))
-	for _, t := range MoiThamSo() {
-		g := GiaTri{Tham: t, HienTai: t.MacDinh, LaMacDinh: true}
-		if d, co := daDat[t.Khoa]; co && t.KiemGiaTri(d.v) == nil {
-			g.HienTai, g.LaMacDinh = d.v, false
-			g.SuaLuc, g.SuaBoi, g.LyDo = d.luc, d.boi, d.lyDo
+	out := make([]Value, 0, len(registry))
+	for _, t := range AllParams() {
+		g := Value{Param: t, Current: t.Default, IsDefault: true}
+		if d, ok := alreadySet[t.Key]; ok && t.Validate(d.v) == nil {
+			g.Current, g.IsDefault = d.v, false
+			g.UpdatedAt, g.UpdatedBy, g.Reason = d.at, d.by, d.reason
 		}
-		ra = append(ra, g)
+		out = append(out, g)
 	}
-	return ra, nil
+	return out, nil
 }
 
-// DatInput là một lần đổi tham số.
-type DatInput struct {
-	Khoa   string
-	GiaTri float64
+// SetInput là một lần đổi tham số.
+type SetInput struct {
+	Key   string
+	Value float64
 
-	// SuaBoi và LyDo BẮT BUỘC.
+	// UpdatedBy và Reason BẮT BUỘC.
 	//
 	// Đổi tham số vận hành là thao tác nhạy cảm: nó đổi cách hệ thống
 	// chấm điểm hoặc từ chối, và ảnh hưởng tới người ngoài công ty. Một
 	// lần đổi không có người chịu trách nhiệm và không có lý do thì không
 	// giải thích được khi nhà bán khiếu nại.
-	SuaBoi string
-	LyDo   string
+	UpdatedBy string
+	Reason    string
 }
 
 // Tx là phần giao dịch mà bên gọi cần để ghi vết trong CÙNG giao dịch.
@@ -234,7 +234,7 @@ type Tx interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
-// Dat ghi một giá trị mới, chạy `ghiVet` trong CÙNG giao dịch, rồi nạp lại
+// Set ghi một giá trị mới, chạy `writeAudit` trong CÙNG giao dịch, rồi nạp lại
 // bộ đệm.
 //
 // # Vì sao ghi vết phải nằm TRONG giao dịch
@@ -258,21 +258,21 @@ type Tx interface {
 // `pg_advisory_xact_lock` khóa theo TÊN KHÓA chứ không theo hàng, nên nó
 // đúng cả khi hàng chưa tồn tại — trường hợp mà `SELECT … FOR UPDATE`
 // không khóa được gì.
-func (s *Store) Dat(
-	ctx context.Context, in DatInput,
-	ghiVet func(ctx context.Context, tx Tx, giaTriCu float64) error,
+func (s *Store) Set(
+	ctx context.Context, in SetInput,
+	writeAudit func(ctx context.Context, tx Tx, giaTriCu float64) error,
 ) error {
-	t, ok := Tham(in.Khoa)
+	t, ok := Lookup(in.Key)
 	if !ok {
-		return fmt.Errorf("%w: %q", ErrKhongCoKhoa, in.Khoa)
+		return fmt.Errorf("%w: %q", ErrNoKey, in.Key)
 	}
-	if err := t.KiemGiaTri(in.GiaTri); err != nil {
+	if err := t.Validate(in.Value); err != nil {
 		return err
 	}
-	if in.SuaBoi == "" {
+	if in.UpdatedBy == "" {
 		return errors.New("opsconfig: thiếu người thực hiện")
 	}
-	if in.LyDo == "" {
+	if in.Reason == "" {
 		return errors.New("opsconfig: thiếu lý do")
 	}
 	if s == nil || s.pool == nil {
@@ -286,26 +286,26 @@ func (s *Store) Dat(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx,
-		`SELECT pg_advisory_xact_lock(hashtext($1))`, in.Khoa); err != nil {
+		`SELECT pg_advisory_xact_lock(hashtext($1))`, in.Key); err != nil {
 		return fmt.Errorf("opsconfig: giành khóa tham số: %w", err)
 	}
 
 	// Đọc giá trị cũ TRONG giao dịch, sau khi đã giành khóa.
-	cu := t.MacDinh
-	var doc float64
+	old := t.Default
+	var read float64
 	switch err := tx.QueryRow(ctx,
-		`SELECT value FROM ops_config WHERE key = $1`, in.Khoa).
-		Scan(&doc); {
+		`SELECT value FROM ops_config WHERE key = $1`, in.Key).
+		Scan(&read); {
 	case err == nil:
-		cu = doc
+		old = read
 	case errors.Is(err, pgx.ErrNoRows):
 		// Chưa ai đặt: giá trị cũ là mặc định.
 	default:
 		return fmt.Errorf("opsconfig: đọc giá trị cũ: %w", err)
 	}
 
-	if ghiVet != nil {
-		if err := ghiVet(ctx, tx, cu); err != nil {
+	if writeAudit != nil {
+		if err := writeAudit(ctx, tx, old); err != nil {
 			return err
 		}
 	}
@@ -318,7 +318,7 @@ func (s *Store) Dat(
 		       updated_at = EXCLUDED.updated_at,
 		       updated_by = EXCLUDED.updated_by,
 		       reason   = EXCLUDED.reason`,
-		in.Khoa, in.GiaTri, in.SuaBoi, in.LyDo); err != nil {
+		in.Key, in.Value, in.UpdatedBy, in.Reason); err != nil {
 		return fmt.Errorf("opsconfig: ghi tham số: %w", err)
 	}
 
@@ -328,12 +328,12 @@ func (s *Store) Dat(
 
 	// Nạp lại NGAY, không đợi chu kỳ: người vừa đổi sẽ tải lại trang và
 	// phải thấy con số mới. Thấy con số cũ khiến họ bấm Lưu lần nữa.
-	return s.NapLai(ctx)
+	return s.Reload(ctx)
 }
 
-// ChayNapLaiDinhKy giữ bộ đệm tươi khi có NHIỀU BẢN SAO cùng chạy.
+// RunPeriodicReload giữ bộ đệm tươi khi có NHIỀU BẢN SAO cùng chạy.
 //
-// `Dat` chỉ nạp lại bộ đệm của TIẾN TRÌNH ĐANG GHI. Bản sao khác không
+// `Set` chỉ nạp lại bộ đệm của TIẾN TRÌNH ĐANG GHI. Bản sao khác không
 // biết gì cho tới lần nạp định kỳ này — nên trong khoảng đó, hai bản sao
 // dùng hai giá trị khác nhau.
 //
@@ -341,15 +341,15 @@ func (s *Store) Dat(
 // khoảng lệch vài chục giây không gây hại. Đổi lại, đường đọc không tốn
 // một truy vấn nào. Cách khác — LISTEN/NOTIFY của PostgreSQL — chính xác
 // hơn nhưng thêm một kết nối thường trực cho một nhu cầu không cần tới nó.
-func (s *Store) ChayNapLaiDinhKy(ctx context.Context, nhip time.Duration) {
-	t := time.NewTicker(nhip)
+func (s *Store) RunPeriodicReload(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			_ = s.NapLai(ctx)
+			_ = s.Reload(ctx)
 		}
 	}
 }
