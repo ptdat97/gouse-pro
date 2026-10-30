@@ -130,7 +130,7 @@ func chay(t *testing.T, root2 string, overrides ...map[string]string) *checker {
 	return c
 }
 
-func TestAMatchReportsNoViolation(t *testing.T) {
+func TestAMatchingRouteReportsNoViolation(t *testing.T) {
 	root2 := project(t, oneRouteOpenAPI,
 		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 

@@ -167,7 +167,7 @@ func chay(t *testing.T, root2 string, overrides ...map[string]string) *checker {
 	return c
 }
 
-func TestAMatchReportsNoViolation(t *testing.T) {
+func TestAMatchingReceiverReportsNoViolation(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
 		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),

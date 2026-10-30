@@ -10,6 +10,13 @@
 /worker
 /archcheck
 /seed
+/deadcol
+/apicheck
+/eventcheck
+
+# DANH SÁCH TRÊN KHÔNG PHẢI HÀNG RÀO. Nó thiếu đúng lệnh mới viết, mỗi
+# lần — `deadcol` lọt vào lịch sử ngày 30/10/2026 đúng theo cách đó.
+# Hàng rào là `make nhiphan`, nó HỎI `file` chứ không tra danh sách.
 
 # `/api` ở trên nhắm BINARY `go build ./cmd/api`, nhưng nó khớp cả THƯ MỤC
 # `api/` — nơi giữ đặc tả OpenAPI, tức nguồn sự thật duy nhất của cả

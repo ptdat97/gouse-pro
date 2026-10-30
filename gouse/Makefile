@@ -105,6 +105,43 @@ hopdong: ## Kiểm hợp đồng API và event (VI PHẠM = THẤT BẠI)
 	@go run ./cmd/eventcheck -v
 	@go test ./cmd/eventcheck/
 
+# Chặn BINARY lọt vào repo.
+#
+# # Vì sao mục tiêu này phải tồn tại
+#
+# `go build ./cmd/x` ghi ra `./x` ngay tại thư mục chạy lệnh, trùng tên
+# với thư mục lệnh. Ba lần đã lọt vào lịch sử: taonhaban, taotaikhoan,
+# rồi deadcol — mỗi file vài MB và không thể xóa khỏi lịch sử nữa.
+#
+# Hai .gitignore có một DANH SÁCH TÊN để chặn việc đó, và danh sách ấy
+# thiếu đúng lệnh mới viết, mỗi lần. Danh sách không bao giờ đầy; phép
+# ĐO thì đầy. Mục tiêu này đo: nó hỏi `file` xem từng tệp ĐANG ĐƯỢC
+# THEO DÕI có phải mã máy hay không, nên nó bắt cả lệnh chưa ai đặt tên.
+#
+# Chạy trên toàn repo chứ không riêng `gouse/`: binary cũng rơi được ra
+# gốc monorepo, nơi .gitignore của gouse/ không với tới.
+#
+# BẪY, đã cắn một lần ngay khi viết mục tiêu này: `file` ĐỆM TÊN TỆP bằng
+# dấu cách khi nhận nhiều tệp, nên đầu ra là `tên:<nhiều dấu cách>kiểu`.
+# Biểu thức đòi `: application/x-...` với ĐÚNG MỘT dấu cách khớp 0 dòng,
+# và hàng rào báo "đạt" trong khi `gouse/deadcol` đang nằm trong repo.
+#
+# Hàng rào nào cũng phải được kiểm bằng cách PHÁ: cho nó một vi phạm
+# thật và xem nó có đỏ không. Hàng rào này đã được kiểm như vậy.
+.PHONY: nhiphan
+nhiphan: ## Chặn mã máy lọt vào repo (VI PHẠM = THẤT BẠI)
+	@root=$$(git rev-parse --show-toplevel); \
+	bad=$$(cd "$$root" && git ls-files -z | xargs -0 file --mime-type \
+		| grep -E '[[:space:]]application/x-(mach-binary|executable|pie-executable|sharedlib)$$' \
+		|| true); \
+	if [ -n "$$bad" ]; then \
+		echo "$$bad"; \
+		echo ""; \
+		echo "Có MÃ MÁY trong repo. 'go build ./cmd/x' ghi ra ./x tại chỗ."; \
+		echo "Xóa khỏi theo dõi: git rm --cached <tệp>"; \
+		exit 1; \
+	fi
+
 .PHONY: deadcol
 deadcol: ## Tìm cột KHÔNG AI GHI — cần DATABASE_URL có DỮ LIỆU THẬT
 	@echo "deadcol đo trên DỮ LIỆU, nên nó KHÔNG ở trong 'make check':"
@@ -124,7 +161,7 @@ alerts: ## Kiểm tra luật cảnh báo Prometheus
 	@promtool test rules deploy/prometheus/alerts_test.yml
 
 .PHONY: check
-check: fmt-check vet arch hopdong test ## Chạy toàn bộ kiểm tra như CI
+check: fmt-check vet arch hopdong nhiphan test ## Chạy toàn bộ kiểm tra như CI
 	@echo -e "$(GREEN)✓ Mọi kiểm tra đều đạt$(RESET)"
 
 # ---------------------------------------------------------------- Database
