@@ -105,6 +105,12 @@ hopdong: ## Kiểm hợp đồng API và event (VI PHẠM = THẤT BẠI)
 	@go run ./cmd/eventcheck -v
 	@go test ./cmd/eventcheck/
 
+.PHONY: deadcol
+deadcol: ## Tìm cột KHÔNG AI GHI — cần DATABASE_URL có DỮ LIỆU THẬT
+	@echo "deadcol đo trên DỮ LIỆU, nên nó KHÔNG ở trong 'make check':"
+	@echo "một database vừa migrate thì mọi cột đều rỗng."
+	@go run ./cmd/deadcol -v
+
 .PHONY: api-lint
 api-lint: ## Kiểm tra đặc tả OpenAPI
 	npx --yes @redocly/cli@latest lint api/openapi.yaml

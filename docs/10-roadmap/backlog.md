@@ -8282,6 +8282,64 @@ trên 3.298, `notification_log.channel` chỉ có `EMAIL`.
 
 ---
 
+### P3-92 — ĐÃ LÀM 30/10/2026 — `cmd/deadcol`: bước 5 của mục 8 nay chạy lại được
+
+Mục 8 gọi bước 5 — *quét cột DB không bao giờ đổi giá trị* — là **rẻ nhất
+trong cả năm bước, và nó bắt được thứ bốn bước kia bỏ sót**. Phép rà ấy được
+chạy TAY đúng một lần, cho đúng một cột (`shipping_method`). Lệnh này biến nó
+thành thứ chạy lại được, kèm hai sổ ghi tay.
+
+**Ngưỡng 100 dòng, và con số ấy được ĐO chứ không chọn.** Đếm trên dữ liệu
+phát triển:
+
+```text
+ngưỡng >=1      236 cột một-giá-trị
+ngưỡng >=20      76
+ngưỡng >=50      59
+ngưỡng >=100     59
+ngưỡng >=500     55
+ngưỡng >=1000    55
+```
+
+Từ 50 trở lên đường cong PHẲNG, nên chọn 100 nghĩa là câu trả lời không phụ
+thuộc vào con số đã chọn. Dưới 20 thì nó bị các bảng nhỏ chi phối.
+
+**59 cột, và việc phân loại là phần có giá trị.** Ba nhóm trông giống hệt nhau
+trước khi có người đọc:
+
+```text
+hằng số cố ý     currency=VND, ship_country_code=VN
+đường THẤT BẠI   cancel_reason, failure_reason, dead_lettered_at —
+                 rỗng nghĩa là KHÔNG CÓ GÌ HỎNG; nhiều giá trị là tin XẤU
+không ai ghi     event_log.ip_hash · demand_signal.product_id ·
+                 fulfillment_order.stock_location_id · …
+```
+
+Nhóm thứ hai là nhóm dễ xếp sai nhất: nó trông như "không ai ghi" nhưng một
+ngày nó có giá trị thứ hai thì đó không phải tin tốt.
+
+**Ca thứ 15 của mục 8, tìm ra ngay trong lượt dựng công cụ:**
+`event_outbox.causation_id` rỗng trên 16.061 hàng. Cột có, trường
+`Event.CausationID` có, câu INSERT ghi nó — và `Event.WithTrace` chỉ được gọi
+trong test. Nên chuỗi event gom được theo `correlation_id` mà không xếp được
+thành CÂY: không trả lời được *"event nào sinh ra event này"*.
+
+**Ca thứ 16:** `metric_snapshot.granularity` chỉ có `DAY`. `HOUR` và `MONTH`
+khai trong enum, có `Truncate`/`Next`, có trong CHECK của migration 000019 —
+và chỉ `cmd/worker` ghi chỉ số, với `GranularityDay` ghim cứng. Không xem được
+đột biến trong ngày, và báo cáo tháng phải cộng 30 bản ghi ngày lúc đọc.
+
+**Phép phá, sáu lần.** Trên lệnh: bỏ một dòng sổ → cột quay lại "chưa quyết";
+dòng sổ trỏ cột không tồn tại → đỏ; dòng sổ cho cột đã có nhiều giá trị → đỏ.
+Trên ba bài test: khóa gõ sai `event_log_ip_hash` → đỏ; một cột nằm cả hai sổ
+→ đỏ; `columnExists` trả rỗng (bài test tự TẮT) → đỏ với câu *"bài này đang
+KHÔNG kiểm gì"*.
+
+Phép phá cuối quan trọng nhất: một bài test đọc lược đồ sẽ XANH khi lược đồ
+rỗng, nên nó cần một câu khẳng định đứng đúng ở chỗ ấy.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ
@@ -8456,6 +8514,25 @@ tên trường và xanh suốt trong lúc khách không bao giờ thấy số đ
 5. quét CỘT DB không bao giờ đổi giá trị: một cột chỉ có DUY NHẤT một giá
    trị trên hàng nghìn dòng thì hoặc là hằng số cố ý, hoặc là không ai ghi
 ```
+
+**Bước 5 nay là `cmd/deadcol`** (P3-92). Nó quét mọi cột của mọi bảng cơ sở,
+giữ lại cột có ĐÚNG MỘT giá trị phân biệt trên bảng đủ lớn, rồi đối chiếu với
+hai sổ ghi tay:
+
+```text
+intentionallyConstant   hằng số CÓ CHỦ Ý, lý do nói vì sao không bao giờ
+                        có giá trị thứ hai        (30 dòng)
+knownEmpty              KHÔNG AI GHI, lý do nói HỆ QUẢ; chỉ được rút ngắn
+                                                  (29 dòng)
+```
+
+Cột không nằm trong sổ nào → ĐỎ. Dòng sổ trỏ tới cột đã xóa, hoặc tới cột nay
+đã có giá trị thứ hai → cũng ĐỎ. Chạy: `make deadcol`.
+
+Nó KHÔNG ở trong `make check` vì nó đo trên DỮ LIỆU, và CI không có dữ liệu —
+một database vừa migrate thì cả 741 cột đều rỗng. Phần gác được ở CI là ba bài
+test của hai sổ: khóa đúng dạng `bảng.cột`, không cột nào nằm cả hai sổ, và
+mọi khóa còn tồn tại trong lược đồ.
 
 Bước 5 rẻ nhất trong cả năm, và nó bắt được thứ bốn bước kia bỏ sót:
 `shipping_method` CÓ mặt trong câu `UPDATE` nên grep tìm thấy phép gán, có
