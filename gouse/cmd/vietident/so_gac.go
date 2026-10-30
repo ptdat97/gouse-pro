@@ -8,8 +8,10 @@ package main
 //
 // Lịch sử, để thấy con số này có nghĩa:
 //
-//	30/10/2026  ???  đo lần đầu bằng go/ast + hình dạng âm tiết
-const ratchet = 453
+//	30/10/2026  453  đo lần đầu bằng go/ast + hình dạng âm tiết
+//	30/10/2026  281  xong internal/{modules,platform,kernel}
+//	30/10/2026  240  xong cmd/ — kể cả dự án GIẢ trong chuỗi thô của test
+const ratchet = 240
 
 // allowed là các âm tiết CÓ hình dạng tiếng Việt nhưng KHÔNG phải tiếng
 // Việt trong repo này.

@@ -314,21 +314,21 @@ func TestCategoryTree(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newService(t)
 
-	nu, err := svc.CreateCategory(ctx, application.CreateCategoryInput{
+	women, err := svc.CreateCategory(ctx, application.CreateCategoryInput{
 		Name: "Nữ", Slug: "nu",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ao, _ := svc.CreateCategory(ctx, application.CreateCategoryInput{
-		ParentID: nu.ID(), Name: "Áo", Slug: "nu-ao",
+	shirt, _ := svc.CreateCategory(ctx, application.CreateCategoryInput{
+		ParentID: women.ID(), Name: "Áo", Slug: "nu-ao",
 	})
 	_, _ = svc.CreateCategory(ctx, application.CreateCategoryInput{
-		ParentID: ao.ID(), Name: "Áo sơ mi", Slug: "nu-ao-so-mi",
+		ParentID: shirt.ID(), Name: "Áo sơ mi", Slug: "nu-ao-so-mi",
 	})
 
-	if ao.Depth() != 1 {
-		t.Errorf("độ sâu danh mục con: mong 1, nhận %d", ao.Depth())
+	if shirt.Depth() != 1 {
+		t.Errorf("độ sâu danh mục con: mong 1, nhận %d", shirt.Depth())
 	}
 
 	tree, err := svc.GetCategoryTree(ctx)

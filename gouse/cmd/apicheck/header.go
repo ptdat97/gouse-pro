@@ -213,7 +213,7 @@ func (c *checker) compareHeaders(spec map[string]string, cors map[string]bool) {
 		if _, ok := corsLower[strings.ToLower(h)]; ok {
 			continue
 		}
-		if _, co := c.headersNotViaBrowser[h]; co {
+		if _, found := c.headersNotViaBrowser[h]; found {
 			continue
 		}
 		missing = append(missing, h)
@@ -237,7 +237,7 @@ func (c *checker) compareHeaders(spec map[string]string, cors map[string]bool) {
 		if specLower[strings.ToLower(h)] {
 			continue
 		}
-		if _, co := c.headersOutsideSpec[h]; co {
+		if _, found := c.headersOutsideSpec[h]; found {
 			continue
 		}
 		extra = append(extra, h)

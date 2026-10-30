@@ -226,13 +226,13 @@ func (s *OrderStore) update(
 	if tag.RowsAffected() == 0 {
 		// Không phân biệt được "không có đơn" với "phiên bản đã cũ" bằng
 		// số dòng, nên hỏi thẳng database.
-		var co bool
+		var found bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM "order" WHERE id = $1)`,
-			o.ID().String()).Scan(&co); err != nil {
+			o.ID().String()).Scan(&found); err != nil {
 			return fmt.Errorf("order: kiểm tra đơn tồn tại: %w", err)
 		}
-		if co {
+		if found {
 			return domain.ErrVersionConflict
 		}
 		return domain.ErrNotFound

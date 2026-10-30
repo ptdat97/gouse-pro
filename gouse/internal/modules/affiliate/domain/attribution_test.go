@@ -15,18 +15,18 @@ var at = time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
 
 func vnd(n int64) money.Money { return money.MustNew(n, money.VND) }
 
-func attribution(t *testing.T, baseAmount int64, tyLe int32) *domain.Attribution {
+func attribution(t *testing.T, baseAmount int64, rate int32) *domain.Attribution {
 	t.Helper()
-	return attributionWithBase(t, vnd(baseAmount), tyLe)
+	return attributionWithBase(t, vnd(baseAmount), rate)
 }
 
-func attributionWithBase(t *testing.T, base money.Money, tyLe int32) *domain.Attribution {
+func attributionWithBase(t *testing.T, base money.Money, rate int32) *domain.Attribution {
 	t.Helper()
 	a, err := domain.NewAttribution(domain.NewAttributionParams{
 		OrderID:     ids.MustNew(ids.PrefixOrder),
 		OrderLineID: ids.MustNew(ids.PrefixOrderLine),
 		CreatorID:   ids.MustNew(ids.PrefixCreator),
-		Rate:        types.MustNewBasisPoints(tyLe),
+		Rate:        types.MustNewBasisPoints(rate),
 		Base:        base,
 		CostBearer:  domain.DefaultCostBearer,
 		Now:         at,

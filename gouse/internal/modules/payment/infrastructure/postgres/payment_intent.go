@@ -90,7 +90,7 @@ func (s *IntentStore) Update(ctx context.Context, p *domain.PaymentIntent) error
 func (s *IntentStore) oneRow(
 	ctx context.Context, where string, args ...any,
 ) (*domain.PaymentIntent, error) {
-	return quetIntent(s.pool.QueryRow(ctx,
+	return scanIntent(s.pool.QueryRow(ctx,
 		`SELECT`+intentCols+` FROM payment_intent `+where, args...))
 }
 
@@ -98,7 +98,7 @@ func (s *IntentStore) oneRow(
 //
 // Dùng chung cho lời gọi một dòng và lời gọi theo lô: hai bản chép đôi sẽ
 // lệch nhau ngay lần thêm cột tiếp theo, và lệch theo kiểu im lặng.
-func quetIntent(row interface {
+func scanIntent(row interface {
 	Scan(dest ...any) error
 }) (*domain.PaymentIntent, error) {
 	var (
@@ -169,7 +169,7 @@ func (s *IntentStore) CapturedSince(
 
 	var out []*domain.PaymentIntent
 	for rows.Next() {
-		p, err := quetIntent(rows)
+		p, err := scanIntent(rows)
 		if err != nil {
 			return nil, fmt.Errorf("payment: đọc intent đã thu: %w", err)
 		}

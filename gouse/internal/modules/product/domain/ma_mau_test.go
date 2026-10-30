@@ -37,7 +37,7 @@ func TestColorHexNormalizesToUppercase(t *testing.T) {
 // Dạng rút gọn ba ký tự (#FFF) cũng bị từ chối dù hợp lệ trong CSS: nó
 // tạo hai cách viết cho cùng một màu.
 func TestMalformedColorHexIsRejected(t *testing.T) {
-	for _, ma := range []string{
+	for _, colorCode := range []string{
 		"FF0000",   // thiếu dấu thăng
 		"#FFF",     // dạng rút gọn
 		"#GG0000",  // ký tự không phải hex
@@ -47,12 +47,12 @@ func TestMalformedColorHexIsRejected(t *testing.T) {
 		_, err := domain.NewVariant(domain.NewVariantParams{
 			Attributes: map[string]string{
 				domain.AttrColor:    "Đỏ",
-				domain.AttrColorHex: ma,
+				domain.AttrColorHex: colorCode,
 			},
 			Now: types.Now(),
 		})
 		if !errors.Is(err, domain.ErrInvalidColorHex) {
-			t.Errorf("mã %q: lỗi = %v, mong ErrInvalidColorHex", ma, err)
+			t.Errorf("mã %q: lỗi = %v, mong ErrInvalidColorHex", colorCode, err)
 		}
 	}
 }

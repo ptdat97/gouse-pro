@@ -30,10 +30,10 @@ func TestMidnightFollowsBusinessTime(t *testing.T) {
 	}
 
 	// Cùng thời điểm, viết theo UTC: 17:00 ngày 19/08.
-	mong := time.Date(2026, 8, 19, 17, 0, 0, 0, time.UTC)
-	if !got.Equal(mong) {
+	expect := time.Date(2026, 8, 19, 17, 0, 0, 0, time.UTC)
+	if !got.Equal(expect) {
 		t.Errorf("nửa đêm 20/08 = %s, cần %s — mốc ngày đang cắt theo UTC "+
-			"thay vì giờ nghiệp vụ", got.UTC(), mong)
+			"thay vì giờ nghiệp vụ", got.UTC(), expect)
 	}
 }
 

@@ -93,7 +93,7 @@ func (c *checker) readTableOwnership() (map[string]string, error) {
 		}
 
 		mod := strings.TrimSuffix(entryName, ".md")
-		if m, co := docNameDiffersFromModule[mod]; co {
+		if m, found := docNameDiffersFromModule[mod]; found {
 			mod = m
 		}
 		hasDoc[mod] = true

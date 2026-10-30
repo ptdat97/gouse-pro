@@ -285,19 +285,19 @@ func (h *ReverseOnFulfillmentCancelled) Handle(ctx context.Context, e eventbus.E
 			"affiliate: đọc dữ liệu event fulfillment.cancelled: %w", err)
 	}
 
-	ma := make([]string, 0, len(p.Lines))
+	lineIDs := make([]string, 0, len(p.Lines))
 	for _, l := range p.Lines {
 		if l.OrderLineID == "" {
 			continue
 		}
-		ma = append(ma, l.OrderLineID)
+		lineIDs = append(lineIDs, l.OrderLineID)
 	}
 
 	// Đơn thực hiện CŨ không có mã dòng đơn (`FOLine.OrderLineID` chỉ được
 	// điền từ migration 000024). Ghi log ở mức CẢNH BÁO thay vì trả lỗi:
 	// trả lỗi sẽ làm event thử lại mãi rồi vào dead letter, mà thử lại
 	// không làm dữ liệu cũ có thêm mã dòng.
-	if len(ma) == 0 && len(p.Lines) > 0 {
+	if len(lineIDs) == 0 && len(p.Lines) > 0 {
 		h.log.WarnContext(ctx,
 			"hủy đơn thực hiện không mang mã dòng đơn — hoa hồng creator "+
 				"của các dòng này KHÔNG đảo được",
@@ -314,10 +314,10 @@ func (h *ReverseOnFulfillmentCancelled) Handle(ctx context.Context, e eventbus.E
 		reason = "đơn thực hiện " + p.FulfillmentID + " bị hủy"
 	}
 
-	n, err := h.module.svc.ReverseByOrderLines(ctx, ma, reason)
+	n, err := h.module.svc.ReverseByOrderLines(ctx, lineIDs, reason)
 	if err != nil {
 		return fmt.Errorf("affiliate: đảo hoa hồng của %d dòng đơn: %w",
-			len(ma), err)
+			len(lineIDs), err)
 	}
 	if n > 0 {
 		h.log.InfoContext(ctx,

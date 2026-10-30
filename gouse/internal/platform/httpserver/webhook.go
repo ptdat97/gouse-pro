@@ -38,7 +38,7 @@ func VerifyHMAC(bodyRaw []byte, signature, secret string) error {
 
 	signature = strings.TrimSpace(signature)
 	// Nhiều nhà cung cấp gắn tiền tố thuật toán: "sha256=abc123…".
-	if _, after, co := strings.Cut(signature, "="); co {
+	if _, after, found := strings.Cut(signature, "="); found {
 		signature = after
 	}
 

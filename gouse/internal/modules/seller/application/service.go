@@ -271,9 +271,9 @@ func (s *Service) ApproveWithAudit(
 		// Sàn mặc định 0 = không chặn gì, đúng bằng hành vi trước khi có
 		// tham số này. Nhà bán OWN BRAND miễn sàn — nhánh này không chạy
 		// cho họ, và database còn một ràng buộc CHECK nữa.
-		if san := s.commissionFloor(); in.CommissionRateBP.Value() < san {
+		if product := s.commissionFloor(); in.CommissionRateBP.Value() < product {
 			return nil, fmt.Errorf("%w: %d điểm cơ bản, sàn hiện tại là %d",
-				ErrCommissionBelowFloor, in.CommissionRateBP.Value(), san)
+				ErrCommissionBelowFloor, in.CommissionRateBP.Value(), product)
 		}
 		if err := sel.SetCommissionRate(in.CommissionRateBP, now); err != nil {
 			return nil, err

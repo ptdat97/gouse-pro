@@ -330,9 +330,9 @@ func TestValidateSellerPrice(t *testing.T) {
 	}
 
 	cases := []struct {
-		ten    string
-		price  int64
-		mongOK bool
+		ten      string
+		price    int64
+		expectOK bool
 	}{
 		{"trong khung", 300000, true},
 		{"gõ thiếu số 0", 30000, false},
@@ -344,8 +344,8 @@ func TestValidateSellerPrice(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ValidateSellerPrice: %v", err)
 			}
-			if got.Allowed != tc.mongOK {
-				t.Errorf("Allowed = %v, mong %v (%s)", got.Allowed, tc.mongOK, got.Message)
+			if got.Allowed != tc.expectOK {
+				t.Errorf("Allowed = %v, mong %v (%s)", got.Allowed, tc.expectOK, got.Message)
 			}
 		})
 	}

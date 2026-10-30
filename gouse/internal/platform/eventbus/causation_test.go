@@ -16,9 +16,9 @@ import (
 // `order.recalculate_on_fulfillment_progress` (ghi tiền COD rồi phát
 // `order.paid`).
 type publishingHandler struct {
-	outbox *eventbus.Outbox
-	kind   string
-	conID  ids.ID
+	outbox  *eventbus.Outbox
+	kind    string
+	childID ids.ID
 }
 
 func (h *publishingHandler) Name() string         { return "test.publishing_handler" }
@@ -29,7 +29,7 @@ func (h *publishingHandler) Handle(ctx context.Context, _ eventbus.Event) error 
 	if err != nil {
 		return err
 	}
-	e, err := eventbus.NewEvent(h.kind, eventbus.AggregateOrder, h.conID,
+	e, err := eventbus.NewEvent(h.kind, eventbus.AggregateOrder, h.childID,
 		map[string]any{"from": "handler"})
 	if err != nil {
 		return err
@@ -53,12 +53,12 @@ func TestAnEventPublishedFromAHandlerCarriesItsParent(t *testing.T) {
 	bus, pool := newBus(t)
 	ctx := context.Background()
 
-	con := ids.MustNew(ids.PrefixOrder)
+	child := ids.MustNew(ids.PrefixOrder)
 	bus.Subscribe(&publishingHandler{
-		outbox: bus.Outbox(), kind: "order.paid", conID: con})
+		outbox: bus.Outbox(), kind: "order.paid", childID: child})
 
-	cha := newEvent(t, "order.placed")
-	if err := bus.Outbox().Publish(ctx, cha); err != nil {
+	parent := newEvent(t, "order.placed")
+	if err := bus.Outbox().Publish(ctx, parent); err != nil {
 		t.Fatalf("phát event cha: %v", err)
 	}
 	if _, err := bus.DispatchBatch(ctx, 100); err != nil {
@@ -72,10 +72,10 @@ func TestAnEventPublishedFromAHandlerCarriesItsParent(t *testing.T) {
 		t.Fatalf("đọc outbox: %v", err)
 	}
 
-	if causation != cha.ID.String() {
+	if causation != parent.ID.String() {
 		t.Errorf("causation_id = %q, cần %q — event phát TRONG một bên nhận "+
 			"phải nhớ event nào sinh ra nó, không thì chuỗi gom được mà "+
-			"không xếp được thành cây", causation, cha.ID.String())
+			"không xếp được thành cây", causation, parent.ID.String())
 	}
 }
 
@@ -126,8 +126,8 @@ func TestAPublisherSuppliedCausationIsKept(t *testing.T) {
 	bus, pool := newBus(t)
 	ctx := context.Background()
 
-	chaThat := ids.MustNew(ids.PrefixEvent).String()
-	e := newEvent(t, "order.paid").WithTrace("ord_x", chaThat)
+	realParent := ids.MustNew(ids.PrefixEvent).String()
+	e := newEvent(t, "order.paid").WithTrace("ord_x", realParent)
 	if err := bus.Outbox().Publish(ctx, e); err != nil {
 		t.Fatalf("phát event: %v", err)
 	}
@@ -138,8 +138,8 @@ func TestAPublisherSuppliedCausationIsKept(t *testing.T) {
 		e.ID.String()).Scan(&causation); err != nil {
 		t.Fatalf("đọc outbox: %v", err)
 	}
-	if causation != chaThat {
+	if causation != realParent {
 		t.Errorf("causation_id = %q, cần %q — giá trị bên phát tự đặt phải "+
-			"thắng giá trị kế thừa từ ngữ cảnh", causation, chaThat)
+			"thắng giá trị kế thừa từ ngữ cảnh", causation, realParent)
 	}
 }

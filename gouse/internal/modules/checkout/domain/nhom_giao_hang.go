@@ -17,7 +17,7 @@ type SourceFee struct {
 	SellerID ids.ID
 
 	// Phi là phí GỐC của nguồn này, trước khi xét miễn phí ship.
-	Phi money.Money
+	Fee money.Money
 
 	// Days là thời gian VẬN CHUYỂN, KHÔNG gồm thời gian nhà bán chuẩn
 	// bị hàng — xem `fulfillment/domain.FeeTier`.
@@ -97,8 +97,8 @@ func buildShippingGroups(
 		if !l.HasStock() {
 			continue
 		}
-		g, co := groups[l.SellerID()]
-		if !co {
+		g, found := groups[l.SellerID()]
+		if !found {
 			g = &group{sellerID: l.SellerID(), name: l.SellerName()}
 			groups[l.SellerID()] = g
 			sellerOrder = append(sellerOrder, l.SellerID())
@@ -126,7 +126,7 @@ func buildShippingGroups(
 	// LUÔN bằng số khách trả, kể cả khi biểu phí đổi giữa chừng.
 	weights := make([]int64, len(sellerOrder))
 	for i, id := range sellerOrder {
-		weights[i] = estimate[id].Phi.Amount()
+		weights[i] = estimate[id].Fee.Amount()
 	}
 	allocations := splitByWeight(fee.Amount(), weights)
 

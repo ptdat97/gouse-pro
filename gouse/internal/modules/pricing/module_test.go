@@ -139,9 +139,9 @@ func TestValidateSellerPriceViaPublicAPI(t *testing.T) {
 	}
 
 	cases := []struct {
-		ten    string
-		price  int64
-		mongOK bool
+		ten      string
+		price    int64
+		expectOK bool
 	}{
 		{"trong khung", 450000, true},
 		{"gõ thiếu số 0", 49000, false},
@@ -153,11 +153,11 @@ func TestValidateSellerPriceViaPublicAPI(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ValidateSellerPrice: %v", err)
 			}
-			if got.Allowed != tc.mongOK {
-				t.Errorf("Allowed = %v, mong %v (%s)", got.Allowed, tc.mongOK, got.Message)
+			if got.Allowed != tc.expectOK {
+				t.Errorf("Allowed = %v, mong %v (%s)", got.Allowed, tc.expectOK, got.Message)
 			}
 			// Kết quả phải kèm khung giá để seller biết sửa thế nào.
-			if !tc.mongOK && got.MinPrice.Value == 0 && got.MaxPrice.Value == 0 {
+			if !tc.expectOK && got.MinPrice.Value == 0 && got.MaxPrice.Value == 0 {
 				t.Error("từ chối mà không cho biết khung giá")
 			}
 		})

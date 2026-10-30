@@ -101,7 +101,7 @@ func checkTemplateMigrated(template string) error {
 // Tìm thư mục từ đường dẫn CỦA CHÍNH TỆP NÀY, không từ thư mục làm việc:
 // `go test` chạy với thư mục làm việc là gói đang test, nên một đường dẫn
 // tương đối sẽ trỏ sai ở mọi gói trừ một.
-func highestMigration() (cao int64, dir string, err error) {
+func highestMigration() (newest int64, dir string, err error) {
 	_, self, _, ok := runtime.Caller(0)
 	if !ok {
 		return 0, "", errors.New("không xác định được đường dẫn gói testdb")

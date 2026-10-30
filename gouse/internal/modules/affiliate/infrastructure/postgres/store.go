@@ -253,14 +253,14 @@ func (s *Store) ByOrderLines(
 		return nil, nil
 	}
 
-	ma := make([]string, 0, len(orderLineIDs))
+	lineIDs := make([]string, 0, len(orderLineIDs))
 	for _, id := range orderLineIDs {
 		if id.IsZero() {
 			continue
 		}
-		ma = append(ma, id.String())
+		lineIDs = append(lineIDs, id.String())
 	}
-	if len(ma) == 0 {
+	if len(lineIDs) == 0 {
 		return nil, nil
 	}
 
@@ -269,7 +269,7 @@ func (s *Store) ByOrderLines(
 		  FROM commission_record c
 		  JOIN attribution a ON a.id = c.attribution_id
 		 WHERE a.order_line_id = ANY($1)
-		 ORDER BY c.created_at`, ma)
+		 ORDER BY c.created_at`, lineIDs)
 	if err != nil {
 		return nil, fmt.Errorf("affiliate: đọc hoa hồng theo dòng đơn: %w", err)
 	}

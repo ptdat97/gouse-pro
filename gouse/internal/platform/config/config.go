@@ -275,15 +275,15 @@ func Load() (*Config, error) {
 			minJWTSecretLen, len(jwtSecret)))
 	}
 
-	biMatWebhook := map[string]string{}
+	webhookSecrets := map[string]string{}
 	for _, level := range strings.Split(os.Getenv("WEBHOOK_SECRETS"), ",") {
-		ten, key, co := strings.Cut(strings.TrimSpace(level), ":")
+		ten, key, found := strings.Cut(strings.TrimSpace(level), ":")
 		ten = strings.ToLower(strings.TrimSpace(ten))
 		key = strings.TrimSpace(key)
-		if !co || ten == "" || key == "" {
+		if !found || ten == "" || key == "" {
 			continue
 		}
-		biMatWebhook[ten] = key
+		webhookSecrets[ten] = key
 	}
 
 	encKey := os.Getenv("ENCRYPTION_KEY")
@@ -319,7 +319,7 @@ func Load() (*Config, error) {
 		Auth: AuthConfig{
 			JWTSecret:      jwtSecret,
 			EncryptionKey:  encKey,
-			WebhookSecrets: biMatWebhook,
+			WebhookSecrets: webhookSecrets,
 			// Bật ở mọi nơi TRỪ development — localhost chạy HTTP, mà trình
 			// duyệt không gửi cookie Secure qua HTTP.
 			SecureCookie:   !env.IsDevelopment(),

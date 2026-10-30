@@ -119,13 +119,13 @@ func report(ten string, ds []time.Duration, failure int) {
 		return
 	}
 	sort.Slice(ds, func(i, j int) bool { return ds[i] < ds[j] })
-	tong := time.Duration(0)
+	durations := time.Duration(0)
 	for _, d := range ds {
-		tong += d
+		durations += d
 	}
 	p := func(q float64) time.Duration { return ds[int(float64(len(ds)-1)*q)] }
 	fmt.Printf("%-8s n=%-4d  tb=%-8v  p50=%-8v  p95=%-8v  p99=%-8v  max=%-8v  lỗi=%d\n",
-		ten, len(ds), (tong / time.Duration(len(ds))).Round(time.Microsecond),
+		ten, len(ds), (durations / time.Duration(len(ds))).Round(time.Microsecond),
 		p(0.50).Round(time.Microsecond), p(0.95).Round(time.Microsecond),
 		p(0.99).Round(time.Microsecond), ds[len(ds)-1].Round(time.Microsecond), failure)
 }
@@ -250,12 +250,12 @@ func main() {
 		t0 := time.Now()
 		start.Done()
 		done.Wait()
-		tong := time.Since(t0)
+		durations := time.Since(t0)
 
 		report(ten, ds, failure)
 		fmt.Printf("%-8s tổng %v  →  %.0f lượt/giây\n",
-			"", tong.Round(time.Millisecond),
-			float64(parallel*perUser)/tong.Seconds())
+			"", durations.Round(time.Millisecond),
+			float64(parallel*perUser)/durations.Seconds())
 		if sample != "" {
 			fmt.Printf("%-8s lỗi mẫu: %s\n", "", sample[:min(len(sample), 150)])
 		}

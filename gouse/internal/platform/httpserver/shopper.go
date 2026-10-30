@@ -73,7 +73,7 @@ const visitHeader = "X-Visit-Id"
 
 // visitIDToiDa khớp `maxLength` của `session_id` trong đặc tả đường thu
 // sự kiện: cùng một mã đi cả hai đường nên phải cùng một giới hạn.
-const visitIDToiDa = 128
+const visitIDMaxLen = 128
 
 // visitID đọc mã lượt truy cập từ header.
 //
@@ -86,7 +86,7 @@ const visitIDToiDa = 128
 // gộp nhầm nhiều lượt truy cập khác nhau vào một.
 func visitID(r *http.Request) string {
 	v := strings.TrimSpace(r.Header.Get(visitHeader))
-	if v == "" || len(v) > visitIDToiDa {
+	if v == "" || len(v) > visitIDMaxLen {
 		return ""
 	}
 	return v

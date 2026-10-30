@@ -163,7 +163,7 @@ func runStock() {
 	t0 := time.Now()
 	start.Done()
 	done.Wait()
-	tong := time.Since(t0)
+	durations := time.Since(t0)
 
 	printResult("khách  ", &client)
 	if sellerN > 0 {
@@ -171,7 +171,7 @@ func runStock() {
 	} else {
 		fmt.Printf("%-8s (đối chứng: không có nhà bán nào ghi)\n", "nhà bán")
 	}
-	fmt.Printf("\ntổng %v\n", tong.Round(time.Millisecond))
+	fmt.Printf("\ntổng %v\n", durations.Round(time.Millisecond))
 
 	if client.hasMachineError() || seller.hasMachineError() {
 		fmt.Println("\n!! CÓ mã 5xx — xung đột phiên bản KHÔNG được ra 5xx")

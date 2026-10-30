@@ -148,9 +148,9 @@ func (m *Module) ComputeMetrics(ctx context.Context, req ComputeRequest) error {
 // đi mở lại một trang mười lần là MỘT người muốn món đó, và đếm lượt sẽ
 // làm nhu cầu của những trang khách hay quay lại cao giả tạo.
 func (m *Module) RollUpViews(
-	ctx context.Context, tu, to time.Time,
+	ctx context.Context, from, to time.Time,
 ) (map[string]int, error) {
-	return m.svc.RollUpViews(ctx, tu, to)
+	return m.svc.RollUpViews(ctx, from, to)
 }
 
 func (m *Module) CountEvents(ctx context.Context, req CountRequest) (int64, error) {

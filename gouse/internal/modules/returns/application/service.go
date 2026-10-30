@@ -499,17 +499,17 @@ func (s *Service) ReceiveAndRefund(
 	//
 	// Cùng cách module fulfillment làm: mỗi lượt đổi trạng thái bắt đầu
 	// bằng một lượt đọc.
-	moi, err := s.repo.FindByID(ctx, y.ID())
+	after, err := s.repo.FindByID(ctx, y.ID())
 	if err != nil {
 		return nil, err
 	}
-	if err := moi.Refunded(s.clock.Now()); err != nil {
+	if err := after.Refunded(s.clock.Now()); err != nil {
 		return nil, err
 	}
-	if err := s.repo.Save(ctx, moi); err != nil {
+	if err := s.repo.Save(ctx, after); err != nil {
 		return nil, err
 	}
-	return moi, nil
+	return after, nil
 }
 
 // computeCommissionReversal tính phần hoa hồng phải thu lại.
@@ -530,7 +530,7 @@ func (s *Service) computeCommissionReversal(
 		byID[d.ID] = d
 	}
 
-	tong := money.Money{}
+	total := money.Money{}
 	for _, d := range y.Lines() {
 		original, ok := byID[d.OrderLineID]
 		if !ok || original.Quantity == 0 || original.Commission.IsZero() {
@@ -541,18 +541,18 @@ func (s *Service) computeCommissionReversal(
 		if err != nil {
 			return money.Money{}, err
 		}
-		if tong.IsZero() {
-			tong = m
+		if total.IsZero() {
+			total = m
 			continue
 		}
-		if tong, err = tong.Add(m); err != nil {
+		if total, err = total.Add(m); err != nil {
 			return money.Money{}, err
 		}
 	}
-	if tong.IsZero() {
+	if total.IsZero() {
 		return money.New(0, y.RefundAmount().Currency())
 	}
-	return tong, nil
+	return total, nil
 }
 
 // transition đọc–sửa–ghi một yêu cầu, kèm kiểm CHỦ SỞ HỮU.

@@ -1038,7 +1038,7 @@ func TestRejectsMeaninglessPromotion(t *testing.T) {
 }
 
 // TẠM DỪNG KHUYẾN MÃI CHẶN ÁP MÃ NGAY.
-func TestTamDungChanApMa(t *testing.T) {
+func TestPausingAPromotionBlocksRedemption(t *testing.T) {
 	m, _ := newModule(t, newClock())
 	ctx := context.Background()
 

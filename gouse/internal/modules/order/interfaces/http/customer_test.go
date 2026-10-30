@@ -236,14 +236,14 @@ func do(t *testing.T, h http.Handler, r *http.Request) (*http.Response, map[stri
 func TestOnlySeesItsOwnOrders(t *testing.T) {
 	h, repo := newHandler(t)
 
-	toi := ids.MustNew(ids.PrefixCustomer)
+	myID := ids.MustNew(ids.PrefixCustomer)
 	otherCustomer := ids.MustNew(ids.PrefixCustomer)
-	_ = repo.Save(context.Background(), newOrder(t, toi, "+84901234567"))
+	_ = repo.Save(context.Background(), newOrder(t, myID, "+84901234567"))
 	_ = repo.Save(context.Background(), newOrder(t, otherCustomer, "+84907654321"))
 	_ = repo.Save(context.Background(), newOrder(t, otherCustomer, "+84907654321"))
 
 	res, body := do(t, h, asCustomer(
-		httptest.NewRequest("GET", "/api/v1/orders", nil), toi))
+		httptest.NewRequest("GET", "/api/v1/orders", nil), myID))
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("mã trạng thái = %d, muốn 200", res.StatusCode)
 	}
@@ -431,17 +431,17 @@ func TestPagingReportsHasNextPageCorrectly(t *testing.T) {
 	// Con trỏ là KHÓA của bản ghi cuối, không phải số đã đọc. Bài này từng
 	// ghi thẳng `cursor=2` — đúng với hợp đồng cũ, và chính chỗ đó bắt được
 	// việc offset không còn được nhận nữa.
-	con, _ := pg["next_cursor"].(string)
-	if con == "" {
+	remaining, _ := pg["next_cursor"].(string)
+	if remaining == "" {
 		t.Fatal("còn trang sau mà không có next_cursor")
 	}
-	if con == "2" {
+	if remaining == "2" {
 		t.Error("next_cursor vẫn là offset — client sẽ đọc lặp khi có đơn mới")
 	}
 
 	// Trang cuối: hết dữ liệu thì has_more phải tắt.
 	_, body = do(t, h, asCustomer(
-		httptest.NewRequest("GET", "/api/v1/orders?limit=2&cursor="+con, nil),
+		httptest.NewRequest("GET", "/api/v1/orders?limit=2&cursor="+remaining, nil),
 		customerID))
 	if pg := body["pagination"].(map[string]any); pg["has_more"] != false {
 		t.Error("has_more = true ở trang cuối")

@@ -113,16 +113,16 @@ func TestRecordsUnmetDemand(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		kind string
-		mong int
+		kind   string
+		expect int
 	}{
 		{supplychain.SignalSearchNoResult, 1},
 		{supplychain.SignalStockout, 1},
 		{supplychain.SignalNotifyRequest, 1},
 	} {
-		if counts[tc.kind] != tc.mong {
+		if counts[tc.kind] != tc.expect {
 			t.Errorf("%s = %d, mong %d — đây là tín hiệu đo nhu cầu chưa "+
-				"đáp ứng, mất nó là mất vĩnh viễn", tc.kind, counts[tc.kind], tc.mong)
+				"đáp ứng, mất nó là mất vĩnh viễn", tc.kind, counts[tc.kind], tc.expect)
 		}
 	}
 }

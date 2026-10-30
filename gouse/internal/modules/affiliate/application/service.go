@@ -90,7 +90,7 @@ type Deps struct {
 	//
 	// Bày ra để module `campaign` (Phase 2) nối vào, và để test khẳng định
 	// tỷ lệ được ĐÓNG BĂNG chứ không đọc lại lúc tính.
-	TyLe int
+	RateBP int
 }
 
 type Service struct {
@@ -98,7 +98,7 @@ type Service struct {
 	orders OrderLinesPort
 	log    *slog.Logger
 	clock  func() time.Time
-	tyLe   types.BasisPoints
+	rate   types.BasisPoints
 }
 
 func NewService(d Deps) (*Service, error) {
@@ -120,16 +120,16 @@ func NewService(d Deps) (*Service, error) {
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 
-	bp := d.TyLe
+	bp := d.RateBP
 	if bp == 0 {
 		bp = domain.DefaultRate
 	}
-	tyLe, err := types.NewBasisPoints(int32(bp))
+	rate, err := types.NewBasisPoints(int32(bp))
 	if err != nil {
 		return nil, fmt.Errorf("affiliate: tỷ lệ hoa hồng %d: %w", bp, err)
 	}
 
-	return &Service{repo: d.Repo, orders: d.Orders, log: log, clock: clock, tyLe: tyLe}, nil
+	return &Service{repo: d.Repo, orders: d.Orders, log: log, clock: clock, rate: rate}, nil
 }
 
 // AttributionResult là số dòng đã xử lý của một lượt quy công.
@@ -231,7 +231,7 @@ func (s *Service) attributeLine(
 		SellerID:    sellerID,
 		CreatorID:   creatorID,
 		ContentID:   contentID,
-		Rate:        s.tyLe,
+		Rate:        s.rate,
 		Base:        domain.CommissionBase(lineAmount, km),
 		CostBearer:  domain.DefaultCostBearer,
 		Now:         now,
@@ -302,7 +302,7 @@ func (s *Service) ReverseByOrderLines(
 		return 0, nil
 	}
 
-	ma := make([]ids.ID, 0, len(orderLineIDs))
+	lineIDs := make([]ids.ID, 0, len(orderLineIDs))
 	for _, raw := range orderLineIDs {
 		if raw == "" {
 			continue
@@ -311,13 +311,13 @@ func (s *Service) ReverseByOrderLines(
 		if err != nil {
 			return 0, fmt.Errorf("affiliate: mã dòng đơn %q: %w", raw, err)
 		}
-		ma = append(ma, id)
+		lineIDs = append(lineIDs, id)
 	}
-	if len(ma) == 0 {
+	if len(lineIDs) == 0 {
 		return 0, nil
 	}
 
-	records, err := s.repo.ByOrderLines(ctx, ma)
+	records, err := s.repo.ByOrderLines(ctx, lineIDs)
 	if err != nil {
 		return 0, err
 	}

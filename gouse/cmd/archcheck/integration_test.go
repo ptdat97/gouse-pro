@@ -383,7 +383,7 @@ func microkernelProject(
 	}
 	for m := range mods {
 		label, than := moduleDoc(m)
-		if t, co := tier[m]; co {
+		if t, found := tier[m]; found {
 			than = "| **Tầng (microkernel)** | **" + t + "** |\n\n" + than
 		}
 		if files[label] == "" {

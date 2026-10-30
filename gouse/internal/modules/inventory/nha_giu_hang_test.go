@@ -76,14 +76,14 @@ func TestDoubleReleaseCreatesNoStockFromNothing(t *testing.T) {
 	}
 
 	// Tám lượt nhả SONG SONG cho CÙNG một reservation.
-	const songSong = 8
+	const parallel = 8
 	var start, done sync.WaitGroup
 	start.Add(1)
 
 	var mu sync.Mutex
 	var succeeded int
 
-	for i := 0; i < songSong; i++ {
+	for i := 0; i < parallel; i++ {
 		done.Add(1)
 		go func() {
 			defer done.Done()

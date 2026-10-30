@@ -110,7 +110,7 @@ type IntentRepository interface {
 	// Cửa sổ có giới hạn CÓ CHỦ Ý: đây là đầu vào của job đối soát, và một
 	// job quét lại toàn bộ lịch sử mỗi phút sẽ nặng dần theo tuổi hệ thống
 	// cho tới lúc nó tự trở thành sự cố.
-	CapturedSince(ctx context.Context, moc time.Time, limit int) ([]*PaymentIntent, error)
+	CapturedSince(ctx context.Context, milestone time.Time, limit int) ([]*PaymentIntent, error)
 
 	// CountOverduePending đếm intent còn CHỜ THU và cũ hơn một mốc.
 	//

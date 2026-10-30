@@ -551,14 +551,14 @@ func (s *WishlistStore) FindDefault(
 	ctx context.Context, customerID ids.ID,
 ) (*domain.Wishlist, error) {
 	var (
-		p      domain.RestoreWishlistParams
-		id, cu string
+		p          domain.RestoreWishlistParams
+		id, before string
 	)
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, customer_id, name, is_default, created_at, updated_at
 		  FROM wishlist WHERE customer_id = $1 AND is_default`,
 		customerID.String()).
-		Scan(&id, &cu, &p.Name, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt)
+		Scan(&id, &before, &p.Name, &p.IsDefault, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
@@ -567,7 +567,7 @@ func (s *WishlistStore) FindDefault(
 	}
 
 	p.ID = ids.ID(id)
-	p.CustomerID = ids.ID(cu)
+	p.CustomerID = ids.ID(before)
 
 	items, err := s.loadItems(ctx, p.ID)
 	if err != nil {

@@ -101,7 +101,7 @@ func TestNoDivisionByZero(t *testing.T) {
 	ds := domain.ComputeMetrics(domain.PerformanceStats{
 		TotalOrders: 50, CancelledOrders: 50, DeliveredOrders: 0, OnTimeOrders: 0,
 	}, domain.DefaultThresholds())
-	if _, co := findMetric(ds, "on_time_shipping_rate"); co {
+	if _, found := findMetric(ds, "on_time_shipping_rate"); found {
 		t.Error("không có đơn nào đã giao mà vẫn tính tỷ lệ đúng hạn")
 	}
 	// Tỷ lệ hủy vẫn tính được và phải là 100%.
@@ -144,20 +144,20 @@ func TestAnInsufficientSampleMustAlsoBeStated(t *testing.T) {
 	ng := domain.DefaultThresholds()
 
 	// Một gian hàng mới: ít đơn, chưa bàn giao cái nào.
-	moi := domain.PerformanceStats{TotalOrders: 3, DeliveredOrders: 0}
+	after := domain.PerformanceStats{TotalOrders: 3, DeliveredOrders: 0}
 
-	if got := domain.ComputeMetrics(moi, ng); len(got) != 0 {
+	if got := domain.ComputeMetrics(after, ng); len(got) != 0 {
 		t.Fatalf("mẫu quá nhỏ mà vẫn chấm: %+v", got)
 	}
 
-	theoTen := map[string]string{}
-	for _, c := range domain.UnmeasuredMetrics(moi, ng) {
-		theoTen[c.Ten] = c.Reason
+	byName := map[string]string{}
+	for _, c := range domain.UnmeasuredMetrics(after, ng) {
+		byName[c.Ten] = c.Reason
 	}
 
 	for _, ten := range []string{"cancellation_rate", "on_time_shipping_rate"} {
-		reason, co := theoTen[ten]
-		if !co {
+		reason, found := byName[ten]
+		if !found {
 			t.Errorf("%q vắng khỏi metrics mà KHÔNG có trong not_measured "+
 				"— nhà bán không có cách nào biết vì sao", ten)
 			continue
@@ -187,9 +187,9 @@ func TestNoMetricIsBothMeasuredAndUnmeasured(t *testing.T) {
 		{TotalOrders: 100, DeliveredOrders: 10},
 		{TotalOrders: 100, DeliveredOrders: 100},
 	} {
-		daDo := map[string]bool{}
+		measured := map[string]bool{}
 		for _, c := range domain.ComputeMetrics(stats, ng) {
-			daDo[c.Ten] = true
+			measured[c.Ten] = true
 		}
 		unmeasured := map[string]bool{}
 		for _, c := range domain.UnmeasuredMetrics(stats, ng) {
@@ -198,9 +198,9 @@ func TestNoMetricIsBothMeasuredAndUnmeasured(t *testing.T) {
 
 		for _, ten := range []string{"cancellation_rate", "on_time_shipping_rate"} {
 			switch {
-			case daDo[ten] && unmeasured[ten]:
+			case measured[ten] && unmeasured[ten]:
 				t.Errorf("%+v: %q vừa được chấm vừa báo chưa đo", stats, ten)
-			case !daDo[ten] && !unmeasured[ten]:
+			case !measured[ten] && !unmeasured[ten]:
 				t.Errorf("%+v: %q biến mất khỏi CẢ HAI danh sách", stats, ten)
 			}
 		}

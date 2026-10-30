@@ -97,7 +97,7 @@ const (
 // của nó chỉ có `checkout_id` — nên đơn tạo bằng đường đó thật sự CHƯA có
 // lựa chọn. Ghi rỗng là nói đúng điều đó; bịa một giá trị mặc định thì kho
 // sẽ đi thu tiền của một đơn đã trả trước, hoặc ngược lại.
-func (p PaymentMethod) HopLe() bool {
+func (p PaymentMethod) IsValid() bool {
 	switch p {
 	case "", PaymentMethodCard, PaymentMethodBankTransfer,
 		PaymentMethodEWallet, PaymentMethodCOD:
@@ -119,7 +119,7 @@ func (p PaymentMethod) CollectOnDelivery() bool { return p == PaymentMethodCOD }
 // Tập ĐÓNG, và cần nó vì bộ lọc `?status=` nhận chuỗi từ người gọi. Đẩy
 // thẳng chuỗi lạ xuống truy vấn thì nó trả về 0 dòng — trông giống "khách
 // chưa có đơn nào" chứ không giống "bạn gõ sai trạng thái".
-func (s Status) HopLe() bool {
+func (s Status) IsValid() bool {
 	switch s {
 	case StatusPendingPayment, StatusPaid, StatusProcessing,
 		StatusPartiallyShipped, StatusShipped, StatusPartiallyDelivered,
@@ -307,7 +307,7 @@ func NewOrder(p NewOrderParams) (*Order, error) {
 		return nil, ErrMissingIdempKey
 	}
 
-	if !p.PaymentMethod.HopLe() {
+	if !p.PaymentMethod.IsValid() {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidPaymentMethod, p.PaymentMethod)
 	}
 

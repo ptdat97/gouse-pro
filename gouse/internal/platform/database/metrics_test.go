@@ -47,7 +47,7 @@ func collectMetrics(t *testing.T, c prometheus.Collector) map[string]float64 {
 		t.Fatalf("thu thập: %v", err)
 	}
 
-	ra := map[string]float64{}
+	result := map[string]float64{}
 	for _, f := range fams {
 		for _, m := range f.GetMetric() {
 			key := f.GetName()
@@ -56,10 +56,10 @@ func collectMetrics(t *testing.T, c prometheus.Collector) map[string]float64 {
 					key += "{" + l.GetValue() + "}"
 				}
 			}
-			ra[key] = value(m)
+			result[key] = value(m)
 		}
 	}
-	return ra
+	return result
 }
 
 func value(m *dto.Metric) float64 {
@@ -85,7 +85,7 @@ func TestThePoolCollectorEmitsEveryMetric(t *testing.T) {
 		"gouse_db_pool_canceled_acquire_total",
 		"gouse_db_pool_acquire_wait_seconds_total",
 	} {
-		if _, co := metrics[ten]; !co {
+		if _, found := metrics[ten]; !found {
 			t.Errorf("thiếu chỉ số %s — có %v", ten, metrics)
 		}
 	}
@@ -112,15 +112,15 @@ func TestThePoolCollectorEmitsEveryMetric(t *testing.T) {
 // Một lượt hết hạn KHÔNG làm tăng EmptyAcquireCount. Bài này dựng riêng
 // từng tình huống thay vì đòi cả hai cùng tăng trong một kịch bản.
 func TestPoolExhaustionIsCounted(t *testing.T) {
-	const tran = 2
-	db := openPool(t, tran)
+	const poolCap = 2
+	db := openPool(t, poolCap)
 	c := database.NewPoolCollector(db, "")
 
 	ctx := context.Background()
 
 	// Giữ TOÀN BỘ kết nối.
-	held := make([]*pgxpool.Conn, 0, tran)
-	for i := 0; i < tran; i++ {
+	held := make([]*pgxpool.Conn, 0, poolCap)
+	for i := 0; i < poolCap; i++ {
 		conn, err := db.Pool().Acquire(ctx)
 		if err != nil {
 			t.Fatalf("lấy kết nối %d: %v", i, err)
@@ -136,9 +136,9 @@ func TestPoolExhaustionIsCounted(t *testing.T) {
 	}
 	defer releaseAll()
 
-	if got := collectMetrics(t, c)["gouse_db_pool_connections{acquired}"]; got != tran {
+	if got := collectMetrics(t, c)["gouse_db_pool_connections{acquired}"]; got != poolCap {
 		t.Fatalf("acquired = %v, cần %d — chưa dựng được tình huống cạn pool",
-			got, tran)
+			got, poolCap)
 	}
 
 	// --- Tình huống 1: chờ rồi BỎ CUỘC ---

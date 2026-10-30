@@ -429,10 +429,10 @@ func (m *Module) RegisterCustomerRoutes(
 func (m *Module) RegisterWebhookRoutes(
 	mux *http.ServeMux,
 	webhookLog fulfillmenthttp.WebhookLog,
-	biMat fulfillmenthttp.ProviderSecret,
+	secret fulfillmenthttp.ProviderSecret,
 	log *slog.Logger,
 ) {
-	fulfillmenthttp.NewWebhookHandler(m.svc, webhookLog, biMat, log).Register(mux)
+	fulfillmenthttp.NewWebhookHandler(m.svc, webhookLog, secret, log).Register(mux)
 }
 
 func (m *Module) RegisterSellerRoutes(mux *http.ServeMux, log *slog.Logger) {

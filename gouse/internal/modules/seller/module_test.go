@@ -552,7 +552,7 @@ func TestChecksSellerIsActive(t *testing.T) {
 	}
 }
 
-func TestLaySellerTheoLo(t *testing.T) {
+func TestFetchingSellersInOneBatch(t *testing.T) {
 	m, _ := newModule(t)
 	ctx := context.Background()
 

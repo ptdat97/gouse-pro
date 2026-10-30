@@ -212,8 +212,8 @@ func (c *checker) compareEnums(spec map[string][]string) {
 	for _, pair := range c.enumPair {
 		paired[pair.Path] = true
 
-		sp, co := spec[pair.Path]
-		if !co {
+		sp, found := spec[pair.Path]
+		if !found {
 			c.violations = append(c.violations, fmt.Sprintf(
 				"ENUM sổ ghép trỏ tới %q (%s) mà đặc tả KHÔNG có enum ở đường "+
 					"dẫn đó — đường dẫn đổi thì phải sửa `checkedEnumPairs`",
@@ -269,7 +269,7 @@ func (c *checker) compareEnums(spec map[string][]string) {
 	// Sổ miễn trừ trỏ tới thứ không còn tồn tại cũng là một dòng nói dối.
 	for path := range c.unpairedEnums {
 		paired[path] = true
-		if _, co := spec[path]; !co {
+		if _, found := spec[path]; !found {
 			c.violations = append(c.violations, fmt.Sprintf(
 				"ENUM sổ `unpairedEnums` còn dòng cho %q mà đặc tả không còn "+
 					"enum ở đó — xóa đi", path))

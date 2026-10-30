@@ -116,13 +116,13 @@ func TestPartialReturnRoundsDown(t *testing.T) {
 	}
 
 	// Trả TRỌN dòng thì lấy đủ, không mất phần dư.
-	tron, err := application.ComputeRefund(ord, lineA, 3)
+	rounded, err := application.ComputeRefund(ord, lineA, 3)
 	if err != nil {
 		t.Fatalf("tính tiền hoàn trọn dòng: %v", err)
 	}
-	if tron.Amount() != 100_000 {
+	if rounded.Amount() != 100_000 {
 		t.Errorf("trả trọn dòng hoàn %d, cần 100000 — phần dư bị mất",
-			tron.Amount())
+			rounded.Amount())
 	}
 }
 

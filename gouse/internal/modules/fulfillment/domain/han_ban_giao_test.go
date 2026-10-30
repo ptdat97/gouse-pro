@@ -18,9 +18,9 @@ func TestTheHandoverDeadlineIsCreatedAtPlusSLA(t *testing.T) {
 	fo := foNew(t)
 	sla := 48 * time.Hour
 
-	mong := fo.CreatedAt().Add(sla)
-	if got := fo.HandoverDeadline(sla); !got.Equal(mong) {
-		t.Errorf("hạn = %v, mong %v = created_at + SLA", got, mong)
+	expect := fo.CreatedAt().Add(sla)
+	if got := fo.HandoverDeadline(sla); !got.Equal(expect) {
+		t.Errorf("hạn = %v, mong %v = created_at + SLA", got, expect)
 	}
 }
 
@@ -56,8 +56,8 @@ func TestAHandedOverOrderCarriesNoLateFlag(t *testing.T) {
 	sla := 48 * time.Hour
 	fo := foHandedOver(t, 72*time.Hour) // bàn giao MUỘN 24 giờ
 
-	rat := fo.CreatedAt().Add(200 * time.Hour)
-	if fo.PastDeadline(sla, rat) {
+	farOut := fo.CreatedAt().Add(200 * time.Hour)
+	if fo.PastDeadline(sla, farOut) {
 		t.Error("đơn ĐÃ bàn giao vẫn mang cờ trễ — nhà bán tưởng còn việc phải làm")
 	}
 	// Nhưng nó KHÔNG đúng hạn: điểm hiệu suất phải thấy điều đó.
@@ -104,8 +104,8 @@ func TestNotHandedOverPastTheDeadlineIsLate(t *testing.T) {
 // việc của nhà bán.
 func TestACancelledOrderCarriesNoLateFlag(t *testing.T) {
 	fo := foCancelled(t)
-	rat := fo.CreatedAt().Add(200 * time.Hour)
-	if fo.PastDeadline(48*time.Hour, rat) {
+	farOut := fo.CreatedAt().Add(200 * time.Hour)
+	if fo.PastDeadline(48*time.Hour, farOut) {
 		t.Error("đơn ĐÃ HỦY vẫn mang cờ trễ")
 	}
 }

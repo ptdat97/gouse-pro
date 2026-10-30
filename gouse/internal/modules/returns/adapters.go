@@ -65,7 +65,7 @@ func (a *orderAdapter) GetOrderForReturn(
 	ord.OrderDiscount = discount
 
 	for _, l := range v.Lines {
-		tong, err := toMoney(l.LineTotal)
+		total, err := toMoney(l.LineTotal)
 		if err != nil {
 			return application.Order{}, err
 		}
@@ -89,14 +89,14 @@ func (a *orderAdapter) GetOrderForReturn(
 			}
 		}
 		if adjustments.IsZero() {
-			if adjustments, err = money.New(0, tong.Currency()); err != nil {
+			if adjustments, err = money.New(0, total.Currency()); err != nil {
 				return application.Order{}, err
 			}
 		}
 
 		ord.Lines = append(ord.Lines, application.OrderLine{
 			ID: ids.ID(l.ID), SKUID: ids.ID(l.SKUID), SellerID: ids.ID(l.SellerID),
-			Quantity: l.Quantity, LineTotal: tong,
+			Quantity: l.Quantity, LineTotal: total,
 			TotalAdjustments: adjustments, Commission: commission,
 		})
 	}

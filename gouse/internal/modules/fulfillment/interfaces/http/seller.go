@@ -501,7 +501,7 @@ func (h *SellerHandler) performance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ra := performanceJSON{
+	result := performanceJSON{
 		Period:           string(hs.Period),
 		Metrics:          make([]metricJSON, 0, len(hs.Metrics)),
 		SampleSize:       hs.Stats.TotalOrders,
@@ -509,17 +509,17 @@ func (h *SellerHandler) performance(w http.ResponseWriter, r *http.Request) {
 		NotMeasured:      make([]unmeasuredJSON, 0, len(hs.Unmeasured)),
 	}
 	for _, c := range hs.Metrics {
-		ra.Metrics = append(ra.Metrics, metricJSON{
+		result.Metrics = append(result.Metrics, metricJSON{
 			Name: c.Ten, Value: c.Value,
 			Threshold: c.Thresholds, Status: string(c.Status),
 		})
 	}
 	for _, c := range hs.Unmeasured {
-		ra.NotMeasured = append(ra.NotMeasured, unmeasuredJSON{
+		result.NotMeasured = append(result.NotMeasured, unmeasuredJSON{
 			Name: c.Ten, Reason: c.Reason,
 		})
 	}
-	ra.Impact.Message = hs.Message
+	result.Impact.Message = hs.Message
 
-	h.ok(w, r, http.StatusOK, ra)
+	h.ok(w, r, http.StatusOK, result)
 }

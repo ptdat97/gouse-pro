@@ -97,8 +97,8 @@ func (h *Handler) listProductOffers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := make([]offerJSON, 0, len(offers))
-	for _, po := range offers {
-		o := po.Offer
+	for _, cand := range offers {
+		o := cand.Offer
 		item := offerJSON{
 			ID:       o.ID().String(),
 			SKUID:    o.SKUID().String(),
@@ -109,8 +109,8 @@ func (h *Handler) listProductOffers(w http.ResponseWriter, r *http.Request) {
 			},
 			Condition:         string(o.Condition()),
 			HandlingTimeHours: o.HandlingTimeHours(),
-			IsBuyBox:          po.IsBuyBox,
-			IsSellable:        po.IsSellable,
+			IsBuyBox:          cand.IsBuyBox,
+			IsSellable:        cand.IsSellable,
 			Status:            string(o.Status()),
 		}
 

@@ -731,7 +731,7 @@ func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error
 		return nil, errors.New("inventory: kiểm kê bắt buộc phải ghi người thực hiện")
 	}
 
-	var ra CountResult
+	var counted CountResult
 	err := s.withRetry(ctx, func(ctx context.Context, r domain.Repos) error {
 		item, err := r.Items.FindByID(ctx, in.ItemID)
 		if err != nil {
@@ -755,20 +755,20 @@ func (s *Service) Count(ctx context.Context, in CountInput) (*CountResult, error
 		// êm và KHÔNG ghi dòng biến động nào. Một dòng "thay đổi 0 đơn vị"
 		// chỉ làm loãng sổ kho.
 		if errors.Is(err, domain.ErrCountUnchanged) {
-			ra = CountResult{Before: before, After: before}
+			counted = CountResult{Before: before, After: before}
 			return nil
 		}
 		if err != nil {
 			return err
 		}
 
-		ra = CountResult{Before: before, After: saved.Quantities()}
+		counted = CountResult{Before: before, After: saved.Quantities()}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &ra, nil
+	return &counted, nil
 }
 
 // countDelta là độ lớn thay đổi, dùng cho cột số lượng của dòng biến động.

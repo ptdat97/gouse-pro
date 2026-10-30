@@ -413,7 +413,7 @@ func (s *Service) ListCustomerOrders(
 	ctx context.Context, customerID ids.ID, status domain.Status,
 	limit int, cursor *domain.Cursor,
 ) ([]*domain.Order, error) {
-	if status != "" && !status.HopLe() {
+	if status != "" && !status.IsValid() {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidStatusFilter, status)
 	}
 	return s.orders.ListByCustomer(ctx, customerID, status, limit, cursor)

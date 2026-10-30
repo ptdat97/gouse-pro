@@ -22,8 +22,8 @@ import (
 // PORT do module định nghĩa: fulfillment không import platform/webhook,
 // và bên khởi chạy nối hai thứ lại.
 type WebhookLog interface {
-	Log(ctx context.Context, provider, maSuKien, loaiSuKien string, than []byte) (LoggedEvent, error)
-	MarkDone(ctx context.Context, id string, loi error) error
+	Log(ctx context.Context, provider, eventID, eventKind string, than []byte) (LoggedEvent, error)
+	MarkDone(ctx context.Context, id string, failure error) error
 }
 
 // LoggedEvent khớp webhook.SuKien.
@@ -52,14 +52,14 @@ type ProviderSecret func(provider string) string
 type WebhookHandler struct {
 	svc        *application.Service
 	webhookLog WebhookLog
-	biMat      ProviderSecret
+	secret     ProviderSecret
 	log        *slog.Logger
 }
 
 func NewWebhookHandler(
-	svc *application.Service, webhookLog WebhookLog, biMat ProviderSecret, log *slog.Logger,
+	svc *application.Service, webhookLog WebhookLog, secret ProviderSecret, log *slog.Logger,
 ) *WebhookHandler {
-	return &WebhookHandler{svc: svc, webhookLog: webhookLog, biMat: biMat, log: log}
+	return &WebhookHandler{svc: svc, webhookLog: webhookLog, secret: secret, log: log}
 }
 
 func (h *WebhookHandler) Register(mux *http.ServeMux) {
@@ -95,7 +95,7 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 	// Chữ ký tính trên BYTE THÔ, không phải trên JSON đã parse rồi
 	// serialize lại — vòng đó đổi thứ tự khóa và khoảng trắng.
 	if err := httpserver.VerifyHMAC(than,
-		r.Header.Get("X-Signature"), h.biMat(provider)); err != nil {
+		r.Header.Get("X-Signature"), h.secret(provider)); err != nil {
 		metrics.RecordFailure(metrics.StageWebhook, "chu_ky_sai")
 		h.log.WarnContext(r.Context(), "webhook có chữ ký KHÔNG hợp lệ",
 			"nha_cung_cap", provider,
@@ -118,13 +118,13 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 	// trạng thái chưa-xử-lý và job thử lại nhặt được. Xử lý trước rồi mới
 	// ghi thì một lần chết giữa chừng làm mất hẳn sự kiện, và nhà cung cấp
 	// đã coi như xong.
-	su, err := h.webhookLog.Log(r.Context(), provider, p.EventID, p.Status, than)
+	logEntry, err := h.webhookLog.Log(r.Context(), provider, p.EventID, p.Status, than)
 	if err != nil {
 		apierror.Write(w, r, err, logger.RequestIDFromContext(r.Context()), h.log)
 		return
 	}
 
-	if su.AlreadyReceived && su.AlreadyDone {
+	if logEntry.AlreadyReceived && logEntry.AlreadyDone {
 		// 200, KHÔNG phải lỗi: báo lỗi khiến nhà cung cấp gửi lại mãi cho
 		// một việc đã xong.
 		h.payout(w, r, true)
@@ -143,13 +143,13 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 	case handleErr == nil, errors.Is(handleErr, application.ErrStatusUnchanged):
 		// Mốc hệ thống không theo dõi vẫn tính là đã xử lý xong: không có
 		// gì để làm lại.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, nil)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, nil)
 
 	case errors.Is(handleErr, domain.ErrNotFound):
 		// 404 là câu trả lời ĐÚNG cho mã vận đơn lạ, và đặc tả yêu cầu nó.
 		// Vẫn giữ bản ghi: nó là bằng chứng hãng đã gửi cho một mã ta
 		// không biết, thường là dấu hiệu lệch dữ liệu giữa hai bên.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, handleErr)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, handleErr)
 		metrics.RecordFailure(metrics.StageWebhook, "khong_thay_ma_van_don")
 		apierror.Write(w, r, apierror.New(apierror.CodeNotFound,
 			"Không tìm thấy lô hàng với mã vận đơn này"),
@@ -159,14 +159,14 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 	default:
 		// Xử lý hỏng nhưng sự kiện ĐÃ được ghi durable. Trả 200 để nhà
 		// cung cấp thôi gửi lại; việc thử lại là của ta, không phải của họ.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, handleErr)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, handleErr)
 		metrics.RecordFailure(metrics.StageWebhook, "xu_ly_that_bai")
 		h.log.ErrorContext(r.Context(), "xử lý webhook vận chuyển thất bại",
 			"error", handleErr, "nha_cung_cap", provider,
 			"ma_su_kien", p.EventID)
 	}
 
-	h.payout(w, r, su.AlreadyReceived)
+	h.payout(w, r, logEntry.AlreadyReceived)
 }
 
 func (h *WebhookHandler) payout(w http.ResponseWriter, r *http.Request, processed bool) {

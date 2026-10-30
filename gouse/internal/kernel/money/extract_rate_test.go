@@ -11,9 +11,9 @@ import (
 func TestExtractRateSplitsTheTaxPartExactly(t *testing.T) {
 	for _, tt := range []struct {
 		ten    string
-		tong   int64
+		total  int64
 		rateBP int32
-		mong   int64
+		expect int64
 	}{
 		{"420.000 gồm 8%", 420_000, 800, 31_111},
 		{"108.000 gồm 8%", 108_000, 800, 8_000},
@@ -22,10 +22,10 @@ func TestExtractRateSplitsTheTaxPartExactly(t *testing.T) {
 		{"số 0", 0, 800, 0},
 	} {
 		t.Run(tt.ten, func(t *testing.T) {
-			got := money.MustNew(tt.tong, money.VND).
+			got := money.MustNew(tt.total, money.VND).
 				ExtractRate(types.MustNewBasisPoints(tt.rateBP), money.RoundHalfUp)
-			if got.Amount() != tt.mong {
-				t.Errorf("thuế = %d, mong %d", got.Amount(), tt.mong)
+			if got.Amount() != tt.expect {
+				t.Errorf("thuế = %d, mong %d", got.Amount(), tt.expect)
 			}
 		})
 	}
@@ -40,8 +40,8 @@ func TestExtractRateSplitsTheTaxPartExactly(t *testing.T) {
 func TestExtractRateReconcilesBackwards(t *testing.T) {
 	rate := types.MustNewBasisPoints(800)
 
-	for _, tong := range []int64{1, 999, 420_000, 1_234_567, 999_999_999} {
-		m := money.MustNew(tong, money.VND)
+	for _, total := range []int64{1, 999, 420_000, 1_234_567, 999_999_999} {
+		m := money.MustNew(total, money.VND)
 		tax := m.ExtractRate(rate, money.RoundHalfUp)
 		beforeTax, err := m.Sub(tax)
 		if err != nil {
@@ -53,10 +53,10 @@ func TestExtractRateReconcilesBackwards(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Add: %v", err)
 		}
-		drift := addedBack.Amount() - tong
+		drift := addedBack.Amount() - total
 		if drift < -1 || drift > 1 {
 			t.Errorf("tổng %d: chưa thuế %d + thuế = %d, lệch %d — công "+
-				"thức tách sai", tong, beforeTax.Amount(), addedBack.Amount(), drift)
+				"thức tách sai", total, beforeTax.Amount(), addedBack.Amount(), drift)
 		}
 	}
 }

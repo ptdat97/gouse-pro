@@ -31,14 +31,14 @@ func TestEncryptThenDecryptRoundTrips(t *testing.T) {
 		"",             // rỗng
 		strings.Repeat("9", 64),
 	} {
-		kin, err := bm.Encrypt(original)
+		sealed, err := bm.Encrypt(original)
 		if err != nil {
 			t.Fatalf("mã hóa %q: %v", original, err)
 		}
-		if strings.Contains(kin, original) && original != "" {
+		if strings.Contains(sealed, original) && original != "" {
 			t.Errorf("bản mã CHỨA nguyên văn %q — không mã hóa gì cả", original)
 		}
-		again, err := bm.Decrypt(kin)
+		again, err := bm.Decrypt(sealed)
 		if err != nil {
 			t.Fatalf("giải mã %q: %v", original, err)
 		}
@@ -69,9 +69,9 @@ func TestEncryptingTwiceGivesTwoDifferentCiphertexts(t *testing.T) {
 // trông như số thật" là khác biệt giữa dừng lại và chuyển tiền cho người lạ.
 func TestFlippingOneByteFailsDecryption(t *testing.T) {
 	bm, _ := privacy.NewCipher(testKey(t))
-	kin, _ := bm.Encrypt("0123456789")
+	sealed, _ := bm.Encrypt("0123456789")
 
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(kin, "v1:"))
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(sealed, "v1:"))
 	if err != nil {
 		t.Fatalf("giải base64: %v", err)
 	}
@@ -87,8 +87,8 @@ func TestADifferentKeyCannotDecrypt(t *testing.T) {
 	a, _ := privacy.NewCipher(testKey(t))
 	b, _ := privacy.NewCipher(testKey(t))
 
-	kin, _ := a.Encrypt("0123456789")
-	if _, err := b.Decrypt(kin); !errors.Is(err, privacy.ErrBadCiphertext) {
+	sealed, _ := a.Encrypt("0123456789")
+	if _, err := b.Decrypt(sealed); !errors.Is(err, privacy.ErrBadCiphertext) {
 		t.Error("khóa khác vẫn giải mã được")
 	}
 }
@@ -113,9 +113,9 @@ func TestLast4(t *testing.T) {
 		"":           "",
 		"  1234567 ": "4567",
 	}
-	for input, mong := range cases {
-		if got := privacy.Last4(input); got != mong {
-			t.Errorf("Last4(%q) = %q, mong %q", input, got, mong)
+	for input, expect := range cases {
+		if got := privacy.Last4(input); got != expect {
+			t.Errorf("Last4(%q) = %q, mong %q", input, got, expect)
 		}
 	}
 }

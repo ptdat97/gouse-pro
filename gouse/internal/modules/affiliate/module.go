@@ -24,7 +24,7 @@ type Config struct {
 	Clock func() time.Time
 
 	// TyLe là tỷ lệ hoa hồng creator, điểm cơ bản. 0 = mặc định của miền.
-	TyLe int
+	RateBP int
 }
 
 // Module là cài đặt của API công khai.
@@ -68,7 +68,7 @@ func New(cfg Config) (*Module, error) {
 		Orders: &orderAdapter{api: cfg.Order},
 		Log:    log,
 		Clock:  cfg.Clock,
-		TyLe:   cfg.TyLe,
+		RateBP: cfg.RateBP,
 	})
 	if err != nil {
 		return nil, err
@@ -82,13 +82,13 @@ func New(cfg Config) (*Module, error) {
 func (m *Module) CreatorBalance(
 	ctx context.Context, creatorID string,
 ) (map[string]int64, error) {
-	tong, err := m.svc.CreatorBalance(ctx, creatorID)
+	total, err := m.svc.CreatorBalance(ctx, creatorID)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make(map[string]int64, len(tong))
-	for st, v := range tong {
+	out := make(map[string]int64, len(total))
+	for st, v := range total {
 		out[string(st)] = v
 	}
 	return out, nil

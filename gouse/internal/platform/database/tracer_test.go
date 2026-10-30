@@ -43,7 +43,7 @@ func countByOp(t *testing.T, c prometheus.Collector) map[string]uint64 {
 		t.Fatalf("thu thập: %v", err)
 	}
 
-	ra := map[string]uint64{}
+	result := map[string]uint64{}
 	for _, f := range fams {
 		if f.GetName() != "gouse_db_query_duration_seconds" {
 			continue
@@ -51,12 +51,12 @@ func countByOp(t *testing.T, c prometheus.Collector) map[string]uint64 {
 		for _, m := range f.GetMetric() {
 			for _, l := range m.GetLabel() {
 				if l.GetName() == "operation" {
-					ra[l.GetValue()] = m.GetHistogram().GetSampleCount()
+					result[l.GetValue()] = m.GetHistogram().GetSampleCount()
 				}
 			}
 		}
 	}
-	return ra
+	return result
 }
 
 // TestTracerClassifiesByVerb: đọc và ghi phải vào hai nhãn KHÁC nhau.
@@ -206,16 +206,16 @@ func countErr(t *testing.T, c prometheus.Collector) float64 {
 		t.Fatalf("thu thập: %v", err)
 	}
 
-	var tong float64
+	var total float64
 	for _, f := range fams {
 		if f.GetName() != "gouse_db_query_errors_total" {
 			continue
 		}
 		for _, m := range f.GetMetric() {
-			tong += m.GetCounter().GetValue()
+			total += m.GetCounter().GetValue()
 		}
 	}
-	return tong
+	return total
 }
 
 func itoa(n int) string {

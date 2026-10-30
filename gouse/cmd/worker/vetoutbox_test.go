@@ -15,7 +15,7 @@ func TestOutboxDrainsFullyWhenHealthy(t *testing.T) {
 	con := 450
 	parcel := 0
 
-	tong, err := drainOutbox(context.Background(), 100, 50,
+	total, err := drainOutbox(context.Background(), 100, 50,
 		func(_ context.Context, n int) (int, error) {
 			parcel++
 			if con < n {
@@ -28,8 +28,8 @@ func TestOutboxDrainsFullyWhenHealthy(t *testing.T) {
 		t.Fatalf("vét: %v", err)
 	}
 
-	if tong != 450 {
-		t.Errorf("rút được %d, cần 450", tong)
+	if total != 450 {
+		t.Errorf("rút được %d, cần 450", total)
 	}
 	if parcel != 5 {
 		t.Errorf("gọi %d lượt, cần 5 (4 lô đầy + 1 lô 50) — "+
@@ -52,7 +52,7 @@ func TestOutboxDrainStopsAtTheFirstError(t *testing.T) {
 	parcel := 0
 
 	// Mỗi lô lấy đủ 100 nhưng CHỈ 99 phát được: một event hỏng.
-	tong, err := drainOutbox(context.Background(), 100, 50,
+	total, err := drainOutbox(context.Background(), 100, 50,
 		func(_ context.Context, _ int) (int, error) {
 			parcel++
 			return 99, nil
@@ -66,8 +66,8 @@ func TestOutboxDrainStopsAtTheFirstError(t *testing.T) {
 			"vét tiếp sẽ đốt hết %d lượt thử trong một nhịp và đẩy cả "+
 			"hàng đợi vào dead letter", parcel, 5)
 	}
-	if tong != 99 {
-		t.Errorf("rút được %d, cần 99", tong)
+	if total != 99 {
+		t.Errorf("rút được %d, cần 99", total)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestOutboxDrainStopsAtTheFirstError(t *testing.T) {
 // phải chờ.
 func TestOutboxDrainRespectsTheCap(t *testing.T) {
 	parcel := 0
-	tong, err := drainOutbox(context.Background(), 100, 7,
+	total, err := drainOutbox(context.Background(), 100, 7,
 		func(_ context.Context, n int) (int, error) {
 			parcel++
 			return n, nil // luôn đầy: hàng đợi vô tận
@@ -87,8 +87,8 @@ func TestOutboxDrainRespectsTheCap(t *testing.T) {
 	if parcel != 7 {
 		t.Errorf("gọi %d lượt, trần là 7", parcel)
 	}
-	if tong != 700 {
-		t.Errorf("rút được %d, cần 700", tong)
+	if total != 700 {
+		t.Errorf("rút được %d, cần 700", total)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestOutboxDrainReturnsTheErrorImmediately(t *testing.T) {
 	broken := errors.New("database mất kết nối")
 	parcel := 0
 
-	tong, err := drainOutbox(context.Background(), 100, 50,
+	total, err := drainOutbox(context.Background(), 100, 50,
 		func(_ context.Context, n int) (int, error) {
 			parcel++
 			if parcel == 2 {
@@ -129,8 +129,8 @@ func TestOutboxDrainReturnsTheErrorImmediately(t *testing.T) {
 	if !errors.Is(err, broken) {
 		t.Errorf("lỗi trả về %v, cần %v", err, broken)
 	}
-	if tong != 100 {
+	if total != 100 {
 		t.Errorf("rút được %d trước khi lỗi, cần 100 — "+
-			"số đã rút không được mất khi báo lỗi", tong)
+			"số đã rút không được mất khi báo lỗi", total)
 	}
 }

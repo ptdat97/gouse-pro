@@ -82,7 +82,7 @@ type eventJSON struct {
 	Properties  map[string]any `json:"properties"`
 }
 
-type loJSON struct {
+type batchJSON struct {
 	// SessionID do client sinh, KHÔNG phải định danh người.
 	//
 	// Nó nối các sự kiện của một lượt truy cập để đo được phễu. Server
@@ -99,7 +99,7 @@ type loJSON struct {
 // thêm dữ liệu không dùng tới là tự tạo nghĩa vụ bảo vệ mà không đổi lại
 // được gì.
 func (h *Handler) writeBatch(w http.ResponseWriter, r *http.Request) {
-	var req loJSON
+	var req batchJSON
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).
 		Decode(&req); err != nil {
 		h.fail(w, r, apierror.New(apierror.CodeValidationFailed,

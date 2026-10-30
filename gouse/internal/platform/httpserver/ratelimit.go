@@ -207,8 +207,8 @@ func (l *limiter) allow(key string, now time.Time) (bool, quota) {
 	}
 
 	l.hits[key] = append(l.hits[key], now)
-	con := l.hits[key]
-	return true, quota{remaining: l.limit - len(con), reset: con[0].Add(l.window)}
+	within := l.hits[key]
+	return true, quota{remaining: l.limit - len(within), reset: within[0].Add(l.window)}
 }
 
 // quota là phần hạn mức còn lại của một khóa, để báo cho client.

@@ -53,7 +53,7 @@ const stlCols = `
 // nil cho bút toán nghĩa là kỳ này không thu gì.
 func (s *SettlementStore) CreateForSeller(
 	ctx context.Context, sellerID ids.ID,
-	dung func(noDangCho money.Money) (*domain.Settlement, *domain.LedgerEntry, error),
+	build func(pendingDebt money.Money) (*domain.Settlement, *domain.LedgerEntry, error),
 ) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -84,7 +84,7 @@ func (s *SettlementStore) CreateForSeller(
 		}
 	}
 
-	d, clawback, err := dung(no)
+	d, clawback, err := build(no)
 	if err != nil {
 		return err
 	}
@@ -259,8 +259,8 @@ func (s *SettlementStore) readOne(
 	}
 	defer rows.Close()
 
-	var ma []string
-	theoID := map[ids.ID]*domain.RestoreSettlementParams{}
+	var settlementIDs []string
+	byID := map[ids.ID]*domain.RestoreSettlementParams{}
 	for rows.Next() {
 		var p domain.RestoreSettlementParams
 		var id, sellerID, status, currency string
@@ -287,13 +287,13 @@ func (s *SettlementStore) readOne(
 		p.ConfirmedAt, p.PaidAt = deref(confirmed), deref(paid)
 		p.ConfirmedBy, p.PaidBy = ids.ID(confirmedBy), ids.ID(paidBy)
 
-		theoID[p.ID] = &p
-		ma = append(ma, id)
+		byID[p.ID] = &p
+		settlementIDs = append(settlementIDs, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(ma) == 0 {
+	if len(settlementIDs) == 0 {
 		return nil, nil
 	}
 
@@ -308,7 +308,7 @@ func (s *SettlementStore) readOne(
 		  FROM settlement_line sl
 		  JOIN ledger_entry e ON e.id = sl.ledger_entry_id
 		 WHERE sl.settlement_id = ANY($1)
-		 ORDER BY sl.created_at, sl.id`, ma)
+		 ORDER BY sl.created_at, sl.id`, settlementIDs)
 	if err != nil {
 		return nil, fmt.Errorf("payment: đọc dòng đối soát: %w", err)
 	}
@@ -326,7 +326,7 @@ func (s *SettlementStore) readOne(
 		if err != nil {
 			return nil, err
 		}
-		if p := theoID[ids.ID(stlID)]; p != nil {
+		if p := byID[ids.ID(stlID)]; p != nil {
 			p.Lines = append(p.Lines, domain.SettlementLine{
 				ID: ids.ID(id), LedgerEntryID: ids.ID(entryID), Amount: m,
 				ReferenceType: refType, ReferenceID: ids.ID(refID),
@@ -338,9 +338,9 @@ func (s *SettlementStore) readOne(
 		return nil, err
 	}
 
-	out := make([]*domain.Settlement, 0, len(ma))
-	for _, id := range ma {
-		out = append(out, domain.RestoreSettlement(*theoID[ids.ID(id)]))
+	out := make([]*domain.Settlement, 0, len(settlementIDs))
+	for _, id := range settlementIDs {
+		out = append(out, domain.RestoreSettlement(*byID[ids.ID(id)]))
 	}
 	return out, nil
 }

@@ -1066,8 +1066,8 @@ func runJobs(ctx context.Context, log *slog.Logger, jobs []job) error {
 					// treo" so thời gian im lặng với CHÍNH chỉ số này,
 					// nên nới nhịp mà không công bố lại sẽ tạo một cảnh
 					// báo luôn kêu — đúng thứ đã phải đi sửa một lần rồi.
-					if moi := j.effectiveInterval(); moi != interval {
-						interval = moi
+					if effective := j.effectiveInterval(); effective != interval {
+						interval = effective
 						ticker.Reset(interval)
 						metrics.WorkerJobInterval.WithLabelValues(j.name).
 							Set(interval.Seconds())
@@ -1241,24 +1241,24 @@ func (s *sellerOwner) InventoryOwnerID(
 // thử. Đổi lại, một lô có 99 thành công và 1 hỏng cũng dừng vét — chậm
 // hơn một nhịp, và đó là cái giá đúng để trả.
 func drainOutbox(
-	ctx context.Context, coLo, maxLo int,
+	ctx context.Context, batches, maxBatches int,
 	emit func(context.Context, int) (int, error),
 ) (int, error) {
-	var tong int
-	for lo := 0; lo < maxLo; lo++ {
-		n, err := emit(ctx, coLo)
+	var total int
+	for b := 0; b < maxBatches; b++ {
+		n, err := emit(ctx, batches)
 		if err != nil {
-			return tong, err
+			return total, err
 		}
-		tong += n
-		if n < coLo {
+		total += n
+		if n < batches {
 			break
 		}
 		if ctx.Err() != nil {
 			break
 		}
 	}
-	return tong, nil
+	return total, nil
 }
 
 // reconcilePayments đối soát TIỀN ĐÃ THU với TRẠNG THÁI ĐƠN.
@@ -1453,17 +1453,17 @@ func rollUpViews(
 			first := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
 			end := first.AddDate(0, 0, 1)
 
-			theoSP, err := a.RollUpViews(ctx, first, end)
+			byProduct, err := a.RollUpViews(ctx, first, end)
 			if err != nil {
 				return fmt.Errorf("gom lượt xem ngày %s: %w",
 					first.Format("2006-01-02"), err)
 			}
-			if len(theoSP) == 0 {
+			if len(byProduct) == 0 {
 				continue
 			}
 
-			reqs := make([]supplychain.SignalRequest, 0, len(theoSP))
-			for productID, checkoutCount := range theoSP {
+			reqs := make([]supplychain.SignalRequest, 0, len(byProduct))
+			for productID, checkoutCount := range byProduct {
 				reqs = append(reqs, supplychain.SignalRequest{
 					Type:      supplychain.SignalView,
 					ProductID: productID,

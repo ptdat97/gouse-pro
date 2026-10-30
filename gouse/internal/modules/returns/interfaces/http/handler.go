@@ -275,14 +275,14 @@ func (h *SellerHandler) inspection(w http.ResponseWriter, r *http.Request) {
 
 func (h *SellerHandler) step(
 	w http.ResponseWriter, r *http.Request,
-	lam func(sellerID, id ids.ID) (*domain.ReturnRequest, error),
+	act func(sellerID, id ids.ID) (*domain.ReturnRequest, error),
 ) {
 	sellerID, err := h.sellerID(r)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	y, err := lam(sellerID, ids.ID(r.PathValue("return_id")))
+	y, err := act(sellerID, ids.ID(r.PathValue("return_id")))
 	if err != nil {
 		h.fail(w, r, translate(err))
 		return

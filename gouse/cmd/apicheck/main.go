@@ -268,13 +268,13 @@ func (c *checker) readSpec() (map[operation]string, error) {
 				root2, i+2, fullPath)
 		}
 
-		file, neo := r[1], r[2]
-		methods, err := c.readBlock(filepath.Join(c.root, "api", "paths", file), neo)
+		file, anchor := r[1], r[2]
+		methods, err := c.readBlock(filepath.Join(c.root, "api", "paths", file), anchor)
 		if err != nil {
 			return nil, err
 		}
 		for _, meth := range methods {
-			out[operation{Method: meth, Path: fullPath}] = file + "#/" + neo
+			out[operation{Method: meth, Path: fullPath}] = file + "#/" + anchor
 		}
 		i++
 	}
@@ -282,7 +282,7 @@ func (c *checker) readSpec() (map[operation]string, error) {
 }
 
 // readBlock trả danh sách method của một khối thao tác trong file paths/.
-func (c *checker) readBlock(file, neo string) ([]string, error) {
+func (c *checker) readBlock(file, anchor string) ([]string, error) {
 	content, err := os.ReadFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("đọc %s: %w", file, err)
@@ -291,14 +291,14 @@ func (c *checker) readBlock(file, neo string) ([]string, error) {
 	line := strings.Split(string(content), "\n")
 	start := -1
 	for i, d := range line {
-		if d == neo+":" {
+		if d == anchor+":" {
 			start = i
 			break
 		}
 	}
 	if start < 0 {
 		return nil, fmt.Errorf("%s: không tìm thấy khối %q mà openapi.yaml trỏ tới",
-			file, neo)
+			file, anchor)
 	}
 
 	var out []string
@@ -313,7 +313,7 @@ func (c *checker) readBlock(file, neo string) ([]string, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%s: khối %q không khai method nào", file, neo)
+		return nil, fmt.Errorf("%s: khối %q không khai method nào", file, anchor)
 	}
 	return out, nil
 }
@@ -386,7 +386,7 @@ func (c *checker) compare() {
 	// Hướng 1: tuyến sống ngoài hợp đồng. LỖI, không có ngoại lệ.
 	var extra []operation
 	for t := range c.route {
-		if _, co := c.spec[t]; co {
+		if _, found := c.spec[t]; found {
 			continue
 		}
 		if _, exempt := c.outsideContract[t.String()]; exempt {
@@ -406,7 +406,7 @@ func (c *checker) compare() {
 	// Hướng 2: đặc tả khai mà chưa cài. Phải có mặt trong `notImplemented`.
 	var missing []operation
 	for t := range c.spec {
-		if _, co := c.route[t]; !co {
+		if _, found := c.route[t]; !found {
 			missing = append(missing, t)
 		}
 	}
@@ -433,7 +433,7 @@ func (c *checker) compare() {
 				"`outsideContract` có dòng sai định dạng: %q", ten))
 			continue
 		}
-		if _, co := c.route[operation{Method: parts[0], Path: parts[1]}]; !co {
+		if _, found := c.route[operation{Method: parts[0], Path: parts[1]}]; !found {
 			c.violations = append(c.violations, fmt.Sprintf(
 				"%s nằm trong `outsideContract` nhưng KHÔNG còn tuyến nào — xóa dòng đó.",
 				ten))
@@ -449,7 +449,7 @@ func (c *checker) compare() {
 			continue
 		}
 		t := operation{Method: parts[0], Path: parts[1]}
-		if _, coRoute := c.route[t]; coRoute {
+		if _, hasRoute := c.route[t]; hasRoute {
 			c.violations = append(c.violations, fmt.Sprintf(
 				"%s ĐÃ có route nhưng vẫn nằm trong `notImplemented` — xóa dòng đó.\n"+
 					"    Một danh sách hoãn không ai dọn sẽ thành danh sách không "+

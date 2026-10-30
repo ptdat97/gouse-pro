@@ -260,7 +260,7 @@ type Tx interface {
 // không khóa được gì.
 func (s *Store) Set(
 	ctx context.Context, in SetInput,
-	writeAudit func(ctx context.Context, tx Tx, giaTriCu float64) error,
+	writeAudit func(ctx context.Context, tx Tx, oldValue float64) error,
 ) error {
 	t, ok := Lookup(in.Key)
 	if !ok {

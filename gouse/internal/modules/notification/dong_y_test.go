@@ -19,7 +19,7 @@ type fakeCustomer struct {
 	failure error
 
 	// daHoi ghi lại loại đồng ý đã bị hỏi, để bài test kiểm ĐÚNG loại.
-	daHoi []string
+	asked []string
 }
 
 func (k *fakeCustomer) CustomerEmail(context.Context, string) (string, error) {
@@ -27,7 +27,7 @@ func (k *fakeCustomer) CustomerEmail(context.Context, string) (string, error) {
 }
 
 func (k *fakeCustomer) HasConsent(_ context.Context, _, kind string) (bool, error) {
-	k.daHoi = append(k.daHoi, kind)
+	k.asked = append(k.asked, kind)
 	if k.failure != nil {
 		return false, k.failure
 	}
@@ -180,10 +180,10 @@ func TestConsentIsCheckedPerChannel(t *testing.T) {
 				t.Fatalf("Send: %v", err)
 			}
 
-			if len(k.daHoi) == 0 {
+			if len(k.asked) == 0 {
 				t.Fatal("không hỏi đồng ý lần nào")
 			}
-			if got := k.daHoi[len(k.daHoi)-1]; got != tc.wantAsked {
+			if got := k.asked[len(k.asked)-1]; got != tc.wantAsked {
 				t.Fatalf("hỏi loại đồng ý %q, cần %q — đồng ý nhận %s "+
 					"không phải giấy phép cho kênh khác", got, tc.wantAsked, tc.wrongDesc)
 			}

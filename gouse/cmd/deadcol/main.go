@@ -135,7 +135,7 @@ func main() {
 	for _, c := range cols {
 		present[c.key()] = c
 	}
-	tonTai, err := columnExists(ctx, pool)
+	exists, err := columnExists(ctx, pool)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "deadcol:", err)
 		os.Exit(2)
@@ -145,7 +145,7 @@ func main() {
 		m       map[string]string
 	}{{"intentionallyConstant", intentionallyConstant}, {"knownEmpty", knownEmpty}} {
 		for k := range so.m {
-			if !tonTai[k] {
+			if !exists[k] {
 				violations = append(violations, fmt.Sprintf(
 					"SỔ `%s` còn dòng cho %s mà lược đồ không có cột ấy — xóa đi",
 					so.colName, k))
@@ -164,10 +164,10 @@ func main() {
 		fmt.Printf("deadcol: %d bảng·cột một-giá-trị trên >=%d dòng\n", len(cols), *min)
 		for _, c := range cols {
 			label := "CHƯA QUYẾT"
-			if ly, ok := intentionallyConstant[c.key()]; ok {
-				label = "hằng số: " + ly
-			} else if ly, ok := knownEmpty[c.key()]; ok {
-				label = "không ai ghi: " + ly
+			if reason, ok := intentionallyConstant[c.key()]; ok {
+				label = "hằng số: " + reason
+			} else if reason, ok := knownEmpty[c.key()]; ok {
+				label = "không ai ghi: " + reason
 			}
 			fmt.Printf("  %-46s %7d  %-30s %s\n", c.key(), c.rows, c.only, label)
 		}

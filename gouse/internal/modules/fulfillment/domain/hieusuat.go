@@ -105,11 +105,11 @@ type PerformanceStats struct {
 // tính, nên vẫn kiểm được mà không cần database, và vẫn đúng với bất kỳ
 // bộ ngưỡng nào.
 func ComputeMetrics(s PerformanceStats, ng Thresholds) []PerformanceMetric {
-	var ra []PerformanceMetric
+	var result []PerformanceMetric
 
 	if s.TotalOrders >= ng.MinSample {
 		cancelRate := float64(s.CancelledOrders) / float64(s.TotalOrders)
-		ra = append(ra, PerformanceMetric{
+		result = append(result, PerformanceMetric{
 			Ten:        "cancellation_rate",
 			Value:      cancelRate,
 			Thresholds: ng.CancelRate,
@@ -121,7 +121,7 @@ func ComputeMetrics(s PerformanceStats, ng Thresholds) []PerformanceMetric {
 
 	if s.DeliveredOrders >= ng.MinSample {
 		onTimeRate := float64(s.OnTimeOrders) / float64(s.DeliveredOrders)
-		ra = append(ra, PerformanceMetric{
+		result = append(result, PerformanceMetric{
 			Ten:        "on_time_shipping_rate",
 			Value:      onTimeRate,
 			Thresholds: ng.OnTimeRate,
@@ -129,7 +129,7 @@ func ComputeMetrics(s PerformanceStats, ng Thresholds) []PerformanceMetric {
 		})
 	}
 
-	return ra
+	return result
 }
 
 // DefaultPeriod là kỳ dùng khi người gọi không nêu.
@@ -203,27 +203,27 @@ type Unmeasured struct {
 // Nói "chưa đủ mẫu, cần N đơn, hiện có M" thì nhà bán biết phải làm gì và
 // biết khi nào chỉ số sẽ xuất hiện.
 func UnmeasuredMetrics(s PerformanceStats, ng Thresholds) []Unmeasured {
-	ra := []Unmeasured{}
+	result := []Unmeasured{}
 
 	// Hai chỉ số ĐO ĐƯỢC, vắng mặt vì mẫu. Điều kiện ở đây phải là PHỦ
 	// ĐỊNH của điều kiện trong `ComputeMetrics` — lệch nhau thì sẽ có chỉ số
 	// vừa nằm trong `metrics` vừa nằm ở đây, hoặc tệ hơn: vắng ở cả hai.
 	if s.TotalOrders < ng.MinSample {
-		ra = append(ra, Unmeasured{
+		result = append(result, Unmeasured{
 			Ten: "cancellation_rate",
 			Reason: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn trong kỳ, "+
 				"hiện có %d", ng.MinSample, s.TotalOrders),
 		})
 	}
 	if s.DeliveredOrders < ng.MinSample {
-		ra = append(ra, Unmeasured{
+		result = append(result, Unmeasured{
 			Ten: "on_time_shipping_rate",
 			Reason: fmt.Sprintf("chưa đủ mẫu: cần ít nhất %d đơn ĐÃ BÀN GIAO "+
 				"trong kỳ, hiện có %d", ng.MinSample, s.DeliveredOrders),
 		})
 	}
 
-	return append(ra, []Unmeasured{
+	return append(result, []Unmeasured{
 		{
 			Ten: "return_rate_description",
 			Reason: "cần dữ liệu của module returns; đó là module ở tầng khác " +

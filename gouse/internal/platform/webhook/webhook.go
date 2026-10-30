@@ -75,18 +75,18 @@ func (r *Recorder) Log(
 	}
 
 	// Đã nhận trước đó. Đọc lại để bên gọi biết lần trước có xử lý xong không.
-	var cu Event
+	var before Event
 	var done *time.Time
 	err = r.pool.QueryRow(ctx, `
 		SELECT id, processed_at FROM webhook_event
 		 WHERE provider = $1 AND provider_event_id = $2`,
-		provider, eventID).Scan(&cu.ID, &done)
+		provider, eventID).Scan(&before.ID, &done)
 	if err != nil {
 		return Event{}, fmt.Errorf("webhook: đọc lại sự kiện cũ: %w", err)
 	}
-	cu.AlreadyReceived = true
-	cu.AlreadyDone = done != nil
-	return cu, nil
+	before.AlreadyReceived = true
+	before.AlreadyDone = done != nil
+	return before, nil
 }
 
 // MarkDone ghi kết quả xử lý.

@@ -177,14 +177,14 @@ func TestADebtIsDeductedOnlyOnce(t *testing.T) {
 	if len(ds) != 2 {
 		t.Fatalf("mong 2 đợt, nhận %d", len(ds))
 	}
-	moi := ds[0]
-	if moi.Gross().Amount() != 80_000 {
-		t.Fatalf("đợt 2 tổng phải là 80.000, nhận %d", moi.Gross().Amount())
+	after := ds[0]
+	if after.Gross().Amount() != 80_000 {
+		t.Fatalf("đợt 2 tổng phải là 80.000, nhận %d", after.Gross().Amount())
 	}
-	if got := moi.Deficit().Amount(); got != 0 {
+	if got := after.Deficit().Amount(); got != 0 {
 		t.Fatalf("đợt 2 KHÔNG được trừ gì (nợ đã thu ở đợt 1), nhận %d", got)
 	}
-	if got := moi.Net().Amount(); got != 80_000 {
+	if got := after.Net().Amount(); got != 80_000 {
 		t.Fatalf("đợt 2 thực nhận phải là 80.000, nhận %d", got)
 	}
 }

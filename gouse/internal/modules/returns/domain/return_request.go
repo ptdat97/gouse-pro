@@ -211,7 +211,7 @@ func New(p NewParams) (*ReturnRequest, error) {
 	// Tổng tiền hoàn = tổng các dòng. Cộng ở đây, một chỗ duy nhất, thay
 	// vì để bên gọi truyền vào — hai nguồn cho cùng một con số tiền sớm
 	// muộn sẽ lệch nhau.
-	tong := p.Lines[0].RefundAmount
+	total := p.Lines[0].RefundAmount
 	seen := map[ids.ID]bool{p.Lines[0].OrderLineID: true}
 	for _, d := range p.Lines[1:] {
 		if seen[d.OrderLineID] {
@@ -219,11 +219,11 @@ func New(p NewParams) (*ReturnRequest, error) {
 		}
 		seen[d.OrderLineID] = true
 
-		sum, err := tong.Add(d.RefundAmount)
+		sum, err := total.Add(d.RefundAmount)
 		if err != nil {
 			return nil, err
 		}
-		tong = sum
+		total = sum
 	}
 
 	return &ReturnRequest{
@@ -237,7 +237,7 @@ func New(p NewParams) (*ReturnRequest, error) {
 		reason:       p.Lines[0].ReasonCode,
 		note:         strings.TrimSpace(p.Note),
 		lines:        p.Lines,
-		refundAmount: tong,
+		refundAmount: total,
 		requestedAt:  p.Now,
 		createdAt:    p.Now,
 		updatedAt:    p.Now,

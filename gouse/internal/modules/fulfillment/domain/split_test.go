@@ -176,9 +176,9 @@ func TestTheFullFulfillmentLifecycle(t *testing.T) {
 	fo := fos[0]
 
 	steps := []struct {
-		ten  string
-		do   func() error
-		mong domain.FOStatus
+		ten    string
+		do     func() error
+		expect domain.FOStatus
 	}{
 		{"phân bổ kho", func() error {
 			return fo.Allocate(ids.MustNew(ids.PrefixStockLocation), testNow)
@@ -198,8 +198,8 @@ func TestTheFullFulfillmentLifecycle(t *testing.T) {
 		if err := s.do(); err != nil {
 			t.Fatalf("%s: %v", s.ten, err)
 		}
-		if fo.Status() != s.mong {
-			t.Fatalf("sau %s: trạng thái = %q, mong %q", s.ten, fo.Status(), s.mong)
+		if fo.Status() != s.expect {
+			t.Fatalf("sau %s: trạng thái = %q, mong %q", s.ten, fo.Status(), s.expect)
 		}
 	}
 
@@ -346,7 +346,7 @@ func TestAnEmptySplitIsBlocked(t *testing.T) {
 func TestIsShippedHoldsForEveryStatusAfterLeavingTheWarehouse(t *testing.T) {
 	for _, tc := range []struct {
 		status domain.FOStatus
-		mong   bool
+		expect bool
 	}{
 		{domain.FOPending, false},
 		{domain.FOAllocated, false},
@@ -360,8 +360,8 @@ func TestIsShippedHoldsForEveryStatusAfterLeavingTheWarehouse(t *testing.T) {
 		{domain.FOCompleted, true},
 		{domain.FOCancelled, false},
 	} {
-		if got := tc.status.IsShipped(); got != tc.mong {
-			t.Errorf("%s.IsShipped() = %v, mong %v", tc.status, got, tc.mong)
+		if got := tc.status.IsShipped(); got != tc.expect {
+			t.Errorf("%s.IsShipped() = %v, mong %v", tc.status, got, tc.expect)
 		}
 	}
 }

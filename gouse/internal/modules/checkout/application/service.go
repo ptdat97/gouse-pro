@@ -1049,7 +1049,7 @@ func (s *Service) attachShippingGroups(ctx context.Context, c *domain.Checkout) 
 			return
 		}
 		perSource = append(perSource, domain.SourceFee{
-			SellerID: ids.ID(n.SellerID), Phi: amount, Days: n.Days,
+			SellerID: ids.ID(n.SellerID), Fee: amount, Days: n.Days,
 		})
 	}
 
@@ -1212,14 +1212,14 @@ func (s *Service) ApplyCouponCode(
 	// AI CHỊU, nó xuất hiện ở mọi đơn dùng mã và chỉ lộ ra ở kỳ đối soát —
 	// lúc đó không còn truy được đơn nào sinh ra nó.
 	if len(res.Allocations) > 0 {
-		tong, err := domain.TotalAllocated(res.Allocations, discount.Currency())
+		total, err := domain.TotalAllocated(res.Allocations, discount.Currency())
 		if err != nil {
 			return nil, err
 		}
-		if !tong.Equal(discount) {
+		if !total.Equal(discount) {
 			return nil, fmt.Errorf(
 				"checkout: bảng phân bổ chi phí cộng ra %s, khác số tiền giảm %s",
-				tong, discount)
+				total, discount)
 		}
 	}
 
@@ -1640,8 +1640,8 @@ func (s *Service) completedEvent(
 		// Bên nhận không có cách nào biết mã họ nhận thuộc không gian
 		// nào; phát bừa nghĩa là ghi sai vào database của họ và im lặng.
 		// Giao dịch chưa commit ở đây nên dừng lại là an toàn.
-		orderLineID, co := orderLineByOffer[l.OfferID()]
-		if !co {
+		orderLineID, found := orderLineByOffer[l.OfferID()]
+		if !found {
 			return CheckoutCompleted{}, fmt.Errorf(
 				"checkout: đơn %s không có dòng cho offer %s",
 				placed.OrderID, l.OfferID())

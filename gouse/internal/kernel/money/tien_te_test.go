@@ -58,12 +58,12 @@ func TestNormalizingDoesNotBreakComparison(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tong, err := a.Add(b)
+	total, err := a.Add(b)
 	if err != nil {
 		t.Fatalf("cộng hai Money cùng đơn vị khác chữ hoa: %v — chuẩn hóa "+
 			"đáng lẽ làm chúng bằng nhau", err)
 	}
-	if tong.Amount() != 300 {
-		t.Errorf("tổng = %d, cần 300", tong.Amount())
+	if total.Amount() != 300 {
+		t.Errorf("tổng = %d, cần 300", total.Amount())
 	}
 }

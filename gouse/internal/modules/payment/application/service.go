@@ -568,13 +568,13 @@ func (s *Service) GetSellerBalanceDetail(
 	if err != nil {
 		return SellerBalance{}, err
 	}
-	rut, err := s.balances.Balance(ctx, domain.Account{
+	withdrawable, err := s.balances.Balance(ctx, domain.Account{
 		Type: domain.AccountSellerAvailable, OwnerID: sellerID,
 	})
 	if err != nil {
 		return SellerBalance{}, err
 	}
-	return SellerBalance{Pending: pendingAcc.Amount, Available: rut.Amount}, nil
+	return SellerBalance{Pending: pendingAcc.Amount, Available: withdrawable.Amount}, nil
 }
 
 func (s *Service) GetEntriesForOrder(
@@ -646,7 +646,7 @@ type SettlementRepository interface {
 	// thích ở `postgres.SettlementStore.CreateForSeller`.
 	CreateForSeller(
 		ctx context.Context, sellerID ids.ID,
-		dung func(noDangCho money.Money) (*domain.Settlement, *domain.LedgerEntry, error),
+		build func(pendingDebt money.Money) (*domain.Settlement, *domain.LedgerEntry, error),
 	) error
 
 	// SaveWithAudit ghi trạng thái mới và chạy `fn` trong CÙNG một giao dịch.
@@ -855,8 +855,8 @@ func (s *Service) RecordPaymentWith(
 	// làm hỏng giao dịch của dispatcher: trong PostgreSQL, một câu lệnh
 	// lỗi làm cả giao dịch không commit được, kể cả khi bên gọi bỏ qua
 	// lỗi đó. Kết quả là event bị thử lại vĩnh viễn.
-	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
-		return cu, nil
+	if before, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && before != nil {
+		return before, nil
 	}
 
 	if err := ledger.Append(ctx, e); err != nil {
@@ -900,8 +900,8 @@ func (s *Service) ReverseEntry(
 	}
 
 	key := "dao:" + in.EntryID.String()
-	if cu, err := s.ledger.FindByIdempotencyKey(ctx, key); err == nil && cu != nil {
-		return cu, nil
+	if before, err := s.ledger.FindByIdempotencyKey(ctx, key); err == nil && before != nil {
+		return before, nil
 	}
 
 	e, err := domain.NewReversalEntry(domain.ReversalParams{
@@ -934,8 +934,8 @@ type RecordShippingFeeInput struct {
 // bình thường của một event phát lại, nên tra TRƯỚC khi ghi.
 func (s *Service) RecordShippingFeeWith(
 	ctx context.Context, ledger domain.LedgerRepository, in RecordShippingFeeInput) (*domain.LedgerEntry, error) {
-	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
-		return cu, nil
+	if before, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && before != nil {
+		return before, nil
 	}
 
 	e, err := domain.NewShippingRevenueEntry(domain.ShippingRevenueParams{
@@ -971,8 +971,8 @@ type RecordDiscountInput struct {
 // với RecordPaymentWith: event phát lại là đường đi bình thường.
 func (s *Service) RecordDiscountWith(
 	ctx context.Context, ledger domain.LedgerRepository, in RecordDiscountInput) (*domain.LedgerEntry, error) {
-	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
-		return cu, nil
+	if before, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && before != nil {
+		return before, nil
 	}
 
 	e, err := domain.NewDiscountEntry(domain.DiscountParams{
@@ -995,7 +995,7 @@ func (s *Service) RecordDiscountWith(
 // RecordShippingCostInput là dữ liệu bút toán chi phí trả hãng.
 type RecordShippingCostInput struct {
 	FulfillmentID  ids.ID
-	ChiPhi         money.Money
+	Expense        money.Money
 	IdempotencyKey string
 }
 
@@ -1008,13 +1008,13 @@ func (s *Service) RecordShippingCostWith(
 	ctx context.Context, ledger domain.LedgerRepository,
 	in RecordShippingCostInput,
 ) (*domain.LedgerEntry, error) {
-	if cu, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && cu != nil {
-		return cu, nil
+	if before, err := ledger.FindByIdempotencyKey(ctx, in.IdempotencyKey); err == nil && before != nil {
+		return before, nil
 	}
 
 	e, err := domain.NewShippingCostEntry(domain.ShippingCostParams{
 		FulfillmentID:  in.FulfillmentID,
-		Cost:           in.ChiPhi,
+		Cost:           in.Expense,
 		IdempotencyKey: in.IdempotencyKey,
 		CreatedBy:      "payment.record_carrier_cost_on_handover",
 		Now:            s.clock.Now(),

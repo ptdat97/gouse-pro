@@ -91,7 +91,7 @@ func NewEmailToken(p NewEmailTokenParams) (*EmailToken, error) {
 // ba đều phải chặn ở DOMAIN chứ không ở truy vấn SQL. Một câu `WHERE
 // used_at IS NULL AND expires_at > now()` trông đủ, nhưng nó đặt quy tắc
 // vào chỗ mà lần viết truy vấn tiếp theo không nhìn thấy.
-func (t *EmailToken) Dung(currentEmail string, now time.Time) error {
+func (t *EmailToken) Use(currentEmail string, now time.Time) error {
 	if !t.usedAt.IsZero() {
 		return ErrInvalidToken
 	}

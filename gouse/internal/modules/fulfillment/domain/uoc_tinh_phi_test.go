@@ -29,9 +29,9 @@ func sources(sellerIDs ...string) []domain.Source {
 // không con số nào âm; nó chỉ hiện ra ở bảng lãi lỗ.
 func TestTheFeeIsChargedPerSource(t *testing.T) {
 	for _, tt := range []struct {
-		ten      string
-		sources  []domain.Source
-		mongTong int64
+		ten         string
+		sources     []domain.Source
+		expectTotal int64
 	}{
 		{"một nhà bán", sources("sel_a"), 30_000},
 		{"hai nhà bán", sources("sel_a", "sel_b"), 60_000},
@@ -43,10 +43,10 @@ func TestTheFeeIsChargedPerSource(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EstimateShippingFees: %v", err)
 			}
-			if got.Tong.Amount() != tt.mongTong {
+			if got.Total.Amount() != tt.expectTotal {
 				t.Errorf("tổng phí = %d, mong %d — phí KHÔNG theo số nguồn "+
 					"nghĩa là nền tảng bù phần chênh trên mọi đơn nhiều nhà bán",
-					got.Tong.Amount(), tt.mongTong)
+					got.Total.Amount(), tt.expectTotal)
 			}
 			if len(got.PerSource) != len(tt.sources) {
 				t.Errorf("chi tiết có %d dòng, mong %d",
@@ -91,9 +91,9 @@ func TestExpressCostsMoreAndArrivesSooner(t *testing.T) {
 		t.Fatalf("nhanh: %v", err)
 	}
 
-	if express.Tong.Amount() <= tc.Tong.Amount() {
+	if express.Total.Amount() <= tc.Total.Amount() {
 		t.Errorf("giao nhanh %d không đắt hơn tiêu chuẩn %d",
-			express.Tong.Amount(), tc.Tong.Amount())
+			express.Total.Amount(), tc.Total.Amount())
 	}
 	if express.PerSource[0].EstimatedDays >= tc.PerSource[0].EstimatedDays {
 		t.Errorf("giao nhanh %d ngày không nhanh hơn tiêu chuẩn %d ngày",
@@ -107,9 +107,9 @@ func TestNoSourcesMeansZeroFee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EstimateShippingFees: %v", err)
 	}
-	if got.Tong.Amount() != 0 {
+	if got.Total.Amount() != 0 {
 		t.Errorf("tổng phí = %d cho đơn không có nguồn nào, mong 0",
-			got.Tong.Amount())
+			got.Total.Amount())
 	}
 }
 
@@ -133,7 +133,7 @@ func TestTheFeeKeepsTheCurrency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EstimateShippingFees: %v", err)
 	}
-	if got.Tong.Currency() != money.USD {
-		t.Errorf("đơn vị = %s, mong USD", got.Tong.Currency())
+	if got.Total.Currency() != money.USD {
+		t.Errorf("đơn vị = %s, mong USD", got.Total.Currency())
 	}
 }

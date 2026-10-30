@@ -132,13 +132,13 @@ func (s *Service) checkConsent(ctx context.Context, customerID, kind string) str
 		return "không biết người nhận là khách nào để tra đồng ý"
 	}
 
-	co, err := s.consent.HasConsent(ctx, customerID, kind)
+	found, err := s.consent.HasConsent(ctx, customerID, kind)
 	if err != nil {
 		s.log.ErrorContext(ctx, "không tra được đồng ý, KHÔNG gửi",
 			"error", err, "customer_id", customerID, "kind", kind)
 		return "không tra được đồng ý"
 	}
-	if !co {
+	if !found {
 		return "khách chưa đồng ý nhận " + kind
 	}
 	return ""

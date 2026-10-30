@@ -92,26 +92,26 @@ func run() error {
 		return err
 	}
 
-	sai, err := findBadEntries(ctx, db.Pool(), *limit)
+	bad, err := findBadEntries(ctx, db.Pool(), *limit)
 	if err != nil {
 		return err
 	}
 
-	if len(sai) == 0 {
+	if len(bad) == 0 {
 		fmt.Println("Không có bút toán nào ghi TIỀN MẶT cho đơn chưa thu được tiền.")
 		return nil
 	}
 
 	var total int64
-	for _, b := range sai {
+	for _, b := range bad {
 		total += b.amount
 	}
-	fmt.Printf("Tìm thấy %d bút toán ghi NỢ PLATFORM_CASH cho đơn chưa trả tiền.\n", len(sai))
+	fmt.Printf("Tìm thấy %d bút toán ghi NỢ PLATFORM_CASH cho đơn chưa trả tiền.\n", len(bad))
 	fmt.Printf("Tổng: %d đ\n\n", total)
 
-	for i, b := range sai {
+	for i, b := range bad {
 		if i >= 5 {
-			fmt.Printf("  … và %d bút toán nữa\n", len(sai)-5)
+			fmt.Printf("  … và %d bút toán nữa\n", len(bad)-5)
 			break
 		}
 		fmt.Printf("  %s  đơn %s  %-16s %12d đ\n",
@@ -129,7 +129,7 @@ func run() error {
 	}
 
 	var reversed, skipped int
-	for _, b := range sai {
+	for _, b := range bad {
 		if _, err := mod.ReverseEntry(ctx, b.entryID, *reason, "doisoatso"); err != nil {
 			// KHÔNG dừng cả lượt vì một bút toán hỏng: phần còn lại vẫn
 			// đảo được, và dừng giữa chừng để lại sổ ở trạng thái nửa vời

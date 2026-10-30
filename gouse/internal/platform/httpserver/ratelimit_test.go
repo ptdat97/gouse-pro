@@ -174,7 +174,7 @@ func headers(h http.Handler, ip string) (int, http.Header) {
 func TestTheRemainingQuotaIsReportedOnEveryCall(t *testing.T) {
 	h := limited(3, time.Minute)
 
-	for i, mong := range []string{"2", "1", "0"} {
+	for i, expect := range []string{"2", "1", "0"} {
 		code, head := headers(h, "9.9.9.9")
 		if code != http.StatusOK {
 			t.Fatalf("lượt %d bị chặn sớm: %d", i+1, code)
@@ -182,10 +182,10 @@ func TestTheRemainingQuotaIsReportedOnEveryCall(t *testing.T) {
 		if got := head.Get("X-RateLimit-Limit"); got != "3" {
 			t.Errorf("lượt %d: X-RateLimit-Limit = %q, cần \"3\"", i+1, got)
 		}
-		if got := head.Get("X-RateLimit-Remaining"); got != mong {
+		if got := head.Get("X-RateLimit-Remaining"); got != expect {
 			t.Errorf("lượt %d: X-RateLimit-Remaining = %q, cần %q — client "+
 				"không thấy hạn mức cạn dần thì không có gì để tự giãn nhịp",
-				i+1, got, mong)
+				i+1, got, expect)
 		}
 	}
 

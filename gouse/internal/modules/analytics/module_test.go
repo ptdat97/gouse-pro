@@ -622,7 +622,7 @@ func TestNotYetMeasurableMustSaySoNotReturnZero(t *testing.T) {
 		analytics.MetricConversionRate,
 		analytics.MetricCartConversionRate,
 	} {
-		if _, co := analytics.NotYetMeasurable()[ten]; co {
+		if _, found := analytics.NotYetMeasurable()[ten]; found {
 			continue
 		}
 		if got := read(ten); got.NotMeasurable != "" {

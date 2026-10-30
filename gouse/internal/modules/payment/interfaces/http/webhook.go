@@ -24,8 +24,8 @@ import (
 // Khai ở đây chứ không import platform/webhook: module nghiệp vụ không
 // được phụ thuộc vào một chi tiết hạ tầng. Adapter nằm ở internal/app.
 type WebhookLog interface {
-	Log(ctx context.Context, provider, maSuKien, loaiSuKien string, than []byte) (LoggedEvent, error)
-	MarkDone(ctx context.Context, id string, loi error) error
+	Log(ctx context.Context, provider, eventID, eventKind string, than []byte) (LoggedEvent, error)
+	MarkDone(ctx context.Context, id string, failure error) error
 }
 
 // LoggedEvent là kết quả ghi nhật ký.
@@ -136,12 +136,12 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 	// Ghi trước nghĩa là sự kiện không mất dù xử lý hỏng. Xử lý trước rồi
 	// mới ghi thì một lần chết giữa chừng làm mất hẳn sự kiện, và nhà cung
 	// cấp đã coi như xong.
-	su, err := h.webhookLog.Log(r.Context(), provider, p.EventID, p.EventType, than)
+	logEntry, err := h.webhookLog.Log(r.Context(), provider, p.EventID, p.EventType, than)
 	if err != nil {
 		apierror.Write(w, r, err, reqID, h.log)
 		return
 	}
-	if su.AlreadyReceived && su.AlreadyDone {
+	if logEntry.AlreadyReceived && logEntry.AlreadyDone {
 		h.respond(w, r, true)
 		return
 	}
@@ -151,28 +151,28 @@ func (h *WebhookHandler) receive(w http.ResponseWriter, r *http.Request) {
 		// Không có mã đơn thì không tra được intent, nên không đối chiếu
 		// được — và không đối chiếu được thì KHÔNG xử lý. Giữ bản ghi làm
 		// bằng chứng.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, errors.New("order_id không hợp lệ"))
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, errors.New("order_id không hợp lệ"))
 		h.rejected(w, r, provider, "thiếu hoặc sai data.metadata.order_id")
 		return
 	}
 
 	switch p.EventType {
 	case "payment.succeeded":
-		h.collected(w, r, su, provider, orderID, p)
+		h.collected(w, r, logEntry, provider, orderID, p)
 	case "payment.failed":
-		h.failed(w, r, su, provider, orderID, p)
+		h.failed(w, r, logEntry, provider, orderID, p)
 	default:
 		// Loại không xử lý VẪN được ghi nhật ký (yêu cầu 4), và vẫn trả
 		// 200: báo lỗi khiến nhà cung cấp gửi lại mãi một loại ta cố tình
 		// bỏ qua.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, nil)
-		h.respond(w, r, su.AlreadyReceived)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, nil)
+		h.respond(w, r, logEntry.AlreadyReceived)
 	}
 }
 
 // collected xử lý payment.succeeded — nơi LỚP 3 đứng.
 func (h *WebhookHandler) collected(
-	w http.ResponseWriter, r *http.Request, su LoggedEvent,
+	w http.ResponseWriter, r *http.Request, logEntry LoggedEvent,
 	provider string, orderID ids.ID, p paymentWebhookJSON,
 ) {
 	reqID := logger.RequestIDFromContext(r.Context())
@@ -183,7 +183,7 @@ func (h *WebhookHandler) collected(
 	amountIn, err := money.New(p.Data.Amount, money.Currency(strings.ToUpper(
 		strings.TrimSpace(p.Data.Currency))))
 	if err != nil {
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, err)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, err)
 		metrics.RecordFailure(metrics.StageWebhook, "so_tien_khong_hop_le")
 		h.rejected(w, r, provider, "data.amount hoặc data.currency không hợp lệ")
 		return
@@ -200,7 +200,7 @@ func (h *WebhookHandler) collected(
 		// Mức ERROR chứ không WARN: chữ ký hợp lệ mà số tiền sai nghĩa là
 		// hoặc nhà cung cấp đang lỗi, hoặc khóa của họ đã lộ. Cả hai đều
 		// cần người xem trong hôm nay.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, err)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, err)
 		metrics.RecordFailure(metrics.StageWebhook, "so_tien_khong_khop")
 		h.log.ErrorContext(r.Context(), "webhook thanh toán báo SỐ TIỀN KHÁC hệ thống chờ thu",
 			"nha_cung_cap", provider, "order_id", orderID.String(),
@@ -214,7 +214,7 @@ func (h *WebhookHandler) collected(
 		// Nhà cung cấp báo về một đơn hệ thống KHÔNG chờ thu tiền: đơn
 		// COD, đơn không tồn tại, hoặc môi trường test gọi nhầm vào
 		// production. Cả ba đều không được xử lý.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, err)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, err)
 		metrics.RecordFailure(metrics.StageWebhook, "khong_co_intent")
 		h.log.ErrorContext(r.Context(), "webhook thanh toán cho đơn KHÔNG chờ thu tiền",
 			"nha_cung_cap", provider, "order_id", orderID.String(), "request_id", reqID)
@@ -225,11 +225,11 @@ func (h *WebhookHandler) collected(
 	case err != nil:
 		// Hỏng vì lý do khác: sự kiện ĐÃ ghi durable, trả 200 để nhà cung
 		// cấp thôi gửi lại. Việc thử lại là của ta.
-		_ = h.webhookLog.MarkDone(r.Context(), su.ID, err)
+		_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, err)
 		metrics.RecordFailure(metrics.StageWebhook, "xu_ly_that_bai")
 		h.log.ErrorContext(r.Context(), "xử lý webhook thanh toán thất bại",
 			"error", err, "nha_cung_cap", provider, "order_id", orderID.String())
-		h.respond(w, r, su.AlreadyReceived)
+		h.respond(w, r, logEntry.AlreadyReceived)
 		return
 	}
 
@@ -250,8 +250,8 @@ func (h *WebhookHandler) collected(
 		}
 	}
 
-	_ = h.webhookLog.MarkDone(r.Context(), su.ID, nil)
-	h.respond(w, r, su.AlreadyReceived)
+	_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, nil)
+	h.respond(w, r, logEntry.AlreadyReceived)
 }
 
 // failed xử lý payment.failed.
@@ -259,7 +259,7 @@ func (h *WebhookHandler) collected(
 // KHÔNG đối chiếu số tiền: thất bại nghĩa là không có tiền nào chuyển, nên
 // con số trong payload không có gì để kiểm.
 func (h *WebhookHandler) failed(
-	w http.ResponseWriter, r *http.Request, su LoggedEvent,
+	w http.ResponseWriter, r *http.Request, logEntry LoggedEvent,
 	provider string, orderID ids.ID, p paymentWebhookJSON,
 ) {
 	_, err := h.svc.RecordFailure(r.Context(), orderID,
@@ -268,8 +268,8 @@ func (h *WebhookHandler) failed(
 		h.log.ErrorContext(r.Context(), "không ghi được thất bại thanh toán",
 			"error", err, "nha_cung_cap", provider, "order_id", orderID.String())
 	}
-	_ = h.webhookLog.MarkDone(r.Context(), su.ID, err)
-	h.respond(w, r, su.AlreadyReceived)
+	_ = h.webhookLog.MarkDone(r.Context(), logEntry.ID, err)
+	h.respond(w, r, logEntry.AlreadyReceived)
 }
 
 func (h *WebhookHandler) respond(w http.ResponseWriter, r *http.Request, processed bool) {

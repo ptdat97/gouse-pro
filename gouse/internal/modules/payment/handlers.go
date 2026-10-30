@@ -105,7 +105,7 @@ type revenuePayload struct {
 // sellerShare là phần tiền của một nhà bán trong một đơn.
 type sellerShare struct {
 	sellerID   string
-	tong       int64
+	total      int64
 	commission int64
 }
 
@@ -123,19 +123,19 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 	var sellerIDsInOrder []string
 	shares := map[string]*sellerShare{}
 	for _, r := range p.Reservations {
-		g, co := shares[r.SellerID]
-		if !co {
+		g, found := shares[r.SellerID]
+		if !found {
 			g = &sellerShare{sellerID: r.SellerID}
 			shares[r.SellerID] = g
 			sellerIDsInOrder = append(sellerIDsInOrder, r.SellerID)
 		}
-		g.tong += r.LineTotal
+		g.total += r.LineTotal
 		g.commission += r.CommissionAmount
 	}
 
 	for _, id := range sellerIDsInOrder {
 		g := shares[id]
-		if g.tong <= 0 {
+		if g.total <= 0 {
 			continue
 		}
 
@@ -146,7 +146,7 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 
 		req := OrderRevenueRequest{
 			OrderID:     p.OrderID,
-			GrossAmount: Amount{Value: g.tong, Currency: p.Currency},
+			GrossAmount: Amount{Value: g.total, Currency: p.Currency},
 			SellerID:    g.sellerID,
 			CreatedBy:   "payment.revenue_on_checkout_completed",
 		}
@@ -155,10 +155,10 @@ func (h *RevenueOnCheckoutCompleted) Handle(ctx context.Context, e eventbus.Even
 			// Own brand: tiền thuộc về nền tảng toàn phần, không có ai để
 			// trả. SellerID vẫn giữ để truy được nguồn; NewOrderRevenueEntry
 			// bỏ dòng "phải trả nhà bán" khi số tiền bằng 0.
-			req.PlatformRevenue = Amount{Value: g.tong, Currency: p.Currency}
+			req.PlatformRevenue = Amount{Value: g.total, Currency: p.Currency}
 		} else {
 			req.PlatformRevenue = Amount{Value: g.commission, Currency: p.Currency}
-			req.SellerPayable = Amount{Value: g.tong - g.commission, Currency: p.Currency}
+			req.SellerPayable = Amount{Value: g.total - g.commission, Currency: p.Currency}
 		}
 
 		if err := h.module.RecordOrderRevenueInEventTx(ctx, req); err != nil {

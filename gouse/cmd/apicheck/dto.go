@@ -216,8 +216,8 @@ func jsonName(fld *ast.Field) string {
 // compareDTO so từng cặp đã khai.
 func (c *checker) compareDTO(properties map[string][]string) {
 	for _, pair := range c.dtoPair {
-		sp, co := properties[pair.Schema]
-		if !co {
+		sp, present := properties[pair.Schema]
+		if !present {
 			c.violations = append(c.violations, fmt.Sprintf(
 				"DTO sổ ghép trỏ tới schema %q (%s) mà `components/schemas.yaml` "+
 					"không có — đổi tên schema thì phải sửa `checkedDTOPairs`",
@@ -237,11 +237,11 @@ func (c *checker) compareDTO(properties map[string][]string) {
 			continue
 		}
 
-		tapGo, tapSpec := stringSet(gv), stringSet(sp)
+		goSet, specSet := stringSet(gv), stringSet(sp)
 
 		var missing []string
 		for _, t := range sp {
-			if tapGo[t] {
+			if goSet[t] {
 				continue
 			}
 			if _, allowed := pair.AllowMissing[t]; allowed {
@@ -261,7 +261,7 @@ func (c *checker) compareDTO(properties map[string][]string) {
 
 		var extra []string
 		for _, t := range gv {
-			if !tapSpec[t] {
+			if !specSet[t] {
 				extra = append(extra, t)
 			}
 		}
@@ -279,12 +279,12 @@ func (c *checker) compareDTO(properties map[string][]string) {
 		// Một dòng cho phép thiếu trỏ tới trường KHÔNG CÒN trong đặc tả là
 		// một dòng nói dối — nó im lặng ngừng gác.
 		for t := range pair.AllowMissing {
-			if !tapSpec[t] {
+			if !specSet[t] {
 				c.violations = append(c.violations, fmt.Sprintf(
 					"DTO %s: `AllowMissing` còn dòng cho %q mà đặc tả không "+
 						"còn khai trường ấy — xóa đi", pair.Reason, t))
 			}
-			if tapGo[t] {
+			if goSet[t] {
 				c.violations = append(c.violations, fmt.Sprintf(
 					"DTO %s: `AllowMissing` khai %q là chưa trả, nhưng Go ĐÃ "+
 						"trả nó — xóa dòng ấy đi", pair.Reason, t))

@@ -28,22 +28,22 @@ func (p *realPromo) AllocateDiscount(
 	_ context.Context, discount money.Money, placedLines []application.AllocationLine) (map[ids.ID]money.Money, error) {
 	p.call++
 
-	tong := int64(0)
+	total := int64(0)
 	for _, d := range placedLines {
-		tong += d.Total.Amount()
+		total += d.Total.Amount()
 	}
 
 	out := map[ids.ID]money.Money{}
-	daChia := int64(0)
+	allocated := int64(0)
 	for i, d := range placedLines {
 		var share int64
 		if i == len(placedLines)-1 {
 			// Dòng cuối nhận phần CÒN LẠI: tổng các phần phải bằng ĐÚNG
 			// số tiền giảm, phần dư của phép chia không được biến mất.
-			share = discount.Amount() - daChia
+			share = discount.Amount() - allocated
 		} else {
-			share = discount.Amount() * d.Total.Amount() / tong
-			daChia += share
+			share = discount.Amount() * d.Total.Amount() / total
+			allocated += share
 		}
 		m, err := money.New(share, discount.Currency())
 		if err != nil {

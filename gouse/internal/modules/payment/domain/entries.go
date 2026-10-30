@@ -758,11 +758,11 @@ func discountDebitLines(ds []AllocateCost, discount money.Money) ([]Line, error)
 		}}, nil
 	}
 
-	tong := money.Zero(discount.Currency())
+	total := money.Zero(discount.Currency())
 	lines := make([]Line, 0, len(ds))
 	for _, d := range ds {
 		var err error
-		if tong, err = tong.Add(d.Amount); err != nil {
+		if total, err = total.Add(d.Amount); err != nil {
 			return nil, err
 		}
 		if !d.Amount.IsPositive() {
@@ -787,10 +787,10 @@ func discountDebitLines(ds []AllocateCost, discount money.Money) ([]Line, error)
 		})
 	}
 
-	if !tong.Equal(discount) {
+	if !total.Equal(discount) {
 		return nil, fmt.Errorf(
 			"payment: bảng phân bổ cộng ra %s, khác khoản giảm %s — "+
-				"chênh lệch này là khoản không ai chịu", tong, discount)
+				"chênh lệch này là khoản không ai chịu", total, discount)
 	}
 	return lines, nil
 }

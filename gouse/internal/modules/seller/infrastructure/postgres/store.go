@@ -302,7 +302,7 @@ func (s *Store) SaveWithBankAccount(
 				"không nhận được tài khoản ngân hàng")
 	}
 
-	kin, err := s.encrypted.Encrypt(strings.TrimSpace(fullNumber))
+	sealed, err := s.encrypted.Encrypt(strings.TrimSpace(fullNumber))
 	if err != nil {
 		return fmt.Errorf("seller: mã hóa số tài khoản: %w", err)
 	}
@@ -318,7 +318,7 @@ func (s *Store) SaveWithBankAccount(
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE seller SET bank_account_number_enc = $2 WHERE id = $1`,
-		sel.ID().String(), kin); err != nil {
+		sel.ID().String(), sealed); err != nil {
 		return fmt.Errorf("seller: ghi số tài khoản: %w", err)
 	}
 
@@ -342,18 +342,18 @@ func (s *Store) GetBankAccount(ctx context.Context, id ids.ID) (string, error) {
 		return "", errors.New("seller: chưa cấu hình khóa mã hóa (ENCRYPTION_KEY)")
 	}
 
-	var kin string
+	var sealed string
 	err := s.pool.QueryRow(ctx,
 		`SELECT bank_account_number_enc FROM seller WHERE id = $1`,
-		id.String()).Scan(&kin)
+		id.String()).Scan(&sealed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", domain.ErrNotFound
 	}
 	if err != nil {
 		return "", fmt.Errorf("seller: đọc số tài khoản: %w", err)
 	}
-	if kin == "" {
+	if sealed == "" {
 		return "", domain.ErrNoBankAccount
 	}
-	return s.encrypted.Decrypt(kin)
+	return s.encrypted.Decrypt(sealed)
 }

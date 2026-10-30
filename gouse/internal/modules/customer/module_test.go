@@ -1520,7 +1520,7 @@ func TestOnlyVerifiedEmailCanMergeGuestProfile(t *testing.T) {
 		t.Fatalf("RegisterShopper: %v", err)
 	}
 
-	gan := func(t *testing.T) string {
+	attach := func(t *testing.T) string {
 		t.Helper()
 		var u string
 		if err := pool.QueryRow(ctx,
@@ -1531,7 +1531,7 @@ func TestOnlyVerifiedEmailCanMergeGuestProfile(t *testing.T) {
 	}
 
 	// TRƯỚC xác minh: hồ sơ CHƯA thuộc về ai.
-	if u := gan(t); u != "" {
+	if u := attach(t); u != "" {
 		t.Fatalf("hồ sơ đã gắn vào %q trước khi xác minh", u)
 	}
 
@@ -1539,7 +1539,7 @@ func TestOnlyVerifiedEmailCanMergeGuestProfile(t *testing.T) {
 	if _, err := m.VerifyEmailAndMerge(ctx, "token-bia-dat"); err == nil {
 		t.Fatal("token bịa đặt vẫn xác minh được")
 	}
-	if u := gan(t); u != "" {
+	if u := attach(t); u != "" {
 		t.Fatalf("token SAI vẫn gộp được hồ sơ vào %q", u)
 	}
 
@@ -1555,7 +1555,7 @@ func TestOnlyVerifiedEmailCanMergeGuestProfile(t *testing.T) {
 	if !out.ProfileMerged {
 		t.Error("DaGopHoSo = false, mong true")
 	}
-	if u := gan(t); u != res.UserID {
+	if u := attach(t); u != res.UserID {
 		t.Errorf("hồ sơ gắn vào %q, mong %q", u, res.UserID)
 	}
 
@@ -1629,19 +1629,19 @@ func TestIssuingNewTokenKillsTheOld(t *testing.T) {
 		t.Fatalf("RegisterShopper: %v", err)
 	}
 
-	cu, _, err := idm.IssueVerificationToken(ctx, res.UserID)
+	before, _, err := idm.IssueVerificationToken(ctx, res.UserID)
 	if err != nil {
 		t.Fatalf("phát token lần 1: %v", err)
 	}
-	moi, _, err := idm.IssueVerificationToken(ctx, res.UserID)
+	after, _, err := idm.IssueVerificationToken(ctx, res.UserID)
 	if err != nil {
 		t.Fatalf("phát token lần 2: %v", err)
 	}
 
-	if _, err := m.VerifyEmailAndMerge(ctx, cu); err == nil {
+	if _, err := m.VerifyEmailAndMerge(ctx, before); err == nil {
 		t.Error("token CŨ vẫn dùng được sau khi đã gửi lại")
 	}
-	if _, err := m.VerifyEmailAndMerge(ctx, moi); err != nil {
+	if _, err := m.VerifyEmailAndMerge(ctx, after); err != nil {
 		t.Errorf("token MỚI không dùng được: %v", err)
 	}
 }

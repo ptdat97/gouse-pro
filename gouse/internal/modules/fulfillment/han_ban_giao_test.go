@@ -45,13 +45,13 @@ func TestTheDeadlineOnScreenMatchesTheGrading(t *testing.T) {
 	// không phải về đồng hồ.
 	for _, b := range []struct {
 		ten string
-		lam func() error
+		act func() error
 	}{
 		{"xác nhận", func() error { return h.ful.ConfirmFulfillment(ctx, sellerA.String(), foID) }},
 		{"nhặt hàng", func() error { return h.ful.MarkPicking(ctx, sellerA.String(), foID) }},
 		{"đóng gói", func() error { return h.ful.MarkPacked(ctx, sellerA.String(), foID) }},
 	} {
-		if err := b.lam(); err != nil {
+		if err := b.act(); err != nil {
 			t.Fatalf("%s: %v", b.ten, err)
 		}
 	}

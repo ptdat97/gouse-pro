@@ -80,11 +80,11 @@ func (c *Checkout) ApplyFeesAndTax(
 		return err
 	}
 
-	phi := baseFee
-	if phi.Currency() == "" {
-		phi = money.Zero(c.currency)
+	feeAmount := baseFee
+	if feeAmount.Currency() == "" {
+		feeAmount = money.Zero(c.currency)
 	}
-	if phi.Currency() != c.currency {
+	if feeAmount.Currency() != c.currency {
 		return ErrDifferentCurrency
 	}
 
@@ -96,17 +96,17 @@ func (c *Checkout) ApplyFeesAndTax(
 	// chắn để nhận một khiếu nại đúng.
 	if !cs.FreeShippingThreshold.IsZero() || cs.FreeShippingThreshold.Currency() != "" {
 		if !goodsTotal.LessThan(cs.FreeShippingThreshold) {
-			phi = money.Zero(c.currency)
+			feeAmount = money.Zero(c.currency)
 		}
 	}
 
 	// Tổng khách trả — và thuế nằm SẴN TRONG con số này.
-	customerPays, err := goodsTotal.Add(phi)
+	customerPays, err := goodsTotal.Add(feeAmount)
 	if err != nil {
 		return err
 	}
 
-	c.shippingFee = phi
+	c.shippingFee = feeAmount
 	// TÁCH ngược, không CỘNG thêm: giá niêm yết đã gồm VAT.
 	c.taxAmount = customerPays.ExtractRate(cs.TaxRate, money.RoundHalfUp)
 	c.touch(now)

@@ -39,7 +39,7 @@ func TestTheHighestMigrationIsReadFromDisk(t *testing.T) {
 // cho hàng rào. Không dùng khuôn thật: hạ phiên bản khuôn thật sẽ làm mọi
 // gói test khác đang chạy song song đỏ theo.
 func TestATemplateBehindOnDiskIsRejected(t *testing.T) {
-	fake := giaKhuon(t, 1, false)
+	fake := fakeTemplate(t, 1, false)
 
 	err := checkTemplateMigrated(fake)
 	if !errors.Is(err, ErrTemplateBehind) {
@@ -62,7 +62,7 @@ func TestADirtyTemplateIsRejected(t *testing.T) {
 	if err != nil {
 		t.Skipf("không đọc được migrations: %v", err)
 	}
-	fake := giaKhuon(t, onDisk, true)
+	fake := fakeTemplate(t, onDisk, true)
 
 	err = checkTemplateMigrated(fake)
 	if !errors.Is(err, ErrTemplateBehind) {
@@ -82,7 +82,7 @@ func TestATemplateAtHeadPasses(t *testing.T) {
 	if err != nil {
 		t.Skipf("không đọc được migrations: %v", err)
 	}
-	fake := giaKhuon(t, onDisk, false)
+	fake := fakeTemplate(t, onDisk, false)
 
 	if err := checkTemplateMigrated(fake); err != nil {
 		t.Fatalf("khuôn ở đúng phiên bản %d mà bị từ chối: %v", onDisk, err)
@@ -90,7 +90,7 @@ func TestATemplateAtHeadPasses(t *testing.T) {
 }
 
 // giaKhuon dựng một database tạm chỉ có bảng `schema_migrations`.
-func giaKhuon(t *testing.T, version int64, dirty bool) string {
+func fakeTemplate(t *testing.T, version int64, dirty bool) string {
 	t.Helper()
 
 	template := strings.TrimSpace(os.Getenv(EnvVar))

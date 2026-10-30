@@ -67,7 +67,7 @@ func TestRoundTripLosesNoField(t *testing.T) {
 		t.Fatalf("đọc lại: %v", err)
 	}
 
-	compare(t, original, rutRa(reread), emptyAtCreate)
+	compare(t, original, extract(reread), emptyAtCreate)
 }
 
 // TestRoundTripThroughTheUpdatePath canh câu UPDATE và `withLines`.
@@ -108,9 +108,9 @@ func TestRoundTripThroughTheUpdatePath(t *testing.T) {
 	}
 
 	// Update tăng version, nên so với 1 chứ không phải 0.
-	mong := created
-	mong.Version = 1
-	compare(t, mong, rutRa(reread), nil)
+	expect := created
+	expect.Version = 1
+	compare(t, expect, extract(reread), nil)
 }
 
 // emptyAtCreate là trường một đơn VỪA TẠO chưa thể có.
@@ -203,7 +203,7 @@ func fullParams(t *testing.T) domain.RestoreOrderParams {
 // hỏng theo hướng AN TOÀN: quên một trường ở đây nghĩa là giá trị rút ra
 // bằng rỗng trong khi bản gốc khác rỗng — bài test ĐỎ và gọi đúng tên
 // trường, thay vì im lặng bỏ qua.
-func rutRa(o *domain.Order) domain.RestoreOrderParams {
+func extract(o *domain.Order) domain.RestoreOrderParams {
 	return domain.RestoreOrderParams{
 		ID:                 o.ID(),
 		OrderNumber:        o.OrderNumber(),

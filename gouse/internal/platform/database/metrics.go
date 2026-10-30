@@ -7,7 +7,7 @@ import (
 // Tên chỉ số, đặt cùng quy ước với internal/platform/metrics.
 const (
 	connMetric     = "gouse_db_pool_connections"
-	tenToiDa       = "gouse_db_pool_max_connections"
+	nameMaxConns   = "gouse_db_pool_max_connections"
 	waitMetric     = "gouse_db_pool_empty_acquire_total"
 	cancelMetric   = "gouse_db_pool_canceled_acquire_total"
 	waitTimeMetric = "gouse_db_pool_acquire_wait_seconds_total"
@@ -42,7 +42,7 @@ type PoolCollector struct {
 	db *DB
 
 	connect     *prometheus.Desc
-	toiDa       *prometheus.Desc
+	maxConns    *prometheus.Desc
 	waitForSlot *prometheus.Desc
 	cancelled   *prometheus.Desc
 	waitTime    *prometheus.Desc
@@ -65,7 +65,7 @@ func NewPoolCollector(db *DB, labels string) *PoolCollector {
 		connect: prometheus.NewDesc(connMetric,
 			"Số kết nối trong pool theo trạng thái.",
 			[]string{"state"}, fixedLabels),
-		toiDa: prometheus.NewDesc(tenToiDa,
+		maxConns: prometheus.NewDesc(nameMaxConns,
 			"Trần số kết nối của pool.",
 			nil, fixedLabels),
 		waitForSlot: prometheus.NewDesc(waitMetric,
@@ -82,7 +82,7 @@ func NewPoolCollector(db *DB, labels string) *PoolCollector {
 
 func (c *PoolCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.connect
-	ch <- c.toiDa
+	ch <- c.maxConns
 	ch <- c.waitForSlot
 	ch <- c.cancelled
 	ch <- c.waitTime
@@ -102,7 +102,7 @@ func (c *PoolCollector) Collect(ch chan<- prometheus.Metric) {
 		prometheus.GaugeValue, float64(s.AcquiredConns()), "acquired")
 	ch <- prometheus.MustNewConstMetric(c.connect,
 		prometheus.GaugeValue, float64(s.IdleConns()), "idle")
-	ch <- prometheus.MustNewConstMetric(c.toiDa,
+	ch <- prometheus.MustNewConstMetric(c.maxConns,
 		prometheus.GaugeValue, float64(s.MaxConns()))
 
 	// Counter, không phải Gauge: đây là số cộng dồn từ lúc mở pool, và

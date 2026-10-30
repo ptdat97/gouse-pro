@@ -179,17 +179,17 @@ func TestHistoryQueryBoundaries(t *testing.T) {
 	r := domain.DateRange{From: testNow, To: testNow.Add(2 * time.Hour)}
 
 	cases := []struct {
-		ten  string
-		t    time.Time
-		mong bool
+		ten    string
+		t      time.Time
+		expect bool
 	}{
 		{"trước From", testNow.Add(-time.Second), false},
 		{"đúng From", testNow, true},
 		{"đúng To", testNow.Add(2 * time.Hour), false},
 	}
 	for _, tc := range cases {
-		if got := r.Contains(tc.t); got != tc.mong {
-			t.Errorf("%s: Contains = %v, mong %v", tc.ten, got, tc.mong)
+		if got := r.Contains(tc.t); got != tc.expect {
+			t.Errorf("%s: Contains = %v, mong %v", tc.ten, got, tc.expect)
 		}
 	}
 

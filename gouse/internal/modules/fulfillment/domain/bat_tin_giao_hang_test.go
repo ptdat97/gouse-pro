@@ -14,9 +14,9 @@ const lostContactThreshold = 168 * time.Hour // mặc định của fulfillment.
 // mã vận đơn chưa tồn tại.
 func TestNotYetHandedOverIsNotLostContact(t *testing.T) {
 	fo := foNew(t)
-	rat := fo.CreatedAt().Add(365 * 24 * time.Hour)
+	farOut := fo.CreatedAt().Add(365 * 24 * time.Hour)
 
-	if fo.LostContact(lostContactThreshold, rat) {
+	if fo.LostContact(lostContactThreshold, farOut) {
 		t.Error("đơn CHƯA bàn giao bị coi là mất tin vận chuyển")
 	}
 }
@@ -58,8 +58,8 @@ func TestOnceDeliveredItIsNoLongerLostContact(t *testing.T) {
 		t.Fatalf("Deliver: %v", err)
 	}
 
-	rat := shippedAt.Add(365 * 24 * time.Hour)
-	if fo.LostContact(lostContactThreshold, rat) {
+	farOut := shippedAt.Add(365 * 24 * time.Hour)
+	if fo.LostContact(lostContactThreshold, farOut) {
 		t.Error("gói ĐÃ GIAO vẫn bị coi là mất tin")
 	}
 }
@@ -83,8 +83,8 @@ func TestADeliveryFailureIsNotLostContact(t *testing.T) {
 		t.Fatalf("MarkDeliveryFailed: %v", err)
 	}
 
-	rat := shippedAt.Add(365 * 24 * time.Hour)
-	if fo.LostContact(lostContactThreshold, rat) {
+	farOut := shippedAt.Add(365 * 24 * time.Hour)
+	if fo.LostContact(lostContactThreshold, farOut) {
 		t.Error("gói GIAO THẤT BẠI bị gộp vào danh sách mất tin")
 	}
 	if fo.InTransit() {

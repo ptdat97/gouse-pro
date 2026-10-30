@@ -156,9 +156,9 @@ func TestPeriodBoundaries(t *testing.T) {
 	p := domain.Period{From: testNow, To: testNow.Add(2 * time.Hour)}
 
 	cases := []struct {
-		ten  string
-		t    time.Time
-		mong bool
+		ten    string
+		t      time.Time
+		expect bool
 	}{
 		{"trước From", testNow.Add(-time.Second), false},
 		{"đúng From", testNow, true},
@@ -167,8 +167,8 @@ func TestPeriodBoundaries(t *testing.T) {
 		{"sau To", testNow.Add(3 * time.Hour), false},
 	}
 	for _, tc := range cases {
-		if got := p.Contains(tc.t); got != tc.mong {
-			t.Errorf("%s: Contains = %v, mong %v", tc.ten, got, tc.mong)
+		if got := p.Contains(tc.t); got != tc.expect {
+			t.Errorf("%s: Contains = %v, mong %v", tc.ten, got, tc.expect)
 		}
 	}
 
@@ -355,7 +355,7 @@ func TestNoApplicablePriceReturnsNil(t *testing.T) {
 func TestComputeDiscountInBasisPoints(t *testing.T) {
 	cases := []struct {
 		amount, compareAt int64
-		mongBP            int64
+		expectBP          int64
 	}{
 		{400000, 500000, 2000}, // giảm 20%
 		{250000, 500000, 5000}, // giảm 50%
@@ -370,8 +370,8 @@ func TestComputeDiscountInBasisPoints(t *testing.T) {
 				np.CompareAt = vnd(tc.compareAt)
 			}
 		})
-		if got := p.DiscountBasisPoints(); got != tc.mongBP {
-			t.Errorf("giá %d/%d: mức giảm = %d bp, mong %d", tc.amount, tc.compareAt, got, tc.mongBP)
+		if got := p.DiscountBasisPoints(); got != tc.expectBP {
+			t.Errorf("giá %d/%d: mức giảm = %d bp, mong %d", tc.amount, tc.compareAt, got, tc.expectBP)
 		}
 		if tc.compareAt > 0 && !p.HasDiscount() {
 			t.Errorf("giá %d/%d: HasDiscount = false", tc.amount, tc.compareAt)

@@ -84,29 +84,29 @@ func (b *Cipher) Encrypt(plaintext string) (string, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("privacy: sinh nonce: %w", err)
 	}
-	kin := b.gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return labelV1 + base64.StdEncoding.EncodeToString(kin), nil
+	sealed := b.gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return labelV1 + base64.StdEncoding.EncodeToString(sealed), nil
 }
 
 // Decrypt đọc lại chuỗi đã mã hóa bằng Encrypt.
 func (b *Cipher) Decrypt(ciphertext string) (string, error) {
-	after, co := strings.CutPrefix(ciphertext, labelV1)
-	if !co {
+	after, found := strings.CutPrefix(ciphertext, labelV1)
+	if !found {
 		return "", ErrBadCiphertext
 	}
-	kin, err := base64.StdEncoding.DecodeString(after)
+	sealed, err := base64.StdEncoding.DecodeString(after)
 	if err != nil {
 		return "", ErrBadCiphertext
 	}
 	n := b.gcm.NonceSize()
-	if len(kin) < n {
+	if len(sealed) < n {
 		return "", ErrBadCiphertext
 	}
-	ro, err := b.gcm.Open(nil, kin[:n], kin[n:], nil)
+	plain, err := b.gcm.Open(nil, sealed[:n], sealed[n:], nil)
 	if err != nil {
 		return "", ErrBadCiphertext
 	}
-	return string(ro), nil
+	return string(plain), nil
 }
 
 // Last4 trả bốn ký tự cuối của một số tài khoản, để HIỂN THỊ.

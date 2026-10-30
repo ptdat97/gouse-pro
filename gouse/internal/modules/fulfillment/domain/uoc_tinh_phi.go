@@ -78,13 +78,13 @@ type Source struct {
 // SourceFee là phí ước tính của một nguồn.
 type SourceFee struct {
 	SellerID      string
-	Phi           money.Money
+	Fee           money.Money
 	EstimatedDays int
 }
 
 // FeeEstimate là kết quả ước tính cho cả đơn.
 type FeeEstimate struct {
-	Tong      money.Money
+	Total     money.Money
 	PerSource []SourceFee
 }
 
@@ -113,24 +113,24 @@ func EstimateShippingFees(
 		return FeeEstimate{}, ErrInvalidShipMethod
 	}
 
-	tong := money.Zero(unit)
+	total := money.Zero(unit)
 	perSource := make([]SourceFee, 0, len(sources))
 
 	for _, n := range sources {
-		phi, err := money.New(tier.FeePerSource, unit)
+		feeAmount, err := money.New(tier.FeePerSource, unit)
 		if err != nil {
 			return FeeEstimate{}, err
 		}
-		tong, err = tong.Add(phi)
+		total, err = total.Add(feeAmount)
 		if err != nil {
 			return FeeEstimate{}, err
 		}
 		perSource = append(perSource, SourceFee{
 			SellerID:      n.SellerID,
-			Phi:           phi,
+			Fee:           feeAmount,
 			EstimatedDays: tier.EstimatedDays,
 		})
 	}
 
-	return FeeEstimate{Tong: tong, PerSource: perSource}, nil
+	return FeeEstimate{Total: total, PerSource: perSource}, nil
 }

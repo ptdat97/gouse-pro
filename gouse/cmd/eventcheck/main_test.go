@@ -119,7 +119,7 @@ func publishers(row string) string {
 
 import "x/internal/platform/eventbus"
 
-func Phat() {
+func Publish() {
 	e, _ := eventbus.NewEvent(eventbus.` + row + `, "agg", "id", nil)
 	_ = e
 }
@@ -170,7 +170,7 @@ func runCheck(t *testing.T, root2 string, overrides ...map[string]string) *check
 func TestAMatchingReceiverReportsNoViolation(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 
 	if c := runCheck(t, root2); len(c.violations) != 0 {
@@ -185,7 +185,7 @@ func TestAMatchingReceiverReportsNoViolation(t *testing.T) {
 // giải thích vì sao họ "không nghe order.placed".
 func TestCatchesADeclaredEventNobodyPublishes(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 
 	c := runCheck(t, root2)
@@ -221,21 +221,21 @@ func TestCatchesAPublishedEventNobodyListensTo(t *testing.T) {
 // event không bao giờ tới vẫn là mã người ta tin là đang chạy.
 func TestR3CannotBeSilencedByAnOverride(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 
 	c := runCheck(t, root2, map[string]string{"order.paid": "cố ý chưa phát"}, nil)
 
-	var coR3 bool
+	var hasR3 bool
 	for _, v := range c.violations {
 		if strings.HasPrefix(v, "R3") {
-			coR3 = true
+			hasR3 = true
 		}
 		if strings.HasPrefix(v, "R1") {
 			t.Errorf("khai lý do rồi thì R1 phải im: %s", v)
 		}
 	}
-	if !coR3 {
+	if !hasR3 {
 		t.Fatalf("R3 phải kêu dù đã khai lý do không phát: %v", c.violations)
 	}
 }
@@ -246,7 +246,7 @@ func TestR3CannotBeSilencedByAnOverride(t *testing.T) {
 func TestCatchesADeadExemptionRow(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 
 	c := runCheck(t, root2, map[string]string{"order.da_xoa": "lý do cũ"}, nil)
@@ -271,7 +271,7 @@ const (
 `
 	root2 := project(t, declared, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 
 	if c := runCheck(t, root2); len(c.violations) != 0 {
@@ -287,7 +287,7 @@ const (
 func TestAPublishingFileInTestsDoesNotCount(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat_test.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go":      listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go":      listeners("Listen", "TypeOrderPaid"),
 	})
 
 	c := runCheck(t, root2)
@@ -325,7 +325,7 @@ func TestTheRealProjectIsClean(t *testing.T) {
 func TestCatchesAReceiverMissingFromTheTestSet(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 	receiverSet(t, root2,
 		[]string{"a.NewMotHandler", "inv.NewReleaseHandler"},
@@ -349,7 +349,7 @@ func TestCatchesAReceiverMissingFromTheTestSet(t *testing.T) {
 func TestCatchesAReceiverOnlyInTheTestSet(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 	receiverSet(t, root2,
 		[]string{"a.NewMotHandler"},
@@ -368,7 +368,7 @@ func TestCatchesAReceiverOnlyInTheTestSet(t *testing.T) {
 func TestAnOverrideCanSilenceR4(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 	receiverSet(t, root2,
 		[]string{"a.NewMotHandler", "sc.NewSignalHandler", "x.NewKhacHandler"},
@@ -395,7 +395,7 @@ func TestAnOverrideCanSilenceR4(t *testing.T) {
 func TestCatchesARottenR4Override(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 
 	c := runWithR4Overrides(t, root2, map[string]string{
@@ -421,7 +421,7 @@ func TestCatchesARottenR4Override(t *testing.T) {
 func TestSubscribeOutsideAFunctionDoesNotCount(t *testing.T) {
 	root2 := project(t, oneDeclaredEvent, map[string]string{
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
-		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
+		"modules/b/nghe.go": listeners("Listen", "TypeOrderPaid"),
 	})
 
 	if c := runCheck(t, root2); len(c.violations) != 0 {

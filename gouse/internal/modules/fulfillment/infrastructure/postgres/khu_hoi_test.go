@@ -101,7 +101,7 @@ func TestTheCreatePathLosesNoField(t *testing.T) {
 		t.Fatalf("đọc lại: %v", err)
 	}
 
-	compare(t, original, rutRa(reread), emptyAtCreate)
+	compare(t, original, extract(reread), emptyAtCreate)
 }
 
 // TestTheUpdatePathLosesNoField canh câu UPDATE.
@@ -134,9 +134,9 @@ func TestTheUpdatePathLosesNoField(t *testing.T) {
 	}
 
 	// Update tăng version, nên so với 1 chứ không phải 0.
-	mong := fresh
-	mong.Version = 1
-	compare(t, mong, rutRa(reread), nil)
+	expect := fresh
+	expect.Version = 1
+	compare(t, expect, extract(reread), nil)
 }
 
 // fullParams dựng tham số với MỌI trường khác rỗng.
@@ -233,7 +233,7 @@ func fullParams(t *testing.T) domain.RestoreFOParams {
 // nó hỏng theo hướng AN TOÀN: quên một trường ở đây nghĩa là giá trị rút
 // ra bằng rỗng, trong khi bản gốc khác rỗng — nên bài test ĐỎ và chỉ đúng
 // tên trường, thay vì im lặng bỏ qua.
-func rutRa(f *domain.FulfillmentOrder) domain.RestoreFOParams {
+func extract(f *domain.FulfillmentOrder) domain.RestoreFOParams {
 	return domain.RestoreFOParams{
 		ID:                f.ID(),
 		AwaitingPayment:   f.AwaitingPayment(),

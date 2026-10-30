@@ -185,7 +185,7 @@ func TestGetBrandMalformedIDReturns400(t *testing.T) {
 	}
 }
 
-func TestGetCollectionDaRaMat(t *testing.T) {
+func TestGetAPublishedCollection(t *testing.T) {
 	f := newFixture(t)
 
 	rec := get(t, f.h, "/api/v1/collections/"+f.launchedID.String())

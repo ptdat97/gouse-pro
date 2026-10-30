@@ -142,7 +142,7 @@ func TestAMatchingRouteReportsNoViolation(t *testing.T) {
 // TUYẾN SỐNG NGOÀI HỢP ĐỒNG — lỗi công cụ này sinh ra để bắt.
 func TestCatchesARouteMissingFromTheSpec(t *testing.T) {
 	goSrc := oneRouteGo + `
-func Them(mux *http.ServeMux) {
+func Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/things/{id}/approve", nil)
 }
 `
@@ -191,9 +191,9 @@ func TestCatchesAnUnimplementedOperationNotDeclared(t *testing.T) {
 // người ta tắt hẳn phép kiểm.
 func TestAStringInADescriptionIsNotARoute(t *testing.T) {
 	goSrc := oneRouteGo + `
-const moTa = "Số sự kiện tối đa mỗi phút qua POST /api/v1/events. 0 = TẮT."
+const description = "Số sự kiện tối đa mỗi phút qua POST /api/v1/events. 0 = TẮT."
 
-func Dung() string { return moTa }
+func Use() string { return description }
 `
 	root2 := project(t, oneRouteOpenAPI,
 		map[string]string{"things.yaml": oneRoutePaths}, goSrc)
@@ -499,17 +499,17 @@ const oneLineEnum = `schemas:
 
 const sampleGo = `package domain
 
-type NhomMau string
+type ColorFamily string
 
 const (
-	MauTrang NhomMau = "WHITE"
-	MauXam   NhomMau = "GREY"
+	ColorWhite ColorFamily = "WHITE"
+	ColorGrey   ColorFamily = "GREY"
 )
 `
 
 // samplePairs là sổ ghép trỏ đúng vào cặp trên.
-func samplePairs(tapCon bool) []enumPair {
-	return []enumPair{{samplePath, "thing/domain", "NhomMau", tapCon, "nhóm màu"}}
+func samplePairs(subset bool) []enumPair {
+	return []enumPair{{samplePath, "thing/domain", "ColorFamily", subset, "nhóm màu"}}
 }
 
 // sampleProject dựng dự án giả có một enum trong đặc tả và một kiểu trong Go.
@@ -566,14 +566,14 @@ func TestCatchesASpecValueMissingFromGo(t *testing.T) {
 		"          - GREY\n          - MULTI", 1)
 	root2 := sampleProject(t, yaml, sampleGo)
 
-	for _, tapCon := range []bool{false, true} {
-		c := runEnum(t, root2, samplePairs(tapCon), nil, 0)
+	for _, subset := range []bool{false, true} {
+		c := runEnum(t, root2, samplePairs(subset), nil, 0)
 		if len(c.violations) != 1 {
 			t.Fatalf("tậpCon=%v: mong 1 vi phạm, nhận %d: %v",
-				tapCon, len(c.violations), c.violations)
+				subset, len(c.violations), c.violations)
 		}
 		if !strings.Contains(c.violations[0], "MULTI") {
-			t.Fatalf("tậpCon=%v: phải gọi tên MULTI: %v", tapCon, c.violations[0])
+			t.Fatalf("tậpCon=%v: phải gọi tên MULTI: %v", subset, c.violations[0])
 		}
 	}
 }
@@ -582,8 +582,8 @@ func TestCatchesASpecValueMissingFromGo(t *testing.T) {
 //
 // Client sinh kiểu từ đặc tả thu hẹp kiểu sai, rồi vỡ khi gặp response thật.
 func TestCatchesAGoValueMissingFromTheSpec(t *testing.T) {
-	goSrc := strings.Replace(sampleGo, `	MauXam   NhomMau = "GREY"`,
-		`	MauXam   NhomMau = "GREY"`+"\n"+`	MauBac   NhomMau = "SILVER"`, 1)
+	goSrc := strings.Replace(sampleGo, `	ColorGrey   ColorFamily = "GREY"`,
+		`	ColorGrey   ColorFamily = "GREY"`+"\n"+`	ColorSilver   ColorFamily = "SILVER"`, 1)
 	root2 := sampleProject(t, multiLineEnum, goSrc)
 
 	c := runEnum(t, root2, samplePairs(false), nil, 0)
@@ -608,9 +608,9 @@ func TestCatchesAGoValueMissingFromTheSpec(t *testing.T) {
 // `BLACK` — một cảnh báo giả, và cảnh báo giả làm người ta tắt phép kiểm.
 func TestValuesInCommentsAndStringsDoNotCount(t *testing.T) {
 	goSrc := sampleGo + `
-// MauDen NhomMau = "BLACK" — bỏ đi vì kho không còn phân loại theo đen.
+// ColorBlack ColorFamily = "BLACK" — bỏ đi vì kho không còn phân loại theo đen.
 
-const ThongBaoLoi = "nhóm màu hợp lệ: WHITE, GREY, BLACK"
+const ErrMessage = "nhóm màu hợp lệ: WHITE, GREY, BLACK"
 `
 	root2 := sampleProject(t, multiLineEnum, goSrc)
 
@@ -627,7 +627,7 @@ func TestCatchesALedgerEntryPointingAtADeadPath(t *testing.T) {
 	root2 := sampleProject(t, multiLineEnum, sampleGo)
 	deadPairs := []enumPair{{
 		"components/mau.yaml#/schemas/ColorInfo/properties/color_family",
-		"thing/domain", "NhomMau", false, "nhóm màu",
+		"thing/domain", "ColorFamily", false, "nhóm màu",
 	}}
 
 	// Enum thật lúc này KHÔNG được gác, nên chốt để 1 để đo đúng một thứ.
@@ -678,13 +678,13 @@ func TestTheUngatedEnumRatchetOnlyGoesDown(t *testing.T) {
 
 // Đổi tên kiểu Go mà quên sửa sổ: công cụ phải KÊU, không được im.
 func TestCatchesARenamedGoType(t *testing.T) {
-	root2 := sampleProject(t, multiLineEnum, strings.ReplaceAll(sampleGo, "NhomMau", "HoMau"))
+	root2 := sampleProject(t, multiLineEnum, strings.ReplaceAll(sampleGo, "ColorFamily", "ColourFamily"))
 
 	c := runEnum(t, root2, samplePairs(false), nil, 0)
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.violations[0], "NhomMau") {
+	if !strings.Contains(c.violations[0], "ColorFamily") {
 		t.Fatalf("phải gọi tên kiểu không tìm thấy: %v", c.violations[0])
 	}
 }

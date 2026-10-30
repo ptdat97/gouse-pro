@@ -31,11 +31,11 @@ func TestLedgerKeysAreWellFormed(t *testing.T) {
 		"intentionallyConstant": intentionallyConstant,
 		"knownEmpty":            knownEmpty,
 	} {
-		for k, ly := range so {
+		for k, reason := range so {
 			if !reLedgerKey.MatchString(k) {
 				t.Errorf("`%s` có khóa %q không đúng dạng `bảng.cột`", colName, k)
 			}
-			if strings.TrimSpace(ly) == "" {
+			if strings.TrimSpace(reason) == "" {
 				t.Errorf("`%s[%q]` không có lý do — một dòng miễn trừ không "+
 					"lý do là một dòng không ai rà soát được", colName, k)
 			}

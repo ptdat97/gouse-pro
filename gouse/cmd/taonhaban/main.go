@@ -168,10 +168,10 @@ func newCipher() (*privacy.Cipher, error) {
 
 func buildSeller(ctx context.Context, sel *seller.Module) string {
 	// Đã có thì dùng lại — công cụ này chạy lại nhiều lần.
-	if cu, err := sel.Service().GetSellerBySlug(ctx, sellerSlug); err == nil {
+	if existing, err := sel.Service().GetSellerBySlug(ctx, sellerSlug); err == nil {
 		fmt.Println("nhà bán đã có, dùng lại")
-		activate(ctx, sel, cu.ID().String())
-		return cu.ID().String()
+		activate(ctx, sel, existing.ID().String())
+		return existing.ID().String()
 	}
 
 	v, err := sel.ApplyAsSeller(ctx, seller.ApplicationRequest{
@@ -294,11 +294,11 @@ func buildProduct(
 
 	svc := prod.Service()
 
-	if cu, err := svc.GetProductBySlug(ctx, slug); err == nil {
-		if skus := cu.SKUs(); len(skus) > 0 {
+	if existing, err := svc.GetProductBySlug(ctx, slug); err == nil {
+		if skus := existing.SKUs(); len(skus) > 0 {
 			// Đảm bảo ĐÃ DUYỆT, không chỉ đã tồn tại: lần chạy trước có
 			// thể dừng giữa chừng và để lại sản phẩm ở trạng thái nháp.
-			approve(ctx, svc, cu.ID())
+			approve(ctx, svc, existing.ID())
 			fmt.Println("sản phẩm đã có, dùng lại")
 			return skus[0].ID().String()
 		}

@@ -27,11 +27,11 @@ import (
 // hàng, và số tiền đó là căn cứ hoàn tiền khi khách trả MỘT món. Chia sai
 // nghĩa là hoàn sai.
 func TestAllocateKeepsTheRatioOnLargeAmounts(t *testing.T) {
-	ca := []struct {
+	cases := []struct {
 		ten    string
 		amount int64
 		ratios []int64
-		mong   []int64
+		expect []int64
 	}{
 		{
 			"số nhỏ — vốn đã đúng",
@@ -51,7 +51,7 @@ func TestAllocateKeepsTheRatioOnLargeAmounts(t *testing.T) {
 		},
 	}
 
-	for _, c := range ca {
+	for _, c := range cases {
 		t.Run(c.ten, func(t *testing.T) {
 			m, err := money.New(c.amount, "VND")
 			if err != nil {
@@ -61,21 +61,21 @@ func TestAllocateKeepsTheRatioOnLargeAmounts(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Allocate: %v", err)
 			}
-			if len(parts) != len(c.mong) {
-				t.Fatalf("có %d phần, cần %d", len(parts), len(c.mong))
+			if len(parts) != len(c.expect) {
+				t.Fatalf("có %d phần, cần %d", len(parts), len(c.expect))
 			}
 
-			var tong int64
+			var total int64
 			for i, p := range parts {
-				tong += p.Amount()
-				if p.Amount() != c.mong[i] {
+				total += p.Amount()
+				if p.Amount() != c.expect[i] {
 					t.Errorf("phần %d = %d, cần %d — tỷ lệ SAI dù tổng có "+
-						"thể vẫn khớp", i, p.Amount(), c.mong[i])
+						"thể vẫn khớp", i, p.Amount(), c.expect[i])
 				}
 			}
 			// Tổng vẫn phải khớp — nhưng đó là điều kiện CẦN, không đủ.
-			if tong != c.amount {
-				t.Errorf("tổng = %d, cần %d", tong, c.amount)
+			if total != c.amount {
+				t.Errorf("tổng = %d, cần %d", total, c.amount)
 			}
 		})
 	}

@@ -55,7 +55,7 @@ type Repository interface {
 	// cùng một câu truy vấn phải trả lời được cho bất kỳ ngưỡng nào, nếu
 	// không thì đổi SLA sẽ phải sửa cả câu lệnh.
 	CountForPerformance(
-		ctx context.Context, sellerID ids.ID, tu, den time.Time, sla time.Duration,
+		ctx context.Context, sellerID ids.ID, from, to time.Time, sla time.Duration,
 	) (PerformanceStats, error)
 
 	// ListByOrder trả mọi đơn thực hiện của một đơn hàng.

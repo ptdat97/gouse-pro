@@ -567,7 +567,7 @@ func defaultCountry(code string) string {
 func (s *FulfillmentStore) CountForPerformance(
 	ctx context.Context, sellerID ids.ID, from, until time.Time, sla time.Duration,
 ) (domain.PerformanceStats, error) {
-	var ra domain.PerformanceStats
+	var result domain.PerformanceStats
 
 	err := s.pool.QueryRow(ctx, `
 		SELECT
@@ -581,10 +581,10 @@ func (s *FulfillmentStore) CountForPerformance(
 		   AND created_at >= $2
 		   AND created_at < $3`,
 		sellerID.String(), from, until, sla.String()).
-		Scan(&ra.TotalOrders, &ra.CancelledOrders, &ra.DeliveredOrders, &ra.OnTimeOrders)
+		Scan(&result.TotalOrders, &result.CancelledOrders, &result.DeliveredOrders, &result.OnTimeOrders)
 	if err != nil {
 		return domain.PerformanceStats{}, fmt.Errorf(
 			"fulfillment: đếm hiệu suất nhà bán: %w", err)
 	}
-	return ra, nil
+	return result, nil
 }

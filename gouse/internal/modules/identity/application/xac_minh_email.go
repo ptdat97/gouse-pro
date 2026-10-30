@@ -97,7 +97,7 @@ func (s *Service) VerifyEmail(
 	}
 
 	now := s.clock.Now()
-	if err := t.Dung(u.Email(), now); err != nil {
+	if err := t.Use(u.Email(), now); err != nil {
 		return nil, err
 	}
 	if err := s.emailTok.MarkUsed(ctx, t); err != nil {

@@ -328,9 +328,9 @@ func (s *Service) ComputeMetrics(ctx context.Context, in ComputeInput) error {
 // này KHÔNG tự ghi tín hiệu — nó không biết supply-chain tồn tại; tầng
 // composition nối hai đầu lại.
 func (s *Service) RollUpViews(
-	ctx context.Context, tu, to time.Time,
+	ctx context.Context, from, to time.Time,
 ) (map[string]int, error) {
-	return s.events.RollUpViewsByProduct(ctx, domain.TimeRange{From: tu, To: to})
+	return s.events.RollUpViewsByProduct(ctx, domain.TimeRange{From: from, To: to})
 }
 
 func (s *Service) GetMetric(

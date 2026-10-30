@@ -260,7 +260,7 @@ func (c *checker) rowsInNode(n ast.Node) []string {
 		if id, ok := sel.X.(*ast.Ident); !ok || id.Name != "eventbus" {
 			return true
 		}
-		if v, co := c.declaredEvents[sel.Sel.Name]; co {
+		if v, found := c.declaredEvents[sel.Sel.Name]; found {
 			collected = append(collected, v)
 		}
 		return true
@@ -298,7 +298,7 @@ func (c *checker) compare() {
 
 		// R1 — khai mà không ai phát.
 		if len(publish) == 0 {
-			if reason, co := c.noPublisher[ev]; co {
+			if reason, found := c.noPublisher[ev]; found {
 				_ = reason
 			} else {
 				c.violations = append(c.violations, fmt.Sprintf(
@@ -311,7 +311,7 @@ func (c *checker) compare() {
 
 		// R2 — khai mà không ai nghe.
 		if len(listen) == 0 {
-			if _, co := c.noListener[ev]; !co {
+			if _, found := c.noListener[ev]; !found {
 				c.violations = append(c.violations, fmt.Sprintf(
 					"R2 %q không bên nhận nào nghe. Phát một sự thật mà không "+
 						"ai hành động là tốn một hàng outbox mỗi lần. Khai lý "+

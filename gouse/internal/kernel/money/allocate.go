@@ -73,8 +73,8 @@ func (m Money) Allocate(ratios []int64) ([]Money, error) {
 		//
 		// `bits.Mul64` cho tích 128 bit, `bits.Div64` chia nó về 64 bit.
 		// Thương chắc chắn vừa vì `r <= totalRatio`, nên `share <= amount`.
-		hi, lo := bits.Mul64(uint64(amount), uint64(r))
-		share := int64(div128(hi, lo, uint64(totalRatio)))
+		hi, low := bits.Mul64(uint64(amount), uint64(r))
+		share := int64(div128(hi, low, uint64(totalRatio)))
 		results[i] = Money{amount: share, currency: m.currency}
 		allocated += share
 	}
@@ -188,12 +188,12 @@ func (m Money) ExtractRate(rate types.BasisPoints, mode Rounding) Money {
 		amount = -amount
 	}
 
-	hi, lo := bits.Mul64(uint64(amount), uint64(rate.Value()))
-	result := int64(div128(hi, lo, denominator))
+	hi, low := bits.Mul64(uint64(amount), uint64(rate.Value()))
+	result := int64(div128(hi, low, denominator))
 
 	if mode == RoundHalfUp {
 		// Phần dư: tich − result×denominator, so với nửa mẫu số.
-		remainder := int64(lo - uint64(result)*denominator)
+		remainder := int64(low - uint64(result)*denominator)
 		if remainder*2 >= int64(denominator) {
 			result++
 		}
@@ -210,13 +210,13 @@ func (m Money) ExtractRate(rate types.BasisPoints, mode Rounding) Money {
 // `bits.Div64` PANIC khi thương không vừa 64 bit. Ở đây điều đó không xảy
 // ra vì `r <= totalRatio` nên thương `<= amount`, nhưng kiểm vẫn rẻ hơn
 // một lần panic trên đường tính tiền.
-func div128(hi, lo, y uint64) uint64 {
+func div128(hi, low, y uint64) uint64 {
 	if y == 0 || hi >= y {
 		// Không thể tới đây với dữ liệu hợp lệ. Trả 0 thay vì panic: một
 		// phần bằng 0 làm phần dư gánh lại và tổng vẫn đúng, còn panic
 		// thì giết cả request.
 		return 0
 	}
-	q, _ := bits.Div64(hi, lo, y)
+	q, _ := bits.Div64(hi, low, y)
 	return q
 }

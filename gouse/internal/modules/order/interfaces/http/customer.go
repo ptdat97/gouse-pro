@@ -449,8 +449,8 @@ func decodeCursor(v string) (*domain.Cursor, error) {
 	if err != nil {
 		return nil, badCursor
 	}
-	before, after, co := strings.Cut(string(rawCursor), "|")
-	if !co {
+	before, after, found := strings.Cut(string(rawCursor), "|")
+	if !found {
 		return nil, badCursor
 	}
 	micro, err := strconv.ParseInt(before, 10, 64)

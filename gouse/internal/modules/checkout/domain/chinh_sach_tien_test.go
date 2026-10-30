@@ -59,7 +59,7 @@ func TestFreeShippingAtTheThreshold(t *testing.T) {
 	for _, tt := range []struct {
 		ten        string
 		goodsTotal int64
-		mongPhi    int64
+		expectFee  int64
 	}{
 		{"dưới ngưỡng một đồng", 498_999, 30_000},
 		{"ĐÚNG ngưỡng", 499_000, 0},
@@ -72,8 +72,8 @@ func TestFreeShippingAtTheThreshold(t *testing.T) {
 			); err != nil {
 				t.Fatalf("ApplyFeesAndTax: %v", err)
 			}
-			if got := c.ShippingFee().Amount(); got != tt.mongPhi {
-				t.Errorf("phí ship = %d, mong %d", got, tt.mongPhi)
+			if got := c.ShippingFee().Amount(); got != tt.expectFee {
+				t.Errorf("phí ship = %d, mong %d", got, tt.expectFee)
 			}
 		})
 	}
@@ -132,14 +132,14 @@ func TestTaxAppliesToGoodsAfterDiscount(t *testing.T) {
 func TestRecomputesInsteadOfAccumulating(t *testing.T) {
 	c := checkoutWithGoods(t, 100_000)
 	cs := policy(800, 10_000_000)
-	phi := money.MustNew(30_000, money.VND)
+	feeAmount := money.MustNew(30_000, money.VND)
 
-	if err := c.ApplyFeesAndTax(phi, cs, testNow); err != nil {
+	if err := c.ApplyFeesAndTax(feeAmount, cs, testNow); err != nil {
 		t.Fatalf("lần 1: %v", err)
 	}
 	firstTax, firstFee := c.TaxAmount().Amount(), c.ShippingFee().Amount()
 
-	if err := c.ApplyFeesAndTax(phi, cs, testNow); err != nil {
+	if err := c.ApplyFeesAndTax(feeAmount, cs, testNow); err != nil {
 		t.Fatalf("lần 2: %v", err)
 	}
 	if c.TaxAmount().Amount() != firstTax || c.ShippingFee().Amount() != firstFee {

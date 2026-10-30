@@ -1003,22 +1003,22 @@ func (s *Service) GetPriceRanges(
 	}
 
 	for productID, skus := range skusByProduct {
-		var reHon *domain.Offer
+		var cheaper *domain.Offer
 		for _, sku := range skus {
 			box, ok := boxes[sku]
 			if !ok || box.Winner == nil {
 				continue
 			}
-			if reHon == nil || box.Winner.Price().LessThan(reHon.Price()) {
-				reHon = box.Winner
+			if cheaper == nil || box.Winner.Price().LessThan(cheaper.Price()) {
+				cheaper = box.Winner
 			}
 		}
-		if reHon == nil {
+		if cheaper == nil {
 			continue
 		}
-		pr := PriceRange{From: reHon.Price()}
-		if reHon.HasDiscount() {
-			pr.CompareAt = reHon.CompareAt()
+		pr := PriceRange{From: cheaper.Price()}
+		if cheaper.HasDiscount() {
+			pr.CompareAt = cheaper.CompareAt()
 		}
 		out[productID] = pr
 	}

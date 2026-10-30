@@ -145,7 +145,7 @@ func (h *AdminHandler) adjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ra, err := h.svc.Count(r.Context(), application.CountInput{
+	result, err := h.svc.Count(r.Context(), application.CountInput{
 		ItemID:      item.ID(),
 		Available:   availableQty,
 		Damaged:     damagedQty,
@@ -159,8 +159,8 @@ func (h *AdminHandler) adjust(w http.ResponseWriter, r *http.Request) {
 
 	h.ok(w, r, adminAdjustResponse{
 		SKUID:  skuID.String(),
-		Before: toQuantitiesJSON(ra.Before),
-		After:  toQuantitiesJSON(ra.After),
+		Before: toQuantitiesJSON(result.Before),
+		After:  toQuantitiesJSON(result.After),
 	})
 }
 

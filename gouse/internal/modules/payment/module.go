@@ -148,9 +148,9 @@ func (m *Module) RecordOrderRevenueInEventTx(
 // Phí khách trả cho việc giao hàng trước nay KHÔNG nằm ở đâu trong sổ cái
 // — xem domain.NewShippingRevenueEntry.
 func (m *Module) RecordShippingFeeInEventTx(
-	ctx context.Context, orderID string, phi int64, unit string,
+	ctx context.Context, orderID string, feeAmount int64, unit string,
 ) error {
-	if phi <= 0 {
+	if feeAmount <= 0 {
 		// Miễn phí vận chuyển (PH-40) là chuyện bình thường: không có
 		// khoản nào để ghi.
 		return nil
@@ -159,7 +159,7 @@ func (m *Module) RecordShippingFeeInEventTx(
 	if err != nil {
 		return ErrInvalidID
 	}
-	fee, err := money.New(phi, money.Currency(unit))
+	fee, err := money.New(feeAmount, money.Currency(unit))
 	if err != nil {
 		return err
 	}
@@ -224,13 +224,13 @@ func (m *Module) RecordDiscountInEventTx(
 // một kiện hàng chỉ phát sinh nghĩa vụ một lần, dù event tiến độ được
 // phát lại bao nhiêu lần.
 func (m *Module) RecordShippingCostInEventTx(
-	ctx context.Context, fulfillmentID string, chiPhi int64, unit string,
+	ctx context.Context, fulfillmentID string, cost int64, unit string,
 ) error {
 	id, err := ids.Parse(fulfillmentID, ids.PrefixFulfillmentOrder)
 	if err != nil {
 		return ErrInvalidID
 	}
-	amount, err := money.New(chiPhi, money.Currency(unit))
+	amount, err := money.New(cost, money.Currency(unit))
 	if err != nil {
 		return err
 	}
@@ -243,7 +243,7 @@ func (m *Module) RecordShippingCostInEventTx(
 	_, err = m.svc.RecordShippingCostWith(ctx, paymentpg.LedgerForTx(tx),
 		application.RecordShippingCostInput{
 			FulfillmentID:  id,
-			ChiPhi:         amount,
+			Expense:        amount,
 			IdempotencyKey: "chi-phi-ship:" + id.String(),
 		})
 	if errors.Is(err, domain.ErrDuplicateEntry) {

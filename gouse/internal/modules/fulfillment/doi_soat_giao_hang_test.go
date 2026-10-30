@@ -181,7 +181,7 @@ func (h *harness) handOver(t *testing.T, sellerID, foID string) {
 	ctx := context.Background()
 	for _, step := range []struct {
 		ten string
-		lam func() error
+		act func() error
 	}{
 		{"xác nhận", func() error { return h.ful.ConfirmFulfillment(ctx, sellerID, foID) }},
 		{"đóng gói", func() error { return h.ful.MarkPacked(ctx, sellerID, foID) }},
@@ -192,7 +192,7 @@ func (h *harness) handOver(t *testing.T, sellerID, foID string) {
 			})
 		}},
 	} {
-		if err := step.lam(); err != nil {
+		if err := step.act(); err != nil {
 			t.Fatalf("%s: %v", step.ten, err)
 		}
 	}

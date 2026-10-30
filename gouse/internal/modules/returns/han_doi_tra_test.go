@@ -61,11 +61,11 @@ func TestCannotReturnAfterWindowCloses(t *testing.T) {
 // lệ vì thiếu dữ liệu lịch sử là từ chối quyền của khách do lỗi hệ thống.
 func TestMissingDataDoesNotBlock(t *testing.T) {
 	now := time.Date(2026, 9, 11, 10, 0, 0, 0, time.UTC)
-	rat := now.Add(-365 * 24 * time.Hour)
+	farOut := now.Add(-365 * 24 * time.Hour)
 
 	// Không có cổng hạn.
 	svc := application.NewService(application.Deps{Clock: clock{t: now}})
-	if svc.ReturnWindowClosed(application.Order{Delivered: true, DeliveredAt: rat}, now) {
+	if svc.ReturnWindowClosed(application.Order{Delivered: true, DeliveredAt: farOut}, now) {
 		t.Error("chưa nối cấu hình hạn mà đã chặn")
 	}
 

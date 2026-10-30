@@ -39,14 +39,14 @@ func (m *Module) EstimateShipping(
 	}
 
 	out := &ShippingEstimateView{
-		Total:     res.Tong.Amount(),
-		Currency:  string(res.Tong.Currency()),
+		Total:     res.Total.Amount(),
+		Currency:  string(res.Total.Currency()),
 		PerSource: make([]SourceFeeView, 0, len(res.PerSource)),
 	}
 	for _, p := range res.PerSource {
 		out.PerSource = append(out.PerSource, SourceFeeView{
 			SellerID:      p.SellerID,
-			Amount:        p.Phi.Amount(),
+			Amount:        p.Fee.Amount(),
 			EstimatedDays: p.EstimatedDays,
 		})
 	}

@@ -70,10 +70,10 @@ func TestValidateSellerPriceAgainstFrame(t *testing.T) {
 	c := newConstraint(t, 100000, 500000)
 
 	cases := []struct {
-		ten      string
-		price    int64
-		mongOK   bool
-		mongCode domain.ViolationCode
+		ten        string
+		price      int64
+		expectOK   bool
+		expectCode domain.ViolationCode
 	}{
 		{"đúng khung", 300000, true, domain.ViolationNone},
 		{"đúng bằng min", 100000, true, domain.ViolationNone},
@@ -87,11 +87,11 @@ func TestValidateSellerPriceAgainstFrame(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.ten, func(t *testing.T) {
 			got := c.Check(vnd(tc.price))
-			if got.Allowed != tc.mongOK {
-				t.Errorf("Allowed = %v, mong %v (%s)", got.Allowed, tc.mongOK, got.Message)
+			if got.Allowed != tc.expectOK {
+				t.Errorf("Allowed = %v, mong %v (%s)", got.Allowed, tc.expectOK, got.Message)
 			}
-			if got.Code != tc.mongCode {
-				t.Errorf("Code = %q, mong %q", got.Code, tc.mongCode)
+			if got.Code != tc.expectCode {
+				t.Errorf("Code = %q, mong %q", got.Code, tc.expectCode)
 			}
 			// Kết quả phải kèm khung giá để giao diện hiển thị "giá phải từ X đến Y".
 			if got.Min.IsZero() || got.Max.IsZero() {
@@ -119,19 +119,19 @@ func TestValidatePriceWithDifferentCurrency(t *testing.T) {
 
 // Chỉ có một phía giới hạn thì phía kia không chặn.
 func TestOneSidedPriceFrame(t *testing.T) {
-	chiMin := newConstraint(t, 100000, 0)
-	if got := chiMin.Check(vnd(99999999)); !got.Allowed {
+	spendMin := newConstraint(t, 100000, 0)
+	if got := spendMin.Check(vnd(99999999)); !got.Allowed {
 		t.Errorf("chỉ có min: giá cao bị chặn (%s)", got.Message)
 	}
-	if got := chiMin.Check(vnd(50000)); got.Allowed {
+	if got := spendMin.Check(vnd(50000)); got.Allowed {
 		t.Error("chỉ có min: giá thấp phải bị chặn")
 	}
 
-	chiMax := newConstraint(t, 0, 500000)
-	if got := chiMax.Check(vnd(1)); !got.Allowed {
+	spendMax := newConstraint(t, 0, 500000)
+	if got := spendMax.Check(vnd(1)); !got.Allowed {
 		t.Errorf("chỉ có max: giá thấp bị chặn (%s)", got.Message)
 	}
-	if got := chiMax.Check(vnd(600000)); got.Allowed {
+	if got := spendMax.Check(vnd(600000)); got.Allowed {
 		t.Error("chỉ có max: giá cao phải bị chặn")
 	}
 }

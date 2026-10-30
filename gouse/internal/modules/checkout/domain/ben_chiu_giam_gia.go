@@ -63,12 +63,12 @@ type DiscountCostAllocation struct {
 // tiền giảm là một khoản KHÔNG AI CHỊU, và nó phải bị chặn tại chỗ chứ
 // không đi tiếp vào sổ cái.
 func TotalAllocated(ds []DiscountCostAllocation, unit money.Currency) (money.Money, error) {
-	tong := money.Zero(unit)
+	total := money.Zero(unit)
 	for _, d := range ds {
 		var err error
-		if tong, err = tong.Add(d.Amount); err != nil {
+		if total, err = total.Add(d.Amount); err != nil {
 			return money.Money{}, err
 		}
 	}
-	return tong, nil
+	return total, nil
 }
