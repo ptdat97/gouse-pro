@@ -282,6 +282,26 @@ Ba định danh này cho phép trả lời: *"khách khiếu nại bị trừ ti
 
 Xem [../05-data/audit.md](../05-data/audit.md) mục 9.
 
+### Ai điền hai trường truy vết, và vì sao `causation_id` ĐƯỢC PHÉP rỗng
+
+Không bên phát nào tự điền. Bắt từng chỗ phát nhớ gọi `WithTrace` là cách
+chắc chắn để có một nửa số event thiếu nó — và trước 20/08 thì đúng như vậy.
+Cả hai trường được `PublishTx` lấy từ **ngữ cảnh**, và `dispatcher` đặt
+chúng vào ngữ cảnh của handler trước khi gọi:
+
+```text
+correlation_id  kế thừa từ event đang xử lý; rỗng thì rơi về request_id
+causation_id    = ID của event đang xử lý; KHÔNG có bước rơi về
+```
+
+Khác biệt ở bước rơi về là CỐ Ý. Event phát ngoài mọi handler là **gốc cây**,
+và rỗng là câu trả lời đúng cho *"cha của nó là event nào"*. Điền
+`request_id` vào đó là trỏ sang một thứ không phải event — khi ấy cây vừa
+dựng được vừa sai, và sai theo cách không ai phát hiện khi đọc.
+
+Trước 30/10/2026 cột `causation_id` rỗng trên 16.061 hàng: cột có, trường
+Go có, câu INSERT ghi nó, chỉ thiếu bên gọi. Xem P3-93.
+
 ---
 
 ## 6. Phân biệt Observability và Analytics

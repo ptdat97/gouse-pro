@@ -81,9 +81,33 @@ var intentionallyConstant = map[string]string{
 // Lý do phải nói HỆ QUẢ, không nói hiện trạng: "rỗng" là điều phép đo đã
 // biết; điều cần người viết là *cái gì không làm được vì nó rỗng*.
 var knownEmpty = map[string]string{
-	"event_outbox.causation_id": "KHÔNG producer nào gọi `Event.WithTrace`, " +
-		"nên chuỗi event gom được theo correlation_id mà không xếp được " +
-		"thành CÂY: không trả lời được 'event nào sinh ra event này'",
+	// -------------------- ĐÃ SỬA MÃ, CHỜ DỮ LIỆU ĐUỔI KỊP (30/10/2026)
+	//
+	// Hai dòng dưới KHÁC phần còn lại của sổ: bên gọi đã có rồi. Chúng ở
+	// đây vì công cụ này đo DỮ LIỆU, và dữ liệu đã ghi không đổi khi mã
+	// đổi — 16.061 hàng outbox cũ vẫn rỗng causation, 153 hàng chỉ số cũ
+	// vẫn mang DAY.
+	//
+	// KHÔNG xóa ngay: xóa bây giờ làm `make deadcol` đỏ với lý do SAI
+	// ("phải QUYẾT" — đã quyết rồi). Cứ để, và khi tiến trình chạy bản
+	// mới ghi được giá trị thứ hai, chính công cụ này sẽ đòi xóa chúng
+	// bằng lớp vi phạm thứ hai: "SỔ còn dòng ... mà cột ấy NAY ĐÃ CÓ
+	// nhiều giá trị — xóa đi".
+	//
+	// Nói cách khác: dòng sổ ở đây là một PHIẾU CHỜ XÁC NHẬN, và hàng rào
+	// tự đòi lại phiếu. Không cần ai nhớ.
+	"event_outbox.causation_id": "dữ liệu CŨ không xếp được thành CÂY: " +
+		"không trả lời được 'event nào sinh ra event này' cho mọi event " +
+		"ghi trước 30/10/2026. `dispatcher` nay truyền event cha xuống " +
+		"ngữ cảnh handler — xem `withCausation`",
+
+	"metric_snapshot.granularity": "dữ liệu CŨ chỉ có DAY: không xem lại " +
+		"được đột biến TRONG NGÀY của giai đoạn trước 30/10/2026, và báo " +
+		"cáo tháng của giai đoạn ấy phải cộng 30 bản ghi ngày lúc đọc. " +
+		"`cmd/worker` nay có bên gọi cho HOUR và MONTH — xem " +
+		"`metricWindows` và `monthWindows`",
+
+	// ----------------------------------------------------------------
 
 	"event_log.ip_hash": "không chặn được lạm dụng theo IP, và không điều " +
 		"tra được một chuỗi hành vi đáng ngờ đến từ đâu",
@@ -101,12 +125,6 @@ var knownEmpty = map[string]string{
 
 	"metric_snapshot.dimension":       "chỉ số chỉ có bản TỔNG, không tách được theo chiều",
 	"metric_snapshot.dimension_value": "cùng cột trên",
-	"metric_snapshot.granularity": "chỉ `cmd/worker` ghi chỉ số, và nó ghim " +
-		"`GranularityDay`. HOUR và MONTH khai trong enum, có `Truncate`/" +
-		"`Next`, có trong CHECK của migration 000019 — không job nào ghi: " +
-		"không xem được đột biến TRONG NGÀY, và báo cáo tháng phải cộng " +
-		"30 bản ghi ngày lúc đọc",
-
 	// ---------------------------- chuỗi quy công creator (Phase 2)
 	//
 	// P3-81/84 nối được chuỗi tới `order_line`, nhưng dữ liệu phát triển

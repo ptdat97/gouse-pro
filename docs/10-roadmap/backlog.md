@@ -8340,6 +8340,110 @@ rỗng, nên nó cần một câu khẳng định đứng đúng ở chỗ ấy.
 
 ---
 
+### P3-93 — ĐÃ LÀM 30/10/2026 — ca 15 và 16 của mục 8: hai bên gọi còn thiếu
+
+P3-92 TÌM RA hai ca; mục này SỬA chúng. Cả hai cùng một hình dạng — đường đi
+có đủ mọi mảnh **trừ bên gọi** — nên cả hai đều không làm gì đỏ.
+
+**Ca 15 — `causation_id` rỗng trên 16.061 hàng.**
+
+Cơ chế đã có sẵn và đúng; thiếu đúng một chỗ nối. `correlation_id` được điền
+tự động vì `PublishTx` lấy nó từ ngữ cảnh, và `dispatcher` đặt nó vào ngữ
+cảnh của handler trước khi gọi. `causation_id` có cùng cột, cùng câu INSERT,
+cùng trường Go — nhưng không ai đặt nó vào ngữ cảnh, và `Event.WithTrace`
+chỉ được gọi trong test.
+
+Sửa bằng cách soi gương cơ chế đang chạy:
+
+```go
+hctx := withCausation(
+    withCorrelation(withTx(ctx, sp), e.CorrelationID), e.ID.String())
+```
+
+**Hai trường, hai việc KHÁC nhau** — và đây là lý do không thể dùng một
+trường cho cả hai:
+
+```text
+correlation_id  GOM     — mọi event của một chuỗi nghiệp vụ mang CÙNG giá trị
+causation_id    XẾP     — mỗi event trỏ về event CHA, nên dựng được CÂY
+```
+
+**KHÔNG có bước dự phòng thứ hai, cố ý.** `correlation_id` rơi về
+`RequestIDFromContext` khi ngữ cảnh rỗng; `causation_id` thì không. Event
+phát ngoài mọi handler là GỐC cây, và rỗng là câu trả lời đúng cho "cha của
+nó là event nào". Điền mã request vào đó là trỏ sang một thứ KHÔNG PHẢI
+event, và khi ấy cây vừa dựng được vừa sai.
+
+Phép phá xác nhận đúng chỗ này: thêm bước rơi về `RequestIDFromContext` làm
+bài test đỏ với `causation_id = "req_01J9X…", cần RỖNG`.
+
+**Ca 16 — `granularity` chỉ có `DAY` trên 153 hàng.**
+
+`ComputeMetrics` hoàn toàn không phụ thuộc mức: nó cắt tròn bằng `Truncate`,
+dựng khoảng bằng `Next`, rồi upsert. CHECK của migration 000019 cho phép cả
+ba mức. Thiếu đúng bên gọi: `cmd/worker` ghim `GranularityDay`.
+
+Nay có hai job, và nhịp của chúng khác nhau vì CHI PHÍ khác nhau:
+
+```text
+giờ + ngày   5 phút   4 khoảng/lượt, mỗi khoảng quét <= 1 ngày event
+tháng        1 giờ    2 khoảng/lượt, mỗi khoảng quét <= 31 ngày event
+```
+
+Gộp tháng vào nhịp 5 phút nghĩa là mỗi giờ quét 12 lần qua cả tháng để thấy
+một con số nhúc nhích vài nghìn đồng.
+
+**Cái bẫy lùi tháng, và nó im lặng hoàn toàn.** Cách viết hiển nhiên nhất là
+`now.AddDate(0, -1, 0)`. Vào ngày 31/3 nó cho ra **3/3** — Go chuẩn hóa
+"31/2" thành ngày đó — và cắt tròn lại về **1/3**, tức ĐÚNG tháng đang mở.
+Hệ quả: tháng 2 không được tính lại trong ba ngày cuối tháng 3, job vẫn
+xanh, và không có lỗi nào để lần ra. Phải cắt tròn TRƯỚC rồi mới lùi.
+
+Phép phá cho đúng con số ấy: `tháng trước = 2026-03-01, cần 2026-02-01`.
+
+**Hàng rào là một phép ĐỐI CHIẾU hai danh sách, không phải một bài test giá
+trị.** `TestEveryGranularityInTheSchemaHasAJobWritingIt` đọc danh sách mức mà
+DATABASE cho phép — từ CHECK trong migration, nguồn sự thật — rồi đòi mỗi
+mức phải có một job truyền nó vào. Thêm một mức mà quên bên gọi sẽ đỏ.
+
+Một danh sách viết tay cạnh bài test sẽ thiếu đúng giá trị vừa được thêm, và
+khi đó bài test xanh trong khi hàng rào đã thủng. Vì vậy `monthWindows` mang
+theo cả `granularity` dù chỉ có một giá trị: để bài test đọc được job truyền
+gì thay vì phải đoán.
+
+### Đổi MÃ không đổi DỮ LIỆU — dòng sổ `deadcol` là PHIẾU CHỜ XÁC NHẬN
+
+Sửa xong hai ca, phản xạ đầu tiên là xóa hai dòng khỏi `knownEmpty`. Làm vậy
+thì `make deadcol` ĐỎ, với lý do SAI: *"phải QUYẾT"* — đã quyết rồi.
+
+Vì `deadcol` đo **dữ liệu**, và dữ liệu đã ghi không đổi khi mã đổi. 16.061
+hàng outbox cũ vẫn rỗng causation; 153 hàng chỉ số cũ vẫn mang `DAY`. Giá
+trị thứ hai chỉ xuất hiện khi tiến trình chạy bản mới ghi hàng mới.
+
+Nên hai dòng ấy **ở lại**, với lý do viết lại thành "dữ liệu CŨ không …,
+bên gọi nay có — xem `withCausation` / `metricWindows`". Và khi dữ liệu đuổi
+kịp, chính công cụ này sẽ đòi xóa chúng bằng lớp vi phạm thứ hai:
+
+```text
+SỔ `knownEmpty` còn dòng cho metric_snapshot.granularity
+mà cột ấy NAY ĐÃ CÓ nhiều giá trị — xóa đi
+```
+
+Nói cách khác: dòng sổ là một phiếu chờ xác nhận, và hàng rào tự đòi lại
+phiếu. Không cần ai nhớ.
+
+Đây là hình dạng chung của MỌI công cụ đo dữ liệu, không riêng `deadcol`:
+giữa lúc sửa mã và lúc phép đo đồng ý có một khoảng trễ, và khoảng ấy phải
+được ghi ở đâu đó — nếu không, người tiếp theo sẽ đọc phép đo đỏ như một
+hồi quy.
+
+**Kiểm chứng:** `make check` xanh · `go test -count=1 ./...` exit 0 trên 68
+gói, 1 SKIP có từ trước · `make deadcol` exit 0 (59 cột một-giá-trị, 30 + 29
+đã khai) · ba bài mới trong `cmd/worker`, ba bài trong `eventbus` · năm phép
+phá, mỗi phép đỏ đúng chỗ.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

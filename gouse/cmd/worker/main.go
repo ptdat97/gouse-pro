@@ -212,6 +212,15 @@ const (
 	// Xem docs/04-modules/analytics.md mục 4.
 	computeMetricsInterval = 5 * time.Minute
 
+	// computeMonthlyMetricsInterval là nhịp tính lại chỉ số THEO THÁNG.
+	//
+	// Thưa gấp 12 lần nhịp giờ/ngày vì phép gom nặng gấp 30 lần: một
+	// khoảng tháng quét tới 31 ngày event, một khoảng ngày quét một ngày.
+	//
+	// Con số tháng cũng đổi chậm: thêm một đơn vào tổng của 30 ngày không
+	// làm ai đổi quyết định trong vòng một giờ.
+	computeMonthlyMetricsInterval = time.Hour
+
 	// rollUpViewsInterval là nhịp gom lượt xem thành tín hiệu nhu cầu.
 	//
 	// Nửa giờ, không phải mỗi phút: đây là dữ liệu LẬP KẾ HOẠCH, và kế
@@ -614,9 +623,14 @@ func run() error {
 			},
 		},
 		{
-			name:     "tính chỉ số phân tích",
+			name:     "tính chỉ số phân tích theo giờ và ngày",
 			interval: computeMetricsInterval,
 			run:      computeMetrics(analyticsModule, log),
+		},
+		{
+			name:     "tính chỉ số phân tích theo tháng",
+			interval: computeMonthlyMetricsInterval,
+			run:      computeMonthlyMetrics(analyticsModule, log),
 		},
 		{
 			name:     "gom lượt xem thành tín hiệu nhu cầu",
@@ -753,9 +767,9 @@ func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Con
 //
 // Job này KHÔNG chạy nghĩa là tiền của seller bị giữ lại vô thời hạn —
 // hàng đã giao, khách đã hài lòng, nhưng seller không được trả.
-// computeMetrics tính lại chỉ số phân tích cho hôm nay và hôm qua.
+// computeMetrics tính lại chỉ số phân tích theo GIỜ và theo NGÀY.
 //
-// # Vì sao tính CẢ hôm qua
+// # Vì sao tính CẢ khoảng liền trước
 //
 // Event đến muộn là chuyện bình thường: outbox phát mỗi 5 giây, và một
 // đơn đặt lúc 23:59:58 có thể được ghi vào nhật ký sau nửa đêm. Nếu chỉ
@@ -765,23 +779,64 @@ func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Con
 // Tính lại là AN TOÀN vì Upsert GHI ĐÈ: hai lần tính cùng một ngày cho
 // cùng một kết quả, không cộng dồn.
 //
+// # Vì sao có CẢ khoảng giờ
+//
+// `Granularity` nhận HOUR, DAY và MONTH; CHECK ở migration 000019 cho
+// phép cả ba; `Truncate` và `Next` cắt đúng cả ba. Nhưng tới 30/10/2026
+// thì 100% hàng của `metric_snapshot` mang DAY, vì job này — bên gọi DUY
+// NHẤT — chỉ truyền DAY.
+//
+// Đó là mục 8 của backlog ở dạng khó thấy nhất: đường đi có đủ MỌI mảnh
+// trừ bên gọi, nên không gì đỏ và không ai thấy thiếu. `cmd/deadcol` tìm
+// ra nó bằng cách đếm số giá trị KHÁC NHAU trong cột.
+//
+// Chỉ số giờ trả lời "sự cố lúc 14h đã ăn vào đơn chưa" — câu mà chỉ số
+// ngày KHÔNG trả lời được, vì một ngày có hai giờ chết trông giống một
+// ngày thường hơi kém.
+//
+// # Vì sao tháng KHÔNG ở đây
+//
+// Một khoảng tháng quét tới 31 ngày event. Chạy phép quét đó mỗi 5 phút
+// là tốn gấp 30 lần phép quét ngày, cho một con số đổi rất chậm. Tháng
+// có job riêng với nhịp riêng — xem `computeMonthlyMetrics`.
+//
 // # Vì sao KHÔNG tính cho từng seller ở đây
 //
 // Sàn có 10.000 gian hàng nghĩa là 20.000 lượt tính mỗi 5 phút. Chỉ số
 // toàn sàn là thứ dashboard vận hành cần ngay; chỉ số theo gian hàng sẽ
 // tính theo yêu cầu hoặc bằng một job thưa hơn khi có dashboard seller
 // (Phase 2). Xem docs/04-modules/analytics.md mục 14.
+// metricWindow là một khoảng cần tính lại.
+type metricWindow struct {
+	granularity string
+	at          time.Time
+}
+
+// metricWindows trả các khoảng mà `computeMetrics` tính mỗi nhịp.
+//
+// Hàm này tách khỏi job để KIỂM ĐƯỢC danh sách khoảng mà không cần
+// database: thứ hỏng ở ca mục 8 không phải phép tính, mà là một mức
+// granularity VẮNG MẶT trong danh sách này.
+func metricWindows(now time.Time) []metricWindow {
+	return []metricWindow{
+		{analytics.GranularityHour, now},
+		{analytics.GranularityHour, now.Add(-time.Hour)},
+		{analytics.GranularityDay, now},
+		{analytics.GranularityDay, now.AddDate(0, 0, -1)},
+	}
+}
+
 func computeMetrics(m *analytics.Module, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
 		now := time.Now().UTC()
 
-		for _, day := range []time.Time{now, now.AddDate(0, 0, -1)} {
+		for _, w := range metricWindows(now) {
 			if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
-				PeriodStart: day,
-				Granularity: analytics.GranularityDay,
+				PeriodStart: w.at,
+				Granularity: w.granularity,
 			}); err != nil {
-				return fmt.Errorf("tính chỉ số ngày %s: %w",
-					day.Format("2006-01-02"), err)
+				return fmt.Errorf("tính chỉ số %s tại %s: %w",
+					w.granularity, w.at.Format(time.RFC3339), err)
 			}
 		}
 
@@ -797,6 +852,72 @@ func computeMetrics(m *analytics.Module, log *slog.Logger) func(context.Context)
 		}
 		log.Info("đã tính chỉ số phân tích",
 			"gmv_hôm_nay", gmv.Value,
+			"số_đơn", gmv.SampleSize,
+			"lưu_ý", "số liệu phân tích KHÔNG dùng cho quyết định tài chính")
+
+		return nil
+	}
+}
+
+// computeMonthlyMetrics tính lại chỉ số của THÁNG NÀY và THÁNG TRƯỚC.
+//
+// # Vì sao tách khỏi `computeMetrics`
+//
+// Phép gom một khoảng tháng quét tới 31 ngày event. Gộp nó vào nhịp 5
+// phút nghĩa là mỗi giờ quét 12 lần qua cả tháng để thấy một con số
+// nhúc nhích vài nghìn đồng.
+//
+// # Vì sao vẫn tính lại tháng TRƯỚC mãi mãi
+//
+// Cùng lý do event đến muộn, cộng một lý do nặng hơn: tháng trước là con
+// số người ta ĐỐI CHIẾU, và nó phải khớp sau khi mọi đơn cuối tháng đã
+// về. Chi phí của phép tính lại là CỐ ĐỊNH — luôn đúng hai khoảng, bất
+// kể hệ thống chạy được bao lâu.
+// monthWindows trả hai khoảng tháng cần tính lại: tháng đang mở trước,
+// rồi tháng liền trước nó.
+//
+// Mang theo cả `granularity` dù chỉ có một giá trị: nhờ vậy bài test
+// đối chiếu được danh sách granularity CÓ BÊN GỌI với CHECK của lược đồ
+// mà không phải đoán job này truyền gì.
+//
+// CẮT TRÒN trước rồi mới lùi tháng, KHÔNG lùi từ `now`: `now.AddDate(0,
+// -1, 0)` vào ngày 31/3 cho ra 3/3 — Go chuẩn hóa "31/2" thành ngày đó —
+// và cắt tròn lại về 1/3, tức ĐÚNG tháng đang mở.
+//
+// Hệ quả nếu làm ngược: tháng 2 không bao giờ được tính lại trong ba
+// ngày cuối tháng 3, job vẫn xanh, và không có lỗi nào để lần ra.
+func monthWindows(now time.Time) []metricWindow {
+	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return []metricWindow{
+		{analytics.GranularityMonth, thisMonth},
+		{analytics.GranularityMonth, thisMonth.AddDate(0, -1, 0)},
+	}
+}
+
+func computeMonthlyMetrics(m *analytics.Module, log *slog.Logger) func(context.Context) error {
+	return func(ctx context.Context) error {
+		windows := monthWindows(time.Now().UTC())
+
+		for _, w := range windows {
+			if err := m.ComputeMetrics(ctx, analytics.ComputeRequest{
+				PeriodStart: w.at,
+				Granularity: w.granularity,
+			}); err != nil {
+				return fmt.Errorf("tính chỉ số tháng %s: %w",
+					w.at.Format("2006-01"), err)
+			}
+		}
+
+		gmv, err := m.GetMetric(ctx, analytics.MetricRequest{
+			Name:        analytics.MetricGMV,
+			PeriodStart: windows[0].at,
+			Granularity: analytics.GranularityMonth,
+		})
+		if err != nil {
+			return fmt.Errorf("đọc chỉ số GMV tháng: %w", err)
+		}
+		log.Info("đã tính chỉ số theo tháng",
+			"gmv_tháng_này", gmv.Value,
 			"số_đơn", gmv.SampleSize,
 			"lưu_ý", "số liệu phân tích KHÔNG dùng cho quyết định tài chính")
 

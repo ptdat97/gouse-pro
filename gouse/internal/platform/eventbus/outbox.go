@@ -90,6 +90,14 @@ func (o *Outbox) PublishTx(ctx context.Context, tx Tx, e Event) error {
 	}
 	e.CorrelationID = correlationID
 
+	// CausationID rỗng thì LẤY TỪ NGỮ CẢNH — cùng cơ chế, KHÁC ý nghĩa.
+	//
+	// Không có bước dự phòng thứ hai: event phát ngoài mọi bên nhận là GỐC
+	// cây và rỗng là câu trả lời đúng. Xem `withCausation`.
+	if e.CausationID == "" {
+		e.CausationID = CausationFrom(ctx)
+	}
+
 	_, err := tx.Exec(ctx, `
 		INSERT INTO event_outbox (
 			event_id, event_type, event_version,

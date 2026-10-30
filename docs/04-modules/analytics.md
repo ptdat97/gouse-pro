@@ -191,7 +191,16 @@ chuỗi thời gian · ẩn danh hóa.
 
 **Đã nối vào luồng chạy thật:** `RecordEventsFromBus` nghe
 `checkout.completed`, `cart.item_added`, `fulfillment.progress_changed`;
-đăng ký ở `cmd/worker`. Job `tính chỉ số phân tích` chạy mỗi 5 phút.
+đăng ký ở `cmd/worker`. Hai job ghi chỉ số:
+
+```text
+tính chỉ số phân tích theo giờ và ngày   5 phút
+tính chỉ số phân tích theo tháng         1 giờ
+```
+
+Mỗi job tính CẢ khoảng đang mở và khoảng liền trước, vì event đến muộn:
+một đơn đặt lúc 23:59:58 có thể vào nhật ký sau nửa đêm. Tính lại an toàn
+vì `Upsert` ghi đè.
 
 **Chưa có (Phase 2 trở đi):** phễu chuyển đổi từng bước · chỉ số creator ·
 dashboard seller · cohort · kho dữ liệu.
@@ -228,6 +237,25 @@ là một lượt đi-về database cho mỗi lần khách di chuột.
 
 `AnonymizeCustomer` là nghĩa vụ pháp lý (mục 8), không có trong bản thiết
 kế nhưng bắt buộc phải có.
+
+### Ba mức granularity — và vì sao hai mức từng KHÔNG CÓ dữ liệu
+
+Tới 30/10/2026, `metric_snapshot.granularity` mang `DAY` trên **100%** hàng.
+`HOUR` và `MONTH` có đủ mọi mảnh: hằng số trong enum, nhánh trong `Truncate`
+và `Next`, chỗ trong CHECK của migration 000019. Thiếu đúng **bên gọi** —
+`cmd/worker` ghim `GranularityDay`.
+
+Không bài test nào đỏ vì điều đó, và không thể có: mọi bài test về
+granularity đều TRUYỀN mức vào, nên chúng kiểm phép tính chứ không kiểm ai
+gọi. Thứ tìm ra nó là `cmd/deadcol`, bằng cách đếm số giá trị KHÁC NHAU
+trong cột trên dữ liệu thật (mục 8 của backlog, bước 5).
+
+Hàng rào bây giờ đối chiếu hai danh sách: mức mà DATABASE cho phép (đọc từ
+CHECK trong migration) và mức thực sự có job truyền vào. Xem
+`cmd/worker/chi_so_test.go` và P3-93.
+
+Nhịp của hai job khác nhau vì chi phí khác nhau: một khoảng tháng quét tới
+31 ngày event, một khoảng ngày quét một ngày.
 
 ### Bên nhận event: một sự kiện cho MỖI gian hàng
 

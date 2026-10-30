@@ -222,7 +222,9 @@ func (d *Dispatcher) runHandler(ctx context.Context, tx pgx.Tx, h Handler, e Eve
 		return nil
 	}
 
-	if err := h.Handle(withCorrelation(withTx(ctx, sp), e.CorrelationID), e); err != nil {
+	hctx := withCausation(
+		withCorrelation(withTx(ctx, sp), e.CorrelationID), e.ID.String())
+	if err := h.Handle(hctx, e); err != nil {
 		_ = sp.Rollback(ctx)
 		metrics.HandlerFailures.WithLabelValues(h.Name(), e.Type).Inc()
 		return fmt.Errorf("%s: %w", h.Name(), err)
@@ -296,5 +298,42 @@ func withCorrelation(ctx context.Context, id string) context.Context {
 // CorrelationFrom đọc correlation id của chuỗi đang chạy.
 func CorrelationFrom(ctx context.Context) string {
 	id, _ := ctx.Value(correlationKey{}).(string)
+	return id
+}
+
+// causationKey mang mã của event ĐANG được xử lý.
+type causationKey struct{}
+
+// withCausation gắn mã event đang xử lý vào ngữ cảnh chạy của bên nhận.
+//
+// # Khác correlation ở ĐÚNG một điểm, và điểm đó là toàn bộ giá trị của nó
+//
+// `correlation_id` trả lời "những event nào thuộc cùng một hành động của
+// khách" — nó GOM. `causation_id` trả lời "event nào sinh ra event này" —
+// nó XẾP THỨ TỰ. Có cái đầu mà không có cái sau thì ta có một đống event
+// cùng nhãn, không có cây.
+//
+// Trước 30/10/2026 cột `causation_id` rỗng trên 16.061 hàng: `WithTrace` là
+// cách DUY NHẤT để điền nó, và không bên phát nào gọi — chỉ test gọi. Đúng
+// dạng lỗi mà chú thích của `Publish` đã nói về correlation: *"bắt từng bên
+// phát nhớ gọi là cách chắc chắn để có một nửa số event thiếu nó"*.
+//
+// # Vì sao RỖNG vẫn là câu trả lời đúng cho nhiều event
+//
+// Khác correlation, causation KHÔNG có giá trị thay thế. Event phát từ một
+// request HTTP không có event cha — nó là gốc cây. Điền mã request vào đó
+// sẽ biến "không có cha" thành "cha là một thứ không phải event", và phép
+// dựng cây sẽ đi tìm một mắt không tồn tại.
+func withCausation(ctx context.Context, eventID string) context.Context {
+	if eventID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, causationKey{}, eventID)
+}
+
+// CausationFrom đọc mã event đang được xử lý, hoặc rỗng khi không ở trong
+// một bên nhận nào.
+func CausationFrom(ctx context.Context) string {
+	id, _ := ctx.Value(causationKey{}).(string)
 	return id
 }
