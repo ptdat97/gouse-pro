@@ -3164,7 +3164,7 @@ báo. Kiểm chứng bằng cách khôi phục lối lọc cũ: `{"data":[],"pag
 
 **Trạng thái gõ sai nay trả 400** kèm danh sách giá trị hợp lệ, chứ không
 phải danh sách rỗng — rỗng trông giống "khách chưa có đơn nào" chứ không
-giống "bạn gõ sai". Tập trạng thái đóng nằm ở domain (`Status.HopLe`),
+giống "bạn gõ sai". Tập trạng thái đóng nằm ở domain (`Status.IsValid`),
 không phải ở handler.
 
 **Ba lỗi trong CHÍNH BỘ TEST, tìm ra nhờ phá code thật.** Bản test đầu vẫn
@@ -8441,6 +8441,42 @@ hồi quy.
 gói, 1 SKIP có từ trước · `make deadcol` exit 0 (59 cột một-giá-trị, 30 + 29
 đã khai) · ba bài mới trong `cmd/worker`, ba bài trong `eventbus` · năm phép
 phá, mỗi phép đỏ đúng chỗ.
+
+---
+
+### P3-94 — ĐÃ LÀM 30/10/2026 — `cmd/vietident`: "XONG" thôi là lời nói
+
+Mục 6 của `quy-uoc-dat-ten.md` ghi ngày 28/10: *"bộ lọc tiếng Việt trả về
+RỖNG trên toàn repo, 7934 định danh"*. Đo lại ngày 30/10 bằng `go/ast`:
+**453 định danh còn âm tiết tiếng Việt trên 43.378** — gấp 5,5 lần số định
+danh mà lượt trước tưởng là đã đếm hết. Sáu tên là mã CHẠY THẬT, trong đó
+`PaymentMethod.HopLe`, `EmailToken.Dung` và `SourceFee.Phi` nằm ở tầng
+domain.
+
+Chi tiết hai điểm mù và bốn cái bẫy: `quy-uoc-dat-ten.md` mục 7. Phần
+thuộc backlog là **điều rút ra về hàng rào**, không phải về đổi tên:
+
+**Một phép đo không có hàng rào thì chỉ là một câu nói.** Bốn lượt đổi tên
+trước đều kết bằng một con số trong tài liệu. Con số trong tài liệu không
+đỏ khi nó sai — nó chỉ nằm đó, và lượt sau đọc nó như sự thật. Hàng rào
+thứ bảy đổi điều đó: `ratchet` nằm trong mã, `go test ./cmd/vietident/`
+chạy trong `make check`.
+
+**Bánh cóc phải đỏ ở CẢ HAI phía.** Đo cao hơn ngưỡng là có tên mới lọt
+vào — ai cũng nghĩ tới. Đo THẤP hơn ngưỡng cũng phải đỏ, và đó mới là phía
+quan trọng: một ngưỡng tụt lại sau số đo sẽ nhận bất cứ thứ gì nhỏ hơn nó,
+tức là không gác gì nữa. Cùng điều này đúng cho hai ngưỡng của `apicheck`
+(63 enum, 20 schema chưa gác) — chúng hiện CHỈ đỏ ở phía trên.
+
+**Ngưỡng 0 không phải "hết bài toán", và giới hạn phải ghi cạnh con số.**
+`allowed` chứa từ tiếng Anh trùng hình dạng âm tiết Việt. `ten` nằm trong
+đó vì `TestTenBuyersRacing…`, nên một `ten` tiếng Việt MỚI sẽ không bị bắt.
+Giới hạn ấy được ghi trong `so_gac.go` ngay cạnh `ratchet = 0`.
+
+**Kiểm chứng:** `make check` xanh · `go test -count=1 ./...` exit 0 trên 69
+gói · `archcheck`/`apicheck`/`eventcheck`/`deadcol` đều OK · `npm run
+typecheck` xanh, 75 bài web · năm phép phá trên `vietident`, mỗi phép đỏ
+đúng chỗ.
 
 ---
 

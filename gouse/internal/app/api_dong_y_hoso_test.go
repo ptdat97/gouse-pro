@@ -37,12 +37,12 @@ func TestACustomerCanToggleMarketingEmail(t *testing.T) {
 			t.Fatalf("đọc hồ sơ: HTTP %d — %s", res.code, res.raw)
 		}
 		kh, _ := res.body["customer"].(map[string]any)
-		dy, co := kh["marketing_consent"].(map[string]any)
-		if !co {
+		consent, present := kh["marketing_consent"].(map[string]any)
+		if !present {
 			t.Fatalf("hồ sơ KHÔNG có marketing_consent — khách không có "+
 				"cách nào biết mình đang bật hay tắt: %s", res.raw)
 		}
-		return dy
+		return consent
 	}
 
 	// Mặc định: CHƯA đồng ý. Im lặng coi như đồng ý là cách vi phạm.
@@ -73,8 +73,8 @@ func TestACustomerCanToggleMarketingEmail(t *testing.T) {
 	if res.code != http.StatusOK {
 		t.Fatalf("rút đồng ý: HTTP %d — %s", res.code, res.raw)
 	}
-	if cuoi := readProfile(); cuoi["email"] != false {
-		t.Errorf("rút đồng ý xong vẫn %v", cuoi["email"])
+	if last := readProfile(); last["email"] != false {
+		t.Errorf("rút đồng ý xong vẫn %v", last["email"])
 	}
 }
 
@@ -115,9 +115,9 @@ func TestEditingAProfileMustNotSilentlyWithdrawConsent(t *testing.T) {
 	}
 
 	kh, _ := res.body["customer"].(map[string]any)
-	dy, _ := kh["marketing_consent"].(map[string]any)
-	if dy["email"] != true || dy["sms"] != true {
+	consent, _ := kh["marketing_consent"].(map[string]any)
+	if consent["email"] != true || consent["sms"] != true {
 		t.Errorf("đổi số điện thoại làm rút đồng ý: %v — trường vắng mặt "+
-			"trong PATCH phải là KHÔNG ĐỔI, không phải false", dy)
+			"trong PATCH phải là KHÔNG ĐỔI, không phải false", consent)
 	}
 }

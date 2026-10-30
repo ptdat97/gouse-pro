@@ -23,8 +23,8 @@ import (
 // Nay phương thức rỗng trả 0, nên bài test đỏ ngay nếu dây bị đứt lại.
 type fixedPrice int64
 
-func (g fixedPrice) PricePerParcel(phuongThuc string) int64 {
-	if phuongThuc == "" {
+func (g fixedPrice) PricePerParcel(payMethod string) int64 {
+	if payMethod == "" {
 		return 0
 	}
 	return int64(g)
@@ -60,8 +60,8 @@ func TestCarrierCostIsPostedAtHandover(t *testing.T) {
 	// độ vẫn qua bài test — khóa idempotency giữ cho tổng đúng, nên chỉ
 	// THỜI ĐIỂM sai, và thời điểm sai nghĩa là sổ ghi một nghĩa vụ chưa
 	// phát sinh.
-	if chiPhi, owedGoods := a.shippingBalance(t, foID); chiPhi != 0 || owedGoods != 0 {
-		t.Errorf("chưa bàn giao mà đã ghi chi phí %d / nợ hãng %d", chiPhi, owedGoods)
+	if shipCost, owedGoods := a.shippingBalance(t, foID); shipCost != 0 || owedGoods != 0 {
+		t.Errorf("chưa bàn giao mà đã ghi chi phí %d / nợ hãng %d", shipCost, owedGoods)
 	}
 
 	res := a.call(http.MethodPost,
@@ -73,10 +73,10 @@ func TestCarrierCostIsPostedAtHandover(t *testing.T) {
 	}
 	a.emitEventWithCost(t, returnPrice)
 
-	chiPhi, owedGoods := a.shippingBalance(t, foID)
-	if chiPhi != returnPrice {
+	shipCost, owedGoods := a.shippingBalance(t, foID)
+	if shipCost != returnPrice {
 		t.Errorf("SHIPPING_EXPENSE = %d, cần %d — bàn giao rồi mà chi phí "+
-			"chưa vào sổ", chiPhi, returnPrice)
+			"chưa vào sổ", shipCost, returnPrice)
 	}
 	if owedGoods != returnPrice {
 		t.Errorf("CARRIER_PAYABLE = %d, cần %d", owedGoods, returnPrice)
@@ -87,9 +87,9 @@ func TestCarrierCostIsPostedAtHandover(t *testing.T) {
 	a.emitEventWithCost(t, returnPrice)
 
 	cost2, _ := a.shippingBalance(t, foID)
-	if cost2 != chiPhi {
+	if cost2 != shipCost {
 		t.Errorf("chi phí %d → %d sau khi phát lại event — tính hai lần cho "+
-			"một kiện hàng", chiPhi, cost2)
+			"một kiện hàng", shipCost, cost2)
 	}
 }
 
@@ -116,10 +116,10 @@ func TestWithNoCarrierPriceNoEntryIsPosted(t *testing.T) {
 	}
 	a.emitEventWithCost(t, 0)
 
-	chiPhi, owedGoods := a.shippingBalance(t, foID)
-	if chiPhi != 0 || owedGoods != 0 {
+	shipCost, owedGoods := a.shippingBalance(t, foID)
+	if shipCost != 0 || owedGoods != 0 {
 		t.Errorf("chưa khai giá mà vẫn ghi sổ: chi phí %d, nợ hãng %d — "+
-			"con số này từ đâu ra?", chiPhi, owedGoods)
+			"con số này từ đâu ra?", shipCost, owedGoods)
 	}
 }
 
@@ -138,7 +138,7 @@ func (a *apiTest) emitEventWithCost(t *testing.T, priceObj int64) {
 }
 
 // shippingBalance trả số dư SHIPPING_EXPENSE và CARRIER_PAYABLE của MỘT kiện.
-func (a *apiTest) shippingBalance(t *testing.T, foID string) (chiPhi, owedGoods int64) {
+func (a *apiTest) shippingBalance(t *testing.T, foID string) (shipCost, owedGoods int64) {
 	t.Helper()
 	if err := a.db.Pool().QueryRow(context.Background(), `
 		SELECT COALESCE(SUM(l.amount) FILTER (
@@ -147,10 +147,10 @@ func (a *apiTest) shippingBalance(t *testing.T, foID string) (chiPhi, owedGoods 
 		           WHERE l.account_type = 'CARRIER_PAYABLE'), 0)
 		  FROM ledger_line  l
 		  JOIN ledger_entry e ON e.id = l.entry_id
-		 WHERE e.reference_id = $1`, foID).Scan(&chiPhi, &owedGoods); err != nil {
+		 WHERE e.reference_id = $1`, foID).Scan(&shipCost, &owedGoods); err != nil {
 		t.Fatalf("đọc số dư vận chuyển: %v", err)
 	}
-	return chiPhi, owedGoods
+	return shipCost, owedGoods
 }
 
 // republishProgress đưa event tiến độ trở lại hàng đợi chưa xử lý.

@@ -227,7 +227,7 @@ func TestOnlyRegisteredConfigKeysAreExposed(t *testing.T) {
 			}
 		}
 		for _, field := range []string{"min", "max", "default"} {
-			if _, co := m[field]; !co {
+			if _, present := m[field]; !present {
 				t.Errorf("%s thiếu %s", key, field)
 			}
 		}
@@ -317,10 +317,10 @@ func TestTwoConcurrentConfigChangesStillAuditCorrectly(t *testing.T) {
 	a.restoreConfig(t, opsconfig.KeyDeliverySLA)
 
 	const defaultSLA = 48.0
-	moi := []float64{24, 36}
+	fresh := []float64{24, 36}
 
 	var done sync.WaitGroup
-	for _, v := range moi {
+	for _, v := range fresh {
 		done.Add(1)
 		go func(v float64) {
 			defer done.Done()
@@ -351,17 +351,17 @@ func TestTwoConcurrentConfigChangesStillAuditCorrectly(t *testing.T) {
 	}
 	defer rows.Close()
 
-	var cu, open []float64
+	var previous, open []float64
 	for rows.Next() {
 		var c, m float64
 		if err := rows.Scan(&c, &m); err != nil {
 			t.Fatalf("đọc dòng vết: %v", err)
 		}
-		cu = append(cu, c)
+		previous = append(previous, c)
 		open = append(open, m)
 	}
-	if len(cu) != 2 {
-		t.Fatalf("có %d vết, cần 2", len(cu))
+	if len(previous) != 2 {
+		t.Fatalf("có %d vết, cần 2", len(previous))
 	}
 
 	// Khẳng định theo TÍNH CHẤT CHUỖI, không theo thứ tự thời gian.
@@ -374,13 +374,13 @@ func TestTwoConcurrentConfigChangesStillAuditCorrectly(t *testing.T) {
 	// Tính chất đúng và không phụ thuộc thứ tự: MỘT vết đi từ mặc định,
 	// vết còn lại đi từ giá trị mà vết kia vừa đặt.
 	var fromDefault, fromTrail int
-	for i := range cu {
-		if cu[i] == defaultSLA {
+	for i := range previous {
+		if previous[i] == defaultSLA {
 			fromDefault++
 			continue
 		}
 		for j := range open {
-			if j != i && cu[i] == open[j] {
+			if j != i && previous[i] == open[j] {
 				fromTrail++
 			}
 		}
@@ -389,7 +389,7 @@ func TestTwoConcurrentConfigChangesStillAuditCorrectly(t *testing.T) {
 		t.Errorf("hai vết KHÔNG tạo thành chuỗi: cũ=%v mới=%v\n"+
 			"đúng ra một vết đi từ %v và vết kia đi từ giá trị vết đầu "+
 			"vừa đặt. Cả hai cùng đọc một điểm xuất phát nghĩa là không "+
-			"có khóa, và nhật ký ghi sai lịch sử.", cu, open, defaultSLA)
+			"có khóa, và nhật ký ghi sai lịch sử.", previous, open, defaultSLA)
 	}
 }
 
@@ -406,7 +406,7 @@ func TestConfigReadsWithoutLocking(t *testing.T) {
 	}
 
 	var done sync.WaitGroup
-	dung := make(chan struct{})
+	stop := make(chan struct{})
 
 	// Nhiều goroutine ĐỌC liên tục.
 	for i := 0; i < 8; i++ {
@@ -415,7 +415,7 @@ func TestConfigReadsWithoutLocking(t *testing.T) {
 			defer done.Done()
 			for {
 				select {
-				case <-dung:
+				case <-stop:
 					return
 				default:
 					_ = store.Read(opsconfig.KeyDeliverySLA)
@@ -434,6 +434,6 @@ func TestConfigReadsWithoutLocking(t *testing.T) {
 		}
 	}
 
-	close(dung)
+	close(stop)
 	done.Wait()
 }

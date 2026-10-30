@@ -40,7 +40,7 @@ func TestBB1_PrepaidGoodsDoNotLeaveTheWarehouse(t *testing.T) {
 
 	for _, b := range []struct {
 		ten string
-		lam func() error
+		act func() error
 	}{
 		{"xác nhận", func() error { return w.ful.ConfirmFulfillment(ctx, seller, foID) }},
 		{"nhặt hàng", func() error { return w.ful.MarkPicking(ctx, seller, foID) }},
@@ -49,7 +49,7 @@ func TestBB1_PrepaidGoodsDoNotLeaveTheWarehouse(t *testing.T) {
 			return w.ful.HandOverToCarrier(ctx, handOverReq(seller, foID))
 		}},
 	} {
-		if err := b.lam(); err == nil {
+		if err := b.act(); err == nil {
 			t.Errorf("BB1 vỡ: nhà bán %s được cho đơn TRẢ TRƯỚC chưa thu tiền", b.ten)
 		}
 	}
@@ -112,9 +112,9 @@ func TestBB3_AnUnlockedOrderMustBePaid(t *testing.T) {
 
 		// Mở khóa hợp lệ khi: đơn đã trả tiền, HOẶC là COD (tiền lúc giao),
 		// HOẶC không có phương thức (đường placeOrder — xem ADR-0018).
-		hopLe := status == "PAID" ||
+		valid := status == "PAID" ||
 			payMethod == "COD" || payMethod == "(trống)"
-		if !hopLe {
+		if !valid {
 			t.Errorf("BB3 vỡ: đơn thực hiện %s đã mở khóa nhưng đơn hàng "+
 				"ở trạng thái %q với phương thức %q", foID, status, payMethod)
 		}

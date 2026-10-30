@@ -49,7 +49,7 @@ const stlCols = `
 // `pg_advisory_xact_lock` tự nhả khi giao dịch kết thúc — không có đường
 // nào quên nhả, kể cả khi tiến trình chết giữa chừng.
 //
-// `dung` nhận phần nợ đọc được và trả về đợt cùng bút toán thu hồi; trả
+// `build` nhận phần nợ đọc được và trả về đợt cùng bút toán thu hồi; trả
 // nil cho bút toán nghĩa là kỳ này không thu gì.
 func (s *SettlementStore) CreateForSeller(
 	ctx context.Context, sellerID ids.ID,

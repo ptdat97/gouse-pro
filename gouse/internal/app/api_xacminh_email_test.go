@@ -73,9 +73,9 @@ func TestGuestOrderHistoryMergesAfterVerification(t *testing.T) {
 	}
 
 	// --- Token SAI không gộp được ---
-	sai := a.call(http.MethodPost, "/api/v1/auth/verify-email",
+	wrong := a.call(http.MethodPost, "/api/v1/auth/verify-email",
 		map[string]any{"token": "token-bia-dat-khong-ton-tai"}, nil)
-	if sai.code == http.StatusOK {
+	if wrong.code == http.StatusOK {
 		t.Error("token bịa đặt vẫn xác minh được")
 	}
 	if countOwnerless(t) != before {
@@ -90,7 +90,7 @@ func TestGuestOrderHistoryMergesAfterVerification(t *testing.T) {
 		 ORDER BY created_at DESC LIMIT 1`, email).Scan(&than); err != nil {
 		t.Fatalf("không có thư xác minh nào được gửi: %v", err)
 	}
-	tok := tachToken(t, than)
+	tok := extractToken(t, than)
 
 	xm := a.call(http.MethodPost, "/api/v1/auth/verify-email",
 		map[string]any{"token": tok}, nil)
@@ -113,12 +113,12 @@ func TestGuestOrderHistoryMergesAfterVerification(t *testing.T) {
 	}
 }
 
-// tachToken lấy token nguyên văn ra khỏi thân thư.
+// extractToken lấy token nguyên văn ra khỏi thân thư.
 //
 // Đọc từ THƯ chứ không từ bảng token: database chỉ giữ bản BĂM, và đó là
 // điều bài test này gián tiếp chứng minh — không có đường nào lấy lại bản
 // nguyên văn ngoài chính thư đã gửi.
-func tachToken(t *testing.T, than string) string {
+func extractToken(t *testing.T, than string) string {
 	t.Helper()
 	for _, line := range strings.Split(than, "\n") {
 		line = strings.TrimSpace(line)

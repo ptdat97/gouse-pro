@@ -133,17 +133,17 @@ func TestASessionErrorSaysNothingAboutThePassword(t *testing.T) {
 	a := newAPITest(t)
 	a.registerAndLogIn(newEmail("loiphien"))
 
-	cu := a.cookies["refresh_token"]
-	if cu == "" {
+	previous := a.cookies["refresh_token"]
+	if previous == "" {
 		t.Fatal("đăng nhập không cấp refresh token")
 	}
 
-	// Xoay một lần: token `cu` từ đây là token đã dùng.
+	// Xoay một lần: token `previous` từ đây là token đã dùng.
 	if res := a.call(http.MethodPost, "/api/v1/auth/refresh", nil, nil); res.code != http.StatusOK {
 		t.Fatalf("làm mới phiên: HTTP %d — %s", res.code, res.raw)
 	}
 
-	a.cookies["refresh_token"] = cu
+	a.cookies["refresh_token"] = previous
 	res := a.call(http.MethodPost, "/api/v1/auth/refresh", nil, nil)
 	if res.code != http.StatusUnauthorized {
 		t.Fatalf("gửi lại token đã xoay phải bị từ chối: HTTP %d — %s", res.code, res.raw)

@@ -42,8 +42,8 @@ func TestASellerSelfRegistersOverHTTP(t *testing.T) {
 	}
 
 	nb, _ := res.body["seller"].(map[string]any)
-	maNB, _ := nb["id"].(string)
-	if maNB == "" {
+	shopID, _ := nb["id"].(string)
+	if shopID == "" {
 		t.Fatalf("không trả mã nhà bán: %s", res.raw)
 	}
 
@@ -83,13 +83,13 @@ func TestTheAccountNumberIsNotStoredInClear(t *testing.T) {
 		t.Fatalf("nộp hồ sơ: HTTP %d — %s", res.code, res.raw)
 	}
 	nb, _ := res.body["seller"].(map[string]any)
-	maNB, _ := nb["id"].(string)
+	shopID, _ := nb["id"].(string)
 
 	var columnsNotYet int
 	err := a.db.Pool().QueryRow(ctx, `
 		SELECT count(*) FROM (
 			SELECT jsonb_each_text(to_jsonb(s)) AS kv FROM seller s WHERE s.id = $1
-		) x WHERE (x.kv).value LIKE '%' || $2 || '%'`, maNB, accountNumber).Scan(&columnsNotYet)
+		) x WHERE (x.kv).value LIKE '%' || $2 || '%'`, shopID, accountNumber).Scan(&columnsNotYet)
 	if err != nil {
 		t.Fatalf("quét cột: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestTheAccountNumberIsNotStoredInClear(t *testing.T) {
 	// Bốn số cuối thì PHẢI có — đó là thứ màn hình hiển thị.
 	var last4 string
 	if err := a.db.Pool().QueryRow(ctx,
-		`SELECT bank_account_last4 FROM seller WHERE id = $1`, maNB).Scan(&last4); err != nil {
+		`SELECT bank_account_last4 FROM seller WHERE id = $1`, shopID).Scan(&last4); err != nil {
 		t.Fatalf("đọc bốn số cuối: %v", err)
 	}
 	if last4 != "3322" {
@@ -109,7 +109,7 @@ func TestTheAccountNumberIsNotStoredInClear(t *testing.T) {
 
 	// Và bản mã phải đọc lại được — mã hóa mà không giải mã được thì
 	// không trả tiền cho nhà bán được, tức là còn tệ hơn.
-	again, err := a.mods.seller.GetBankAccount(ctx, maNB)
+	again, err := a.mods.seller.GetBankAccount(ctx, shopID)
 	if err != nil {
 		t.Fatalf("đọc lại số tài khoản: %v", err)
 	}

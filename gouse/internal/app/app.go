@@ -1171,7 +1171,7 @@ func RegisterRoutes(
 		if m.fulfillment != nil {
 			m.fulfillment.RegisterWebhookRoutes(mux,
 				&webhookLog{r: webhook.NewRecorder(db.Pool())},
-				biMatWebhook(cfg.Auth.WebhookSecrets), log)
+				webhookSecrets(cfg.Auth.WebhookSecrets), log)
 		}
 
 		// Webhook THANH TOÁN — cùng ba lý do "không Auth, không

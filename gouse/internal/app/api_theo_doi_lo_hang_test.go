@@ -34,7 +34,7 @@ func TestTrackingAShipmentShowsTheEstimatedDeliveryDay(t *testing.T) {
 		t.Skip("không tạo được đơn thực hiện")
 	}
 
-	xem := func() map[string]any {
+	peek := func() map[string]any {
 		t.Helper()
 		res := a.call(http.MethodGet, "/api/v1/orders/"+orderID+"/shipments", nil,
 			map[string]string{"X-Guest-Phone": "0900333222"})
@@ -51,7 +51,7 @@ func TestTrackingAShipmentShowsTheEstimatedDeliveryDay(t *testing.T) {
 
 	// TRƯỚC khi bàn giao: chưa có ngày dự kiến, và đó là đúng — đồng hồ
 	// của hãng vận chuyển chưa bắt đầu chạy.
-	if v, có := xem()["estimated_delivery_date"]; có && v != "" {
+	if v, có := peek()["estimated_delivery_date"]; có && v != "" {
 		t.Errorf("chưa bàn giao mà đã hứa ngày giao %v — thời gian nhà bán "+
 			"chuẩn bị hàng là phần của người khác", v)
 	}
@@ -72,9 +72,9 @@ func TestTrackingAShipmentShowsTheEstimatedDeliveryDay(t *testing.T) {
 		}
 	}
 
-	lo := xem()
+	batch := peek()
 
-	day, _ := lo["estimated_delivery_date"].(string)
+	day, _ := batch["estimated_delivery_date"].(string)
 	if day == "" {
 		t.Error("đã bàn giao mà khách KHÔNG thấy ngày giao dự kiến — " +
 			"trường tính đúng ở domain nhưng không tới được response thì " +
@@ -83,10 +83,10 @@ func TestTrackingAShipmentShowsTheEstimatedDeliveryDay(t *testing.T) {
 
 	// Mã vận đơn cũng phải tới nơi: không có nó thì khách không tra được
 	// trên trang của hãng vận chuyển.
-	if mv, _ := lo["tracking_number"].(string); mv == "" {
+	if mv, _ := batch["tracking_number"].(string); mv == "" {
 		t.Error("đã bàn giao mà khách không thấy mã vận đơn")
 	}
-	if tt, _ := lo["status"].(string); tt != "HANDED_OVER" {
+	if tt, _ := batch["status"].(string); tt != "HANDED_OVER" {
 		t.Errorf("trạng thái lô hàng = %q, cần HANDED_OVER", tt)
 	}
 }

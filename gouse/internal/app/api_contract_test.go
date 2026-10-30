@@ -39,11 +39,11 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 		t.Fatal("dữ liệu mẫu không có sản phẩm nào — bài test không kiểm được gì")
 	}
 	sp, _ := ds[0].(map[string]any)
-	maSP, _ := sp["id"].(string)
+	productID, _ := sp["id"].(string)
 
 	t.Run("ProductSummary", func(t *testing.T) {
 		// schemas.yaml#/ProductSummary — required: [id, name, brand]
-		canCo(t, sp, "id", "name", "brand")
+		mustHave(t, sp, "id", "name", "brand")
 
 		// KHÔNG có giá, có chủ ý. Giá thuộc về offer và được tra riêng
 		// qua `listBuyBoxPrices` — xem 2.10 trong backlog.
@@ -52,7 +52,7 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 		// BẮT BUỘC trong khi API chưa bao giờ trả, và cửa hàng hiện dấu
 		// gạch thay cho giá suốt nhiều tuần.
 		for _, k := range []string{"price_from", "compare_at_price"} {
-			if _, co := sp[k]; co {
+			if _, present := sp[k]; present {
 				t.Errorf("danh mục trả %q — giá phải tra qua listBuyBoxPrices", k)
 			}
 		}
@@ -60,7 +60,7 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 
 	t.Run("BuyBoxPrice", func(t *testing.T) {
 		got := a.call(http.MethodGet,
-			"/api/v1/offers/buy-box?product_ids="+maSP, nil, nil)
+			"/api/v1/offers/buy-box?product_ids="+productID, nil, nil)
 		if got.code != http.StatusOK {
 			t.Fatalf("HTTP %d — %s", got.code, got.raw)
 		}
@@ -69,18 +69,18 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 			t.Skip("sản phẩm chưa có offer bán được")
 		}
 		g, _ := ds[0].(map[string]any)
-		canCo(t, g, "product_id", "price_from")
+		mustHave(t, g, "product_id", "price_from")
 
 		pf, _ := g["price_from"].(map[string]any)
-		canCo(t, pf, "amount", "currency")
+		mustHave(t, pf, "amount", "currency")
 	})
 
 	t.Run("ProductDetail", func(t *testing.T) {
-		got := a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, nil)
+		got := a.call(http.MethodGet, "/api/v1/products/"+productID, nil, nil)
 		if got.code != http.StatusOK {
 			t.Fatalf("HTTP %d — %s", got.code, got.raw)
 		}
-		canCo(t, got.body, "id", "name", "variants")
+		mustHave(t, got.body, "id", "name", "variants")
 
 		bt, _ := got.body["variants"].([]any)
 		if len(bt) == 0 {
@@ -89,7 +89,7 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 		v, _ := bt[0].(map[string]any)
 
 		// schemas.yaml#/Variant — required: [id, color, skus]
-		canCo(t, v, "id", "color", "skus")
+		mustHave(t, v, "id", "color", "skus")
 
 		// `color` là CHUỖI, không phải object. Đặc tả từng khai object và
 		// đã được sửa về đúng sự thật (P3-22).
@@ -104,7 +104,7 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 		sku, _ := skus[0].(map[string]any)
 
 		// schemas.yaml#/SKUSummary — required: [id, size]
-		canCo(t, sku, "id", "size")
+		mustHave(t, sku, "id", "size")
 		if _, ok := sku["size"].(string); !ok {
 			t.Errorf("sku.size kiểu %T, cần chuỗi", sku["size"])
 		}
@@ -119,7 +119,7 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 		// Ghim ở đây để lần sau ai đó "cài nốt trường đặc tả còn thiếu"
 		// thì bài này đỏ, kèm lý do vì sao đừng cài.
 		for _, k := range []string{"buy_box_offer", "other_offers_count"} {
-			if _, co := got.body[k]; co {
+			if _, present := got.body[k]; present {
 				t.Errorf("chi tiết sản phẩm trả %q — buy box quyết theo SKU, "+
 					"phải lấy qua /products/{id}/offers", k)
 			}
@@ -127,7 +127,7 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 	})
 
 	t.Run("Offer", func(t *testing.T) {
-		got := a.call(http.MethodGet, "/api/v1/products/"+maSP+"/offers", nil, nil)
+		got := a.call(http.MethodGet, "/api/v1/products/"+productID+"/offers", nil, nil)
 		if got.code != http.StatusOK {
 			t.Fatalf("HTTP %d — %s", got.code, got.raw)
 		}
@@ -142,10 +142,10 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 		// `is_sellable` KHÔNG required trong đặc tả nhưng luôn được trả,
 		// và giao diện dùng nó để bật/tắt nút mua. Kiểm ở đây vì đúng lớp
 		// lỗi này từng làm cửa hàng không bán được gì.
-		canCo(t, o, "id", "sku_id", "seller_id", "price", "is_sellable")
+		mustHave(t, o, "id", "sku_id", "seller_id", "price", "is_sellable")
 
 		priceObj, _ := o["price"].(map[string]any)
-		canCo(t, priceObj, "amount", "currency")
+		mustHave(t, priceObj, "amount", "currency")
 	})
 
 	t.Run("SellerRef công khai", func(t *testing.T) {
@@ -159,7 +159,7 @@ func TestTheResponseCarriesEveryFieldTheSpecPromises(t *testing.T) {
 			t.Skip("không có nhà bán nào")
 		}
 		s, _ := ds[0].(map[string]any)
-		canCo(t, s, "id", "name")
+		mustHave(t, s, "id", "name")
 
 		// Và KHÔNG có gì ngoài ba trường công khai. Endpoint này không có
 		// xác thực, nên mỗi trường thừa là một rò rỉ.
@@ -181,9 +181,9 @@ func firstSellerID(t *testing.T, a *apiTest) string {
 		t.Skip("không có sản phẩm")
 	}
 	sp, _ := ds[0].(map[string]any)
-	maSP, _ := sp["id"].(string)
+	productID, _ := sp["id"].(string)
 
-	got := a.call(http.MethodGet, "/api/v1/products/"+maSP+"/offers", nil, nil)
+	got := a.call(http.MethodGet, "/api/v1/products/"+productID+"/offers", nil, nil)
 	offers, _ := got.body["data"].([]any)
 	if len(offers) == 0 {
 		t.Skip("không có offer")
@@ -193,11 +193,11 @@ func firstSellerID(t *testing.T, a *apiTest) string {
 	return id
 }
 
-// canCo khẳng định mọi trường liệt kê đều CÓ MẶT và khác rỗng.
+// mustHave khẳng định mọi trường liệt kê đều CÓ MẶT và khác rỗng.
 //
 // Kiểm cả "có mặt" lẫn "khác rỗng": một trường trả về `""` hay `null` thì
 // về mặt JSON là có, nhưng với bên gọi thì không khác gì thiếu.
-func canCo(t *testing.T, obj map[string]any, field ...string) {
+func mustHave(t *testing.T, obj map[string]any, field ...string) {
 	t.Helper()
 	for _, k := range field {
 		v, ok := obj[k]
@@ -231,7 +231,7 @@ func TestWithNoSellableOfferItIsAbsent(t *testing.T) {
 	res := a.call(http.MethodGet, "/api/v1/products?limit=50", nil, nil)
 	ds, _ := res.body["data"].([]any)
 
-	var maSP string
+	var productID string
 	for _, x := range ds {
 		p, _ := x.(map[string]any)
 		id, _ := p["id"].(string)
@@ -243,16 +243,16 @@ func TestWithNoSellableOfferItIsAbsent(t *testing.T) {
 			for _, s := range skus {
 				sm, _ := s.(map[string]any)
 				if sid, _ := sm["id"].(string); sid == skuID {
-					maSP = id
+					productID = id
 				}
 			}
 		}
 	}
-	if maSP == "" {
+	if productID == "" {
 		t.Skip("không tìm được sản phẩm vừa tạo trong danh mục")
 	}
 
-	got := a.call(http.MethodGet, "/api/v1/offers/buy-box?product_ids="+maSP, nil, nil)
+	got := a.call(http.MethodGet, "/api/v1/offers/buy-box?product_ids="+productID, nil, nil)
 	if got.code != http.StatusOK {
 		t.Fatalf("HTTP %d — %s", got.code, got.raw)
 	}
@@ -260,7 +260,7 @@ func TestWithNoSellableOfferItIsAbsent(t *testing.T) {
 	rows, _ := got.body["data"].([]any)
 	for _, r := range rows {
 		m, _ := r.(map[string]any)
-		if id, _ := m["product_id"].(string); id != maSP {
+		if id, _ := m["product_id"].(string); id != productID {
 			continue
 		}
 		priceObj, _ := m["price_from"].(map[string]any)

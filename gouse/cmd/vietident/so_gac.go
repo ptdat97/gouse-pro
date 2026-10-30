@@ -11,7 +11,13 @@ package main
 //	30/10/2026  453  đo lần đầu bằng go/ast + hình dạng âm tiết
 //	30/10/2026  281  xong internal/{modules,platform,kernel}
 //	30/10/2026  240  xong cmd/ — kể cả dự án GIẢ trong chuỗi thô của test
-const ratchet = 240
+//	30/10/2026    0  xong internal/app và internal/e2e
+//
+// Ngưỡng 0 nghĩa là KHÔNG định danh nào còn âm tiết Việt. Nó KHÔNG
+// nghĩa là bài toán đã hết: một âm tiết Việt TRÙNG từ tiếng Anh vẫn
+// vô hình vì nó nằm trong `allowed`. Đó là giới hạn ĐÃ BIẾT và đã ghi,
+// không phải một con số đẹp.
+const ratchet = 0
 
 // allowed là các âm tiết CÓ hình dạng tiếng Việt nhưng KHÔNG phải tiếng
 // Việt trong repo này.
@@ -87,4 +93,5 @@ var allowed = map[string]bool{
 	"ty":    true, // ty := y.(time.Time)
 	"typ":   true, // id, typ, label, currency string
 	"ua":    true, // var ipHash, ua string
+	"map":   true, // totalMap — hậu tố `Map` của Go, không phải "máp"
 }

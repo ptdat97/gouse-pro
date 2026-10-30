@@ -23,7 +23,7 @@ type Config struct {
 	Log   *slog.Logger
 	Clock func() time.Time
 
-	// TyLe là tỷ lệ hoa hồng creator, điểm cơ bản. 0 = mặc định của miền.
+	// RateBP là tỷ lệ hoa hồng creator, điểm cơ bản. 0 = mặc định của miền.
 	RateBP int
 }
 

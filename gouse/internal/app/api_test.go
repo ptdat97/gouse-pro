@@ -232,17 +232,17 @@ func (a *apiTest) countRows(table, condition string, args ...any) int {
 func (a *apiTest) snapshotTable(table string) (int, float64) {
 	a.t.Helper()
 	var n int
-	var tong *float64
+	var sumTotal *float64
 	err := a.db.Pool().QueryRow(context.Background(),
 		"SELECT count(*), sum(extract(epoch FROM updated_at)) FROM "+table,
-	).Scan(&n, &tong)
+	).Scan(&n, &sumTotal)
 	if err != nil {
 		a.t.Fatalf("chụp bảng %s: %v", table, err)
 	}
-	if tong == nil {
+	if sumTotal == nil {
 		return n, 0
 	}
-	return n, *tong
+	return n, *sumTotal
 }
 
 // callInParallel bắn N request GIỐNG HỆT NHAU cùng lúc và trả mọi kết quả.
@@ -318,11 +318,11 @@ func (a *apiTest) findSellableOffer() string {
 
 	for _, x := range ds {
 		sp, _ := x.(map[string]any)
-		maSP, _ := sp["id"].(string)
-		if maSP == "" {
+		productID, _ := sp["id"].(string)
+		if productID == "" {
 			continue
 		}
-		r := a.call(http.MethodGet, "/api/v1/products/"+maSP+"/offers", nil, nil)
+		r := a.call(http.MethodGet, "/api/v1/products/"+productID+"/offers", nil, nil)
 		offers, _ := r.body["data"].([]any)
 		for _, o := range offers {
 			m, _ := o.(map[string]any)
@@ -344,13 +344,13 @@ func (a *apiTest) findSellableOffer() string {
 func (a *apiTest) buildCheckoutReadyToComplete(email, phone string) string {
 	a.t.Helper()
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		a.t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		a.t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}

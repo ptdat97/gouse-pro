@@ -72,7 +72,7 @@ func main() {
 	}
 }
 
-// moiChecker dựng checker với BỘ SỔ THẬT của dự án.
+// newChecker dựng checker với BỘ SỔ THẬT của dự án.
 //
 // Một hàm dựng duy nhất, dùng bởi `main` và bởi `TestTheRealProjectIsClean`. Dựng
 // bằng tay ở hai chỗ là hai chỗ để quên một sổ — và nó đã xảy ra: thêm sổ
@@ -96,7 +96,7 @@ type checker struct {
 	noPublisher map[string]string
 	noListener  map[string]string
 
-	// chiOWorker là SỔ MIỄN TRỪ của R4, khóa là tên hàm tạo bên nhận.
+	// onlyInWorker là SỔ MIỄN TRỪ của R4, khóa là tên hàm tạo bên nhận.
 	//
 	// Là TRƯỜNG chứ không đọc thẳng biến gói, cùng lý do hai sổ trên: bộ
 	// test của công cụ đo phép đối chiếu, không đo nội dung sổ của dự án
@@ -131,7 +131,7 @@ func (c *checker) run() error {
 	return c.compareReceiverSets()
 }
 
-// reTenEvent khớp dạng `mien.su_kien` — quy ước đặt tên của eventbus.
+// reEventName khớp dạng `mien.su_kien` — quy ước đặt tên của eventbus.
 var reEventName = regexp.MustCompile(`^[a-z][a-z_]*\.[a-z][a-z_]*$`)
 
 // readDeclarations đọc bảng hằng số loại event.

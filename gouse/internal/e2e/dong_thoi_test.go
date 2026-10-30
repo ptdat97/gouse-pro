@@ -332,11 +332,11 @@ func TestConcurrentCompletionCreatesNoStockFromNothing(t *testing.T) {
 	}
 
 	// BẢO TOÀN. Đây là khẳng định chính của bài test.
-	if tong := avail + held + committed; tong != location {
+	if sumTotal := avail + held + committed; sumTotal != location {
 		t.Errorf("available(%d) + reserved(%d) + committed(%d) = %d, "+
 			"nhưng chỉ nhập %d món — hàng %s",
-			avail, held, committed, tong, location,
-			map[bool]string{true: "SINH RA TỪ KHÔNG KHÍ", false: "BỐC HƠI"}[tong > location])
+			avail, held, committed, sumTotal, location,
+			map[bool]string{true: "SINH RA TỪ KHÔNG KHÍ", false: "BỐC HƠI"}[sumTotal > location])
 	}
 
 	// Và hàng phải đi HẾT sang đã-cam-kết: mỗi đơn đặt được là một món
@@ -411,9 +411,9 @@ func TestDrainingTheOutboxTwiceDoesNotDeductStockTwice(t *testing.T) {
 	}
 
 	held := w.reserved(skuID, shop)
-	if tong := availAfter2 + held + committedAfter2; tong != location {
+	if sumTotal := availAfter2 + held + committedAfter2; sumTotal != location {
 		t.Errorf("available(%d) + reserved(%d) + committed(%d) = %d, "+
-			"nhưng chỉ nhập %d món", availAfter2, held, committedAfter2, tong, location)
+			"nhưng chỉ nhập %d món", availAfter2, held, committedAfter2, sumTotal, location)
 	}
 	if committedAfter2 != 2 {
 		t.Errorf("đã cam kết %d, cần đúng 2 (số món khách mua)", committedAfter2)

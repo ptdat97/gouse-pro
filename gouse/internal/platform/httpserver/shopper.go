@@ -71,7 +71,7 @@ const guestSessionCookie = "shopper_session"
 // visitHeader là header mang mã lượt truy cập.
 const visitHeader = "X-Visit-Id"
 
-// visitIDToiDa khớp `maxLength` của `session_id` trong đặc tả đường thu
+// visitIDMaxLen khớp `maxLength` của `session_id` trong đặc tả đường thu
 // sự kiện: cùng một mã đi cả hai đường nên phải cùng một giới hạn.
 const visitIDMaxLen = 128
 

@@ -81,16 +81,16 @@ func TestASellerProfileGoesFromSubmitToApproval(t *testing.T) {
 		t.Fatalf("duyệt hồ sơ đã qua rà soát: HTTP %d — %s", res.code, res.raw)
 	}
 
-	xem, err := a.mods.seller.GetSeller(ctx, sel.ID)
+	peek, err := a.mods.seller.GetSeller(ctx, sel.ID)
 	if err != nil {
 		t.Fatalf("đọc lại hồ sơ: %v", err)
 	}
-	if xem.Status != "APPROVED" {
-		t.Errorf("trạng thái cuối = %q, cần APPROVED", xem.Status)
+	if peek.Status != "APPROVED" {
+		t.Errorf("trạng thái cuối = %q, cần APPROVED", peek.Status)
 	}
-	if xem.CommissionRateBP != 1000 {
+	if peek.CommissionRateBP != 1000 {
 		t.Errorf("hoa hồng = %d, cần 1000 — tỷ lệ lúc duyệt không được ghi",
-			xem.CommissionRateBP)
+			peek.CommissionRateBP)
 	}
 }
 

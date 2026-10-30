@@ -290,7 +290,7 @@ func TestTheRealProjectMatches(t *testing.T) {
 
 // ------------------------------------------------------------- Tầng HEADER
 
-// chayHeader chạy công cụ với hai sổ header truyền vào.
+// runHeader chạy công cụ với hai sổ header truyền vào.
 func runHeaderCheck(
 	t *testing.T, root2 string, outsideSpec, notViaBrowser map[string]string,
 ) *checker {
@@ -691,7 +691,7 @@ func TestCatchesARenamedGoType(t *testing.T) {
 
 // ---------------------------------------------------------------- Tầng DTO
 
-// chayDTO chạy công cụ với sổ ghép DTO truyền vào.
+// runDTO chạy công cụ với sổ ghép DTO truyền vào.
 //
 // `nguong` truyền tay từng bài: chốt của dự án thật (20) sẽ biến mọi bài ở
 // đây thành "thiếu 20 schema chưa gác".
@@ -713,30 +713,30 @@ func runDTOCheck(t *testing.T, root2 string, pair []dtoPair, ledger int) *checke
 }
 
 // rowSchema là một schema có ba thuộc tính, dạng thật của đặc tả.
-const rowSchema = `Hang:
+const rowSchema = `Row:
   type: object
-  required: [id, ten]
+  required: [id, name]
   description: |
     Một mô tả nhiều dòng, để chắc rằng phép đọc không nhầm nó thành
     thuộc tính.
   properties:
     id:
       $ref: './common.yaml#/schemas/Id'
-    ten:
+    name:
       type: string
-    nhom:
+    group:
       type: object
-      description: Object LỒNG — thuộc tính của nó KHÔNG phải của Hang.
+      description: Object LỒNG — thuộc tính của nó KHÔNG phải của Row.
       properties:
-        ma:
+        code:
           type: string
-        nhan:
+        label:
           type: string
 `
 
 // rowDTO dựng struct Go phục vụ schema trên.
 func rowDTO(fields ...string) string {
-	s := "package http\n\ntype hangJSON struct {\n"
+	s := "package http\n\ntype rowJSON struct {\n"
 	for _, t := range fields {
 		s += "\tX" + t + " string `json:\"" + t + "\"`\n"
 	}
@@ -749,19 +749,19 @@ func dtoProject(t *testing.T, schema, dto string) string {
 	root2 := project(t, oneRouteOpenAPI,
 		map[string]string{"things.yaml": oneRoutePaths}, oneRouteGo)
 	override(t, root2, "api/components/schemas.yaml", schema)
-	override(t, root2, "internal/modules/hang/interfaces/http/dto.go", dto)
+	override(t, root2, "internal/modules/row/interfaces/http/dto.go", dto)
 	return root2
 }
 
 func rowPairs(allowMissing map[string]string) []dtoPair {
 	return []dtoPair{{
-		Schema: "Hang", GoPkg: "modules/hang/interfaces/http",
-		GoType: "hangJSON", AllowMissing: allowMissing, Reason: "hàng thử",
+		Schema: "Row", GoPkg: "modules/row/interfaces/http",
+		GoType: "rowJSON", AllowMissing: allowMissing, Reason: "hàng thử",
 	}}
 }
 
 func TestAMatchingDTOReportsNoViolation(t *testing.T) {
-	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "name", "group"))
 
 	if c := runDTOCheck(t, root2, rowPairs(nil), 0); len(c.violations) != 0 {
 		t.Fatalf("mong 0 vi phạm, nhận: %v", c.violations)
@@ -777,7 +777,7 @@ func TestAMatchingDTOReportsNoViolation(t *testing.T) {
 // máy trạng thái "đã vào object lồng" và không bao giờ ra, nên `Checkout`
 // chỉ đọc được 7 trong 12 thuộc tính.
 func TestDTONestedPropertiesDoNotCount(t *testing.T) {
-	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "name", "group"))
 
 	c := runDTOCheck(t, root2, rowPairs(nil), 0)
 	for _, v := range c.violations {
@@ -789,13 +789,13 @@ func TestDTONestedPropertiesDoNotCount(t *testing.T) {
 
 // ĐÂY LÀ DẠNG LỖI đã xảy ra năm lần: đặc tả có, DTO không có.
 func TestDTOCatchesASpecFieldMissingFromGo(t *testing.T) {
-	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten")) // thiếu `nhom`
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "name")) // thiếu `group`
 
 	c := runDTOCheck(t, root2, rowPairs(nil), 0)
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.violations[0], "nhom") {
+	if !strings.Contains(c.violations[0], "group") {
 		t.Fatalf("phải gọi tên trường thiếu: %s", c.violations[0])
 	}
 }
@@ -805,36 +805,36 @@ func TestDTOCatchesASpecFieldMissingFromGo(t *testing.T) {
 // Không ai biết nó tồn tại để dùng, và xóa nó đi là thay đổi PHÁ VỠ không
 // ai nhận ra.
 func TestDTOCatchesAGoFieldOutsideTheContract(t *testing.T) {
-	root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom", "bi_mat"))
+	root2 := dtoProject(t, rowSchema, rowDTO("id", "name", "group", "secret"))
 
 	c := runDTOCheck(t, root2, rowPairs(nil), 0)
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.violations[0], "bi_mat") {
+	if !strings.Contains(c.violations[0], "secret") {
 		t.Fatalf("phải gọi tên trường thừa: %s", c.violations[0])
 	}
 }
 
 // `AllowMissing` tắt được một trường, và CHỈ trường ấy.
 func TestDTOAllowMissingSilencesExactlyOneField(t *testing.T) {
-	root2 := dtoProject(t, rowSchema, rowDTO("id")) // thiếu `ten` và `nhom`
+	root2 := dtoProject(t, rowSchema, rowDTO("id")) // thiếu `name` và `group`
 
-	c := runDTOCheck(t, root2, rowPairs(map[string]string{"nhom": "chưa làm"}), 0)
+	c := runDTOCheck(t, root2, rowPairs(map[string]string{"group": "chưa làm"}), 0)
 	if len(c.violations) != 1 {
-		t.Fatalf("mong 1 vi phạm (còn `ten`), nhận %d: %v",
+		t.Fatalf("mong 1 vi phạm (còn `name`), nhận %d: %v",
 			len(c.violations), c.violations)
 	}
-	if !strings.Contains(c.violations[0], "ten") ||
-		strings.Contains(c.violations[0], "nhom") {
-		t.Fatalf("phải còn kêu `ten` và im về `nhom`: %s", c.violations[0])
+	if !strings.Contains(c.violations[0], "name") ||
+		strings.Contains(c.violations[0], "group") {
+		t.Fatalf("phải còn kêu `name` và im về `group`: %s", c.violations[0])
 	}
 }
 
 // Hai cách một dòng `AllowMissing` thành NÓI DỐI.
 func TestDTOAllowMissingThatLiesIsCaught(t *testing.T) {
 	t.Run("trường không còn trong đặc tả", func(t *testing.T) {
-		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "name", "group"))
 		c := runDTOCheck(t, root2, rowPairs(map[string]string{"da_xoa": "lý do cũ"}), 0)
 		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "da_xoa") {
 			t.Fatalf("mong 1 vi phạm về `da_xoa`, nhận: %v", c.violations)
@@ -842,8 +842,8 @@ func TestDTOAllowMissingThatLiesIsCaught(t *testing.T) {
 	})
 
 	t.Run("Go ĐÃ trả trường ấy", func(t *testing.T) {
-		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
-		c := runDTOCheck(t, root2, rowPairs(map[string]string{"ten": "nói là chưa trả"}), 0)
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "name", "group"))
+		c := runDTOCheck(t, root2, rowPairs(map[string]string{"name": "nói là chưa trả"}), 0)
 		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "ĐÃ trả") {
 			t.Fatalf("mong 1 vi phạm \"Go ĐÃ trả\", nhận: %v", c.violations)
 		}
@@ -853,20 +853,20 @@ func TestDTOAllowMissingThatLiesIsCaught(t *testing.T) {
 // Sổ ghép trỏ tới schema hoặc struct KHÔNG CÒN phải bị bắt.
 func TestDTOCatchesALedgerEntryPointingWrong(t *testing.T) {
 	t.Run("schema không tồn tại", func(t *testing.T) {
-		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "name", "group"))
 		c := runDTOCheck(t, root2, []dtoPair{{
-			Schema: "KhongCo", GoPkg: "modules/hang/interfaces/http",
-			GoType: "hangJSON", Reason: "thử",
+			Schema: "Missing", GoPkg: "modules/row/interfaces/http",
+			GoType: "rowJSON", Reason: "thử",
 		}}, 1)
-		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "KhongCo") {
+		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "Missing") {
 			t.Fatalf("mong 1 vi phạm về schema chết, nhận: %v", c.violations)
 		}
 	})
 
 	t.Run("struct không tồn tại", func(t *testing.T) {
-		root2 := dtoProject(t, rowSchema, rowDTO("id", "ten", "nhom"))
+		root2 := dtoProject(t, rowSchema, rowDTO("id", "name", "group"))
 		c := runDTOCheck(t, root2, []dtoPair{{
-			Schema: "Hang", GoPkg: "modules/hang/interfaces/http",
+			Schema: "Row", GoPkg: "modules/row/interfaces/http",
 			GoType: "khongCoJSON", Reason: "thử",
 		}}, 0)
 		if len(c.violations) != 1 || !strings.Contains(c.violations[0], "khongCoJSON") {
@@ -878,14 +878,14 @@ func TestDTOCatchesALedgerEntryPointingWrong(t *testing.T) {
 // Chốt schema chưa gác CHỈ ĐƯỢC GIẢM.
 func TestTheUngatedDTORatchetOnlyGoesDown(t *testing.T) {
 	root2 := dtoProject(t, rowSchema+`
-HangKhac:
+OtherRow:
   type: object
   properties:
     x:
       type: string
-`, rowDTO("id", "ten", "nhom"))
+`, rowDTO("id", "name", "group"))
 
-	// `HangKhac` chưa gác → chốt phải là 1.
+	// `OtherRow` chưa gác → chốt phải là 1.
 	if c := runDTOCheck(t, root2, rowPairs(nil), 1); len(c.violations) != 0 {
 		t.Fatalf("chốt đúng thì phải im: %v", c.violations)
 	}

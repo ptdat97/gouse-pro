@@ -21,11 +21,11 @@ var _ fulfillmenthttp.WebhookLog = (*webhookLog)(nil)
 func (g *webhookLog) Log(
 	ctx context.Context, provider, eventID, eventKind string, than []byte,
 ) (fulfillmenthttp.LoggedEvent, error) {
-	su, err := g.r.Log(ctx, provider, eventID, eventKind, than)
+	logEntry, err := g.r.Log(ctx, provider, eventID, eventKind, than)
 	return fulfillmenthttp.LoggedEvent{
-		ID:              su.ID,
-		AlreadyReceived: su.AlreadyReceived,
-		AlreadyDone:     su.AlreadyDone,
+		ID:              logEntry.ID,
+		AlreadyReceived: logEntry.AlreadyReceived,
+		AlreadyDone:     logEntry.AlreadyDone,
 	}, err
 }
 
@@ -33,12 +33,12 @@ func (g *webhookLog) MarkDone(ctx context.Context, id string, errs error) error 
 	return g.r.MarkDone(ctx, id, errs)
 }
 
-// biMatWebhook tra khóa HMAC theo mã nhà cung cấp.
+// webhookSecrets tra khóa HMAC theo mã nhà cung cấp.
 //
 // Nhà cung cấp không có trong cấu hình trả chuỗi RỖNG, và
 // httpserver.VerifyHMAC coi khóa rỗng là chữ ký không hợp lệ. Mặc định
 // là ĐÓNG: hãng chưa cấu hình thì không gửi được gì vào hệ thống.
-func biMatWebhook(table map[string]string) fulfillmenthttp.ProviderSecret {
+func webhookSecrets(table map[string]string) fulfillmenthttp.ProviderSecret {
 	return func(provider string) string { return table[provider] }
 }
 
@@ -55,11 +55,11 @@ var _ paymenthttp.WebhookLog = (*paymentWebhookLog)(nil)
 func (g *paymentWebhookLog) Log(
 	ctx context.Context, provider, eventID, eventKind string, than []byte,
 ) (paymenthttp.LoggedEvent, error) {
-	su, err := g.r.Log(ctx, provider, eventID, eventKind, than)
+	logEntry, err := g.r.Log(ctx, provider, eventID, eventKind, than)
 	return paymenthttp.LoggedEvent{
-		ID:              su.ID,
-		AlreadyReceived: su.AlreadyReceived,
-		AlreadyDone:     su.AlreadyDone,
+		ID:              logEntry.ID,
+		AlreadyReceived: logEntry.AlreadyReceived,
+		AlreadyDone:     logEntry.AlreadyDone,
 	}, err
 }
 

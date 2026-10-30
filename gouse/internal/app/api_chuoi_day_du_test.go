@@ -31,7 +31,7 @@ func TestTheFullPrepaidChain(t *testing.T) {
 	ctx := context.Background()
 
 	// ---- Product → Offer → Cart → Checkout → Order ----
-	orderID, tong := a.prepaidOrder(t, newEmail("chuoi"), "0900777111")
+	orderID, sumTotal := a.prepaidOrder(t, newEmail("chuoi"), "0900777111")
 
 	if tt := a.orderStatus(t, orderID); tt != "PENDING_PAYMENT" {
 		t.Fatalf("sau khi đặt: trạng thái = %q, cần PENDING_PAYMENT", tt)
@@ -67,7 +67,7 @@ func TestTheFullPrepaidChain(t *testing.T) {
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
 			"payment_intent_id": "pi_chuoi_1",
-			"amount":            tong,
+			"amount":            sumTotal,
 			"currency":          "VND",
 			"metadata":          map[string]any{"order_id": orderID},
 		},
@@ -92,8 +92,8 @@ func TestTheFullPrepaidChain(t *testing.T) {
 	if receivable != 0 {
 		t.Errorf("sau khi thu tiền: phải thu = %d, cần 0", receivable)
 	}
-	if cash != int64(tong) {
-		t.Errorf("tiền mặt = %d, cần %d — đúng số tiền đã thu", cash, tong)
+	if cash != int64(sumTotal) {
+		t.Errorf("tiền mặt = %d, cần %d — đúng số tiền đã thu", cash, sumTotal)
 	}
 
 	res = a.call(http.MethodPost,
@@ -124,17 +124,17 @@ func TestTheFullPrepaidChain(t *testing.T) {
 	}
 
 	// Bất biến cuối cùng của mọi sổ kép: Σ NỢ = Σ CÓ.
-	var no, co int64
+	var no, present int64
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'DEBIT'), 0),
 		       COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'CREDIT'), 0)
 		  FROM ledger_line  l
 		  JOIN ledger_entry e ON e.id = l.entry_id
-		 WHERE e.reference_id = $1`, orderID).Scan(&no, &co); err != nil {
+		 WHERE e.reference_id = $1`, orderID).Scan(&no, &present); err != nil {
 		t.Fatalf("đọc sổ cái: %v", err)
 	}
-	if no != co {
-		t.Errorf("sổ cái LỆCH: Σ nợ = %d, Σ có = %d", no, co)
+	if no != present {
+		t.Errorf("sổ cái LỆCH: Σ nợ = %d, Σ có = %d", no, present)
 	}
 }
 
@@ -211,16 +211,16 @@ func TestTheFullChainWithADiscount(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	const ma = "CHUOIGIAM10"
-	a.buildCoupon(t, ma, 1000) // giảm 10%
+	const couponCode = "CHUOIGIAM10"
+	a.buildCoupon(t, couponCode, 1000) // giảm 10%
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -237,7 +237,7 @@ func TestTheFullChainWithADiscount(t *testing.T) {
 	checkoutID, _ := res.body["id"].(string)
 
 	if got := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
-		map[string]any{"code": ma}, idemKey()); got.code != http.StatusOK {
+		map[string]any{"code": couponCode}, idemKey()); got.code != http.StatusOK {
 		t.Fatalf("áp mã: HTTP %d — %s", got.code, got.raw)
 	}
 	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
@@ -256,8 +256,8 @@ func TestTheFullChainWithADiscount(t *testing.T) {
 	}
 	ord, _ := res.body["order"].(map[string]any)
 	orderID, _ := ord["id"].(string)
-	tong, _ := ord["total"].(map[string]any)
-	amount := int64(tong["amount"].(float64))
+	sumTotal, _ := ord["total"].(map[string]any)
+	amount := int64(sumTotal["amount"].(float64))
 
 	a.emitEvent(t)
 
@@ -294,16 +294,16 @@ func TestTheFullChainWithADiscount(t *testing.T) {
 		t.Errorf("tiền mặt = %d, cần %d", cash, amount)
 	}
 
-	var no, co int64
+	var no, present int64
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'DEBIT'), 0),
 		       COALESCE(SUM(l.amount) FILTER (WHERE l.direction = 'CREDIT'), 0)
 		  FROM ledger_line  l
 		  JOIN ledger_entry e ON e.id = l.entry_id
-		 WHERE e.reference_id = $1`, orderID).Scan(&no, &co); err != nil {
+		 WHERE e.reference_id = $1`, orderID).Scan(&no, &present); err != nil {
 		t.Fatalf("đọc sổ cái: %v", err)
 	}
-	if no != co {
-		t.Errorf("sổ cái LỆCH: Σ nợ = %d, Σ có = %d", no, co)
+	if no != present {
+		t.Errorf("sổ cái LỆCH: Σ nợ = %d, Σ có = %d", no, present)
 	}
 }

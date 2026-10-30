@@ -45,16 +45,16 @@ func countFailures(t *testing.T, stage, reason string) float64 {
 }
 
 func labelMatches(m *dto.Metric, stage, reason string) bool {
-	var coStage, coReason bool
+	var hasStage, hasReason bool
 	for _, l := range m.GetLabel() {
 		switch l.GetName() {
 		case "stage":
-			coStage = l.GetValue() == stage
+			hasStage = l.GetValue() == stage
 		case "reason":
-			coReason = l.GetValue() == reason
+			hasReason = l.GetValue() == reason
 		}
 	}
-	return coStage && coReason
+	return hasStage && hasReason
 }
 
 // TestPaymentFailuresAreCounted: bút toán không cân bằng phải được đếm, và đếm dưới

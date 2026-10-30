@@ -220,7 +220,7 @@ func TestASellerDoesNotSeeTheSigner(t *testing.T) {
 	}
 
 	d, _ := res.body["settlement"].(map[string]any)
-	if moc, _ := d["confirmed_at"].(string); moc == "" {
+	if milestone, _ := d["confirmed_at"].(string); milestone == "" {
 		t.Error("nhà bán KHÔNG thấy mốc xác nhận — đó là câu họ hỏi nhiều " +
 			"nhất về một đợt")
 	}
@@ -326,8 +326,8 @@ func TestTheSettlementListDistinguishesAdminFromSeller(t *testing.T) {
 	if res.code != http.StatusOK {
 		t.Fatalf("lọc trạng thái lạ: HTTP %d — %s", res.code, res.raw)
 	}
-	if lac, _ := res.body["data"].([]any); len(lac) != 0 {
+	if rows, _ := res.body["data"].([]any); len(rows) != 0 {
 		t.Errorf("trạng thái lạ trả %d đợt, cần 0 — một lỗi đánh máy ở ô lọc "+
-			"không được thành \"cho xem hết\"", len(lac))
+			"không được thành \"cho xem hết\"", len(rows))
 	}
 }

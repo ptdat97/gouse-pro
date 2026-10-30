@@ -52,7 +52,7 @@ func TestTheOrderLifecycleRunsToCompletion(t *testing.T) {
 	// bàn giao được món hàng chưa nhặt khỏi kệ.
 	for _, steps := range []struct {
 		ten string
-		lam func() error
+		act func() error
 	}{
 		{"xác nhận", func() error { return a.mods.fulfillment.ConfirmFulfillment(ctx, fo.sellerID, fo.id) }},
 		{"nhặt hàng", func() error { return a.mods.fulfillment.MarkPicking(ctx, fo.sellerID, fo.id) }},
@@ -64,7 +64,7 @@ func TestTheOrderLifecycleRunsToCompletion(t *testing.T) {
 			})
 		}},
 	} {
-		if err := steps.lam(); err != nil {
+		if err := steps.act(); err != nil {
 			t.Fatalf("%s: %v", steps.ten, err)
 		}
 	}

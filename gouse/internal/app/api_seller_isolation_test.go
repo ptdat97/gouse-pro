@@ -246,12 +246,12 @@ func buildOpenBrandSKU(t *testing.T, a *apiTest) string {
 			},
 		})
 	if err != nil {
-		san, searchErr := a.mods.catalog.Service().GetSizeChartFor(
+		listing, searchErr := a.mods.catalog.Service().GetSizeChartFor(
 			ctx, brandID, catalogdom.ProductTypeTop)
 		if searchErr != nil {
 			t.Fatalf("tạo bảng size: %v", err)
 		}
-		chart = san
+		chart = listing
 	}
 
 	cats, err := a.mods.catalog.GetCategoryTree(ctx)

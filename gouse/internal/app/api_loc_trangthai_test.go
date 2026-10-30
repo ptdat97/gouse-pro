@@ -65,13 +65,13 @@ func (a *apiTest) buildOrdersWithEmail(t *testing.T, n int) builtOrder {
 	// thì lưu chữ thường. So sánh hai cột đó phải hạ chữ CẢ HAI bên, không
 	// chỉ tham số — khớp hụt ở đây thì không đơn nào được gắn vào khách và
 	// mọi khẳng định bên dưới chạy trên danh sách rỗng.
-	gan, err := a.db.Pool().Exec(ctx,
+	assign, err := a.db.Pool().Exec(ctx,
 		`UPDATE "order" SET customer_id = $1 WHERE lower(guest_email) = lower($2)`,
 		customerID, email)
 	if err != nil {
 		t.Fatalf("gắn đơn vào khách: %v", err)
 	}
-	if got := gan.RowsAffected(); got != int64(n) {
+	if got := assign.RowsAffected(); got != int64(n) {
 		t.Fatalf("gắn được %d/%d đơn vào khách", got, n)
 	}
 
@@ -241,8 +241,8 @@ func (a *apiTest) readPage(t *testing.T, tok, query string) ([]string, string) {
 		ids = append(ids, id)
 	}
 	pg, _ := res.body["pagination"].(map[string]any)
-	con, _ := pg["next_cursor"].(string)
-	return ids, con
+	leftover, _ := pg["next_cursor"].(string)
+	return ids, leftover
 }
 
 // TestPagingNeverRepeatsARecord.
@@ -261,23 +261,23 @@ func TestPagingNeverRepeatsARecord(t *testing.T) {
 	d := a.buildOrdersWithEmail(t, 6)
 	tok := d.token
 
-	page1, con := a.readPage(t, tok, "limit=3")
-	if len(page1) != 3 || con == "" {
+	page1, leftover := a.readPage(t, tok, "limit=3")
+	if len(page1) != 3 || leftover == "" {
 		t.Fatalf("trang 1 có %d đơn, con trỏ %q — cần 3 đơn và còn trang sau",
-			len(page1), con)
+			len(page1), leftover)
 	}
 
 	// Khách đặt thêm một đơn TRƯỚC khi bấm "xem thêm".
 	a.addLatestOrder(t, d.email, d.custID)
 
-	page2, _ := a.readPage(t, tok, "limit=3&cursor="+url.QueryEscape(con))
+	page2, _ := a.readPage(t, tok, "limit=3&cursor="+url.QueryEscape(leftover))
 
-	da := map[string]bool{}
+	seen := map[string]bool{}
 	for _, id := range page1 {
-		da[id] = true
+		seen[id] = true
 	}
 	for _, id := range page2 {
-		if da[id] {
+		if seen[id] {
 			t.Errorf("đơn %s xuất hiện ở CẢ trang 1 và trang 2 — con trỏ là "+
 				"offset, nên đơn mới xen vào đầu đẩy mọi bản ghi lùi một "+
 				"bậc\ntrang 1: %v\ntrang 2: %v", id, page1, page2)
@@ -297,7 +297,7 @@ func TestPagingWalksTheWholeList(t *testing.T) {
 	count := map[string]int{}
 	query, pageCount := "limit=2", 0
 	for {
-		ids, con := a.readPage(t, d.token, query)
+		ids, leftover := a.readPage(t, d.token, query)
 		for _, id := range ids {
 			count[id]++
 		}
@@ -305,10 +305,10 @@ func TestPagingWalksTheWholeList(t *testing.T) {
 		if pageCount > 20 {
 			t.Fatal("đi quá 20 trang cho 7 đơn — con trỏ không tiến")
 		}
-		if con == "" {
+		if leftover == "" {
 			break
 		}
-		query = "limit=2&cursor=" + url.QueryEscape(con)
+		query = "limit=2&cursor=" + url.QueryEscape(leftover)
 	}
 
 	if len(count) != 7 {
@@ -374,7 +374,7 @@ func TestPagingWhenTimestampsCollide(t *testing.T) {
 	count := map[string]int{}
 	query, pageCount := "limit=2", 0
 	for {
-		ids, con := a.readPage(t, d.token, query)
+		ids, leftover := a.readPage(t, d.token, query)
 		for _, id := range ids {
 			count[id]++
 		}
@@ -382,10 +382,10 @@ func TestPagingWhenTimestampsCollide(t *testing.T) {
 		if pageCount > 20 {
 			t.Fatal("đi quá 20 trang cho 7 đơn — con trỏ không tiến")
 		}
-		if con == "" {
+		if leftover == "" {
 			break
 		}
-		query = "limit=2&cursor=" + url.QueryEscape(con)
+		query = "limit=2&cursor=" + url.QueryEscape(leftover)
 	}
 
 	if len(count) != 7 {

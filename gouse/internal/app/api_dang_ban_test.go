@@ -57,8 +57,8 @@ func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	if res.code != http.StatusCreated {
 		t.Fatalf("tạo sản phẩm: HTTP %d — %s", res.code, res.raw)
 	}
-	maSP, _ := res.body["id"].(string)
-	if maSP == "" {
+	productID, _ := res.body["id"].(string)
+	if productID == "" {
 		t.Fatalf("không trả mã sản phẩm: %s", res.raw)
 	}
 	if res.body["status"] != "DRAFT" {
@@ -67,12 +67,12 @@ func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	}
 
 	// Khách CHƯA thấy: hàng nháp không được lộ.
-	if got := a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, nil); got.code != http.StatusNotFound {
+	if got := a.call(http.MethodGet, "/api/v1/products/"+productID, nil, nil); got.code != http.StatusNotFound {
 		t.Errorf("khách xem hàng DRAFT: HTTP %d, cần 404", got.code)
 	}
 
 	// ---- Gửi duyệt khi CHƯA có biến thể: phải bị chặn ----
-	res = a.call(http.MethodPost, "/api/v1/seller/products/"+maSP+"/submit", nil, nbHeaders)
+	res = a.call(http.MethodPost, "/api/v1/seller/products/"+productID+"/submit", nil, nbHeaders)
 	if res.code < 400 {
 		t.Errorf("gửi duyệt khi chưa có biến thể: HTTP %d, cần lỗi — "+
 			"CheckReadyForReview tồn tại để chặn đúng chỗ này", res.code)
@@ -83,7 +83,7 @@ func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	// Mã màu là nửa còn lại của P3-22, và nó bị chặn cho tới khi có chỗ
 	// nhập liệu — tức là cho tới chính commit này. Cố ý nhập chữ THƯỜNG
 	// để kiểm luôn phép chuẩn hóa.
-	res = a.call(http.MethodPost, "/api/v1/seller/products/"+maSP+"/variants", map[string]any{
+	res = a.call(http.MethodPost, "/api/v1/seller/products/"+productID+"/variants", map[string]any{
 		"attributes": map[string]string{
 			"color": "Đen", "size": "M", "color_hex": "#1b2a49",
 		},
@@ -98,7 +98,7 @@ func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	}
 
 	// ---- Gửi duyệt ----
-	res = a.call(http.MethodPost, "/api/v1/seller/products/"+maSP+"/submit", nil, nbHeaders)
+	res = a.call(http.MethodPost, "/api/v1/seller/products/"+productID+"/submit", nil, nbHeaders)
 	if res.code != http.StatusOK {
 		t.Fatalf("gửi duyệt: HTTP %d — %s", res.code, res.raw)
 	}
@@ -107,7 +107,7 @@ func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	}
 
 	// Vẫn CHƯA ra cửa hàng: chờ duyệt không phải đã duyệt.
-	if got := a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, nil); got.code != http.StatusNotFound {
+	if got := a.call(http.MethodGet, "/api/v1/products/"+productID, nil, nil); got.code != http.StatusNotFound {
 		t.Errorf("khách xem hàng PENDING_REVIEW: HTTP %d, cần 404", got.code)
 	}
 
@@ -119,11 +119,11 @@ func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	if res.code != http.StatusOK {
 		t.Fatalf("xem hàng chờ duyệt: HTTP %d — %s", res.code, res.raw)
 	}
-	if !isInList(res, maSP) {
+	if !isInList(res, productID) {
 		t.Errorf("sản phẩm vừa gửi KHÔNG có trong danh sách chờ duyệt")
 	}
 
-	res = a.call(http.MethodPost, "/api/v1/admin/products/"+maSP+"/approve", nil, vhHeaders)
+	res = a.call(http.MethodPost, "/api/v1/admin/products/"+productID+"/approve", nil, vhHeaders)
 	if res.code != http.StatusOK {
 		t.Fatalf("duyệt: HTTP %d — %s", res.code, res.raw)
 	}
@@ -132,7 +132,7 @@ func TestASellerPublishesAProductOverTheAPI(t *testing.T) {
 	}
 
 	// ---- Khách NAY mới thấy, KÈM ô màu thật ----
-	got := a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, nil)
+	got := a.call(http.MethodGet, "/api/v1/products/"+productID, nil, nil)
 	if got.code != http.StatusOK {
 		t.Fatalf("khách xem hàng ĐÃ DUYỆT: HTTP %d, cần 200 — %s", got.code, got.raw)
 	}
@@ -179,7 +179,7 @@ func TestASellerCannotEditAnothersGoods(t *testing.T) {
 	if res.code != http.StatusCreated {
 		t.Fatalf("A tạo sản phẩm: HTTP %d — %s", res.code, res.raw)
 	}
-	maSP, _ := res.body["id"].(string)
+	productID, _ := res.body["id"].(string)
 
 	// Gian hàng B cầm token của mình, thử đụng vào hàng của A.
 	sellerB := ids.MustNew(ids.PrefixSeller).String()
@@ -192,11 +192,11 @@ func TestASellerCannotEditAnothersGoods(t *testing.T) {
 	}{
 		{"gửi duyệt", func() reply {
 			return a.call(http.MethodPost,
-				"/api/v1/seller/products/"+maSP+"/submit", nil, bHeaders)
+				"/api/v1/seller/products/"+productID+"/submit", nil, bHeaders)
 		}},
 		{"thêm biến thể", func() reply {
 			return a.call(http.MethodPost,
-				"/api/v1/seller/products/"+maSP+"/variants", map[string]any{
+				"/api/v1/seller/products/"+productID+"/variants", map[string]any{
 					"attributes": map[string]string{"color": "Đỏ", "size": "L"},
 					"skus": []map[string]any{{
 						"sku_code": "B-" + ids.MustNew(ids.PrefixRequest).String()[22:],
@@ -242,12 +242,12 @@ func (a *apiTest) openBrandAndSizeChart(t *testing.T) (brandID, chartID, catID s
 			},
 		})
 	if err != nil {
-		san, searchErr := a.mods.catalog.Service().GetSizeChartFor(
+		listing, searchErr := a.mods.catalog.Service().GetSizeChartFor(
 			ctx, bid, catalogdom.ProductTypeTop)
 		if searchErr != nil {
 			t.Fatalf("tạo bảng size: %v", err)
 		}
-		chart = san
+		chart = listing
 	}
 
 	cats, err := a.mods.catalog.GetCategoryTree(ctx)
@@ -257,11 +257,11 @@ func (a *apiTest) openBrandAndSizeChart(t *testing.T) (brandID, chartID, catID s
 	return bid.String(), chart.ID().String(), cats[0].ID
 }
 
-func isInList(res reply, maSP string) bool {
+func isInList(res reply, productID string) bool {
 	ds, _ := res.body["data"].([]any)
 	for _, item := range ds {
 		m, _ := item.(map[string]any)
-		if m["id"] == maSP {
+		if m["id"] == productID {
 			return true
 		}
 	}

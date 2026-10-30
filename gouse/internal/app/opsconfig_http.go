@@ -34,7 +34,7 @@ type opsConfigHandler struct {
 
 func (h *opsConfigHandler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/config", http.HandlerFunc(h.listed))
-	mux.Handle("PUT /api/v1/admin/config/{key}", http.HandlerFunc(h.dat))
+	mux.Handle("PUT /api/v1/admin/config/{key}", http.HandlerFunc(h.place))
 }
 
 type paramJSON struct {
@@ -71,7 +71,7 @@ func (h *opsConfigHandler) listed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ra := make([]paramJSON, 0, len(ds))
+	collected := make([]paramJSON, 0, len(ds))
 	for _, g := range ds {
 		t := paramJSON{
 			Key: g.Param.Key, Type: string(g.Param.Kind),
@@ -86,9 +86,9 @@ func (h *opsConfigHandler) listed(w http.ResponseWriter, r *http.Request) {
 		if !g.UpdatedAt.IsZero() {
 			t.UpdatedAt = g.UpdatedAt.UTC().Format(time.RFC3339)
 		}
-		ra = append(ra, t)
+		collected = append(collected, t)
 	}
-	h.ok(w, r, map[string]any{"data": ra})
+	h.ok(w, r, map[string]any{"data": collected})
 }
 
 type setRequestParam struct {
@@ -109,10 +109,10 @@ type setRequestParam struct {
 //
 // Ghi vết TRƯỚC khi đổi, và ghi vết hỏng thì KHÔNG đổi — cùng thứ tự với
 // `order.GetOrderAsAdmin` và `customer.GetAsAdmin`.
-func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
+func (h *opsConfigHandler) place(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
-	param, co := opsconfig.Lookup(key)
-	if !co {
+	param, present := opsconfig.Lookup(key)
+	if !present {
 		// 404 chứ không phải 400: khóa là một tài nguyên, và sổ đăng ký
 		// ĐÓNG nên khóa lạ đơn giản là không tồn tại.
 		h.fail(w, r, apierror.New(apierror.CodeNotFound,
@@ -163,14 +163,14 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 	//
 	// Dùng WriteSensitive chứ không WriteTx: đây đúng là thao tác nhạy
 	// cảm, và nó cưỡng chế lý do thêm một lần ở chốt cuối.
-	var cu float64
+	var previous float64
 	err := h.cfg.Set(r.Context(),
 		opsconfig.SetInput{
 			Key: key, Value: req.Value,
 			UpdatedBy: ac.UserID, Reason: reason,
 		},
 		func(ctx context.Context, tx opsconfig.Tx, oldValue float64) error {
-			cu = oldValue
+			previous = oldValue
 			// Giá trị CŨ đi vào vết, và đọc dưới khóa nên nó ĐÚNG kể cả
 			// khi hai quản trị viên đổi cùng lúc. "Đổi thành 24" không
 			// trả lời được câu hỏi quan trọng nhất khi điều tra: đổi từ
@@ -195,10 +195,10 @@ func (h *opsConfigHandler) dat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.log.InfoContext(r.Context(), "đổi tham số vận hành",
-		"khoa", key, "cu", cu, "moi", req.Value, "boi", ac.UserID)
+		"khoa", key, "cu", previous, "moi", req.Value, "boi", ac.UserID)
 
 	h.ok(w, r, map[string]any{
-		"key": key, "value": req.Value, "previous_value": cu,
+		"key": key, "value": req.Value, "previous_value": previous,
 	})
 }
 

@@ -89,7 +89,7 @@ func TestATemplateAtHeadPasses(t *testing.T) {
 	}
 }
 
-// giaKhuon dựng một database tạm chỉ có bảng `schema_migrations`.
+// fakeTemplate dựng một database tạm chỉ có bảng `schema_migrations`.
 func fakeTemplate(t *testing.T, version int64, dirty bool) string {
 	t.Helper()
 

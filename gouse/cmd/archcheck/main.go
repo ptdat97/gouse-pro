@@ -37,7 +37,7 @@ func main() {
 	}
 }
 
-// moiChecker dựng checker với BỘ SỔ THẬT của dự án.
+// newChecker dựng checker với BỘ SỔ THẬT của dự án.
 //
 // Một hàm dựng duy nhất, dùng bởi `main` và bởi bài test chạy trên repo
 // thật. Dựng bằng tay ở hai chỗ là hai chỗ để quên một sổ.

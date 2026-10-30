@@ -197,7 +197,7 @@ func fullParams(t *testing.T) domain.RestoreOrderParams {
 	return p
 }
 
-// rutRa dựng lại bộ tham số từ đơn đã đọc.
+// extract dựng lại bộ tham số từ đơn đã đọc.
 //
 // Đây LÀ một danh sách viết tay, và là chỗ yếu duy nhất còn lại. Nhưng nó
 // hỏng theo hướng AN TOÀN: quên một trường ở đây nghĩa là giá trị rút ra

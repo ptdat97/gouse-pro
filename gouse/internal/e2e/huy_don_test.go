@@ -195,7 +195,7 @@ func TestGoodsInTransitBackAreNotReturnedToStock(t *testing.T) {
 	// Đi hết đường tới lúc giao thất bại.
 	for _, step := range []struct {
 		ten string
-		lam func() error
+		act func() error
 	}{
 		{"xác nhận", func() error { return w.ful.ConfirmFulfillment(ctx, seller, foID) }},
 		{"nhặt hàng", func() error { return w.ful.MarkPicking(ctx, seller, foID) }},
@@ -211,7 +211,7 @@ func TestGoodsInTransitBackAreNotReturnedToStock(t *testing.T) {
 			return w.ful.MarkDeliveryFailed(ctx, seller, foID, "khách không nhận máy")
 		}},
 	} {
-		if err := step.lam(); err != nil {
+		if err := step.act(); err != nil {
 			t.Fatalf("%s: %v", step.ten, err)
 		}
 	}

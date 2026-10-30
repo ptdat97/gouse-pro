@@ -87,14 +87,14 @@ func TestCreatingAProductReports400Not500(t *testing.T) {
 	// được tạo tại chỗ bằng `errors.New`, không có tên, nên bài quét `Err…`
 	// không thấy và tầng HTTP không nhận ra. Cả hai từng trả 500 trong lúc
 	// hàng rào báo xanh. Xem TestDomainCreatesNoAdHocErrors.
-	for _, ca := range []struct {
+	for _, tc := range []struct {
 		ten, field, value string
 	}{
 		{"loại sản phẩm lạ", "product_type", "XYZ"},
 		{"đối tượng khách lạ", "gender_target", "ALIENS"},
 	} {
-		t.Run(ca.ten+" là 400, không phải 500", func(t *testing.T) {
-			res := create(than("la-"+ca.field+"-"+unique, map[string]any{ca.field: ca.value}))
+		t.Run(tc.ten+" là 400, không phải 500", func(t *testing.T) {
+			res := create(than("la-"+tc.field+"-"+unique, map[string]any{tc.field: tc.value}))
 			if res.code != http.StatusBadRequest {
 				t.Fatalf("mong 400, nhận %d: %s", res.code, res.raw)
 			}

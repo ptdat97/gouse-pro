@@ -94,7 +94,7 @@ func (s *IntentStore) oneRow(
 		`SELECT`+intentCols+` FROM payment_intent `+where, args...))
 }
 
-// quetIntent đọc MỘT dòng thành aggregate.
+// scanIntent đọc MỘT dòng thành aggregate.
 //
 // Dùng chung cho lời gọi một dòng và lời gọi theo lô: hai bản chép đôi sẽ
 // lệch nhau ngay lần thêm cột tiếp theo, và lệch theo kiểu im lặng.

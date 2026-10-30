@@ -192,7 +192,7 @@ func (c *checker) readJSONFields(pkg, kind string) ([]string, error) {
 	return byPkg, nil
 }
 
-// tenJSON lấy tên JSON của một trường struct.
+// jsonName lấy tên JSON của một trường struct.
 func jsonName(fld *ast.Field) string {
 	if fld.Tag == nil {
 		return ""

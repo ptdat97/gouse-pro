@@ -30,15 +30,15 @@ import (
 const captureReason = "Kiem chung tham so chinh sach co tac dung that hay khong"
 
 // checkoutShippingFee mở một phiên thanh toán rồi trả về phí vận chuyển của nó.
-func (a *apiTest) checkoutShippingFee(t *testing.T, email, sdt, phuongThuc string) int64 {
+func (a *apiTest) checkoutShippingFee(t *testing.T, email, sdt, payMethod string) int64 {
 	t.Helper()
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	cartBody, _ := res.body["cart"].(map[string]any)
 	cartID, _ := cartBody["id"].(string)
 
@@ -57,18 +57,18 @@ func (a *apiTest) checkoutShippingFee(t *testing.T, email, sdt, phuongThuc strin
 			"district": "Q1", "province": "TP.HCM", "country_code": "VN",
 		}, idemKey())
 	res = a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-method",
-		map[string]any{"shipping_method": phuongThuc}, idemKey())
+		map[string]any{"shipping_method": payMethod}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("đặt phương thức giao: HTTP %d — %s", res.code, res.raw)
 	}
 
-	var phi int64
+	var shippingFee int64
 	if err := a.db.Pool().QueryRow(context.Background(),
 		`SELECT shipping_fee FROM checkout WHERE id = $1`, checkoutID).
-		Scan(&phi); err != nil {
+		Scan(&shippingFee); err != nil {
 		t.Fatalf("đọc phí của phiên: %v", err)
 	}
-	return phi
+	return shippingFee
 }
 
 // TestTheShippingFeeFollowsTheConfig — mục 3 của bản kiểm kê.
@@ -177,14 +177,14 @@ func TestTheCommissionFloorBlocksApprovalBelowIt(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.createAccountWithRole(t, identity.RoleAdmin)
 
-	approve := func(label string, tyLe int) reply {
+	approve := func(label string, rateBP int) reply {
 		t.Helper()
-		maNB := a.sellerPendingApproval(t, label, tok)
+		shopID := a.sellerPendingApproval(t, label, tok)
 		h := idemKey()
 		h["Authorization"] = "Bearer " + tok
 		return a.call(http.MethodPost,
-			"/api/v1/admin/sellers/"+maNB+"/approve",
-			map[string]any{"commission_rate_bp": tyLe, "notes": "thử sàn"}, h)
+			"/api/v1/admin/sellers/"+shopID+"/approve",
+			map[string]any{"commission_rate_bp": rateBP, "notes": "thử sàn"}, h)
 	}
 
 	// Sàn mặc định 0: duyệt ở 3% phải QUA — đúng bằng hành vi trước khi

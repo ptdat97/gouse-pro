@@ -12,13 +12,13 @@ import (
 
 // buildLimitedCoupon tạo một mã giảm giá có TRẦN số lượt dùng toàn cục.
 func (a *apiTest) buildLimitedCoupon(
-	t *testing.T, ma string, percentBP int32, usageCapValue int,
+	t *testing.T, couponCode string, percentBP int32, usageCapValue int,
 ) string {
 	t.Helper()
 	ctx := context.Background()
 
 	pr, err := a.mods.promotion.CreatePromotion(ctx, promotion.CreatePromotionRequest{
-		Name: "Giới hạn lượt " + ma, Kind: "COUPON",
+		Name: "Giới hạn lượt " + couponCode, Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: percentBP,
 		MaxUses:  usageCapValue,
 		StartsAt: types.Now().Add(-time.Hour),
@@ -32,7 +32,7 @@ func (a *apiTest) buildLimitedCoupon(
 		t.Fatalf("kích hoạt chương trình: %v", err)
 	}
 	if _, err := a.mods.promotion.CreateCoupon(ctx, promotion.CreateCouponRequest{
-		PromotionID: pr.ID, Code: ma,
+		PromotionID: pr.ID, Code: couponCode,
 	}); err != nil {
 		t.Fatalf("tạo mã: %v", err)
 	}
@@ -42,15 +42,15 @@ func (a *apiTest) buildLimitedCoupon(
 // placeOrderWithCoupon đi trọn một đơn COD có áp mã, trả về mã đơn.
 //
 // applied = false nghĩa là bước áp mã BỊ TỪ CHỐI — khi đó trả về "".
-func (a *apiTest) placeOrderWithCoupon(t *testing.T, ma, sdt string) (orderID string, applied bool) {
+func (a *apiTest) placeOrderWithCoupon(t *testing.T, couponCode, sdt string) (orderID string, applied bool) {
 	t.Helper()
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -67,7 +67,7 @@ func (a *apiTest) placeOrderWithCoupon(t *testing.T, ma, sdt string) (orderID st
 	checkoutID, _ := res.body["id"].(string)
 
 	got := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
-		map[string]any{"code": ma}, idemKey())
+		map[string]any{"code": couponCode}, idemKey())
 	if got.code != http.StatusOK {
 		return "", false
 	}
@@ -92,12 +92,12 @@ func (a *apiTest) placeOrderWithCoupon(t *testing.T, ma, sdt string) (orderID st
 }
 
 // validUsesLeft đếm lượt dùng CHƯA bị giải phóng của một chương trình.
-func (a *apiTest) validUsesLeft(t *testing.T, maCT string) (visits int, discounted int64) {
+func (a *apiTest) validUsesLeft(t *testing.T, couponID string) (visits int, discounted int64) {
 	t.Helper()
 	if err := a.db.Pool().QueryRow(context.Background(), `
 		SELECT count(*), coalesce(sum(discount_amount), 0)
 		  FROM coupon_usage
-		 WHERE promotion_id = $1 AND released_at IS NULL`, maCT).
+		 WHERE promotion_id = $1 AND released_at IS NULL`, couponID).
 		Scan(&visits, &discounted); err != nil {
 		t.Fatalf("đọc lượt dùng: %v", err)
 	}
@@ -120,10 +120,10 @@ func (a *apiTest) validUsesLeft(t *testing.T, maCT string) (visits int, discount
 func TestCouponUsesAreRecordedAndTheCapBlocksLaterOrders(t *testing.T) {
 	a := newAPITest(t)
 
-	const ma = "TRANMOTLUOT"
-	maCT := a.buildLimitedCoupon(t, ma, 1000, 1) // giảm 10%, tối đa MỘT lượt
+	const couponCode = "TRANMOTLUOT"
+	couponID := a.buildLimitedCoupon(t, couponCode, 1000, 1) // giảm 10%, tối đa MỘT lượt
 
-	orderID, applied := a.placeOrderWithCoupon(t, ma, "0900111222")
+	orderID, applied := a.placeOrderWithCoupon(t, couponCode, "0900111222")
 	if !applied {
 		t.Fatal("đơn ĐẦU TIÊN bị từ chối mã — trần lượt chặn nhầm")
 	}
@@ -133,7 +133,7 @@ func TestCouponUsesAreRecordedAndTheCapBlocksLaterOrders(t *testing.T) {
 	// đặt đơn.
 	a.emitEvent(t)
 
-	visits, discountedAlready := a.validUsesLeft(t, maCT)
+	visits, discountedAlready := a.validUsesLeft(t, couponID)
 	if visits != 1 {
 		t.Fatalf("sau một đơn dùng mã, ghi được %d lượt — cần 1. "+
 			"Bộ đếm không tăng nghĩa là mọi giới hạn của mã đều vô hiệu", visits)
@@ -146,7 +146,7 @@ func TestCouponUsesAreRecordedAndTheCapBlocksLaterOrders(t *testing.T) {
 	var usageCount int
 	var budgetSpent int64
 	if err := a.db.Pool().QueryRow(context.Background(),
-		`SELECT used_count, used_budget FROM promotion WHERE id = $1`, maCT).
+		`SELECT used_count, used_budget FROM promotion WHERE id = $1`, couponID).
 		Scan(&usageCount, &budgetSpent); err != nil {
 		t.Fatalf("đọc bộ đếm chương trình: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestCouponUsesAreRecordedAndTheCapBlocksLaterOrders(t *testing.T) {
 	}
 
 	// Nửa thứ hai: trần đã chạm, đơn sau KHÔNG được áp mã nữa.
-	if _, applied := a.placeOrderWithCoupon(t, ma, "0900333444"); applied {
+	if _, applied := a.placeOrderWithCoupon(t, couponCode, "0900333444"); applied {
 		t.Fatal("mã trần MỘT lượt vẫn áp được cho đơn thứ hai — " +
 			"trần lượt không có tác dụng")
 	}
@@ -182,15 +182,15 @@ func TestCouponUsesAreRecordedAndTheCapBlocksLaterOrders(t *testing.T) {
 func TestARedeliveredEventIsNotCountedTwice(t *testing.T) {
 	a := newAPITest(t)
 
-	const ma = "PHATLAIKHONGDEM"
-	maCT := a.buildLimitedCoupon(t, ma, 1000, 5)
+	const couponCode = "PHATLAIKHONGDEM"
+	couponID := a.buildLimitedCoupon(t, couponCode, 1000, 5)
 
-	if _, applied := a.placeOrderWithCoupon(t, ma, "0900555666"); !applied {
+	if _, applied := a.placeOrderWithCoupon(t, couponCode, "0900555666"); !applied {
 		t.Fatal("không áp được mã")
 	}
 	a.emitEvent(t)
 
-	visitsAfter1, _ := a.validUsesLeft(t, maCT)
+	visitsAfter1, _ := a.validUsesLeft(t, couponID)
 	if visitsAfter1 != 1 {
 		t.Fatalf("ghi được %d lượt sau lần phát đầu, cần 1", visitsAfter1)
 	}
@@ -237,7 +237,7 @@ func TestARedeliveredEventIsNotCountedTwice(t *testing.T) {
 			"bên nhận, nên nó không chứng minh gì")
 	}
 
-	visitsAfter2, _ := a.validUsesLeft(t, maCT)
+	visitsAfter2, _ := a.validUsesLeft(t, couponID)
 	if visitsAfter2 != 1 {
 		t.Errorf("phát lại event làm lượt dùng thành %d, cần vẫn 1 — "+
 			"giao ít nhất một lần sẽ thổi phồng bộ đếm", visitsAfter2)
@@ -252,16 +252,16 @@ func TestCancellingAnOrderGivesBackTheCouponUse(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	const ma = "HUYTRALAILUOT"
-	maCT := a.buildLimitedCoupon(t, ma, 1000, 1)
+	const couponCode = "HUYTRALAILUOT"
+	couponID := a.buildLimitedCoupon(t, couponCode, 1000, 1)
 
-	orderID, applied := a.placeOrderWithCoupon(t, ma, "0900777888")
+	orderID, applied := a.placeOrderWithCoupon(t, couponCode, "0900777888")
 	if !applied {
 		t.Fatal("không áp được mã")
 	}
 	a.emitEvent(t)
 
-	if visits, _ := a.validUsesLeft(t, maCT); visits != 1 {
+	if visits, _ := a.validUsesLeft(t, couponID); visits != 1 {
 		t.Fatalf("trước khi hủy có %d lượt, cần 1", visits)
 	}
 
@@ -270,14 +270,14 @@ func TestCancellingAnOrderGivesBackTheCouponUse(t *testing.T) {
 	}
 	a.emitEvent(t)
 
-	visits, _ := a.validUsesLeft(t, maCT)
+	visits, _ := a.validUsesLeft(t, couponID)
 	if visits != 0 {
 		t.Fatalf("sau khi hủy đơn còn %d lượt còn hiệu lực, cần 0 — "+
 			"khách mất quyền dùng mã vì một đơn không còn tồn tại", visits)
 	}
 
 	// Và mã phải dùng lại được: đó mới là bằng chứng lượt đã trả THẬT.
-	if _, appliedSecondTime := a.placeOrderWithCoupon(t, ma, "0900777888"); !appliedSecondTime {
+	if _, appliedSecondTime := a.placeOrderWithCoupon(t, couponCode, "0900777888"); !appliedSecondTime {
 		t.Error("sau khi hủy đơn, mã vẫn không áp được — " +
 			"bộ đếm chưa được trả lại dù hàng lượt đã đánh dấu giải phóng")
 	}
@@ -296,15 +296,15 @@ func TestCancellingAnOrderGivesBackTheCouponUse(t *testing.T) {
 func TestRemovingACouponRecomputesFeeAndTax(t *testing.T) {
 	a := newAPITest(t)
 
-	const ma = "GOMARATEST"
-	a.buildLimitedCoupon(t, ma, 1000, 0)
+	const couponCode = "GOMARATEST"
+	a.buildLimitedCoupon(t, couponCode, 1000, 0)
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	cartBody, _ := res.body["cart"].(map[string]any)
 	cartID, _ := cartBody["id"].(string)
 
@@ -326,15 +326,15 @@ func TestRemovingACouponRecomputesFeeAndTax(t *testing.T) {
 	before := a.call(http.MethodGet, "/api/v1/checkout/"+checkoutID, nil, nil)
 	totalBefore := total(t, before.body)
 
-	ap := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
-		map[string]any{"code": ma}, idemKey())
-	if ap.code != http.StatusOK {
-		t.Fatalf("áp mã: HTTP %d — %s", ap.code, ap.raw)
+	applyRes := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
+		map[string]any{"code": couponCode}, idemKey())
+	if applyRes.code != http.StatusOK {
+		t.Fatalf("áp mã: HTTP %d — %s", applyRes.code, applyRes.raw)
 	}
-	tongCoMa := total(t, ap.body)
-	if tongCoMa >= totalBefore {
+	totalWithCoupon := total(t, applyRes.body)
+	if totalWithCoupon >= totalBefore {
 		t.Fatalf("áp mã xong tổng là %d, không nhỏ hơn %d — "+
-			"bài kiểm không có gì để gỡ", tongCoMa, totalBefore)
+			"bài kiểm không có gì để gỡ", totalWithCoupon, totalBefore)
 	}
 
 	go1 := a.call(http.MethodDelete, "/api/v1/checkout/"+checkoutID+"/coupon",
@@ -362,11 +362,11 @@ func TestRemovingACouponRecomputesFeeAndTax(t *testing.T) {
 // total đọc tổng tiền của phiên từ body trả về.
 func total(t *testing.T, body map[string]any) int64 {
 	t.Helper()
-	tong, ok := body["total"].(map[string]any)
+	sumTotal, ok := body["total"].(map[string]any)
 	if !ok {
 		t.Fatalf("phiên không có trường total: %v", body)
 	}
-	v, _ := tong["amount"].(float64)
+	v, _ := sumTotal["amount"].(float64)
 	return int64(v)
 }
 
@@ -390,12 +390,12 @@ func TestTheConversionRecordHasAllThreeSteps(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	cartBody, _ := res.body["cart"].(map[string]any)
 	cartID, _ := cartBody["id"].(string)
 
@@ -452,12 +452,12 @@ func TestAnExpiredCheckoutEmitsAnEventSoItCanBeMeasured(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	cartBody, _ := res.body["cart"].(map[string]any)
 	cartID, _ := cartBody["id"].(string)
 

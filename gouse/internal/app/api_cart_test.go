@@ -36,29 +36,29 @@ func TestReadingTheCartWritesNothing(t *testing.T) {
 	// Đọc song song là chuyện bình thường: trình duyệt mở nhiều tab, hoặc
 	// một trang gọi vài API cùng lúc. Nếu đường đọc còn ghi, chúng tranh
 	// chấp và một số lượt trả 500.
-	const songSong = 10
+	const parallel = 10
 	var start, done sync.WaitGroup
 	start.Add(1)
 
 	var mu sync.Mutex
-	ma := map[int]int{}
+	couponCode := map[int]int{}
 
-	for i := 0; i < songSong; i++ {
+	for i := 0; i < parallel; i++ {
 		done.Add(1)
 		go func() {
 			defer done.Done()
 			start.Wait()
 			res := a.call(http.MethodGet, "/api/v1/cart", nil, nil)
 			mu.Lock()
-			ma[res.code]++
+			couponCode[res.code]++
 			mu.Unlock()
 		}()
 	}
 	start.Done()
 	done.Wait()
 
-	if ma[http.StatusOK] != songSong {
-		t.Errorf("mã trạng thái: %v — cần %d lượt 200", ma, songSong)
+	if couponCode[http.StatusOK] != parallel {
+		t.Errorf("mã trạng thái: %v — cần %d lượt 200", couponCode, parallel)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestReadingTheCartCreatesNoCart(t *testing.T) {
 	//
 	// Bịa một mã ra sẽ khiến giao diện tưởng nó gọi được các đường sửa
 	// giỏ bằng mã đó, và nhận 404 ở lần thử đầu tiên.
-	if id, co := cartBody["id"]; co && id != nil && id != "" {
+	if id, present := cartBody["id"]; present && id != nil && id != "" {
 		t.Errorf("giỏ chưa tồn tại mà có định danh %v", id)
 	}
 
@@ -111,24 +111,24 @@ func placeOneOrder(t *testing.T, a *apiTest) {
 		t.Skip("danh mục trống")
 	}
 	sp, _ := ds[0].(map[string]any)
-	maSP, _ := sp["id"].(string)
+	productID, _ := sp["id"].(string)
 
-	res = a.call(http.MethodGet, "/api/v1/products/"+maSP+"/offers", nil, nil)
+	res = a.call(http.MethodGet, "/api/v1/products/"+productID+"/offers", nil, nil)
 	offers, _ := res.body["data"].([]any)
-	var maOffer string
+	var offerID string
 	for _, o := range offers {
 		m, _ := o.(map[string]any)
 		if shop2, _ := m["is_sellable"].(bool); shop2 {
-			maOffer, _ = m["id"].(string)
+			offerID, _ = m["id"].(string)
 			break
 		}
 	}
-	if maOffer == "" {
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	res = a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -241,18 +241,18 @@ func addOneItem(t *testing.T, a *apiTest) {
 		t.Skip("danh mục trống")
 	}
 	sp, _ := ds[0].(map[string]any)
-	maSP, _ := sp["id"].(string)
+	productID, _ := sp["id"].(string)
 
-	res = a.call(http.MethodGet, "/api/v1/products/"+maSP+"/offers", nil, nil)
+	res = a.call(http.MethodGet, "/api/v1/products/"+productID+"/offers", nil, nil)
 	offers, _ := res.body["data"].([]any)
 	for _, o := range offers {
 		m, _ := o.(map[string]any)
 		if shop2, _ := m["is_sellable"].(bool); !shop2 {
 			continue
 		}
-		maOffer, _ := m["id"].(string)
+		offerID, _ := m["id"].(string)
 		got := a.call(http.MethodPost, "/api/v1/cart/items",
-			map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+			map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 		if got.code != http.StatusOK {
 			t.Fatalf("thêm vào giỏ: HTTP %d — %s", got.code, got.raw)
 		}

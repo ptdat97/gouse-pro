@@ -84,7 +84,7 @@ func deliverToStep(t *testing.T, w *world, seller, foID string, toStep string) {
 
 	step := []struct {
 		ten string
-		lam func() error
+		act func() error
 	}{
 		{"CONFIRMED", func() error { return w.ful.ConfirmFulfillment(ctx, seller, foID) }},
 		{"PICKING", func() error { return w.ful.MarkPicking(ctx, seller, foID) }},
@@ -100,7 +100,7 @@ func deliverToStep(t *testing.T, w *world, seller, foID string, toStep string) {
 	}
 
 	for _, b := range step {
-		if err := b.lam(); err != nil {
+		if err := b.act(); err != nil {
 			t.Fatalf("%s: %v", b.ten, err)
 		}
 		w.drain()
@@ -327,10 +327,10 @@ func TestAPartialCancelReturnsGoodsToTheRightOwner(t *testing.T) {
 	}{{"A", w.ownerOf(shopA)}, {"B", w.ownerOf(shopB)}} {
 		avail, commit := w.stock(skuID, tt.owner)
 		held := w.reserved(skuID, tt.owner)
-		if tong := avail + held + commit; tong != 20 {
+		if sumTotal := avail + held + commit; sumTotal != 20 {
 			t.Errorf("nhà bán %s: available(%d) + reserved(%d) + committed(%d) "+
 				"= %d, nhưng chỉ nhập 20 — hàng đã đi lạc giữa hai chủ",
-				tt.ten, avail, held, commit, tong)
+				tt.ten, avail, held, commit, sumTotal)
 		}
 	}
 }
@@ -453,7 +453,7 @@ func TestTaxAndFreeShippingReachTheOrder(t *testing.T) {
 	skuID := ids.MustNew(ids.PrefixSKU)
 	w.stockFor(skuID, w.ownerOf(shop), 50)
 
-	placeOrder := func(t *testing.T, price int64, sl int) (phi, tax, tong int64) {
+	placeOrder := func(t *testing.T, price int64, sl int) (shippingFee, tax, sumTotal int64) {
 		t.Helper()
 		cartID := ids.MustNew(ids.PrefixCart)
 		w.cart.put(checkoutapp.CartSnapshot{
@@ -491,35 +491,35 @@ func TestTaxAndFreeShippingReachTheOrder(t *testing.T) {
 	t.Run("dưới ngưỡng: có phí ship, thuế tách từ cả phí", func(t *testing.T) {
 		// tiền hàng 100.000 + phí 30.000 = 130.000 khách trả (đã gồm VAT).
 		// Thuế tách ra: 130.000 × 800/10800 = 9.630.
-		phi, tax, tong := placeOrder(t, 100_000, 1)
+		shippingFee, tax, sumTotal := placeOrder(t, 100_000, 1)
 
-		if phi != 30_000 {
-			t.Errorf("phí ship = %d, mong 30000 (dưới ngưỡng 499.000)", phi)
+		if shippingFee != 30_000 {
+			t.Errorf("phí ship = %d, mong 30000 (dưới ngưỡng 499.000)", shippingFee)
 		}
 		if tax != 9_630 {
 			t.Errorf("thuế trên ĐƠN = %d, mong 9630 — thuế bằng 0 ở đây "+
 				"đúng là PH-40: domain tính được mà không ai gọi", tax)
 		}
 		// Tổng = tiền hàng + phí, KHÔNG cộng thuế: giá đã gồm VAT.
-		if tong != 130_000 {
+		if sumTotal != 130_000 {
 			t.Errorf("tổng = %d, mong 130000 — cộng thuế vào ra 139.630, "+
-				"tức thu thuế hai lần", tong)
+				"tức thu thuế hai lần", sumTotal)
 		}
 	})
 
 	t.Run("đạt ngưỡng: miễn phí ship, thuế tách từ tiền hàng", func(t *testing.T) {
 		// 500.000 ≥ 499.000 → phí 0. Thuế = 500.000 × 800/10800 = 37.037.
-		phi, tax, tong := placeOrder(t, 500_000, 1)
+		shippingFee, tax, sumTotal := placeOrder(t, 500_000, 1)
 
-		if phi != 0 {
+		if shippingFee != 0 {
 			t.Errorf("phí ship = %d, mong 0 — đơn 500.000đ đạt ngưỡng "+
-				"499.000đ", phi)
+				"499.000đ", shippingFee)
 		}
 		if tax != 37_037 {
 			t.Errorf("thuế = %d, mong 37037 — phần VAT trong 500.000", tax)
 		}
-		if tong != 500_000 {
-			t.Errorf("tổng = %d, mong 500000 — khách trả đúng giá đã thấy", tong)
+		if sumTotal != 500_000 {
+			t.Errorf("tổng = %d, mong 500000 — khách trả đúng giá đã thấy", sumTotal)
 		}
 	})
 }

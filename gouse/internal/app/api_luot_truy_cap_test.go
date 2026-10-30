@@ -28,19 +28,19 @@ func TestTheVisitIDTravelsFromTheHeaderToTheConversionRecord(t *testing.T) {
 	ctx := context.Background()
 
 	const visitID = "vis_luot_thu_nghiem_01"
-	kem := func() map[string]string {
+	extraHeaders := func() map[string]string {
 		h := idemKey()
 		h["X-Visit-Id"] = visitID
 		return h
 	}
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, kem())
+		map[string]any{"offer_id": offerID, "quantity": 1}, extraHeaders())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -50,7 +50,7 @@ func TestTheVisitIDTravelsFromTheHeaderToTheConversionRecord(t *testing.T) {
 	res = a.call(http.MethodPost, "/api/v1/checkout", map[string]any{
 		"cart_id": cartID, "guest_email": newEmail("luottruycap"),
 		"guest_phone": "0900444333",
-	}, kem())
+	}, extraHeaders())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("mở phiên: HTTP %d — %s", res.code, res.raw)
 	}
@@ -61,10 +61,10 @@ func TestTheVisitIDTravelsFromTheHeaderToTheConversionRecord(t *testing.T) {
 			"recipient_name": "Khách Thử", "phone": "0900444333",
 			"street_address": "1 Đường Thử", "ward": "Phường 1",
 			"district": "Quận 1", "province": "TP.HCM", "country_code": "VN",
-		}, kem())
+		}, extraHeaders())
 
 	res = a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/complete",
-		map[string]any{"payment_method": "COD"}, kem())
+		map[string]any{"payment_method": "COD"}, extraHeaders())
 	if res.code != http.StatusCreated && res.code != http.StatusOK {
 		t.Fatalf("hoàn tất phiên: HTTP %d — %s", res.code, res.raw)
 	}

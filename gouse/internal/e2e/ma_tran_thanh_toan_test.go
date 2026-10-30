@@ -63,11 +63,11 @@ func TestMT_ConcurrentCapturePostsOnce(t *testing.T) {
 	w.placeOrderWith(t, "CARD")
 	orderID := w.lastOrderID.String()
 
-	const songSong = 4
+	const parallel = 4
 	var wg sync.WaitGroup
-	failure := make([]error, songSong)
-	wg.Add(songSong)
-	for i := 0; i < songSong; i++ {
+	failure := make([]error, parallel)
+	wg.Add(parallel)
+	for i := 0; i < parallel; i++ {
 		go func(i int) {
 			defer wg.Done()
 			failure[i] = w.ord.MarkOrderPaid(ctx, orderID)
@@ -86,7 +86,7 @@ func TestMT_ConcurrentCapturePostsOnce(t *testing.T) {
 	}
 	if succeeded != 1 {
 		t.Errorf("%d/%d lời gọi MarkOrderPaid thành công, mong đúng 1",
-			succeeded, songSong)
+			succeeded, parallel)
 	}
 
 	w.drain()

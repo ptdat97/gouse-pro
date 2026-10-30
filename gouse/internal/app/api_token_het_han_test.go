@@ -30,8 +30,8 @@ func TestATokenExpiringMidCheckoutReturns401(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.registerAndLogIn(newEmail("tokenhethan"))
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
@@ -39,7 +39,7 @@ func TestATokenExpiringMidCheckoutReturns401(t *testing.T) {
 	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, h)
+		map[string]any{"offer_id": offerID, "quantity": 1}, h)
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -83,15 +83,15 @@ func TestAStrangerCannotBorrowAnothersCart(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.registerAndLogIn(newEmail("gionguoikhac"))
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, h)
+		map[string]any{"offer_id": offerID, "quantity": 1}, h)
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -123,15 +123,15 @@ func TestAnExpiredTokenDoesNotTurnTheOwnerIntoAStranger(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.registerAndLogIn(newEmail("chudonhethan"))
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	h := idemKey()
 	h["Authorization"] = "Bearer " + tok
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, h)
+		map[string]any{"offer_id": offerID, "quantity": 1}, h)
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}

@@ -85,15 +85,15 @@ func TestPerformanceReturnsTheMetricsAndTheThresholdsInUse(t *testing.T) {
 
 	// Thước đo phải hiện ra: không có nó thì "đúng hạn" là một khẳng định
 	// không kiểm chứng được.
-	sla, co := res.body["shipping_sla_hours"].(float64)
-	if !co || sla != domain.DeliverySLA.Hours() {
+	sla, present := res.body["shipping_sla_hours"].(float64)
+	if !present || sla != domain.DeliverySLA.Hours() {
 		t.Errorf("shipping_sla_hours = %v (có=%v), cần %v — thước đo phải "+
 			"công khai, nếu không thì chấm điểm là hộp đen",
-			sla, co, domain.DeliverySLA.Hours())
+			sla, present, domain.DeliverySLA.Hours())
 	}
 
 	// Cỡ mẫu phải hiện ra.
-	if _, co := res.body["sample_size"].(float64); !co {
+	if _, present := res.body["sample_size"].(float64); !present {
 		t.Errorf("thiếu sample_size — không có nó thì tỷ lệ không kiểm "+
 			"chứng được: %s", res.raw)
 	}
@@ -141,7 +141,7 @@ func TestPerformanceNamesItsUnmeasuredMetrics(t *testing.T) {
 
 	// Và KHÔNG được có con số buy box giả ở mục tác động.
 	imp, _ := res.body["impact"].(map[string]any)
-	if _, co := imp["buy_box_win_rate"]; co {
+	if _, present := imp["buy_box_win_rate"]; present {
 		t.Errorf("trả buy_box_win_rate trong impact — buy box không được "+
 			"lưu lại nên con số đó không thể có thật: %s", res.raw)
 	}

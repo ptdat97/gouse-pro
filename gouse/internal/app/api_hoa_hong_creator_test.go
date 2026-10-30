@@ -44,7 +44,7 @@ func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 	}
 
 	creatorID := ids.MustNew(ids.PrefixCreator).String()
-	orderID, tong, foID, sellerID, _, contentID := a.creatorPrepaidOrder(t, creatorID)
+	orderID, sumTotal, foID, sellerID, _, contentID := a.creatorPrepaidOrder(t, creatorID)
 
 	// ---- Chặng 1: đặt đơn xong mà CHƯA quy công ----
 	//
@@ -63,7 +63,7 @@ func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
 			"payment_intent_id": "pi_hoa_hong_1",
-			"amount":            tong,
+			"amount":            sumTotal,
 			"currency":          "VND",
 			"metadata":          map[string]any{"order_id": orderID},
 		},
@@ -83,7 +83,7 @@ func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 	var (
 		gotCreator, gotContent, gotSeller string
 		bearer, model                     string
-		tyLe                              int
+		rateBP                            int
 		baseAmount                        int64
 	)
 	if err := a.db.Pool().QueryRow(ctx, `
@@ -91,7 +91,7 @@ func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 		       attribution_model, commission_rate, commission_base
 		  FROM attribution WHERE order_id = $1`, orderID,
 	).Scan(&gotCreator, &gotContent, &gotSeller, &bearer, &model,
-		&tyLe, &baseAmount); err != nil {
+		&rateBP, &baseAmount); err != nil {
 		t.Fatalf("đọc bản quy công: %v", err)
 	}
 
@@ -116,8 +116,8 @@ func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 			"nhiều nhà bán sẽ mở khóa hoa hồng của cả đơn khi nhà bán đầu "+
 			"tiên giao xong", gotSeller, sellerID)
 	}
-	if tyLe != 500 {
-		t.Errorf("tỷ lệ hoa hồng đóng băng = %d điểm cơ bản, cần 500", tyLe)
+	if rateBP != 500 {
+		t.Errorf("tỷ lệ hoa hồng đóng băng = %d điểm cơ bản, cần 500", rateBP)
 	}
 	if bearer != "PLATFORM" {
 		t.Errorf("bên chịu chi phí = %q, cần PLATFORM — đoán sang nhà bán là "+
@@ -144,9 +144,9 @@ func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 		t.Fatalf("đọc khoản hoa hồng: %v", err)
 	}
 
-	if mong := baseAmount * 500 / 10000; amount != mong {
+	if expect := baseAmount * 500 / 10000; amount != expect {
 		t.Errorf("hoa hồng = %d, cần %d (5%% của tiền gốc %d) — số tiền phải "+
-			"TÍNH từ tỷ lệ và tiền gốc đã đóng băng", amount, mong, baseAmount)
+			"TÍNH từ tỷ lệ và tiền gốc đã đóng băng", amount, expect, baseAmount)
 	}
 	if tt != "PENDING" {
 		t.Fatalf("trạng thái đầu = %q, cần PENDING — hoa hồng chỉ rút được "+
@@ -155,9 +155,9 @@ func TestCreatorCommissionGoesEndToEnd(t *testing.T) {
 
 	// Tiền gốc là tiền THỰC TRẢ của dòng, không phải tổng đơn: tổng đơn có
 	// cả phí vận chuyển, mà creator không tạo ra khoản phí ấy.
-	if baseAmount >= tong {
+	if baseAmount >= sumTotal {
 		t.Errorf("tiền gốc tính hoa hồng = %d, tổng đơn = %d — tiền gốc phải "+
-			"là tiền HÀNG của dòng, không gồm phí vận chuyển", baseAmount, tong)
+			"là tiền HÀNG của dòng, không gồm phí vận chuyển", baseAmount, sumTotal)
 	}
 
 	// ---- Chặng 4: hết hạn đổi trả → RÚT ĐƯỢC ----
@@ -236,14 +236,14 @@ func TestCancellingAnOrderReversesTheCreatorCommission(t *testing.T) {
 	}
 
 	creatorID := ids.MustNew(ids.PrefixCreator).String()
-	orderID, tong, _, _, phone, _ := a.creatorPrepaidOrder(t, creatorID)
+	orderID, sumTotal, _, _, phone, _ := a.creatorPrepaidOrder(t, creatorID)
 
 	whRes := a.callPaymentWebhook(t, "cong-tt", map[string]any{
 		"event_id":   "evt_hoa_hong_dao_1",
 		"event_type": "payment.succeeded",
 		"data": map[string]any{
 			"payment_intent_id": "pi_hoa_hong_dao_1",
-			"amount":            tong,
+			"amount":            sumTotal,
 			"currency":          "VND",
 			"metadata":          map[string]any{"order_id": orderID},
 		},
@@ -316,17 +316,17 @@ func TestCancellingAnOrderReversesTheCreatorCommission(t *testing.T) {
 // COD phải chờ tới lúc giao. Bài test cần mốc tiền về ở giữa chuỗi.
 func (a *apiTest) creatorPrepaidOrder(
 	t *testing.T, creatorID string,
-) (orderID string, tong int64, foID, sellerID, phone, contentID string) {
+) (orderID string, sumTotal int64, foID, sellerID, phone, contentID string) {
 	t.Helper()
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	contentID = ids.MustNew(ids.PrefixContent).String()
 	res := a.call(http.MethodPost, "/api/v1/cart/items", map[string]any{
-		"offer_id": maOffer, "quantity": 1,
+		"offer_id": offerID, "quantity": 1,
 		"source": map[string]any{
 			"creator_id": creatorID,
 			"content_id": contentID,
@@ -370,14 +370,14 @@ func (a *apiTest) creatorPrepaidOrder(
 	if orderID == "" {
 		t.Fatalf("không lấy được mã đơn: %s", res.raw)
 	}
-	tongMap, _ := ord["total"].(map[string]any)
-	amount, _ := tongMap["amount"].(float64)
-	tong = int64(amount)
+	totalMap, _ := ord["total"].(map[string]any)
+	amount, _ := totalMap["amount"].(float64)
+	sumTotal = int64(amount)
 
 	// Đơn thực hiện chỉ tồn tại sau khi `checkout.completed` được phát.
 	a.emitEvent(t)
 	foID, sellerID = a.fulfillmentOfOrder(t, orderID)
-	return orderID, tong, foID, sellerID, phone, contentID
+	return orderID, sumTotal, foID, sellerID, phone, contentID
 }
 
 func (a *apiTest) countAttributions(t *testing.T, orderID string) int {
@@ -573,8 +573,8 @@ func (a *apiTest) paidTwoSellerOrder(
 	}
 	ord, _ := res.body["order"].(map[string]any)
 	orderID, _ = ord["id"].(string)
-	tongMap, _ := ord["total"].(map[string]any)
-	amount, _ := tongMap["amount"].(float64)
+	totalMap, _ := ord["total"].(map[string]any)
+	amount, _ := totalMap["amount"].(float64)
 
 	// Phát TRƯỚC webhook: đơn thực hiện chỉ tồn tại sau `checkout.completed`.
 	a.emitEvent(t)

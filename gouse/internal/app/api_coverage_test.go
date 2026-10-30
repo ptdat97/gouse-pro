@@ -43,10 +43,10 @@ func TestEveryAuthenticatedPathIsChecked(t *testing.T) {
 	// `/api/v1/admin/me` cố ý chỉ cần đăng nhập — có test riêng.
 	checked["GET /api/v1/admin/me"] = true
 
-	goc := []string{"internal/app", "internal/modules"}
+	roots := []string{"internal/app", "internal/modules"}
 	var missingImg []string
 
-	for _, g := range goc {
+	for _, g := range roots {
 		err := filepath.Walk("../../"+g, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 				return err
@@ -83,8 +83,8 @@ func TestEveryAuthenticatedPathIsChecked(t *testing.T) {
 // Danh sách kiểm dùng mã có thật (`ord_01J9…`) để gọi được, còn mã nguồn
 // dùng mẫu (`{order_id}`). Chuẩn hóa cả hai về một dạng mới so sánh được.
 var (
-	// maULID khớp một định danh có tiền tố: `ord_01J9X...`.
-	maULID = regexp.MustCompile(`^[a-z]+_[0-9A-Za-z]{20,}$`)
+	// reULID khớp một định danh có tiền tố: `ord_01J9X...`.
+	reULID = regexp.MustCompile(`^[a-z]+_[0-9A-Za-z]{20,}$`)
 
 	// configKey khớp khóa tham số vận hành: `fulfillment.min_sample_size`.
 	//
@@ -96,7 +96,7 @@ var (
 func pathPattern(p string) string {
 	parts := strings.Split(p, "/")
 	for i, x := range parts {
-		if strings.HasPrefix(x, "{") || maULID.MatchString(x) ||
+		if strings.HasPrefix(x, "{") || reULID.MatchString(x) ||
 			configKey.MatchString(x) {
 			parts[i] = "{}"
 		}

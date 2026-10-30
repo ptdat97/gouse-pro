@@ -88,23 +88,23 @@ func TestARetryReturnsThePaymentMethodOfTheExistingOrder(t *testing.T) {
 		t.Fatalf("lần hai: HTTP %d — %s", again.code, again.raw)
 	}
 
-	don1, _ := first.body["order"].(map[string]any)
-	don2, _ := again.body["order"].(map[string]any)
+	order1, _ := first.body["order"].(map[string]any)
+	order2, _ := again.body["order"].(map[string]any)
 
 	// Cùng một đơn, không phải đơn thứ hai.
-	if don1["id"] != don2["id"] {
+	if order1["id"] != order2["id"] {
 		t.Fatalf("tạo đơn thứ hai: %v rồi %v — idempotency hỏng",
-			don1["id"], don2["id"])
+			order1["id"], order2["id"])
 	}
 
 	// Mã đơn cũng phải có mặt. Đây là mã khách đọc qua điện thoại và tra
 	// đơn vãng lai bằng nó — trả rỗng ở đúng đường THỬ LẠI nghĩa là khách
 	// gặp sự cố mạng thì mất luôn mã đơn của mình.
-	if number, _ := don2["order_number"].(string); number == "" {
-		t.Errorf("thử lại trả order_number rỗng (lần đầu: %q)", don1["order_number"])
+	if number, _ := order2["order_number"].(string); number == "" {
+		t.Errorf("thử lại trả order_number rỗng (lần đầu: %q)", order1["order_number"])
 	}
 
-	if got, _ := don2["payment_method"].(string); got != "COD" {
+	if got, _ := order2["payment_method"].(string); got != "COD" {
 		t.Errorf("thử lại trả payment_method = %q, mong COD — phản hồi phải "+
 			"nói thứ ĐÃ GHI, không phải thứ vừa gửi", got)
 	}

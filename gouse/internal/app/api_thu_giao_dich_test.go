@@ -46,13 +46,13 @@ func TestARegisteredCustomerGetsTheOrderConfirmationEmail(t *testing.T) {
 		return h
 	}
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, bear())
+		map[string]any{"offer_id": offerID, "quantity": 1}, bear())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}

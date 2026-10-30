@@ -130,15 +130,15 @@ func TestBothViewsAgreeOnSellability(t *testing.T) {
 		return false
 	}
 
-	identical := func(t *testing.T, cases string, mong bool) {
+	identical := func(t *testing.T, cases string, expect bool) {
 		t.Helper()
 		shop, customer := fromSellerView(t), fromCustomerView(t)
 		if shop != customer {
 			t.Errorf("%s: nhà bán thấy is_sellable=%v còn khách thấy %v — "+
 				"cùng một câu hỏi, hai câu trả lời", cases, shop, customer)
 		}
-		if shop != mong {
-			t.Errorf("%s: is_sellable=%v, mong %v", cases, shop, mong)
+		if shop != expect {
+			t.Errorf("%s: is_sellable=%v, mong %v", cases, shop, expect)
 		}
 	}
 

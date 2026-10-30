@@ -69,23 +69,23 @@ func TestCancellingAFulfillmentReturnsGoodsToStock(t *testing.T) {
 			t.Errorf("sku %s: cam kết %d → %d — hủy đơn mà hàng vẫn bị giữ "+
 				"cho một đơn không còn tồn tại", sku, t0.committed, t1.committed)
 		}
-		if t1.khaDung <= t0.khaDung {
+		if t1.available <= t0.available {
 			t.Errorf("sku %s: khả dụng %d → %d — hàng có thật trên kệ nhưng "+
-				"hệ thống không bán được nữa", sku, t0.khaDung, t1.khaDung)
+				"hệ thống không bán được nữa", sku, t0.available, t1.available)
 		}
 
 		// TỔNG phải GIỮ NGUYÊN: nhả hàng là CHUYỂN trạng thái, không phải
 		// tạo thêm hàng. Thiếu khẳng định này thì một bản cài cộng vào khả
 		// dụng mà quên trừ cam kết vẫn xanh ở hai điều trên.
-		if t0.khaDung+t0.committed != t1.khaDung+t1.committed {
+		if t0.available+t0.committed != t1.available+t1.committed {
 			t.Errorf("sku %s: tổng (khả dụng + cam kết) đổi %d → %d — nhả "+
 				"hàng phải CHUYỂN trạng thái, không tạo thêm hàng",
-				sku, t0.khaDung+t0.committed, t1.khaDung+t1.committed)
+				sku, t0.available+t0.committed, t1.available+t1.committed)
 		}
 	}
 }
 
-type stockLevel struct{ khaDung, committed int }
+type stockLevel struct{ available, committed int }
 
 // fulfillmentStock trả tồn kho theo SKU của các món trong một đơn
 // thực hiện.
@@ -115,7 +115,7 @@ func (a *apiTest) fulfillmentStock(
 	for rows.Next() {
 		var sku string
 		var m stockLevel
-		if err := rows.Scan(&sku, &m.khaDung, &m.committed); err != nil {
+		if err := rows.Scan(&sku, &m.available, &m.committed); err != nil {
 			t.Fatalf("đọc tồn kho: %v", err)
 		}
 		out[sku] = m

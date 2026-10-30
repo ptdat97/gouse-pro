@@ -69,7 +69,7 @@ func TestFreeShippingStillRemembersTheChosenMethod(t *testing.T) {
 	// Chưa chọn thì trường phải VẮNG MẶT — `omitempty`, không phải chuỗi
 	// rỗng. Có mặt với giá trị rỗng sẽ làm `Boolean(...)` ở giao diện vẫn
 	// ra false, nhưng nó là một lời khai mập mờ trong hợp đồng.
-	if v, co := res.body["shipping_method"]; co {
+	if v, present := res.body["shipping_method"]; present {
 		t.Errorf("phiên chưa chọn cách giao mà đã khai shipping_method=%v", v)
 	}
 
@@ -86,12 +86,12 @@ func TestFreeShippingStillRemembersTheChosenMethod(t *testing.T) {
 		t.Fatalf("chọn cách giao: HTTP %d — %s", res.code, res.raw)
 	}
 
-	phi := amount(t, res.body, "shipping_fee")
+	shippingFee := amount(t, res.body, "shipping_fee")
 	goodsTotal := amount(t, res.body, "subtotal")
 
-	if phi != 0 {
+	if shippingFee != 0 {
 		t.Skipf("giỏ %d đ chưa đạt ngưỡng miễn phí ship (phí %d đ) — "+
-			"bài này chỉ có nghĩa khi phí bằng 0", goodsTotal, phi)
+			"bài này chỉ có nghĩa khi phí bằng 0", goodsTotal, shippingFee)
 	}
 
 	// ĐÂY LÀ BẤT BIẾN.

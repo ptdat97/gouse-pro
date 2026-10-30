@@ -775,8 +775,12 @@ XONG   cmd (worker, dotai, doisoat*, tao*)  151
 XONG   cmd (apicheck, archcheck, eventcheck) 252  — HẾT cmd
 XONG   internal/e2e                    120
 XONG   internal/app                    555   (ba lượt)
-HẾT    Bộ lọc tiếng Việt trả về RỖNG trên toàn repo.
-       7934 định danh, không còn tên tiếng Việt nào.
+SAI    "Bộ lọc tiếng Việt trả về RỖNG trên toàn repo, 7934 định danh."
+       Câu này ĐÃ SAI. Xem mục 7.
+
+30/10  Đo lại bằng `cmd/vietident` (go/ast + hình dạng âm tiết):
+       453 định danh còn âm tiết Việt trên 43.378 định danh.
+       Rồi 281 → 240 → 0, kèm bánh cóc ở `make check`.
 
 ĐÃ GỠ HẾT phần hoãn. `customer.OrderPort` đổi cùng lượt `order`
        (`GanDonVangLaiChoKhach` → `AttachGuestOrdersToCustomer`,
@@ -788,6 +792,112 @@ HẾT    Bộ lọc tiếng Việt trả về RỖNG trên toàn repo.
 
 Con số nay ĐO BẰNG CẢ HAI bộ (xem mục 3), nên cao hơn các lượt trước dù
 công việc đã làm nhiều hơn — lượt trước đo bằng công cụ có điểm mù.
+
+---
+
+## 7. Vì sao "XONG TOÀN REPO" đã SAI — và cái gì thay chỗ lời nói ấy
+
+Ngày 28/10 mục 6 ghi "bộ lọc tiếng Việt trả về RỖNG trên 7934 định danh".
+Ngày 30/10, đo lại bằng `go/ast` và hình dạng âm tiết: **453 định danh còn
+âm tiết tiếng Việt trên 43.378 định danh** — gấp 5,5 lần số định danh mà
+lượt trước tưởng là đã đếm hết.
+
+Năm tên trong số đó là MÃ CHẠY THẬT, không phải test:
+
+```text
+PaymentMethod.HopLe  →  IsValid      (và Status.HopLe, cùng tên)
+EmailToken.Dung      →  Use
+SourceFee.Phi        →  Fee
+FeeEstimate.Tong     →  Total
+affiliate TyLe       →  RateBP
+payment  ChiPhi      →  Expense
+```
+
+### Hai điểm mù, và cả hai đều IM LẶNG
+
+**1. DANH SÁCH TỪ là tập MỞ.** `loc.py` liệt kê âm tiết Việt cần tìm. Danh
+sách ấy đã vá năm lần — `Ghi`, `GiaTri`, `nguong`, `chung`, `ban` — và vẫn
+thiếu. Bộ thứ hai (`anh.py`) đo ngược qua `/usr/share/dict/words`, nhưng
+MỌI âm tiết Việt trùng một từ tiếng Anh thì vô hình, và web2 chứa cả danh
+từ riêng nên tập trùng rất lớn: `ten`, `ma`, `lo`, `ra`, `cu`, `se`, `vet`,
+`han`, `ban`, `tin`, `can`, `nam`, `don`, `mang`, `chan`.
+
+**Cái thay chỗ:** đo theo HÌNH DẠNG. Phụ âm đầu, nguyên âm, phụ âm cuối là
+ba tập ĐÓNG — tiếng Việt không sinh thêm âm tiết mới. Danh sách loại trừ
+nay chứa từ ANH trùng hình dạng, và thiếu một dòng ở đó gây CẢNH BÁO GIẢ
+(ồn, thấy ngay) chứ không gây im lặng.
+
+**2. BIỂU THỨC CHÍNH QUY không đọc được Go.** Phép rà cũ khớp đầu dòng khai
+báo, nên năm dạng này vô hình:
+
+```text
+tham số hàm          func f(tapCon bool)        ← sống sót cả lượt "XONG"
+kết quả có tên       func f() (ra []string)
+var (…) trong hàm    var ( mongOK bool )
+biến for … range     for _, ten := range xs
+tham số func literal func(phi int) { … }
+```
+
+`tapCon` ở `cmd/apicheck` là bằng chứng: một tham số `bool`, sống qua đúng
+lượt được báo là xong. **Cái thay chỗ:** `go/ast`, bắt theo từng DẠNG NÚT
+khai báo — không bắt mọi `*ast.Ident`, vì như vậy là bắt cả nơi DÙNG và
+phép đo chìm trong tên của thư viện ngoài.
+
+### Bánh cóc, và vì sao nó đỏ ở CẢ HAI phía
+
+`cmd/vietident` có `ratchet`, chạy trong `make check` qua
+`go test ./cmd/vietident/`:
+
+```text
+đo CAO hơn ngưỡng  → có tên tiếng Việt mới lọt vào
+đo THẤP hơn ngưỡng → ngưỡng đã tụt lại sau sự thật
+```
+
+Phía thứ hai mới là phía quan trọng. Một ngưỡng tụt lại sau số đo không gác
+gì nữa — nó chỉ còn là một con số trong tệp, và nó sẽ nhận bất cứ thứ gì
+nhỏ hơn nó. Đây là bài học chung của mọi bánh cóc trong repo này, kể cả hai
+ngưỡng của `apicheck`.
+
+### Ngưỡng 0 KHÔNG phải "hết bài toán"
+
+`ratchet = 0` nghĩa là không định danh nào còn âm tiết Việt mà công cụ THẤY.
+Một âm tiết Việt trùng từ tiếng Anh vẫn vô hình vì nó nằm trong `allowed` —
+`ten` là ví dụ sống: nó đã nằm trong sổ loại trừ (vì `TestTenBuyers…`), nên
+một `ten` tiếng Việt MỚI sẽ không bị bắt.
+
+Giới hạn ấy được ghi ngay trong `so_gac.go`, cạnh con số. Một con số không
+kèm giới hạn của nó là một lời hứa, và lời hứa là thứ mục này nói về.
+
+### Bốn cái bẫy của chính lượt đổi tên
+
+**`gofmt -r` mức TỆP sai cho tên mức GÓI.** Đích chính xác khác nhau theo
+chỗ (`ten` là tên header ở `header.go`, tên mục ở `main.go`), nên bảng đổi
+tên ghi theo tệp. Nhưng tên mức gói đổi ở một tệp thì tệp khác gọi tên cũ:
+`thongKe`, `chiOWorker`, `moiChecker`, `vetOutbox` — bốn lần, trình biên
+dịch bắt cả bốn.
+
+**ĐÍCH ĐÃ CÓ MẶT TRONG CÙNG TỆP là đụng độ ÂM THẦM duy nhất.** Hai khai báo
+cùng tên ở hai TỆP của một gói là `redeclared`, trình biên dịch nói ngay.
+Cùng TỆP khác phạm vi thì biên dịch qua và nghĩa đã đổi. Phép kiểm trước
+bắt 21 trường hợp — `mong → want` ở sáu tệp test đã dùng `want`, `ra → out`,
+`cu → old`, `ChiPhi → Cost`, `toi → mine`. Đổi ĐÍCH, đừng đổi phạm vi.
+
+**BSD `sed` không hiểu `\b`.** Lượt đổi tên trong dự án GIẢ — mã Go nằm
+trong chuỗi thô của bài test `apicheck`/`eventcheck`, nơi `gofmt -r` không
+với tới — chạy xong, exit 0, và không đổi một ký tự nào. Phải dùng
+`[[:<:]]`/`[[:>:]]`. `grep` BSD đã được ghi ở mục 3; `sed` là mặt còn lại.
+
+**Chỗ gọi trong backtick là chỗ gọi CỤC BỘ.** Lượt cập nhật chú thích đổi
+`` `tran` `` → `` `poolCap` `` trong `product/interfaces/http` — nhưng
+`tran` ở đó là tham số của CHÍNH tệp ấy, không phải `const tran` của
+`platform/database`. Cùng kiểu với `` `moc` `` ở `order/domain`. Cả hai
+biên dịch qua, vì chúng chỉ là chú thích. Lượt quét chú thích phải theo
+PHẠM VI của bảng đổi tên; chỉ tên XUẤT KHẨU mới được đổi toàn repo.
+
+Và lượt sửa cái bẫy ấy tự sập một lần nữa: bảng ghi đường dẫn tương đối với
+`gouse/` còn lượt quét chạy từ gốc monorepo, nên phép so phạm vi khớp 0 tệp
+và báo "6 tệp đổi" thay vì 30. Không lỗi, chỉ thiếu 31 tệp — đúng dạng im
+lặng mà cả mục này nói về.
 
 Nhóm KERNEL đi từ LÁ lên GỐC — module không import module nghiệp vụ nào
 trước, `checkout` gần cuối, `internal/app` sau cùng vì nó gọi mọi module.

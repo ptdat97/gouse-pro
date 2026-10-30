@@ -69,7 +69,7 @@ func TestShippingGroupsAreShownPerSeller(t *testing.T) {
 	checkoutID, _ := res.body["id"].(string)
 
 	// CHƯA chọn cách giao thì chưa ước tính được gì, nên chưa có nhóm nào.
-	if _, co := res.body["shipping_groups"]; co {
+	if _, present := res.body["shipping_groups"]; present {
 		t.Error("phiên chưa chọn cách giao mà đã có shipping_groups — " +
 			"một bảng kê dựng từ số ngày chưa biết là một lời hứa bịa")
 	}
@@ -118,8 +118,8 @@ func TestShippingGroupsAreShownPerSeller(t *testing.T) {
 		}
 		day[d] = true
 
-		phi, _ := g["shipping_fee"].(map[string]any)
-		number, _ := phi["amount"].(float64)
+		shippingFee, _ := g["shipping_fee"].(map[string]any)
+		number, _ := shippingFee["amount"].(float64)
 		groupFeeTotal += int64(number)
 	}
 
@@ -127,11 +127,11 @@ func TestShippingGroupsAreShownPerSeller(t *testing.T) {
 		t.Errorf("hai nhóm nhưng chỉ %d nhà bán khác nhau", len(seller))
 	}
 
-	tong, _ := res.body["shipping_fee"].(map[string]any)
-	tongPhi, _ := tong["amount"].(float64)
-	if groupFeeTotal != int64(tongPhi) {
+	sumTotal, _ := res.body["shipping_fee"].(map[string]any)
+	totalFee, _ := sumTotal["amount"].(float64)
+	if groupFeeTotal != int64(totalFee) {
 		t.Errorf("phí các nhóm cộng lại %d, phí của đơn %d — bảng kê KHÔNG "+
-			"cộng ra đúng số khách trả", groupFeeTotal, int64(tongPhi))
+			"cộng ra đúng số khách trả", groupFeeTotal, int64(totalFee))
 	}
 
 	// Ngày phải KHÁC nhau khi thời gian chuẩn bị khác nhau: đó là lý do
@@ -194,11 +194,11 @@ func TestWithFreeShippingEveryGroupIsZero(t *testing.T) {
 		t.Fatalf("chọn cách giao: HTTP %d — %s", res.code, res.raw)
 	}
 
-	tong, _ := res.body["shipping_fee"].(map[string]any)
-	tongPhi, _ := tong["amount"].(float64)
-	if tongPhi != 0 {
+	sumTotal, _ := res.body["shipping_fee"].(map[string]any)
+	totalFee, _ := sumTotal["amount"].(float64)
+	if totalFee != 0 {
 		t.Skipf("đơn chưa đạt ngưỡng miễn phí ship (phí %v) — "+
-			"bài này không kiểm được nửa nó sinh ra để kiểm", tongPhi)
+			"bài này không kiểm được nửa nó sinh ra để kiểm", totalFee)
 	}
 
 	group, _ := res.body["shipping_groups"].([]any)
@@ -207,8 +207,8 @@ func TestWithFreeShippingEveryGroupIsZero(t *testing.T) {
 	}
 	for _, raw := range group {
 		g, _ := raw.(map[string]any)
-		phi, _ := g["shipping_fee"].(map[string]any)
-		if number, _ := phi["amount"].(float64); number != 0 {
+		shippingFee, _ := g["shipping_fee"].(map[string]any)
+		if number, _ := shippingFee["amount"].(float64); number != 0 {
 			t.Errorf("đơn được miễn phí ship nhưng một nhóm vẫn ghi %v đ — "+
 				"bảng kê dựng từ con số ƯỚC TÍNH thay vì con số THỰC THU", number)
 		}

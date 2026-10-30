@@ -76,28 +76,28 @@ func TestACustomerReturnGoesEndToEnd(t *testing.T) {
 	if res.code != http.StatusCreated {
 		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
 	}
-	yc, _ := res.body["return"].(map[string]any)
-	maYC, _ := yc["id"].(string)
-	if tt, _ := yc["status"].(string); tt != "REQUESTED" {
+	request, _ := res.body["return"].(map[string]any)
+	requestID, _ := request["id"].(string)
+	if tt, _ := request["status"].(string); tt != "REQUESTED" {
 		t.Errorf("trạng thái đầu là %q, cần REQUESTED", tt)
 	}
 
 	// Tiền hoàn phải bằng giá thực trả của dòng.
-	cash, _ := yc["refund_amount"].(map[string]any)
+	cash, _ := request["refund_amount"].(map[string]any)
 	amount, _ := cash["amount"].(float64)
 	if amount <= 0 {
 		t.Errorf("số tiền hoàn là %v", amount)
 	}
 
 	// --- nhà bán duyệt rồi nhận hàng ---
-	if err := a.mods.returns.Approve(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.Approve(ctx, requestID, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
 
 	beforeAvailable := a.availableStock(t, orderID)
-	beforeEntry := a.countRows("ledger_entry", "reference_id = $1", maYC)
+	beforeEntry := a.countRows("ledger_entry", "reference_id = $1", requestID)
 
-	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.ReceiveAndRefund(ctx, requestID, sellerID); err != nil {
 		t.Fatalf("nhận hàng và hoàn tiền: %v", err)
 	}
 
@@ -114,7 +114,7 @@ func TestACustomerReturnGoesEndToEnd(t *testing.T) {
 	}
 
 	// BẤT BIẾN 2: sổ cái có bút toán hoàn.
-	if n := a.countRows("ledger_entry", "reference_id = $1", maYC) - beforeEntry; n < 1 {
+	if n := a.countRows("ledger_entry", "reference_id = $1", requestID) - beforeEntry; n < 1 {
 		t.Errorf("có %d bút toán hoàn tiền, cần ít nhất 1 — "+
 			"khách được trả hàng mà tiền không được đảo ngược", n)
 	}
@@ -213,13 +213,13 @@ func TestInspectionPutsReturnedGoodsBackOnSale(t *testing.T) {
 	if res.code != http.StatusCreated {
 		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
 	}
-	yc, _ := res.body["return"].(map[string]any)
-	maYC, _ := yc["id"].(string)
+	request, _ := res.body["return"].(map[string]any)
+	requestID, _ := request["id"].(string)
 
-	if err := a.mods.returns.Approve(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.Approve(ctx, requestID, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
-	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.ReceiveAndRefund(ctx, requestID, sellerID); err != nil {
 		t.Fatalf("nhận hàng: %v", err)
 	}
 
@@ -229,7 +229,7 @@ func TestInspectionPutsReturnedGoodsBackOnSale(t *testing.T) {
 	}
 
 	// KIỂM ĐỊNH ĐẠT — qua HTTP, đường trước đây không tồn tại.
-	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+requestID+"/inspect",
 		map[string]any{
 			"lines": []any{map[string]any{"order_line_id": lineID, "passed": true}},
 		}, merge(bearer(tokSeller), idemKey()))
@@ -241,10 +241,10 @@ func TestInspectionPutsReturnedGoodsBackOnSale(t *testing.T) {
 	// các bài khác trong cùng lượt chạy, và tổng tuyệt đối là đo cả dữ
 	// liệu của người khác.
 	after := a.stockByStatus(t, orderID)
-	if after.khaDung-before.khaDung != 1 {
+	if after.available-before.available != 1 {
 		t.Errorf("hàng ĐẠT kiểm định: khả dụng đổi %d → %d, cần +1 — "+
 			"hàng hoàn không quay lại bán được và nằm chết trong kho",
-			before.khaDung, after.khaDung)
+			before.available, after.available)
 	}
 	if before.refunded-after.refunded != 1 {
 		t.Errorf("tồn Returned đổi %d → %d, cần −1 — hàng không rời trạng "+
@@ -253,15 +253,15 @@ func TestInspectionPutsReturnedGoodsBackOnSale(t *testing.T) {
 
 	// KIỂM HAI LẦN phải bị chặn: hàng vào Available gấp đôi là tồn kho
 	// tăng thêm số hàng không có thật.
-	again := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+	again := a.call(http.MethodPost, "/api/v1/seller/returns/"+requestID+"/inspect",
 		map[string]any{
 			"lines": []any{map[string]any{"order_line_id": lineID, "passed": true}},
 		}, merge(bearer(tokSeller), idemKey()))
 	if again.code == http.StatusOK {
 		t.Error("kiểm định LẦN HAI vẫn thành công — tồn kho tăng thêm hàng không có thật")
 	}
-	if cuoi := a.stockByStatus(t, orderID); cuoi.khaDung != after.khaDung {
-		t.Errorf("kiểm lần hai làm khả dụng đổi %d → %d", after.khaDung, cuoi.khaDung)
+	if last := a.stockByStatus(t, orderID); last.available != after.available {
+		t.Errorf("kiểm lần hai làm khả dụng đổi %d → %d", after.available, last.available)
 	}
 }
 
@@ -288,18 +288,18 @@ func TestScrappingGoodsRequiresAReason(t *testing.T) {
 	if res.code != http.StatusCreated {
 		t.Fatalf("xin trả hàng: HTTP %d — %s", res.code, res.raw)
 	}
-	yc, _ := res.body["return"].(map[string]any)
-	maYC, _ := yc["id"].(string)
+	request, _ := res.body["return"].(map[string]any)
+	requestID, _ := request["id"].(string)
 
-	if err := a.mods.returns.Approve(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.Approve(ctx, requestID, sellerID); err != nil {
 		t.Fatalf("duyệt: %v", err)
 	}
-	if err := a.mods.returns.ReceiveAndRefund(ctx, maYC, sellerID); err != nil {
+	if err := a.mods.returns.ReceiveAndRefund(ctx, requestID, sellerID); err != nil {
 		t.Fatalf("nhận hàng: %v", err)
 	}
 
 	// Loại hàng mà KHÔNG nêu lý do.
-	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+	got := a.call(http.MethodPost, "/api/v1/seller/returns/"+requestID+"/inspect",
 		map[string]any{
 			"lines": []any{map[string]any{"order_line_id": lineID, "passed": false}},
 		}, merge(bearer(tokSeller), idemKey()))
@@ -309,7 +309,7 @@ func TestScrappingGoodsRequiresAReason(t *testing.T) {
 
 	// Có lý do thì được, và hàng KHÔNG quay lại bán được.
 	before := a.stockByStatus(t, orderID)
-	ok := a.call(http.MethodPost, "/api/v1/seller/returns/"+maYC+"/inspect",
+	ok := a.call(http.MethodPost, "/api/v1/seller/returns/"+requestID+"/inspect",
 		map[string]any{
 			"lines": []any{map[string]any{
 				"order_line_id": lineID, "passed": false,
@@ -321,9 +321,9 @@ func TestScrappingGoodsRequiresAReason(t *testing.T) {
 	}
 
 	after := a.stockByStatus(t, orderID)
-	if after.khaDung != before.khaDung {
+	if after.available != before.available {
 		t.Errorf("hàng LOẠI vẫn vào khả dụng: %d → %d — bán lại hàng hỏng "+
-			"cho khách khác", before.khaDung, after.khaDung)
+			"cho khách khác", before.available, after.available)
 	}
 	if after.broken-before.broken != 1 {
 		t.Errorf("hàng loại vào Damaged đổi %d → %d, cần +1",
@@ -331,7 +331,7 @@ func TestScrappingGoodsRequiresAReason(t *testing.T) {
 	}
 }
 
-type stockStatus struct{ khaDung, refunded, broken int }
+type stockStatus struct{ available, refunded, broken int }
 
 func (a *apiTest) stockByStatus(t *testing.T, orderID string) stockStatus {
 	t.Helper()
@@ -342,7 +342,7 @@ func (a *apiTest) stockByStatus(t *testing.T, orderID string) stockStatus {
 		       coalesce(sum(quantity_damaged), 0)
 		  FROM inventory_item
 		 WHERE sku_id IN (SELECT sku_id FROM order_line WHERE order_id = $1)`,
-		orderID).Scan(&tk.khaDung, &tk.refunded, &tk.broken); err != nil {
+		orderID).Scan(&tk.available, &tk.refunded, &tk.broken); err != nil {
 		t.Fatalf("đọc tồn kho: %v", err)
 	}
 	return tk

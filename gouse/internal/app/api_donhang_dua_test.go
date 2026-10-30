@@ -19,22 +19,22 @@ import (
 //	s.orders.Update(ctx, o)                    ← ghi
 type blockingOrderClock struct {
 	mu      sync.Mutex
-	daChan  bool
-	toiRoi  chan struct{}
+	blocked bool
+	arrived chan struct{}
 	proceed chan struct{}
 }
 
 func newBlockingOrderClock() *blockingOrderClock {
-	return &blockingOrderClock{toiRoi: make(chan struct{}), proceed: make(chan struct{})}
+	return &blockingOrderClock{arrived: make(chan struct{}), proceed: make(chan struct{})}
 }
 
 func (d *blockingOrderClock) Now() time.Time {
 	d.mu.Lock()
-	firstTime := !d.daChan
-	d.daChan = true
+	firstTime := !d.blocked
+	d.blocked = true
 	d.mu.Unlock()
 	if firstTime {
-		close(d.toiRoi)
+		close(d.arrived)
 		<-d.proceed
 	}
 	return types.Now()
@@ -88,7 +88,7 @@ func TestCancellingAnOrderDoesNotOverwriteDeliveryProgress(t *testing.T) {
 	}()
 
 	select {
-	case <-clock.toiRoi:
+	case <-clock.arrived:
 	case <-time.After(5 * time.Second):
 		t.Fatal("T2 không tới được chỗ chặn — đường code đã đổi?")
 	}

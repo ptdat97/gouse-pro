@@ -171,7 +171,7 @@ const (
 
 	dispatchEventsBatch = 100
 
-	// dispatchEventsMaxLo là số lô tối đa VÉT trong một lượt job.
+	// dispatchEventsMaxBatches là số lô tối đa VÉT trong một lượt job.
 	//
 	// # Vì sao cần vét, không chỉ chạy một lô rồi ngủ
 	//
@@ -1218,7 +1218,7 @@ func (s *sellerOwner) InventoryOwnerID(
 	return inventory.OwnerForSeller(v.ID, v.IsInternal), nil
 }
 
-// vetOutbox rút outbox cho tới khi hết việc, chạm trần, hoặc GẶP LỖI.
+// drainOutbox rút outbox cho tới khi hết việc, chạm trần, hoặc GẶP LỖI.
 //
 // # Vì sao vét, thay vì một lô mỗi nhịp
 //

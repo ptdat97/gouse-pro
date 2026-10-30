@@ -53,17 +53,17 @@ func (a *apiTest) viewCustomerProfile(
 func TestViewingACustomerProfileLeavesATrail(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.createAccountWithRole(t, identity.RoleOpsSupport)
-	maKH := a.customerSample(t)
+	buyerID := a.customerSample(t)
 
-	before := a.countProfileViewTraces(t, maKH)
+	before := a.countProfileViewTraces(t, buyerID)
 
-	res := a.viewCustomerProfile(t, tok, maKH,
+	res := a.viewCustomerProfile(t, tok, buyerID,
 		"xử lý khiếu nại đơn ORD-12345, khách báo giao thiếu hàng")
 	if res.code != http.StatusOK {
 		t.Fatalf("xem hồ sơ: HTTP %d — %s", res.code, res.raw)
 	}
 
-	if after := a.countProfileViewTraces(t, maKH); after != before+1 {
+	if after := a.countProfileViewTraces(t, buyerID); after != before+1 {
 		t.Errorf("sau một lần xem, số vết là %d, cần %d — "+
 			"một lần đọc dữ liệu cá nhân KHÔNG có dấu", after, before+1)
 	}
@@ -81,12 +81,12 @@ func TestViewingACustomerProfileLeavesATrail(t *testing.T) {
 func TestViewingACustomerProfileDemandsAReason(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.createAccountWithRole(t, identity.RoleOpsSupport)
-	maKH := a.customerSample(t)
+	buyerID := a.customerSample(t)
 
 	for _, reason := range []string{"", "xem", "test test test test"} {
-		before := a.countProfileViewTraces(t, maKH)
+		before := a.countProfileViewTraces(t, buyerID)
 
-		res := a.viewCustomerProfile(t, tok, maKH, reason)
+		res := a.viewCustomerProfile(t, tok, buyerID, reason)
 		if res.code != http.StatusBadRequest {
 			t.Errorf("lý do %q được chấp nhận: HTTP %d — %s",
 				reason, res.code, res.raw)
@@ -94,7 +94,7 @@ func TestViewingACustomerProfileDemandsAReason(t *testing.T) {
 
 		// Từ chối rồi thì KHÔNG được để lại vết giả: một dòng nhật ký cho
 		// lần đọc chưa từng xảy ra làm sai lệch chính cuộc điều tra sau này.
-		if after := a.countProfileViewTraces(t, maKH); after != before {
+		if after := a.countProfileViewTraces(t, buyerID); after != before {
 			t.Errorf("lý do %q bị từ chối nhưng vẫn ghi %d vết",
 				reason, after-before)
 		}
@@ -112,17 +112,17 @@ func TestViewingACustomerProfileDemandsAReason(t *testing.T) {
 func TestTheReasonLengthThresholdMatchesTheSpec(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.createAccountWithRole(t, identity.RoleOpsSupport)
-	maKH := a.customerSample(t)
+	buyerID := a.customerSample(t)
 
 	// 19 ký tự — dưới ngưỡng đúng một bậc.
-	if res := a.viewCustomerProfile(t, tok, maKH, "khieu nai don ORD12"); res.code !=
+	if res := a.viewCustomerProfile(t, tok, buyerID, "khieu nai don ORD12"); res.code !=
 		http.StatusBadRequest {
 		t.Errorf("lý do 19 ký tự được chấp nhận: HTTP %d — %s",
 			res.code, res.raw)
 	}
 
 	// 20 ký tự — vừa đủ.
-	if res := a.viewCustomerProfile(t, tok, maKH, "khieu nai don ORD123"); res.code !=
+	if res := a.viewCustomerProfile(t, tok, buyerID, "khieu nai don ORD123"); res.code !=
 		http.StatusOK {
 		t.Errorf("lý do 20 ký tự bị từ chối: HTTP %d — %s", res.code, res.raw)
 	}
@@ -133,9 +133,9 @@ func TestTheReasonLengthThresholdMatchesTheSpec(t *testing.T) {
 func TestViewingACustomerProfileLeaksNoInternalData(t *testing.T) {
 	a := newAPITest(t)
 	tok := a.createAccountWithRole(t, identity.RoleOpsSupport)
-	maKH := a.customerSample(t)
+	buyerID := a.customerSample(t)
 
-	res := a.viewCustomerProfile(t, tok, maKH,
+	res := a.viewCustomerProfile(t, tok, buyerID,
 		"đối chiếu thông tin liên hệ theo yêu cầu của khách")
 	if res.code != http.StatusOK {
 		t.Fatalf("xem hồ sơ: HTTP %d — %s", res.code, res.raw)
@@ -165,7 +165,7 @@ func TestViewingACustomerProfileLeaksNoInternalData(t *testing.T) {
 // bỏ trống.
 func TestViewingACustomerProfileWithoutAnAuditPathIsRejected(t *testing.T) {
 	a := newAPITest(t)
-	maKH := a.customerSample(t)
+	buyerID := a.customerSample(t)
 
 	// Bỏ hẳn bảng nhật ký khỏi tầm với: lệnh ghi sẽ hỏng, và đó chính là
 	// tình huống cần kiểm.
@@ -182,7 +182,7 @@ func TestViewingACustomerProfileWithoutAnAuditPathIsRejected(t *testing.T) {
 	})
 
 	tok := a.createAccountWithRole(t, identity.RoleOpsSupport)
-	res := a.viewCustomerProfile(t, tok, maKH,
+	res := a.viewCustomerProfile(t, tok, buyerID,
 		"xử lý khiếu nại đơn ORD-99999, khách báo sai địa chỉ")
 
 	if res.code == http.StatusOK {

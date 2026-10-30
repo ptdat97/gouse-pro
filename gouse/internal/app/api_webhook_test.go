@@ -18,7 +18,7 @@ const carrierSecret = "bi-mat-ghn-cho-test"
 //
 // Ký trên BYTE THÔ của thân — đúng như production tính. Ký trên bản
 // serialize lại sẽ khớp trong test và trượt ngoài đời.
-func (a *apiTest) callWebhook(t *testing.T, provider string, than any, biMat string) reply {
+func (a *apiTest) callWebhook(t *testing.T, provider string, than any, secret string) reply {
 	t.Helper()
 
 	raw, err := json.Marshal(than)
@@ -29,8 +29,8 @@ func (a *apiTest) callWebhook(t *testing.T, provider string, than any, biMat str
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/webhooks/shipping/"+provider, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
-	if biMat != "" {
-		req.Header.Set("X-Signature", httpserver.SignHMAC(raw, biMat))
+	if secret != "" {
+		req.Header.Set("X-Signature", httpserver.SignHMAC(raw, secret))
 	}
 
 	rec := httptest.NewRecorder()
@@ -96,15 +96,15 @@ func TestAForgedWebhookIsRejected(t *testing.T) {
 	}
 
 	items := []struct {
-		ten   string
-		biMat string
+		ten    string
+		secret string
 	}{
 		{"không có chữ ký", ""},
 		{"chữ ký ký bằng khóa khác", "khoa-cua-ke-tan-cong"},
 	}
 	for _, c := range items {
 		t.Run(c.ten, func(t *testing.T) {
-			got := a.callWebhook(t, "ghn", than, c.biMat)
+			got := a.callWebhook(t, "ghn", than, c.secret)
 			if got.code != http.StatusUnauthorized {
 				t.Errorf("HTTP %d, cần 401 — %s", got.code, got.raw)
 			}

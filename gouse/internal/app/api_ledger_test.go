@@ -138,15 +138,15 @@ func (a *apiTest) emitEvent(t *testing.T) int {
 	// event của mình nằm ngoài mẻ — bài xanh khi chạy riêng, đỏ khi chạy
 	// cả gói, và thông điệp lỗi chỉ vào nghiệp vụ chứ không vào hàng đợi.
 	// Đã xảy ra khi thêm `checkout.started` làm số event tăng gấp đôi.
-	var tong int
+	var sumTotal int
 	for {
 		n, err := bus.DispatchBatch(context.Background(), 200)
 		if err != nil {
 			t.Fatalf("phát event: %v", err)
 		}
-		tong += n
+		sumTotal += n
 		if n == 0 {
-			return tong
+			return sumTotal
 		}
 	}
 }
@@ -242,8 +242,8 @@ func TestARedeliveredEventDoesNotPostTwice(t *testing.T) {
 	orderID, _ := ord["id"].(string)
 
 	a.emitEvent(t)
-	lan1 := a.countRows("ledger_entry", "reference_id = $1", orderID)
-	if lan1 == 0 {
+	first := a.countRows("ledger_entry", "reference_id = $1", orderID)
+	if first == 0 {
 		t.Fatalf("lần phát đầu không ghi sổ gì")
 	}
 
@@ -263,10 +263,10 @@ func TestARedeliveredEventDoesNotPostTwice(t *testing.T) {
 
 	a.emitEvent(t)
 
-	lan2 := a.countRows("ledger_entry", "reference_id = $1", orderID)
-	if lan2 != lan1 {
+	second := a.countRows("ledger_entry", "reference_id = $1", orderID)
+	if second != first {
 		t.Errorf("phát lại làm số bút toán đổi %d → %d — doanh thu bị ghi hai lần",
-			lan1, lan2)
+			first, second)
 	}
 }
 

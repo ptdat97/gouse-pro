@@ -57,7 +57,7 @@ func runChecker(t *testing.T, root string) []Violation {
 	return vs
 }
 
-// chayChecker chạy công cụ và trả CẢ lỗi, để bài test đo được lỗi cấu hình.
+// runChecker chạy công cụ và trả CẢ lỗi, để bài test đo được lỗi cấu hình.
 //
 // R6 đọc `docs/04-modules/` và trả LỖI (không phải vi phạm) khi tài liệu
 // thiếu — không có bảng sở hữu đáng tin thì không kiểm được gì. Bài test
@@ -226,7 +226,7 @@ func TestValidStructureProducesNoViolations(t *testing.T) {
 
 // TestSelfCheck — codebase thật phải luôn sạch, với ĐỦ BỘ QUY TẮC.
 //
-// `moiChecker` chứ không `chayChecker`: bản sau để `goc` rỗng, tức TẮT R10.
+// `newChecker` chứ không `runChecker`: bản sau để `goc` rỗng, tức TẮT R10.
 // Đó là đúng cho dự án giả — ba module không có kernel để mà gác — nhưng ở
 // đây nó sẽ làm R10 không bao giờ chạy trong `go test`, và một quy tắc chỉ
 // chạy khi gọi tay là quy tắc sẽ bị bỏ qua.
@@ -271,7 +271,7 @@ func TestR6_AModuleMustNotTouchAnothersTable(t *testing.T) {
 
 	vs, err := collectViolations(root)
 	if err != nil {
-		t.Fatalf("chayChecker: %v", err)
+		t.Fatalf("runChecker: %v", err)
 	}
 	if !rulesFound(vs)["R6"] {
 		t.Fatalf("phải bắt R6, nhận: %v", vs)
@@ -307,7 +307,7 @@ func TestR6_APlatformTableIsReachableByEveryone(t *testing.T) {
 
 	vs, err := collectViolations(root)
 	if err != nil {
-		t.Fatalf("chayChecker: %v", err)
+		t.Fatalf("runChecker: %v", err)
 	}
 	if rulesFound(vs)["R6"] {
 		t.Fatalf("bảng platform không được tính là vi phạm: %v", vs)
@@ -363,7 +363,7 @@ func TestR6_ABrokenOwnershipLedgerErrors(t *testing.T) {
 
 // microkernelProject dựng dự án giả CÓ bật R10.
 //
-// `chayChecker` để `goc` rỗng, tức tắt R10 — đúng cho các bài kiểm R1–R9
+// `runChecker` để `goc` rỗng, tức tắt R10 — đúng cho các bài kiểm R1–R9
 // nhưng vô dụng ở đây. Hàm này bật R10 với sổ năng lực cắt ngang truyền vào.
 //
 // `tang` là tầng của từng module, và nó được ghi vào TÀI LIỆU module chứ

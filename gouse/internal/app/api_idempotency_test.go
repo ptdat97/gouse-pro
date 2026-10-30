@@ -117,15 +117,15 @@ func readUnimplementedOps(t *testing.T) map[string]bool {
 	}
 
 	re := regexp.MustCompile(`"([A-Z]+ /api/v1/\S*)":`)
-	ra := map[string]bool{}
+	collected := map[string]bool{}
 	for _, m := range re.FindAllStringSubmatch(string(content), -1) {
-		ra[m[1]] = true
+		collected[m[1]] = true
 	}
-	if len(ra) == 0 {
+	if len(collected) == 0 {
 		t.Fatal("không đọc được thao tác nào từ `chua_cai.go` — đổi định " +
 			"dạng sổ thì phải sửa cả bài test này")
 	}
-	return ra
+	return collected
 }
 
 // reOperation tách `post:` / `patch:` trong file đặc tả.
@@ -155,13 +155,13 @@ var (
 // một ràng buộc kiến trúc lấy một tiện lợi.
 func readWriteOps(t *testing.T) []writeOps {
 	t.Helper()
-	goc := filepath.Join("..", "..", "api")
+	roots := filepath.Join("..", "..", "api")
 
 	// 1. đường dẫn -> (file, nhóm)
 	type position struct{ file, group string }
 	positionOf := map[string]position{}
 
-	root, err := os.ReadFile(filepath.Join(goc, "openapi.yaml"))
+	root, err := os.ReadFile(filepath.Join(roots, "openapi.yaml"))
 	if err != nil {
 		t.Fatalf("đọc openapi.yaml: %v", err)
 	}
@@ -183,35 +183,35 @@ func readWriteOps(t *testing.T) []writeOps {
 	// 2. (file, nhóm) -> thân các thao tác ghi
 	than := map[position]map[string]string{}
 	for _, v := range positionOf {
-		if _, co := than[v]; co {
+		if _, present := than[v]; present {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(goc, "paths", v.file))
+		content, err := os.ReadFile(filepath.Join(roots, "paths", v.file))
 		if err != nil {
 			t.Fatalf("đọc %s: %v", v.file, err)
 		}
 		than[v] = writeOpBody(string(content), v.group)
 	}
 
-	var ra []writeOps
+	var collected []writeOps
 	for route, v := range positionOf {
 		for pp, body := range than[v] {
-			ra = append(ra, writeOps{
+			collected = append(collected, writeOps{
 				method:       strings.ToUpper(pp),
 				route:        route,
 				declaredKeys: strings.Contains(body, "IdempotencyKey"),
 			})
 		}
 	}
-	sort.Slice(ra, func(i, j int) bool {
-		return ra[i].method+ra[i].route < ra[j].method+ra[j].route
+	sort.Slice(collected, func(i, j int) bool {
+		return collected[i].method+collected[i].route < collected[j].method+collected[j].route
 	})
-	return ra
+	return collected
 }
 
 // writeOpBody trả thân của `post:` và `patch:` bên trong một nhóm.
 func writeOpBody(content, group string) map[string]string {
-	ra := map[string]string{}
+	collected := map[string]string{}
 	line := strings.Split(content, "\n")
 
 	inGroup := false
@@ -239,10 +239,10 @@ func writeOpBody(content, group string) map[string]string {
 			}
 			body = append(body, l)
 		}
-		ra[m[2]] = strings.Join(body, "\n")
+		collected[m[2]] = strings.Join(body, "\n")
 		i = j - 1
 	}
-	return ra
+	return collected
 }
 
 // replaceParam đổi `{order_id}` thành một mã hợp lệ về CÚ PHÁP.
@@ -285,7 +285,7 @@ func TestTheIdempotencyContractMatchesTheSpec(t *testing.T) {
 	var drift, unmeasured []string
 	for _, op := range readWriteOps(t) {
 		key := op.method + " " + op.route
-		if _, co := notMeasurable[key]; co {
+		if _, present := notMeasurable[key]; present {
 			continue
 		}
 		// Thao tác CHƯA CÓ ROUTE thì 404, và mọi kết luận về idempotency
@@ -339,12 +339,12 @@ func TestTheIdempotencyContractMatchesTheSpec(t *testing.T) {
 
 	// Sổ miễn trừ trỏ tới thao tác không còn tồn tại cũng là một dòng nói
 	// dối: nó im lặng ngừng gác trong khi vẫn trông như đang gác.
-	co := map[string]bool{}
+	present := map[string]bool{}
 	for _, op := range readWriteOps(t) {
-		co[op.method+" "+op.route] = true
+		present[op.method+" "+op.route] = true
 	}
 	for key := range noKeyCaught {
-		if !co[key] {
+		if !present[key] {
 			t.Errorf("`khongBatKhoa` còn dòng cho %q mà đặc tả không còn "+
 				"thao tác ấy — xóa đi", key)
 		}
@@ -362,7 +362,7 @@ func (a *apiTest) serverCatchesTheKey(
 	route := replaceParam(op.route)
 
 	than := map[string]any{}
-	if t2, co := thanDo[op.method+" "+op.route]; co {
+	if t2, present := thanDo[op.method+" "+op.route]; present {
 		than = t2
 	}
 

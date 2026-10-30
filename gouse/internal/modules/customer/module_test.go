@@ -1565,7 +1565,7 @@ func TestOnlyVerifiedEmailCanMergeGuestProfile(t *testing.T) {
 	// sau khi đã dùng là một token nằm trong hộp thư có thể bị đọc sau đó.
 	// DÙNG MỘT LẦN có PHÒNG VỆ HAI LỚP, và cần biết điều đó khi đọc bài này:
 	//
-	//	domain      `EmailToken.Dung` từ chối khi `usedAt` khác rỗng
+	//	domain      `EmailToken.Use` từ chối khi `usedAt` khác rỗng
 	//	database    `WHERE used_at IS NULL` trong lệnh cập nhật
 	//
 	// Bỏ RIÊNG lớp nào thì bài test VẪN XANH — lớp kia bắt được. Phải bỏ

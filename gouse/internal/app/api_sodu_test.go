@@ -68,14 +68,14 @@ func TestSellerFundsBecomeAvailableWhenTheReturnWindowPasses(t *testing.T) {
 	a.emitEvent(t)
 
 	// Số dư SAU khi đặt đơn: tiền ở ĐANG CHỜ, chưa rút được.
-	pending, rut := a.sellerBalance(t, B.token)
+	pending, withdrawable := a.sellerBalance(t, B.token)
 	if pending <= 0 {
 		t.Fatalf("sau khi đặt đơn, số dư đang chờ là %v — doanh thu không "+
 			"được ghi cho nhà bán", pending)
 	}
-	if rut != 0 {
+	if withdrawable != 0 {
 		t.Errorf("chưa hết hạn đổi trả mà đã rút được %v — nhà bán rút tiền "+
-			"của một đơn khách vẫn trả lại được", rut)
+			"của một đơn khách vẫn trả lại được", withdrawable)
 	}
 
 	// --- giao hàng ---
@@ -102,8 +102,8 @@ func TestSellerFundsBecomeAvailableWhenTheReturnWindowPasses(t *testing.T) {
 
 	// Vừa giao xong: VẪN chưa rút được.
 	a.emitEvent(t)
-	if _, rut := a.sellerBalance(t, B.token); rut != 0 {
-		t.Errorf("vừa giao xong đã rút được %v — hạn đổi trả chưa hết", rut)
+	if _, withdrawable := a.sellerBalance(t, B.token); withdrawable != 0 {
+		t.Errorf("vừa giao xong đã rút được %v — hạn đổi trả chưa hết", withdrawable)
 	}
 
 	// --- đẩy quá hạn đổi trả rồi chạy job ---
@@ -158,9 +158,9 @@ func (a *apiTest) sellerBalance(t *testing.T, token string) (float64, float64) {
 		t.Fatalf("đọc số dư: HTTP %d — %s", res.code, res.raw)
 	}
 	pending, _ := res.body["pending"].(map[string]any)
-	rut, _ := res.body["available"].(map[string]any)
+	withdrawable, _ := res.body["available"].(map[string]any)
 	c, _ := pending["amount"].(float64)
-	r, _ := rut["amount"].(float64)
+	r, _ := withdrawable["amount"].(float64)
 	return c, r
 }
 
@@ -187,15 +187,15 @@ func TestASettlementGathersAvailableFundsAndNotTwice(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	B, rut := a.buildSellerWithAvailableFunds(t)
-	if rut <= 0 {
-		t.Fatalf("không dựng được số dư rút được (%v)", rut)
+	B, withdrawable := a.buildSellerWithAvailableFunds(t)
+	if withdrawable <= 0 {
+		t.Fatalf("không dựng được số dư rút được (%v)", withdrawable)
 	}
 
 	until := types.Now().Add(time.Minute)
-	tu := until.Add(-7 * 24 * time.Hour)
+	from := until.Add(-7 * 24 * time.Hour)
 
-	n, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, until, 1000)
+	n, err := a.mods.payment.NewSettlementForPeriod(ctx, from, until, 1000)
 	if err != nil {
 		t.Fatalf("tạo đợt đối soát: %v", err)
 	}
@@ -214,12 +214,12 @@ func TestASettlementGathersAvailableFundsAndNotTwice(t *testing.T) {
 	d0, _ := ds[0].(map[string]any)
 	gross, _ := d0["gross_amount"].(map[string]any)
 	g, _ := gross["amount"].(float64)
-	if g != rut {
-		t.Errorf("đợt gom %v, cần %v — không khớp số rút được", g, rut)
+	if g != withdrawable {
+		t.Errorf("đợt gom %v, cần %v — không khớp số rút được", g, withdrawable)
 	}
 
 	// CHẠY LẠI job: KHÔNG được gom lần hai.
-	again, err := a.mods.payment.NewSettlementForPeriod(ctx, tu, until, 1000)
+	again, err := a.mods.payment.NewSettlementForPeriod(ctx, from, until, 1000)
 	if err != nil {
 		t.Fatalf("chạy lại job: %v", err)
 	}
@@ -312,6 +312,6 @@ func (a *apiTest) buildSellerWithAvailableFunds(t *testing.T) (testSeller, float
 	}
 	a.emitEvent(t)
 
-	_, rut := a.sellerBalance(t, B.token)
-	return B, rut
+	_, withdrawable := a.sellerBalance(t, B.token)
+	return B, withdrawable
 }

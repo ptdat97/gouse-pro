@@ -28,7 +28,7 @@ func TestAQuantityBeyondStorageReturns400(t *testing.T) {
 	tok := a.createAccountWithRole(t, identity.RoleOpsWarehouse)
 	sku, filtered, own, _ := a.stockSample(t)
 
-	dat := func(q int64) reply {
+	place := func(q int64) reply {
 		h := idemKey()
 		h["Authorization"] = "Bearer " + tok
 		return a.call(http.MethodPost, "/api/v1/admin/inventory/adjustments",
@@ -42,7 +42,7 @@ func TestAQuantityBeyondStorageReturns400(t *testing.T) {
 	}
 
 	// ĐÚNG trần: phải nhận.
-	if got := dat(domain.DefaultCap); got.code != http.StatusOK {
+	if got := place(domain.DefaultCap); got.code != http.StatusOK {
 		t.Errorf("đúng trần (%d) bị từ chối: HTTP %d — %s",
 			domain.DefaultCap, got.code, got.raw)
 	}
@@ -53,7 +53,7 @@ func TestAQuantityBeyondStorageReturns400(t *testing.T) {
 		3_000_000_000,
 		9_000_000_000_000,
 	} {
-		got := dat(q)
+		got := place(q)
 		if got.code >= 500 {
 			t.Errorf("số lượng %d trả HTTP %d — đây là lỗi của người gõ, "+
 				"không phải lỗi máy chủ, và 500 khiến họ đi báo sự cố thay "+
@@ -80,7 +80,7 @@ func TestChangingTheQuantityCapFromTheUITakesEffectAtOnce(t *testing.T) {
 	warehouseTok := a.createAccountWithRole(t, identity.RoleOpsWarehouse)
 	sku, filtered, own, _ := a.stockSample(t)
 
-	dat := func(q int64) reply {
+	place := func(q int64) reply {
 		h := idemKey()
 		h["Authorization"] = "Bearer " + warehouseTok
 		return a.call(http.MethodPost, "/api/v1/admin/inventory/adjustments",
@@ -93,7 +93,7 @@ func TestChangingTheQuantityCapFromTheUITakesEffectAtOnce(t *testing.T) {
 	}
 
 	// Mặc định 10 triệu: 20 triệu bị từ chối.
-	if got := dat(20_000_000); got.code != http.StatusBadRequest {
+	if got := place(20_000_000); got.code != http.StatusBadRequest {
 		t.Fatalf("20 triệu với trần mặc định: HTTP %d, cần 400 — %s",
 			got.code, got.raw)
 	}
@@ -106,7 +106,7 @@ func TestChangingTheQuantityCapFromTheUITakesEffectAtOnce(t *testing.T) {
 	}
 
 	// Cùng con số, giờ phải nhận — không cần khởi động lại.
-	if got := dat(20_000_000); got.code != http.StatusOK {
+	if got := place(20_000_000); got.code != http.StatusOK {
 		t.Errorf("20 triệu sau khi nâng trần lên 50 triệu: HTTP %d — "+
 			"cấu hình không tới được chỗ dùng nó: %s", got.code, got.raw)
 	}

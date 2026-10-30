@@ -136,7 +136,7 @@ func TestEventsAreCappedPerCheckout(t *testing.T) {
 		t.Fatalf("đặt ngưỡng: HTTP %d — %s", res.code, res.raw)
 	}
 
-	lo := func(n int) reply {
+	batch := func(n int) reply {
 		ev := make([]any, 0, n)
 		for i := 0; i < n; i++ {
 			ev = append(ev, map[string]any{
@@ -149,10 +149,10 @@ func TestEventsAreCappedPerCheckout(t *testing.T) {
 		}, nil)
 	}
 
-	if res := lo(3); res.code != http.StatusOK {
+	if res := batch(3); res.code != http.StatusOK {
 		t.Fatalf("lô đầu trong ngưỡng bị từ chối: HTTP %d — %s", res.code, res.raw)
 	}
-	res := lo(1)
+	res := batch(1)
 	if res.code != http.StatusTooManyRequests {
 		t.Errorf("vượt ngưỡng mà trả HTTP %d, cần 429 — giới hạn theo "+
 			"phiên không có tác dụng", res.code)
@@ -204,9 +204,9 @@ func TestASecondSearchClickEmitsNoNewSignal(t *testing.T) {
 	ctx := context.Background()
 
 	tok := a.registerAndLogIn(newEmail("bamtim"))
-	var maSP string
+	var productID string
 	if err := a.db.Pool().QueryRow(ctx,
-		`SELECT id FROM product LIMIT 1`).Scan(&maSP); err != nil {
+		`SELECT id FROM product LIMIT 1`).Scan(&productID); err != nil {
 		t.Skip("không có sản phẩm nào")
 	}
 
@@ -214,7 +214,7 @@ func TestASecondSearchClickEmitsNoNewSignal(t *testing.T) {
 		hh := idemKey()
 		hh["Authorization"] = "Bearer " + tok
 		res := a.call(http.MethodPost, "/api/v1/me/wishlist", map[string]any{
-			"product_id": maSP, "notify_when_available": true,
+			"product_id": productID, "notify_when_available": true,
 		}, hh)
 		if res.code != http.StatusOK && res.code != http.StatusCreated {
 			t.Fatalf("thêm yêu thích: HTTP %d — %s", res.code, res.raw)
@@ -223,7 +223,7 @@ func TestASecondSearchClickEmitsNoNewSignal(t *testing.T) {
 		if err := a.db.Pool().QueryRow(ctx, `
 			SELECT count(*) FROM event_outbox
 			 WHERE event_type = 'customer.wishlist_item_added'
-			   AND payload->>'product_id' = $1`, maSP).Scan(&n); err != nil {
+			   AND payload->>'product_id' = $1`, productID).Scan(&n); err != nil {
 			t.Fatalf("đọc outbox: %v", err)
 		}
 		return n
@@ -259,7 +259,7 @@ func TestRollUpViewsCountsBySessionNotByVisit(t *testing.T) {
 	// xem cho một mã cố định. Dùng chung mã nghĩa là phép gom đếm cả lượt
 	// của bài khác — bài xanh khi chạy riêng, đỏ khi chạy cả gói, và
 	// thông điệp lỗi chỉ vào phép đếm chứ không vào sự trùng mã.
-	maSP := ids.MustNew(ids.PrefixProduct).String()
+	productID := ids.MustNew(ids.PrefixProduct).String()
 
 	send := func(session string, attempts int) {
 		t.Helper()
@@ -267,7 +267,7 @@ func TestRollUpViewsCountsBySessionNotByVisit(t *testing.T) {
 		for i := 0; i < attempts; i++ {
 			ev = append(ev, map[string]any{
 				"name": "product_view", "subject_type": "product",
-				"subject_id": maSP,
+				"subject_id": productID,
 			})
 		}
 		res := a.call(http.MethodPost, "/api/v1/events", map[string]any{
@@ -283,18 +283,18 @@ func TestRollUpViewsCountsBySessionNotByVisit(t *testing.T) {
 
 	now := types.Now()
 	first := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	theoSP, err := a.mods.analytics.RollUpViews(ctx, first, first.AddDate(0, 0, 1))
+	byProduct, err := a.mods.analytics.RollUpViews(ctx, first, first.AddDate(0, 0, 1))
 	if err != nil {
 		t.Fatalf("gom lượt xem: %v", err)
 	}
-	if got := theoSP[maSP]; got != 2 {
+	if got := byProduct[productID]; got != 2 {
 		t.Errorf("gom ra %d cho sản phẩm được xem 5 lượt từ 2 phiên, cần 2 "+
 			"— đếm lượt thay vì đếm phiên làm nhu cầu cao giả tạo", got)
 	}
 
 	// Sản phẩm không ai xem KHÔNG có trong kết quả — phép gom không được
 	// bịa ra dòng 0 cho mọi sản phẩm trong danh mục.
-	if _, co := theoSP["prd_01J9XKHONGAIXEM000000000"]; co {
+	if _, present := byProduct["prd_01J9XKHONGAIXEM000000000"]; present {
 		t.Error("phép gom trả về sản phẩm không có lượt xem nào")
 	}
 }

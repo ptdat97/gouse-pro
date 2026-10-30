@@ -396,7 +396,7 @@ func approve(ctx context.Context, svc *productapp.Service, id ids.ID) {
 	}
 }
 
-// dungOffer cho nhà bán chào bán SKU đó, kèm hàng trong kho.
+// useOffer cho nhà bán chào bán SKU đó, kèm hàng trong kho.
 //
 // Chủ sở hữu tồn kho là CHÍNH nhà bán (họ không phải seller nội bộ), theo
 // đúng quy tắc ở inventory.OwnerForSeller — ADR-0012.

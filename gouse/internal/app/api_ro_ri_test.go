@@ -41,16 +41,16 @@ var internalFields = map[string]string{
 //
 // `{}` được thay bằng mã thật lúc chạy: một phản hồi 404 thì không rò rỉ
 // gì cả, nên test gọi vào dữ liệu CÓ THẬT mới có giá trị.
-func publicPaths(a *apiTest, maSP, maNB string) []string {
+func publicPaths(a *apiTest, productID, shopID string) []string {
 	return []string{
 		"/api/v1/products",
 		"/api/v1/products?limit=20",
-		"/api/v1/products/" + maSP,
-		"/api/v1/products/" + maSP + "/offers",
+		"/api/v1/products/" + productID,
+		"/api/v1/products/" + productID + "/offers",
 		"/api/v1/categories",
-		"/api/v1/sellers?ids=" + maNB,
+		"/api/v1/sellers?ids=" + shopID,
 		"/api/v1/search?q=ao",
-		"/api/v1/offers/buy-box?product_ids=" + maSP,
+		"/api/v1/offers/buy-box?product_ids=" + productID,
 	}
 }
 
@@ -61,9 +61,9 @@ func publicPaths(a *apiTest, maSP, maNB string) []string {
 // object lồng (`data[].seller.tax_code`) — chỗ mà mắt người rà không tới.
 func TestAPublicResponseCarriesNoInternalField(t *testing.T) {
 	a := newAPITest(t)
-	maSP, maNB := publicPattern(t, a)
+	productID, shopID := publicPattern(t, a)
 
-	for _, route := range publicPaths(a, maSP, maNB) {
+	for _, route := range publicPaths(a, productID, shopID) {
 		t.Run(route, func(t *testing.T) {
 			res := a.call(http.MethodGet, route, nil, nil)
 			if res.code != http.StatusOK {
@@ -77,8 +77,8 @@ func TestAPublicResponseCarriesNoInternalField(t *testing.T) {
 
 			var errs []string
 			approveJSON(found, "", func(key, position string) {
-				if vi, commit := internalFields[strings.ToLower(key)]; commit {
-					errs = append(errs, fmt.Sprintf("%s (%s)", position, vi))
+				if info, commit := internalFields[strings.ToLower(key)]; commit {
+					errs = append(errs, fmt.Sprintf("%s (%s)", position, info))
 				}
 			})
 			if len(errs) > 0 {
@@ -99,10 +99,10 @@ func TestAPublicResponseCarriesNoInternalField(t *testing.T) {
 // công khai — bất kể nằm dưới tên gì.
 func TestSensitiveDataNeverLeaksPublicly(t *testing.T) {
 	a := newAPITest(t)
-	_, maNB := publicPattern(t, a)
+	_, shopID := publicPattern(t, a)
 
 	// Giá trị mồi: độc nhất để tìm chuỗi không dính nhầm.
-	moi := map[string]string{
+	fresh := map[string]string{
 		"legal_name": "CONG TY TNHH MOI KIEM RO RI ZZQ",
 		"tax_code":   "9988776655",
 		"email":      "noibo-canary@example.invalid",
@@ -116,14 +116,14 @@ func TestSensitiveDataNeverLeaksPublicly(t *testing.T) {
 	if _, err := a.db.Pool().Exec(ctx,
 		`UPDATE seller SET legal_name=$2, tax_code=$3, email=$4, phone=$5
 		  WHERE id=$1`,
-		maNB, moi["legal_name"], moi["tax_code"],
-		moi["email"], moi["phone"]); err != nil {
+		shopID, fresh["legal_name"], fresh["tax_code"],
+		fresh["email"], fresh["phone"]); err != nil {
 		t.Fatalf("nạp giá trị mồi: %v", err)
 	}
 
 	// Gọi KHÔNG kèm token: đúng tư cách người lạ.
 	for _, route := range []string{
-		"/api/v1/sellers?ids=" + maNB,
+		"/api/v1/sellers?ids=" + shopID,
 		"/api/v1/products",
 		"/api/v1/search?q=ao",
 	} {
@@ -131,20 +131,20 @@ func TestSensitiveDataNeverLeaksPublicly(t *testing.T) {
 		if res.code != http.StatusOK {
 			t.Fatalf("%s: HTTP %d — %s", route, res.code, res.raw)
 		}
-		for cot, value := range moi {
+		for idColumns, value := range fresh {
 			if strings.Contains(res.raw, value) {
 				t.Errorf("%s: cột nội bộ %s RÒ ra công khai (%q): %s",
-					route, cot, value, res.raw)
+					route, idColumns, value, res.raw)
 			}
 		}
 	}
 
 	// Chống xanh rỗng: đường /sellers phải THẬT SỰ trả về gian hàng vừa
 	// nạp mồi. Nếu không, ba vòng lặp trên chỉ đang soi phản hồi rỗng.
-	gateway := a.call(http.MethodGet, "/api/v1/sellers?ids="+maNB, nil, nil)
-	if !strings.Contains(gateway.raw, maNB) {
+	gateway := a.call(http.MethodGet, "/api/v1/sellers?ids="+shopID, nil, nil)
+	if !strings.Contains(gateway.raw, shopID) {
 		t.Fatalf("phản hồi công khai không chứa gian hàng %s — "+
-			"bài test sẽ xanh mà không kiểm gì: %s", maNB, gateway.raw)
+			"bài test sẽ xanh mà không kiểm gì: %s", shopID, gateway.raw)
 	}
 }
 
@@ -152,33 +152,33 @@ func TestSensitiveDataNeverLeaksPublicly(t *testing.T) {
 func approveJSON(v any, position string, gap func(key, position string)) {
 	switch x := v.(type) {
 	case map[string]any:
-		for k, con := range x {
+		for k, leftover := range x {
 			route := k
 			if position != "" {
 				route = position + "." + k
 			}
 			gap(k, route)
-			approveJSON(con, route, gap)
+			approveJSON(leftover, route, gap)
 		}
 	case []any:
-		for i, con := range x {
-			approveJSON(con, fmt.Sprintf("%s[%d]", position, i), gap)
+		for i, leftover := range x {
+			approveJSON(leftover, fmt.Sprintf("%s[%d]", position, i), gap)
 		}
 	}
 }
 
 func dedupe(ds []string) []string {
-	var ra []string
+	var collected []string
 	for i, s := range ds {
 		if i == 0 || s != ds[i-1] {
-			ra = append(ra, s)
+			collected = append(collected, s)
 		}
 	}
-	return ra
+	return collected
 }
 
 // publicPattern lấy một sản phẩm và một nhà bán CÓ THẬT.
-func publicPattern(t *testing.T, a *apiTest) (maSP, maNB string) {
+func publicPattern(t *testing.T, a *apiTest) (productID, shopID string) {
 	t.Helper()
 	res := a.call(http.MethodGet, "/api/v1/products", nil, nil)
 	ds, _ := res.body["data"].([]any)
@@ -186,16 +186,16 @@ func publicPattern(t *testing.T, a *apiTest) (maSP, maNB string) {
 		t.Skip("không có sản phẩm")
 	}
 	sp, _ := ds[0].(map[string]any)
-	maSP, _ = sp["id"].(string)
+	productID, _ = sp["id"].(string)
 
-	got := a.call(http.MethodGet, "/api/v1/products/"+maSP+"/offers", nil, nil)
+	got := a.call(http.MethodGet, "/api/v1/products/"+productID+"/offers", nil, nil)
 	offers, _ := got.body["data"].([]any)
 	if len(offers) > 0 {
 		o, _ := offers[0].(map[string]any)
-		maNB, _ = o["seller_id"].(string)
+		shopID, _ = o["seller_id"].(string)
 	}
-	if maNB == "" {
+	if shopID == "" {
 		t.Skip("không có offer để lấy nhà bán")
 	}
-	return maSP, maNB
+	return productID, shopID
 }

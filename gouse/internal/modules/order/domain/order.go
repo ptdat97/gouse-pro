@@ -44,7 +44,7 @@ var (
 
 	// ErrInvalidPaymentMethod: phương thức thanh toán không thuộc tập ĐÓNG.
 	//
-	// Rỗng KHÔNG rơi vào đây — xem PaymentMethod.HopLe.
+	// Rỗng KHÔNG rơi vào đây — xem PaymentMethod.IsValid.
 	ErrInvalidPaymentMethod = errors.New("order: phương thức thanh toán không hợp lệ")
 )
 
@@ -90,7 +90,7 @@ const (
 	PaymentMethodCOD          PaymentMethod = "COD"
 )
 
-// HopLe cho biết chuỗi này có phải một phương thức thanh toán hay không.
+// IsValid cho biết chuỗi này có phải một phương thức thanh toán hay không.
 //
 // Tập ĐÓNG và khớp `enum` trong đặc tả. RỖNG cũng hợp lệ: đường
 // `POST /api/v1/orders` (placeOrder) không nhận phương thức nào — đặc tả
@@ -114,7 +114,7 @@ func (p PaymentMethod) IsValid() bool {
 // `PENDING_PAYMENT`, nhưng chỉ một trong hai thu tiền ở cửa nhà khách.
 func (p PaymentMethod) CollectOnDelivery() bool { return p == PaymentMethodCOD }
 
-// HopLe cho biết chuỗi này có phải một trạng thái đơn hàng hay không.
+// IsValid cho biết chuỗi này có phải một trạng thái đơn hàng hay không.
 //
 // Tập ĐÓNG, và cần nó vì bộ lọc `?status=` nhận chuỗi từ người gọi. Đẩy
 // thẳng chuỗi lạ xuống truy vấn thì nó trả về 0 dòng — trông giống "khách

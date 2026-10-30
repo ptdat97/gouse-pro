@@ -22,7 +22,7 @@ func TestPasswordSprayingAcrossAccountsIsBlocked(t *testing.T) {
 	a := newAPITest(t)
 
 	// Mỗi lượt một email KHÁC nhau: đúng hình dạng của rải mật khẩu.
-	var chan429 bool
+	var saw429 bool
 	for i := 0; i < loginLimit+2; i++ {
 		res := a.call(http.MethodPost, "/api/v1/auth/login", map[string]any{
 			"email":    newEmail(fmt.Sprintf("nannhan%d", i)),
@@ -30,7 +30,7 @@ func TestPasswordSprayingAcrossAccountsIsBlocked(t *testing.T) {
 		}, nil)
 
 		if res.code == http.StatusTooManyRequests {
-			chan429 = true
+			saw429 = true
 			if i < loginLimit {
 				t.Fatalf("chặn quá sớm ở lượt %d, hạn mức là %d", i+1, loginLimit)
 			}
@@ -41,7 +41,7 @@ func TestPasswordSprayingAcrossAccountsIsBlocked(t *testing.T) {
 		}
 	}
 
-	if !chan429 {
+	if !saw429 {
 		t.Fatalf("rải mật khẩu qua %d tài khoản khác nhau mà KHÔNG bị chặn — "+
 			"khóa theo tài khoản không thấy kiểu này, và nếu lớp theo IP "+
 			"cũng không thấy thì không có gì cản", loginLimit+2)

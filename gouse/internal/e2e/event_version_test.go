@@ -176,24 +176,24 @@ func TestEveryEventInTheChainCarriesACorrelationID(t *testing.T) {
 	}
 	defer rows.Close()
 
-	var tong, missing int
+	var sumTotal, missing int
 	var samples []string
 	for rows.Next() {
 		var kind, corr string
 		if err := rows.Scan(&kind, &corr); err != nil {
 			t.Fatalf("đọc dòng: %v", err)
 		}
-		tong++
+		sumTotal++
 		if corr == "" {
 			missing++
 			samples = append(samples, kind)
 		}
 	}
 
-	if tong == 0 {
+	if sumTotal == 0 {
 		t.Fatal("không có event nào — bài test không kiểm được gì")
 	}
 	if missing > 0 {
-		t.Errorf("%d/%d event KHÔNG có correlation_id: %v", missing, tong, samples)
+		t.Errorf("%d/%d event KHÔNG có correlation_id: %v", missing, sumTotal, samples)
 	}
 }

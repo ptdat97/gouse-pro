@@ -55,15 +55,15 @@ func TestIDNamespacesDoNotOverlap(t *testing.T) {
 		t.Fatalf("đọc kiện hàng: HTTP %d — %s", res.code, res.raw)
 	}
 
-	cot := readIDColumns(t, a)
+	idColumns := readIDColumns(t, a)
 
 	// Bước 1: không gian mã của từng bảng, lấy từ chính cột `id` của nó.
 	namespace := map[string]string{}
-	for _, c := range cot {
-		if c.cot != "id" {
+	for _, c := range idColumns {
+		if c.idColumns != "id" {
 			continue
 		}
-		tt := prefixOf(t, a, c.table, c.cot)
+		tt := prefixOf(t, a, c.table, c.idColumns)
 		if len(tt) == 1 {
 			namespace[c.table] = tt[0]
 		}
@@ -75,18 +75,18 @@ func TestIDNamespacesDoNotOverlap(t *testing.T) {
 
 	// Bước 2: mọi cột `T_id` phải nằm trong không gian của T.
 	var checked int
-	for _, c := range cot {
-		if c.cot == "id" {
+	for _, c := range idColumns {
+		if c.idColumns == "id" {
 			continue
 		}
-		targetTable, co := tableOfColumn(c.table, c.cot, namespace)
-		if !co {
+		targetTable, present := tableOfColumn(c.table, c.idColumns, namespace)
+		if !present {
 			continue // không suy ra được bảng đích — bỏ qua, xem ghi chú dưới
 		}
 		want := namespace[targetTable]
-		key := c.table + "." + c.cot
+		key := c.table + "." + c.idColumns
 
-		for _, tt := range prefixOf(t, a, c.table, c.cot) {
+		for _, tt := range prefixOf(t, a, c.table, c.idColumns) {
 			if !isPrefix(tt) {
 				// Không phải mã có tiền tố: hằng canh (`seed-demo`,
 				// `dev-tool`) hoặc dữ liệu dựng tay trong test. Phép kiểm
@@ -109,7 +109,7 @@ func TestIDNamespacesDoNotOverlap(t *testing.T) {
 				"dựa vào nó khớp 0 dòng, và cả hai đầu vẫn trông đúng khi "+
 				"xét riêng.\n"+
 				"    Cố ý đa hình thì khai vào `ngoaiLeDaHinh` kèm lý do.",
-				c.table, c.cot, tt, want, targetTable, targetTable)
+				c.table, c.idColumns, tt, want, targetTable, targetTable)
 		}
 	}
 
@@ -164,11 +164,11 @@ func isPrefix(s string) bool {
 	return true
 }
 
-// coTen là một cột định danh trong schema.
-type coTen struct{ table, cot string }
+// tableColumn là một cột định danh trong schema.
+type tableColumn struct{ table, idColumns string }
 
 // readIDColumns liệt kê mọi cột text tên `id` hoặc `*_id`.
-func readIDColumns(t *testing.T, a *apiTest) []coTen {
+func readIDColumns(t *testing.T, a *apiTest) []tableColumn {
 	t.Helper()
 
 	rows, err := a.db.Pool().Query(context.Background(), `
@@ -184,10 +184,10 @@ func readIDColumns(t *testing.T, a *apiTest) []coTen {
 	}
 	defer rows.Close()
 
-	var out []coTen
+	var out []tableColumn
 	for rows.Next() {
-		var c coTen
-		if err := rows.Scan(&c.table, &c.cot); err != nil {
+		var c tableColumn
+		if err := rows.Scan(&c.table, &c.idColumns); err != nil {
 			t.Fatalf("đọc schema: %v", err)
 		}
 		out = append(out, c)
@@ -199,16 +199,16 @@ func readIDColumns(t *testing.T, a *apiTest) []coTen {
 //
 // Bỏ qua giá trị rỗng: cột định danh trong schema này dùng ” thay cho
 // NULL, và "chưa gán" không phải "gán sai".
-func prefixOf(t *testing.T, a *apiTest, table, cot string) []string {
+func prefixOf(t *testing.T, a *apiTest, table, idColumns string) []string {
 	t.Helper()
 
 	q := fmt.Sprintf(
 		`SELECT DISTINCT split_part(%s, '_', 1) FROM %s WHERE %s <> ''`,
-		quote(cot), quote(table), quote(cot))
+		quote(idColumns), quote(table), quote(idColumns))
 
 	rows, err := a.db.Pool().Query(context.Background(), q)
 	if err != nil {
-		t.Fatalf("quét %s.%s: %v", table, cot, err)
+		t.Fatalf("quét %s.%s: %v", table, idColumns, err)
 	}
 	defer rows.Close()
 
@@ -216,7 +216,7 @@ func prefixOf(t *testing.T, a *apiTest, table, cot string) []string {
 	for rows.Next() {
 		var s string
 		if err := rows.Scan(&s); err != nil {
-			t.Fatalf("quét %s.%s: %v", table, cot, err)
+			t.Fatalf("quét %s.%s: %v", table, idColumns, err)
 		}
 		out = append(out, s)
 	}
@@ -235,19 +235,19 @@ func prefixOf(t *testing.T, a *apiTest, table, cot string) []string {
 //
 // Cột không suy ra được bảng nào thì KHÔNG kiểm — bài test này không hứa
 // phủ hết, nó hứa mọi thứ nó nói đều đúng.
-func tableOfColumn(table, cot string, namespace map[string]string) (string, bool) {
-	if polymorphicExceptions[table+"."+cot] != "" {
+func tableOfColumn(table, idColumns string, namespace map[string]string) (string, bool) {
+	if polymorphicExceptions[table+"."+idColumns] != "" {
 		return "", false
 	}
 
-	ten := strings.TrimSuffix(cot, "_id")
+	ten := strings.TrimSuffix(idColumns, "_id")
 
 	// `parent_id` trỏ tới chính bảng đang đứng (danh mục cha).
 	if ten == "parent" {
 		ten = table
 	}
 
-	if _, co := namespace[ten]; co {
+	if _, present := namespace[ten]; present {
 		return ten, true
 	}
 	return "", false

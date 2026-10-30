@@ -146,7 +146,7 @@ func TestTheLockBlocksEveryForwardStep(t *testing.T) {
 
 	for _, b := range []struct {
 		ten string
-		lam func() error
+		act func() error
 	}{
 		{"xác nhận", func() error { return fo.Confirm(testNowE2E()) }},
 		{"nhặt hàng", func() error { return fo.Pick(testNowE2E()) }},
@@ -155,7 +155,7 @@ func TestTheLockBlocksEveryForwardStep(t *testing.T) {
 			return fo.HandOver("GHN", "TRACK-1", domain.DefaultFeeSchedule, testNowE2E())
 		}},
 	} {
-		if err := b.lam(); !errors.Is(err, domain.ErrAwaitingPayment) {
+		if err := b.act(); !errors.Is(err, domain.ErrAwaitingPayment) {
 			t.Errorf("%s: lỗi = %v, mong ErrChoThanhToan", b.ten, err)
 		}
 	}

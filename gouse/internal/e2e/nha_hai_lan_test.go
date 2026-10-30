@@ -120,14 +120,14 @@ func TestTwoExpirySweepsDoNotReleaseStockTwice(t *testing.T) {
 
 	// KHÔNG được để lại reservation ACTIVE nào: đó là thứ làm job dọn hạn
 	// hỏng vĩnh viễn sau sự cố thật.
-	var conActive int
+	var stillActive int
 	if err := w.db.Pool().QueryRow(ctx,
 		`SELECT count(*) FROM reservation WHERE status = 'ACTIVE'`,
-	).Scan(&conActive); err != nil {
+	).Scan(&stillActive); err != nil {
 		t.Fatalf("đếm reservation: %v", err)
 	}
-	if conActive != 0 {
-		t.Errorf("còn %d reservation kẹt ở ACTIVE", conActive)
+	if stillActive != 0 {
+		t.Errorf("còn %d reservation kẹt ở ACTIVE", stillActive)
 	}
 
 	for _, e := range failure {

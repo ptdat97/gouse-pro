@@ -45,13 +45,13 @@ func TestTheSizeSuggestionShowsUpOverHTTP(t *testing.T) {
 
 	// Tìm một sản phẩm CÓ size và lấy thương hiệu của nó: gợi ý tra theo
 	// thương hiệu, nên quan sát phải thuộc đúng thương hiệu đang xem.
-	var maSP, maTH, size string
+	var productID, brandID, size string
 	if err := a.db.Pool().QueryRow(ctx, `
 		SELECT p.id, p.brand_id, v.attributes->>'size'
 		FROM product p
 		JOIN variant v ON v.product_id = p.id
 		WHERE p.status = 'ACTIVE' AND v.attributes->>'size' <> ''
-		LIMIT 1`).Scan(&maSP, &maTH, &size); err != nil {
+		LIMIT 1`).Scan(&productID, &brandID, &size); err != nil {
 		t.Skipf("không có sản phẩm nào bán theo size: %v", err)
 	}
 
@@ -59,17 +59,17 @@ func TestTheSizeSuggestionShowsUpOverHTTP(t *testing.T) {
 		INSERT INTO size_observation (customer_id, brand_id, size, outcome,
 		                           source_type, source_id, observed_at)
 		VALUES ($1,$2,$3,'PURCHASED','test','ord_test_goiy_http', now())`,
-		custID, maTH, size); err != nil {
+		custID, brandID, size); err != nil {
 		t.Fatalf("ghi quan sát: %v", err)
 	}
 
-	res := a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, bear)
+	res := a.call(http.MethodGet, "/api/v1/products/"+productID, nil, bear)
 	if res.code != http.StatusOK {
 		t.Fatalf("đọc sản phẩm: HTTP %d — %s", res.code, res.raw)
 	}
 
-	suggestion, co := res.body["size_recommendation"].(map[string]any)
-	if !co {
+	suggestion, present := res.body["size_recommendation"].(map[string]any)
+	if !present {
 		t.Fatalf("response KHÔNG có size_recommendation dù khách đã mua size %s "+
 			"của thương hiệu này — kiểm chuỗi middleware của tuyến sản phẩm: %s",
 			size, res.raw)
@@ -83,11 +83,11 @@ func TestTheSizeSuggestionShowsUpOverHTTP(t *testing.T) {
 
 	// KHÔNG đăng nhập thì KHÔNG gợi ý: trường này là dữ liệu riêng của
 	// một người, không phải thuộc tính của sản phẩm.
-	res = a.call(http.MethodGet, "/api/v1/products/"+maSP, nil, nil)
+	res = a.call(http.MethodGet, "/api/v1/products/"+productID, nil, nil)
 	if res.code != http.StatusOK {
 		t.Fatalf("đọc sản phẩm (ẩn danh): HTTP %d — %s", res.code, res.raw)
 	}
-	if _, co := res.body["size_recommendation"]; co {
+	if _, present := res.body["size_recommendation"]; present {
 		t.Errorf("khách ẩn danh cũng nhận được gợi ý size: %s", res.raw)
 	}
 }

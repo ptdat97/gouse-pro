@@ -35,7 +35,7 @@ func TestEveryModuleRouteIsExposed(t *testing.T) {
 	// Chỉ những module gắn vào mux CON mới có nguy cơ này. Module gắn
 	// thẳng vào mux của app (catalog, product, marketplace) không có
 	// danh sách thứ hai để lệch.
-	muxCon := map[string]string{
+	childMux := map[string]string{
 		"cart":     "internal/modules/cart/interfaces/http",
 		"checkout": "internal/modules/checkout/interfaces/http",
 		"customer": "internal/modules/customer/interfaces/http",
@@ -44,7 +44,7 @@ func TestEveryModuleRouteIsExposed(t *testing.T) {
 
 	exposed := readRoutePatterns(t, "internal/app")
 
-	for module, dir := range muxCon {
+	for module, dir := range childMux {
 		for pattern := range readRoutePatterns(t, dir) {
 			if exposed[pattern] {
 				continue
@@ -72,11 +72,11 @@ func repoRoot(t *testing.T) string {
 		if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
 			return d
 		}
-		cha := filepath.Dir(d)
-		if cha == d {
+		parentDir := filepath.Dir(d)
+		if parentDir == d {
 			t.Fatal("không tìm thấy go.mod từ thư mục làm việc trở lên")
 		}
-		d = cha
+		d = parentDir
 	}
 }
 
@@ -88,7 +88,7 @@ func readRoutePatterns(t *testing.T, dir string) map[string]bool {
 	t.Helper()
 
 	re := regexp.MustCompile(`mux\.Handle\(\s*"([A-Z]+ /[^"]*)"`)
-	ra := map[string]bool{}
+	collected := map[string]bool{}
 
 	entries, err := os.ReadDir(filepath.Join(repoRoot(t), dir))
 	if err != nil {
@@ -107,7 +107,7 @@ func readRoutePatterns(t *testing.T, dir string) map[string]bool {
 		}
 		fileCount++
 		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
-			ra[m[1]] = true
+			collected[m[1]] = true
 		}
 	}
 
@@ -116,11 +116,11 @@ func readRoutePatterns(t *testing.T, dir string) map[string]bool {
 	if fileCount == 0 {
 		t.Fatalf("%s không có file .go nào — đường dẫn đã đổi?", dir)
 	}
-	if len(ra) == 0 {
+	if len(collected) == 0 {
 		t.Fatalf("%s không có mẫu tuyến nào — cách đăng ký tuyến đã đổi "+
 			"và bài kiểm này không còn kiểm gì", dir)
 	}
-	return ra
+	return collected
 }
 
 // TestTheExposureListHasNoExtras là chiều NGƯỢC lại.
@@ -200,16 +200,16 @@ func TestTheExposureListHasNoExtras(t *testing.T) {
 // sau khi tính năng đã xong sẽ khiến người đọc bỏ qua một endpoint dùng
 // được.
 func TestTheSpecAndTheCodeDoNotDriftApart(t *testing.T) {
-	goc := repoRoot(t)
+	roots := repoRoot(t)
 
-	path := readSpecPaths(t, goc)
+	path := readSpecPaths(t, roots)
 	if len(path) == 0 {
 		t.Fatal("không đọc được đường dẫn nào từ đặc tả — cách khai đã đổi " +
 			"và bài kiểm này không còn kiểm gì")
 	}
 
 	routes := map[string]bool{}
-	for _, dir := range httpInterfaceDir(t, goc) {
+	for _, dir := range httpInterfaceDir(t, roots) {
 		for pattern := range readRoutePatterns(t, dir) {
 			// Bỏ phương thức, chỉ giữ đường dẫn.
 			if i := strings.IndexByte(pattern, ' '); i > 0 {
@@ -258,10 +258,10 @@ func normalizePath(p string) string {
 }
 
 // readSpecPaths đọc đường dẫn từ openapi.yaml và tra nhãn x-phase.
-func readSpecPaths(t *testing.T, goc string) []specEntry {
+func readSpecPaths(t *testing.T, roots string) []specEntry {
 	t.Helper()
 
-	b, err := os.ReadFile(filepath.Join(goc, "api/openapi.yaml"))
+	b, err := os.ReadFile(filepath.Join(roots, "api/openapi.yaml"))
 	if err != nil {
 		t.Fatalf("đọc openapi.yaml: %v", err)
 	}
@@ -272,7 +272,7 @@ func readSpecPaths(t *testing.T, goc string) []specEntry {
 		out = append(out, specEntry{
 			path:  m[1],
 			block: m[2] + "#/" + m[3],
-			stage: readStageLabels(t, goc, m[2], m[3]),
+			stage: readStageLabels(t, roots, m[2], m[3]),
 		})
 	}
 	return out
@@ -282,10 +282,10 @@ func readSpecPaths(t *testing.T, goc string) []specEntry {
 //
 // Đọc theo khối chứ không theo cả tệp: một tệp có hàng chục khối, và nhãn
 // của khối này không nói gì về khối kia.
-func readStageLabels(t *testing.T, goc, file, block string) int {
+func readStageLabels(t *testing.T, roots, file, block string) int {
 	t.Helper()
 
-	b, err := os.ReadFile(filepath.Join(goc, "api/paths", file))
+	b, err := os.ReadFile(filepath.Join(roots, "api/paths", file))
 	if err != nil {
 		t.Fatalf("đọc %s: %v", file, err)
 	}
@@ -297,8 +297,8 @@ func readStageLabels(t *testing.T, goc, file, block string) int {
 	}
 	than = than[first+1:]
 	// Khối kết thúc ở khóa cấp cao nhất tiếp theo.
-	if cuoi := regexp.MustCompile(`\n[A-Za-z_]\w*:`).FindStringIndex(than[len(block)+2:]); cuoi != nil {
-		than = than[:len(block)+2+cuoi[0]]
+	if last := regexp.MustCompile(`\n[A-Za-z_]\w*:`).FindStringIndex(than[len(block)+2:]); last != nil {
+		than = than[:len(block)+2+last[0]]
 	}
 
 	m := regexp.MustCompile(`x-phase:\s*(\d+)`).FindStringSubmatch(than)
@@ -313,10 +313,10 @@ func readStageLabels(t *testing.T, goc, file, block string) int {
 }
 
 // httpInterfaceDir liệt kê mọi thư mục interfaces/http của module.
-func httpInterfaceDir(t *testing.T, goc string) []string {
+func httpInterfaceDir(t *testing.T, roots string) []string {
 	t.Helper()
 
-	entries, err := os.ReadDir(filepath.Join(goc, "internal/modules"))
+	entries, err := os.ReadDir(filepath.Join(roots, "internal/modules"))
 	if err != nil {
 		t.Fatalf("đọc internal/modules: %v", err)
 	}
@@ -326,7 +326,7 @@ func httpInterfaceDir(t *testing.T, goc string) []string {
 			continue
 		}
 		d := filepath.Join("internal/modules", e.Name(), "interfaces/http")
-		if _, err := os.Stat(filepath.Join(goc, d)); err == nil {
+		if _, err := os.Stat(filepath.Join(roots, d)); err == nil {
 			out = append(out, d)
 		}
 	}

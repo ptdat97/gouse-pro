@@ -12,12 +12,12 @@ import (
 )
 
 // buildCoupon tạo một chương trình đang chạy và một mã dùng được.
-func (a *apiTest) buildCoupon(t *testing.T, ma string, percentBP int32) {
+func (a *apiTest) buildCoupon(t *testing.T, couponCode string, percentBP int32) {
 	t.Helper()
 	ctx := context.Background()
 
 	pr, err := a.mods.promotion.CreatePromotion(ctx, promotion.CreatePromotionRequest{
-		Name: "Thử phân bổ " + ma, Kind: "COUPON",
+		Name: "Thử phân bổ " + couponCode, Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: percentBP,
 		StartsAt: types.Now().Add(-time.Hour),
 		EndsAt:   types.Now().Add(24 * time.Hour),
@@ -30,7 +30,7 @@ func (a *apiTest) buildCoupon(t *testing.T, ma string, percentBP int32) {
 		t.Fatalf("kích hoạt chương trình: %v", err)
 	}
 	if _, err := a.mods.promotion.CreateCoupon(ctx, promotion.CreateCouponRequest{
-		PromotionID: pr.ID, Code: ma,
+		PromotionID: pr.ID, Code: couponCode,
 	}); err != nil {
 		t.Fatalf("tạo mã: %v", err)
 	}
@@ -51,15 +51,15 @@ func TestACouponWorksAndTheReturnRefundsWhatWasActuallyPaid(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	const ma = "THUPHANBO10"
-	a.buildCoupon(t, ma, 1000) // giảm 10%
+	const couponCode = "THUPHANBO10"
+	a.buildCoupon(t, couponCode, 1000) // giảm 10%
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -77,7 +77,7 @@ func TestACouponWorksAndTheReturnRefundsWhatWasActuallyPaid(t *testing.T) {
 
 	// ÁP MÃ — đường trước đây trả "chưa sẵn sàng".
 	got := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
-		map[string]any{"code": ma}, idemKey())
+		map[string]any{"code": couponCode}, idemKey())
 	if got.code != http.StatusOK {
 		t.Fatalf("áp mã giảm giá: HTTP %d — %s", got.code, got.raw)
 	}
@@ -162,8 +162,8 @@ func TestACouponWorksAndTheReturnRefundsWhatWasActuallyPaid(t *testing.T) {
 			"hàng rào chống hoàn thừa vẫn đang chặn", ret.code, ret.raw)
 	}
 
-	yc, _ := ret.body["return"].(map[string]any)
-	cash, _ := yc["refund_amount"].(map[string]any)
+	request, _ := ret.body["return"].(map[string]any)
+	cash, _ := request["refund_amount"].(map[string]any)
 	refunded, _ := cash["amount"].(float64)
 
 	// Hoàn phải bằng giá thực trả = niêm yết − phần giảm đã phân bổ.

@@ -31,13 +31,13 @@ func TestFilteringTheCatalogBySizeAndColor(t *testing.T) {
 	}
 
 	// --- lọc theo size ---
-	theoSize := a.countProducts(t, "size="+size)
-	if theoSize == 0 {
+	bySize := a.countProducts(t, "size="+size)
+	if bySize == 0 {
 		t.Errorf("lọc size=%s trả 0 sản phẩm dù có biến thể mang size đó", size)
 	}
-	if theoSize > all {
+	if bySize > all {
 		t.Errorf("lọc size=%s trả %d, nhiều hơn tổng %d — bộ lọc nhân đôi "+
-			"sản phẩm có nhiều biến thể khớp", size, theoSize, all)
+			"sản phẩm có nhiều biến thể khớp", size, bySize, all)
 	}
 
 	// Size KHÔNG tồn tại phải trả rỗng, không phải trả tất cả.
@@ -57,9 +57,9 @@ func TestFilteringTheCatalogBySizeAndColor(t *testing.T) {
 
 	// --- nhiều giá trị: khớp BẤT KỲ, không phải khớp TẤT CẢ ---
 	many := a.countProducts(t, "size="+size+",SIZE-KHONG-CO-THAT")
-	if many != theoSize {
+	if many != bySize {
 		t.Errorf("lọc nhiều size trả %d, cần %d — nhiều giá trị phải khớp "+
-			"BẤT KỲ, không phải khớp tất cả", many, theoSize)
+			"BẤT KỲ, không phải khớp tất cả", many, bySize)
 	}
 }
 

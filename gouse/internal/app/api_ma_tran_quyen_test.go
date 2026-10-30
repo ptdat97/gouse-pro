@@ -116,8 +116,8 @@ func TestThePermissionMatrixIsByResourceAndRole(t *testing.T) {
 	}
 
 	for _, d := range pathsNeedingAuth() {
-		group, co := groupOfPath(d.path)
-		if !co {
+		group, present := groupOfPath(d.path)
+		if !present {
 			// Bắt ở bài phủ bên dưới, không lặp lại ở đây.
 			continue
 		}
@@ -159,7 +159,7 @@ func TestThePermissionMatrixIsByResourceAndRole(t *testing.T) {
 func TestEveryAuthenticatedPathIsInTheMatrix(t *testing.T) {
 	var missingImg []string
 	for _, d := range pathsNeedingAuth() {
-		if _, co := groupOfPath(d.path); !co {
+		if _, present := groupOfPath(d.path); !present {
 			missingImg = append(missingImg, d.method+" "+d.path)
 		}
 	}
@@ -172,14 +172,14 @@ func TestEveryAuthenticatedPathIsInTheMatrix(t *testing.T) {
 
 // groupOfPath tìm nhóm khớp, ưu tiên TIỀN TỐ DÀI NHẤT.
 func groupOfPath(path string) (permissionGroup, bool) {
-	var tot permissionGroup
-	var co bool
+	var best permissionGroup
+	var present bool
 	for _, n := range permissionMatrix {
-		if strings.HasPrefix(path, n.prefix) && len(n.prefix) > len(tot.prefix) {
-			tot, co = n, true
+		if strings.HasPrefix(path, n.prefix) && len(n.prefix) > len(best.prefix) {
+			best, present = n, true
 		}
 	}
-	return tot, co
+	return best, present
 }
 
 func isIn(ds []string, x string) bool {

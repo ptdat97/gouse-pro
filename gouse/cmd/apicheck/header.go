@@ -128,7 +128,7 @@ func (c *checker) readSpecHeaders() (map[string]string, error) {
 	return out, nil
 }
 
-// reTenHeader khớp dòng khai tên, có hoặc không có gạch đầu dòng.
+// reHeaderName khớp dòng khai tên, có hoặc không có gạch đầu dòng.
 var reHeaderName = regexp.MustCompile(`^\s*-?\s*name:\s*([A-Za-z][A-Za-z0-9-]*)\s*$`)
 
 // findHeaderName tìm `name:` quanh dòng `in: header`.

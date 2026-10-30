@@ -83,7 +83,7 @@ func NewEmailToken(p NewEmailTokenParams) (*EmailToken, error) {
 	}, nil
 }
 
-// Dung đánh dấu token ĐÃ dùng.
+// Use đánh dấu token ĐÃ dùng.
 //
 // # Vì sao kiểm cả ba điều kiện ở đây
 //

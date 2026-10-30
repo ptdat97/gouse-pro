@@ -36,14 +36,14 @@ func TestTheSizeSuggestionComesFromReturnHistory(t *testing.T) {
 	}
 
 	// Dựng quan sát như bên nhận event sẽ dựng.
-	maTH := "brd_01J9XABC123DEF456GHJKMNPQR"
+	brandID := "brd_01J9XABC123DEF456GHJKMNPQR"
 	record := func(size, outcome, sourceID string) {
 		t.Helper()
 		if _, err := a.db.Pool().Exec(ctx, `
 			INSERT INTO size_observation (customer_id, brand_id, size, outcome,
 			                           source_type, source_id, observed_at)
 			VALUES ($1,$2,$3,$4,'test',$5, now())`,
-			custID, maTH, size, outcome, sourceID); err != nil {
+			custID, brandID, size, outcome, sourceID); err != nil {
 			t.Fatalf("ghi quan sát: %v", err)
 		}
 	}
@@ -51,7 +51,7 @@ func TestTheSizeSuggestionComesFromReturnHistory(t *testing.T) {
 	suggestion := func() *recommendation.RecommendSizeView {
 		t.Helper()
 		v, err := a.mods.recommendation.RecommendSize(ctx, recommendation.RecommendSizeRequest{
-			CustomerID: custID, BrandID: maTH,
+			CustomerID: custID, BrandID: brandID,
 			SizeScale: []string{"S", "M", "L", "XL"},
 		})
 		if err != nil {

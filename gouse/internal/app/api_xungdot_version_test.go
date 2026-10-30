@@ -47,8 +47,8 @@ var versionConflictExemptions = map[string]string{
 // Bài `TestConcurrentProfileEditsDoNotReturn500` bên dưới đo hành vi thật trên một
 // đường cụ thể, để bài quét này không chỉ là kiểm tra chuỗi ký tự.
 func TestEveryModuleMapsAVersionConflictTo409(t *testing.T) {
-	goc := filepath.Join("..", "modules")
-	ds, err := os.ReadDir(goc)
+	roots := filepath.Join("..", "modules")
+	ds, err := os.ReadDir(roots)
 	if err != nil {
 		t.Fatalf("đọc thư mục module: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestEveryModuleMapsAVersionConflictTo409(t *testing.T) {
 			continue
 		}
 		mod := e.Name()
-		dir := filepath.Join(goc, mod)
+		dir := filepath.Join(roots, mod)
 
 		if !definesVersionConflict(t, dir) {
 			continue
@@ -124,8 +124,8 @@ func mapsVersionConflict(t *testing.T, dir string) bool {
 	})
 }
 
-// scanFiles đọc mọi tệp .go KHÔNG phải test trong thư mục và hỏi `hop`.
-func scanFiles(t *testing.T, dir string, hop func(string) bool) bool {
+// scanFiles đọc mọi tệp .go KHÔNG phải test trong thư mục và hỏi `match`.
+func scanFiles(t *testing.T, dir string, match func(string) bool) bool {
 	t.Helper()
 	ds, err := os.ReadDir(dir)
 	if err != nil {
@@ -140,7 +140,7 @@ func scanFiles(t *testing.T, dir string, hop func(string) bool) bool {
 		if err != nil {
 			t.Fatalf("đọc %s: %v", e.Name(), err)
 		}
-		if hop(string(b)) {
+		if match(string(b)) {
 			return true
 		}
 	}

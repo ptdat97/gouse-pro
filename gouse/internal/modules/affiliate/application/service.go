@@ -86,7 +86,7 @@ type Deps struct {
 	// Clock để test điều khiển thời gian. Nil = time.Now().UTC().
 	Clock func() time.Time
 
-	// TyLe là tỷ lệ hoa hồng creator. 0 = dùng domain.DefaultRate.
+	// RateBP là tỷ lệ hoa hồng creator. 0 = dùng domain.DefaultRate.
 	//
 	// Bày ra để module `campaign` (Phase 2) nối vào, và để test khẳng định
 	// tỷ lệ được ĐÓNG BĂNG chứ không đọc lại lúc tính.

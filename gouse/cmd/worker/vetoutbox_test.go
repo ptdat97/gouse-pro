@@ -12,16 +12,16 @@ import (
 // event/giây — bất kể hệ thống rảnh đến đâu. Đo thật cho ra đúng con số
 // đó, phẳng tuyệt đối, trong khi một lô chỉ tốn 182ms.
 func TestOutboxDrainsFullyWhenHealthy(t *testing.T) {
-	con := 450
+	remaining := 450
 	parcel := 0
 
 	total, err := drainOutbox(context.Background(), 100, 50,
 		func(_ context.Context, n int) (int, error) {
 			parcel++
-			if con < n {
-				n = con
+			if remaining < n {
+				n = remaining
 			}
-			con -= n
+			remaining -= n
 			return n, nil
 		})
 	if err != nil {

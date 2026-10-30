@@ -30,7 +30,7 @@ func TestASellerBornePromotionRecordsTheRightBearer(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	const ma = "NHABANCHIU"
+	const couponCode = "NHABANCHIU"
 	pr, err := a.mods.promotion.CreatePromotion(ctx, promotion.CreatePromotionRequest{
 		Name: "Nhà bán tự giảm", Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: 1000,
@@ -46,12 +46,12 @@ func TestASellerBornePromotionRecordsTheRightBearer(t *testing.T) {
 		t.Fatalf("kích hoạt: %v", err)
 	}
 	if _, err := a.mods.promotion.CreateCoupon(ctx, promotion.CreateCouponRequest{
-		PromotionID: pr.ID, Code: ma,
+		PromotionID: pr.ID, Code: couponCode,
 	}); err != nil {
 		t.Fatalf("tạo mã: %v", err)
 	}
 
-	orderID := a.placeOrderWithCode(t, ma, "benchiu")
+	orderID := a.placeOrderWithCode(t, couponCode, "benchiu")
 
 	var bearer string
 	var amount int64
@@ -104,16 +104,16 @@ func TestASellerBornePromotionRecordsTheRightBearer(t *testing.T) {
 }
 
 // placeOrderWithCode đặt một đơn có áp mã giảm giá, trả về mã đơn.
-func (a *apiTest) placeOrderWithCode(t *testing.T, ma, label string) string {
+func (a *apiTest) placeOrderWithCode(t *testing.T, couponCode, label string) string {
 	t.Helper()
 
-	maOffer := a.findSellableOffer()
-	if maOffer == "" {
+	offerID := a.findSellableOffer()
+	if offerID == "" {
 		t.Skip("không có offer nào bán được")
 	}
 
 	res := a.call(http.MethodPost, "/api/v1/cart/items",
-		map[string]any{"offer_id": maOffer, "quantity": 1}, idemKey())
+		map[string]any{"offer_id": offerID, "quantity": 1}, idemKey())
 	if res.code != http.StatusOK {
 		t.Fatalf("thêm vào giỏ: HTTP %d — %s", res.code, res.raw)
 	}
@@ -129,7 +129,7 @@ func (a *apiTest) placeOrderWithCode(t *testing.T, ma, label string) string {
 	checkoutID, _ := res.body["id"].(string)
 
 	if got := a.call(http.MethodPost, "/api/v1/checkout/"+checkoutID+"/coupon",
-		map[string]any{"code": ma}, idemKey()); got.code != http.StatusOK {
+		map[string]any{"code": couponCode}, idemKey()); got.code != http.StatusOK {
 		t.Fatalf("áp mã: HTTP %d — %s", got.code, got.raw)
 	}
 	a.call(http.MethodPatch, "/api/v1/checkout/"+checkoutID+"/shipping-address",
@@ -168,7 +168,7 @@ func TestASharedPromotionDeductsTheExactRatio(t *testing.T) {
 	a := newAPITest(t)
 	ctx := context.Background()
 
-	const ma = "CHIADOI50"
+	const couponCode = "CHIADOI50"
 	pr, err := a.mods.promotion.CreatePromotion(ctx, promotion.CreatePromotionRequest{
 		Name: "Chia đôi 50-50", Kind: "COUPON",
 		DiscountType: "PERCENTAGE", DiscountBPS: 1000,
@@ -186,12 +186,12 @@ func TestASharedPromotionDeductsTheExactRatio(t *testing.T) {
 		t.Fatalf("kích hoạt: %v", err)
 	}
 	if _, err := a.mods.promotion.CreateCoupon(ctx, promotion.CreateCouponRequest{
-		PromotionID: pr.ID, Code: ma,
+		PromotionID: pr.ID, Code: couponCode,
 	}); err != nil {
 		t.Fatalf("tạo mã: %v", err)
 	}
 
-	orderID := a.placeOrderWithCode(t, ma, "chiadoi")
+	orderID := a.placeOrderWithCode(t, couponCode, "chiadoi")
 	a.emitEvent(t)
 
 	var discount int64

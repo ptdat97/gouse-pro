@@ -23,13 +23,13 @@ func (a *apiTest) traceAt(t *testing.T, actorID string, at time.Time) {
 		                       resource_type, resource_id, occurred_at)
 		VALUES ($3, 'USER', $1, 'LOC_THOI_GIAN',
 		        'CONFIG', 'cfg-filtered', $2)`,
-		actorID, at, "aud_"+maULIDTest()); err != nil {
+		actorID, at, "aud_"+ulidForTest()); err != nil {
 		t.Fatalf("ghi vết lúc %s: %v", at.Format(time.RFC3339), err)
 	}
 }
 
-// maULIDTest sinh 26 ký tự theo bảng chữ Crockford base32 của ULID.
-func maULIDTest() string {
+// ulidForTest sinh 26 ký tự theo bảng chữ Crockford base32 của ULID.
+func ulidForTest() string {
 	const letters = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 	b := make([]byte, 26)
 	for i := range b {

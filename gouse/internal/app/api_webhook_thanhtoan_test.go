@@ -17,7 +17,7 @@ const paymentGatewaySecret = "bi-mat-cong-thanh-toan-cho-test"
 // Ký trên BYTE THÔ của thân, đúng như production tính: ký trên bản
 // serialize lại sẽ khớp trong test và trượt ngoài đời.
 func (a *apiTest) callPaymentWebhook(
-	t *testing.T, provider string, than any, biMat string,
+	t *testing.T, provider string, than any, secret string,
 ) reply {
 	t.Helper()
 
@@ -29,8 +29,8 @@ func (a *apiTest) callPaymentWebhook(
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/webhooks/payment/"+provider, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
-	if biMat != "" {
-		req.Header.Set("X-Signature", httpserver.SignHMAC(raw, biMat))
+	if secret != "" {
+		req.Header.Set("X-Signature", httpserver.SignHMAC(raw, secret))
 	}
 
 	rec := httptest.NewRecorder()
@@ -60,8 +60,8 @@ func (a *apiTest) prepaidOrder(t *testing.T, email, phone string) (string, int64
 		t.Fatalf("không lấy được mã đơn: %s", res.raw)
 	}
 
-	tong, _ := ord["total"].(map[string]any)
-	amount, _ := tong["amount"].(float64)
+	sumTotal, _ := ord["total"].(map[string]any)
+	amount, _ := sumTotal["amount"].(float64)
 	if amount <= 0 {
 		t.Fatalf("tổng đơn = %v, phải > 0: %s", amount, res.raw)
 	}
@@ -88,7 +88,7 @@ func TestAWebhookWithTheWrongAmountDoesNotCapture(t *testing.T) {
 	a := newAPITest(t)
 
 	const phone = "0900888777"
-	orderID, tong := a.prepaidOrder(t, "webhook-tt@example.com", phone)
+	orderID, sumTotal := a.prepaidOrder(t, "webhook-tt@example.com", phone)
 
 	if tt := a.orderStatus(t, orderID); tt != "PENDING_PAYMENT" {
 		t.Fatalf("trạng thái ban đầu = %q, cần PENDING_PAYMENT", tt)
@@ -110,7 +110,7 @@ func TestAWebhookWithTheWrongAmountDoesNotCapture(t *testing.T) {
 	t.Run("số tiền LỆCH thì 422 và đơn KHÔNG đổi", func(t *testing.T) {
 		// Chữ ký HỢP LỆ, số tiền SAI — đúng hình dạng của cả ba tình
 		// huống ngoài đời.
-		res := a.callPaymentWebhook(t, "cong-tt", than(tong+1000, "evt_lech_01"), paymentGatewaySecret)
+		res := a.callPaymentWebhook(t, "cong-tt", than(sumTotal+1000, "evt_lech_01"), paymentGatewaySecret)
 
 		if res.code != http.StatusUnprocessableEntity {
 			t.Errorf("HTTP %d, cần 422 — %s", res.code, res.raw)
@@ -122,7 +122,7 @@ func TestAWebhookWithTheWrongAmountDoesNotCapture(t *testing.T) {
 	})
 
 	t.Run("chữ ký sai thì 401", func(t *testing.T) {
-		res := a.callPaymentWebhook(t, "cong-tt", than(tong, "evt_kysai_01"), "khoa-gia-mao")
+		res := a.callPaymentWebhook(t, "cong-tt", than(sumTotal, "evt_kysai_01"), "khoa-gia-mao")
 		if res.code != http.StatusUnauthorized {
 			t.Errorf("HTTP %d, cần 401 — %s", res.code, res.raw)
 		}
@@ -132,7 +132,7 @@ func TestAWebhookWithTheWrongAmountDoesNotCapture(t *testing.T) {
 	})
 
 	t.Run("số tiền KHỚP thì thu tiền và đơn thành PAID", func(t *testing.T) {
-		res := a.callPaymentWebhook(t, "cong-tt", than(tong, "evt_dung_01"), paymentGatewaySecret)
+		res := a.callPaymentWebhook(t, "cong-tt", than(sumTotal, "evt_dung_01"), paymentGatewaySecret)
 		if res.code != http.StatusOK {
 			t.Fatalf("HTTP %d, cần 200 — %s", res.code, res.raw)
 		}
@@ -145,11 +145,11 @@ func TestAWebhookWithTheWrongAmountDoesNotCapture(t *testing.T) {
 	t.Run("gửi TRÙNG thì 200 và không hỏng gì", func(t *testing.T) {
 		// Yêu cầu 2 của webhooks.yaml: nhà cung cấp SẼ gửi trùng, và báo
 		// lỗi khiến họ gửi lại mãi cho một việc đã xong.
-		res := a.callPaymentWebhook(t, "cong-tt", than(tong, "evt_dung_01"), paymentGatewaySecret)
+		res := a.callPaymentWebhook(t, "cong-tt", than(sumTotal, "evt_dung_01"), paymentGatewaySecret)
 		if res.code != http.StatusOK {
 			t.Fatalf("HTTP %d, cần 200 — %s", res.code, res.raw)
 		}
-		if da, _ := res.body["already_processed"].(bool); !da {
+		if seen, _ := res.body["already_processed"].(bool); !seen {
 			t.Errorf("already_processed = false, cần true — %s", res.raw)
 		}
 		if tt := a.orderStatus(t, orderID); tt != "PAID" {
@@ -175,8 +175,8 @@ func TestAWebhookForACODOrderIsNotProcessed(t *testing.T) {
 	}
 	ord, _ := res.body["order"].(map[string]any)
 	orderID, _ := ord["id"].(string)
-	tong, _ := ord["total"].(map[string]any)
-	amount, _ := tong["amount"].(float64)
+	sumTotal, _ := ord["total"].(map[string]any)
+	amount, _ := sumTotal["amount"].(float64)
 
 	got := a.callPaymentWebhook(t, "cong-tt", map[string]any{
 		"event_id":   "evt_cod_01",

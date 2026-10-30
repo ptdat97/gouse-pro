@@ -71,12 +71,12 @@ func TestSettlementDetailExplainsWhatTheDebtCovers(t *testing.T) {
 		t.Fatal("`lines` rỗng dù đợt có tiền")
 	}
 
-	var tong float64
+	var sumTotal float64
 	for i, x := range line {
 		l, _ := x.(map[string]any)
 		am, _ := l["amount"].(map[string]any)
 		v, _ := am["amount"].(float64)
-		tong += v
+		sumTotal += v
 
 		// `reference_id` là thứ làm dòng này ĐỐI CHIẾU ĐƯỢC. Thiếu nó thì
 		// dòng chỉ là một số tiền không gắn với đơn nào.
@@ -86,7 +86,7 @@ func TestSettlementDetailExplainsWhatTheDebtCovers(t *testing.T) {
 		if rt, _ := l["reference_type"].(string); rt != "FULFILLMENT_ORDER" {
 			t.Errorf("dòng %d: reference_type = %q, mong FULFILLMENT_ORDER", i, rt)
 		}
-		if ra, _ := l["released_at"].(string); ra == "" {
+		if collected, _ := l["released_at"].(string); collected == "" {
 			t.Errorf("dòng %d không nói chuyển sang rút được lúc nào", i)
 		}
 	}
@@ -97,8 +97,8 @@ func TestSettlementDetailExplainsWhatTheDebtCovers(t *testing.T) {
 	// đó đúng là tình huống đẩy một nhà bán đi khiếu nại.
 	gross, _ := d["gross_amount"].(map[string]any)
 	g, _ := gross["amount"].(float64)
-	if tong != g {
+	if sumTotal != g {
 		t.Errorf("tổng các dòng = %v, `gross_amount` = %v — nhà bán cộng "+
-			"tay sẽ ra số khác số nền tảng nói", tong, g)
+			"tay sẽ ra số khác số nền tảng nói", sumTotal, g)
 	}
 }

@@ -638,7 +638,7 @@ func (s *Service) CheckIntegrity(ctx context.Context, from, to time.Time) (Integ
 type SettlementRepository interface {
 	// CreateForSeller lập đợt cho MỘT nhà bán trong một giao dịch có khóa.
 	//
-	// `dung` nhận phần đang NỢ (dương; 0 nếu không nợ) đọc được SAU khi đã
+	// `build` nhận phần đang NỢ (dương; 0 nếu không nợ) đọc được SAU khi đã
 	// khóa nhà bán, rồi trả về đợt và bút toán thu hồi. Trả nil cho bút
 	// toán nghĩa là kỳ này không thu gì.
 	//

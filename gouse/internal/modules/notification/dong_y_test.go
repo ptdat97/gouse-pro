@@ -18,7 +18,7 @@ type fakeCustomer struct {
 	consent map[string]bool
 	failure error
 
-	// daHoi ghi lại loại đồng ý đã bị hỏi, để bài test kiểm ĐÚNG loại.
+	// asked ghi lại loại đồng ý đã bị hỏi, để bài test kiểm ĐÚNG loại.
 	asked []string
 }
 
