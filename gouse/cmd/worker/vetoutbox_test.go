@@ -15,7 +15,7 @@ func TestOutboxDrainsFullyWhenHealthy(t *testing.T) {
 	con := 450
 	parcel := 0
 
-	tong, err := vetOutbox(context.Background(), 100, 50,
+	tong, err := drainOutbox(context.Background(), 100, 50,
 		func(_ context.Context, n int) (int, error) {
 			parcel++
 			if con < n {
@@ -52,7 +52,7 @@ func TestOutboxDrainStopsAtTheFirstError(t *testing.T) {
 	parcel := 0
 
 	// Mỗi lô lấy đủ 100 nhưng CHỈ 99 phát được: một event hỏng.
-	tong, err := vetOutbox(context.Background(), 100, 50,
+	tong, err := drainOutbox(context.Background(), 100, 50,
 		func(_ context.Context, _ int) (int, error) {
 			parcel++
 			return 99, nil
@@ -76,7 +76,7 @@ func TestOutboxDrainStopsAtTheFirstError(t *testing.T) {
 // phải chờ.
 func TestOutboxDrainRespectsTheCap(t *testing.T) {
 	parcel := 0
-	tong, err := vetOutbox(context.Background(), 100, 7,
+	tong, err := drainOutbox(context.Background(), 100, 7,
 		func(_ context.Context, n int) (int, error) {
 			parcel++
 			return n, nil // luôn đầy: hàng đợi vô tận
@@ -98,7 +98,7 @@ func TestOutboxDrainStopsWhenContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	parcel := 0
 
-	_, err := vetOutbox(ctx, 100, 50, func(_ context.Context, n int) (int, error) {
+	_, err := drainOutbox(ctx, 100, 50, func(_ context.Context, n int) (int, error) {
 		parcel++
 		if parcel == 3 {
 			cancel()
@@ -118,7 +118,7 @@ func TestOutboxDrainReturnsTheErrorImmediately(t *testing.T) {
 	broken := errors.New("database mất kết nối")
 	parcel := 0
 
-	tong, err := vetOutbox(context.Background(), 100, 50,
+	tong, err := drainOutbox(context.Background(), 100, 50,
 		func(_ context.Context, n int) (int, error) {
 			parcel++
 			if parcel == 2 {

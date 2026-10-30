@@ -19,7 +19,7 @@ import (
 // liệu. Phần cần dữ liệu là chính lệnh `deadcol`, và nó được gọi tay trên
 // môi trường có dữ liệu thật.
 
-var reKhoaSo = regexp.MustCompile(`^[a-z_]+\.[a-z_]+$`)
+var reLedgerKey = regexp.MustCompile(`^[a-z_]+\.[a-z_]+$`)
 
 // TestLedgerKeysAreWellFormed: khóa phải là `bảng.cột`.
 //
@@ -27,17 +27,17 @@ var reKhoaSo = regexp.MustCompile(`^[a-z_]+\.[a-z_]+$`)
 // cột thật quay lại danh sách "chưa quyết" và người đọc tưởng sổ đã nói về
 // nó.
 func TestLedgerKeysAreWellFormed(t *testing.T) {
-	for ten, so := range map[string]map[string]string{
+	for colName, so := range map[string]map[string]string{
 		"intentionallyConstant": intentionallyConstant,
 		"knownEmpty":            knownEmpty,
 	} {
 		for k, ly := range so {
-			if !reKhoaSo.MatchString(k) {
-				t.Errorf("`%s` có khóa %q không đúng dạng `bảng.cột`", ten, k)
+			if !reLedgerKey.MatchString(k) {
+				t.Errorf("`%s` có khóa %q không đúng dạng `bảng.cột`", colName, k)
 			}
 			if strings.TrimSpace(ly) == "" {
 				t.Errorf("`%s[%q]` không có lý do — một dòng miễn trừ không "+
-					"lý do là một dòng không ai rà soát được", ten, k)
+					"lý do là một dòng không ai rà soát được", colName, k)
 			}
 		}
 	}
@@ -50,15 +50,15 @@ func TestLedgerKeysAreWellFormed(t *testing.T) {
 // giờ tới", cái kia bảo "giá trị thứ hai đáng lẽ phải tới". Một cột nằm cả
 // hai chỗ nghĩa là chưa ai thật sự quyết.
 func TestNoColumnIsInBothLedgers(t *testing.T) {
-	var ca2 []string
+	var cases2 []string
 	for k := range intentionallyConstant {
 		if _, ok := knownEmpty[k]; ok {
-			ca2 = append(ca2, k)
+			cases2 = append(cases2, k)
 		}
 	}
-	sort.Strings(ca2)
-	if len(ca2) > 0 {
-		t.Errorf("%d cột nằm trong CẢ HAI sổ: %s", len(ca2), strings.Join(ca2, ", "))
+	sort.Strings(cases2)
+	if len(cases2) > 0 {
+		t.Errorf("%d cột nằm trong CẢ HAI sổ: %s", len(cases2), strings.Join(cases2, ", "))
 	}
 }
 
@@ -83,28 +83,28 @@ func TestEveryLedgerKeyExistsInTheSchema(t *testing.T) {
 	}
 	defer pool.Close()
 
-	coMat, err := columnExists(ctx, pool)
+	present, err := columnExists(ctx, pool)
 	if err != nil {
 		t.Fatalf("đọc lược đồ: %v", err)
 	}
-	if len(coMat) == 0 {
+	if len(present) == 0 {
 		t.Fatal("lược đồ không có cột nào — bài này đang KHÔNG kiểm gì")
 	}
 
-	for ten, so := range map[string]map[string]string{
+	for colName, so := range map[string]map[string]string{
 		"intentionallyConstant": intentionallyConstant,
 		"knownEmpty":            knownEmpty,
 	} {
-		var chet []string
+		var deadRows []string
 		for k := range so {
-			if !coMat[k] {
-				chet = append(chet, k)
+			if !present[k] {
+				deadRows = append(deadRows, k)
 			}
 		}
-		sort.Strings(chet)
-		if len(chet) > 0 {
+		sort.Strings(deadRows)
+		if len(deadRows) > 0 {
 			t.Errorf("`%s` còn %d dòng trỏ tới cột không tồn tại: %s",
-				ten, len(chet), strings.Join(chet, ", "))
+				colName, len(deadRows), strings.Join(deadRows, ", "))
 		}
 	}
 }

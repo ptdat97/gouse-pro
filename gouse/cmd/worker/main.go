@@ -194,7 +194,7 @@ const (
 	//
 	// 50 lô = 5000 event mỗi lượt: đủ để một đợt dồn lớn rút hết trong vài
 	// nhịp, vẫn kết thúc trong khoảng vài giây.
-	dispatchEventsMaxLo = 50
+	dispatchEventsMaxBatches = 50
 
 	// outboxLagAlert là ngưỡng cảnh báo độ trễ.
 	//
@@ -715,7 +715,7 @@ func serveMetrics(ctx context.Context, port int, log *slog.Logger) {
 // event nằm mãi trong bảng và không việc gì xảy ra sau khi đặt hàng.
 func dispatchEvents(bus *eventbus.Dispatcher, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
-		published, err := vetOutbox(ctx, dispatchEventsBatch, dispatchEventsMaxLo,
+		published, err := drainOutbox(ctx, dispatchEventsBatch, dispatchEventsMaxBatches,
 			bus.DispatchBatch)
 		if err != nil {
 			return fmt.Errorf("phát domain event: %w", err)
@@ -935,9 +935,9 @@ func computeMonthlyMetrics(m *analytics.Module, log *slog.Logger) func(context.C
 func createSettlements(m *payment.Module, log *slog.Logger) func(context.Context) error {
 	return func(ctx context.Context) error {
 		until := time.Now().UTC()
-		tu := until.Add(-settlementPeriod)
+		from := until.Add(-settlementPeriod)
 
-		n, err := m.NewSettlementForPeriod(ctx, tu, until, reconcileBatch)
+		n, err := m.NewSettlementForPeriod(ctx, from, until, reconcileBatch)
 		if err != nil {
 			return fmt.Errorf("tạo đợt đối soát: %w", err)
 		}
@@ -1240,7 +1240,7 @@ func (s *sellerOwner) InventoryOwnerID(
 // Dừng ở lô đầu tiên có lỗi giữ nguyên khoảng cách 5 giây giữa các lượt
 // thử. Đổi lại, một lô có 99 thành công và 1 hỏng cũng dừng vét — chậm
 // hơn một nhịp, và đó là cái giá đúng để trả.
-func vetOutbox(
+func drainOutbox(
 	ctx context.Context, coLo, maxLo int,
 	emit func(context.Context, int) (int, error),
 ) (int, error) {

@@ -113,7 +113,7 @@ func pickOffer() string {
 	return ""
 }
 
-func thongKe(ten string, ds []time.Duration, failure int) {
+func report(ten string, ds []time.Duration, failure int) {
 	if len(ds) == 0 {
 		fmt.Printf("%-8s KHÔNG có lượt nào thành công\n", ten)
 		return
@@ -131,9 +131,9 @@ func thongKe(ten string, ds []time.Duration, failure int) {
 }
 
 func main() {
-	songSong, _ := strconv.Atoi(os.Getenv("SONG_SONG"))
-	if songSong == 0 {
-		songSong = 20
+	parallel, _ := strconv.Atoi(os.Getenv("SONG_SONG"))
+	if parallel == 0 {
+		parallel = 20
 	}
 	perUser, _ := strconv.Atoi(os.Getenv("MOI_NGUOI"))
 	if perUser == 0 {
@@ -156,9 +156,9 @@ func main() {
 		fmt.Println("không tìm được offer bán được")
 		os.Exit(1)
 	}
-	fmt.Printf("offer=%s  song song=%d  mỗi người=%d lượt\n\n", offer, songSong, perUser)
+	fmt.Printf("offer=%s  song song=%d  mỗi người=%d lượt\n\n", offer, parallel, perUser)
 
-	chay := func(ten string, sharedCart bool) {
+	runCase := func(ten string, sharedCart bool) {
 		// Mỗi kịch bản cần một giỏ có sẵn MỘT món để sửa số lượng.
 		buildCart := func() (*client, string) {
 			k := newClient()
@@ -205,7 +205,7 @@ func main() {
 			k    *client
 			item string
 		}
-		sum := make([]job, songSong)
+		sum := make([]job, parallel)
 		for i := range sum {
 			if sharedCart {
 				k := newClient()
@@ -221,7 +221,7 @@ func main() {
 			}
 		}
 
-		for i := 0; i < songSong; i++ {
+		for i := 0; i < parallel; i++ {
 			done.Add(1)
 			go func(v job) {
 				defer done.Done()
@@ -252,16 +252,16 @@ func main() {
 		done.Wait()
 		tong := time.Since(t0)
 
-		thongKe(ten, ds, failure)
+		report(ten, ds, failure)
 		fmt.Printf("%-8s tổng %v  →  %.0f lượt/giây\n",
 			"", tong.Round(time.Millisecond),
-			float64(songSong*perUser)/tong.Seconds())
+			float64(parallel*perUser)/tong.Seconds())
 		if sample != "" {
 			fmt.Printf("%-8s lỗi mẫu: %s\n", "", sample[:min(len(sample), 150)])
 		}
 		fmt.Println()
 	}
 
-	chay("riêng", false)
-	chay("chung", true)
+	runCase("riêng", false)
+	runCase("chung", true)
 }

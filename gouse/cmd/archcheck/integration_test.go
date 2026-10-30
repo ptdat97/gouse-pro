@@ -23,8 +23,8 @@ func fakeProject(t *testing.T, files map[string]string) string {
 		}
 	}
 	for m := range mods {
-		if ten, than := moduleDoc(m); files[ten] == "" {
-			files[ten] = than
+		if label, than := moduleDoc(m); files[label] == "" {
+			files[label] = than
 		}
 	}
 	return writeFiles(t, files)
@@ -50,7 +50,7 @@ func writeFiles(t *testing.T, files map[string]string) string {
 
 func runChecker(t *testing.T, root string) []Violation {
 	t.Helper()
-	vs, err := chayChecker(root)
+	vs, err := collectViolations(root)
 	if err != nil {
 		t.Fatalf("checker.run: %v", err)
 	}
@@ -62,7 +62,7 @@ func runChecker(t *testing.T, root string) []Violation {
 // R6 đọc `docs/04-modules/` và trả LỖI (không phải vi phạm) khi tài liệu
 // thiếu — không có bảng sở hữu đáng tin thì không kiểm được gì. Bài test
 // nào đo chuyện đó cần nhìn thấy lỗi ấy.
-func chayChecker(root string) ([]Violation, error) {
+func collectViolations(root string) ([]Violation, error) {
 	c := &checker{
 		root:       root,
 		modulePath: mod,
@@ -231,7 +231,7 @@ func TestValidStructureProducesNoViolations(t *testing.T) {
 // đây nó sẽ làm R10 không bao giờ chạy trong `go test`, và một quy tắc chỉ
 // chạy khi gọi tay là quy tắc sẽ bị bỏ qua.
 func TestSelfCheck(t *testing.T) {
-	c := moiChecker("../..", mod)
+	c := newChecker("../..", mod)
 	if err := c.run(); err != nil {
 		t.Fatalf("checker.run trên repo thật: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestR6_AModuleMustNotTouchAnothersTable(t *testing.T) {
 			"const q2 = `SELECT name FROM seller WHERE id = $1`\n",
 	})
 
-	vs, err := chayChecker(root)
+	vs, err := collectViolations(root)
 	if err != nil {
 		t.Fatalf("chayChecker: %v", err)
 	}
@@ -297,15 +297,15 @@ func TestR6_AModuleMustNotTouchAnothersTable(t *testing.T) {
 // Không có ngoại lệ này thì mọi module ghi audit đều đỏ, và người ta tắt
 // hẳn quy tắc.
 func TestR6_APlatformTableIsReachableByEveryone(t *testing.T) {
-	ten, than := moduleDoc("order", `"order"`)
+	label, than := moduleDoc("order", `"order"`)
 	root := writeFiles(t, map[string]string{
-		ten: than,
+		label: than,
 		"internal/modules/order/infrastructure/postgres/store.go": "package postgres\n" +
 			"const q = `INSERT INTO audit_log (id) VALUES ($1)`\n" +
 			"const q2 = `INSERT INTO event_outbox (id) VALUES ($1)`\n",
 	})
 
-	vs, err := chayChecker(root)
+	vs, err := collectViolations(root)
 	if err != nil {
 		t.Fatalf("chayChecker: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestR6_ABrokenOwnershipLedgerErrors(t *testing.T) {
 			"internal/modules/order/x.go":  "package order\n",
 			"internal/modules/seller/x.go": "package seller\n",
 		})
-		_, err := chayChecker(root)
+		_, err := collectViolations(root)
 		if err == nil || !strings.Contains(err.Error(), "HAI module") {
 			t.Fatalf("khai trùng phải là lỗi, nhận: %v", err)
 		}
@@ -341,7 +341,7 @@ func TestR6_ABrokenOwnershipLedgerErrors(t *testing.T) {
 			"internal/modules/order/x.go": "package order\n",
 			"internal/modules/laKia/x.go": "package lakia\n",
 		})
-		_, err := chayChecker(root)
+		_, err := collectViolations(root)
 		if err == nil || !strings.Contains(err.Error(), "không có tài liệu") {
 			t.Fatalf("module thiếu tài liệu phải là lỗi, nhận: %v", err)
 		}
@@ -352,7 +352,7 @@ func TestR6_ABrokenOwnershipLedgerErrors(t *testing.T) {
 			"../docs/04-modules/order.md": "# Order\n\nKhông có mục sở hữu.\n",
 			"internal/modules/order/x.go": "package order\n",
 		})
-		_, err := chayChecker(root)
+		_, err := collectViolations(root)
 		if err == nil || !strings.Contains(err.Error(), "Dữ liệu sở hữu") {
 			t.Fatalf("thiếu mục sở hữu phải là lỗi, nhận: %v", err)
 		}
@@ -382,12 +382,12 @@ func microkernelProject(
 		}
 	}
 	for m := range mods {
-		ten, than := moduleDoc(m)
+		label, than := moduleDoc(m)
 		if t, co := tier[m]; co {
 			than = "| **Tầng (microkernel)** | **" + t + "** |\n\n" + than
 		}
-		if files[ten] == "" {
-			files[ten] = than
+		if files[label] == "" {
+			files[label] = than
 		}
 	}
 	// Tài liệu cho module KHÔNG có mã — dùng để kiểm sổ đã mục.
@@ -395,8 +395,8 @@ func microkernelProject(
 		if mods[m] {
 			continue
 		}
-		ten, than := moduleDoc(m)
-		files[ten] = "| **Tầng (microkernel)** | **" + t + "** |\n\n" + than
+		label, than := moduleDoc(m)
+		files[label] = "| **Tầng (microkernel)** | **" + t + "** |\n\n" + than
 	}
 
 	root := writeFiles(t, files)
@@ -590,10 +590,10 @@ type API interface{ Gia() }
 // tin thì R10 không kiểm được gì, và một quy tắc im lặng không kiểm gì vẫn
 // in ra `OK` — thứ tệ nhất.
 func TestR10_AMissingTierRowIsAStartupError(t *testing.T) {
-	ten, than := moduleDoc("checkout")
+	label, than := moduleDoc("checkout")
 	err := runMicrokernelError(t, map[string]string{
 		"internal/modules/checkout/public.go": checkoutSource,
-		ten:                                   than, // KHÔNG có hàng tầng
+		label:                                 than, // KHÔNG có hàng tầng
 	})
 	if !strings.Contains(err.Error(), "Tầng (microkernel)") {
 		t.Errorf("lỗi không nêu hàng thiếu: %v", err)
@@ -605,10 +605,10 @@ func TestR10_AMissingTierRowIsAStartupError(t *testing.T) {
 // "Quan trọng" không phải một tầng. Nhận im lặng rồi coi là chưa phân loại
 // sẽ biến một lỗi đánh máy thành một module mất hàng rào.
 func TestR10_AnUnknownTierIsAStartupError(t *testing.T) {
-	ten, than := moduleDoc("checkout")
+	label, than := moduleDoc("checkout")
 	err := runMicrokernelError(t, map[string]string{
 		"internal/modules/checkout/public.go": checkoutSource,
-		ten:                                   "| **Tầng (microkernel)** | **Quan trọng** |\n\n" + than,
+		label:                                 "| **Tầng (microkernel)** | **Quan trọng** |\n\n" + than,
 	})
 	if !strings.Contains(err.Error(), "Quan trọng") {
 		t.Errorf("lỗi không nêu giá trị lạ: %v", err)

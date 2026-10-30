@@ -36,13 +36,13 @@ import (
 )
 
 func main() {
-	if err := chay(); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "lỗi:", err)
 		os.Exit(1)
 	}
 }
 
-func chay() error {
+func run() error {
 	write := flag.Bool("ghi", false, "THỰC SỰ điền (mặc định chỉ báo cáo)")
 	flag.Parse()
 
@@ -73,15 +73,15 @@ func chay() error {
 	}
 
 	type can struct {
-		id         string
-		phuongThuc string
+		id     string
+		method string
 	}
 	var ds []can
 	var handedOver int
 	for rows.Next() {
 		var c can
 		var done bool
-		if err := rows.Scan(&c.id, &c.phuongThuc, &done); err != nil {
+		if err := rows.Scan(&c.id, &c.method, &done); err != nil {
 			rows.Close()
 			return fmt.Errorf("đọc dòng: %w", err)
 		}

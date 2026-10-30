@@ -105,6 +105,15 @@ hopdong: ## Kiểm hợp đồng API và event (VI PHẠM = THẤT BẠI)
 	@go run ./cmd/eventcheck -v
 	@go test ./cmd/eventcheck/
 
+# Đếm định danh Go còn âm tiết tiếng Việt.
+#
+# KHÔNG cần ở `make check`: bánh cóc đã chạy qua
+# `go test ./cmd/vietident/`, và bài ấy đỏ ở cả hai phía. Mục tiêu này
+# chỉ để ĐỌC danh sách khi đang đổi tên.
+.PHONY: vietident
+vietident: ## Liệt kê định danh còn âm tiết tiếng Việt
+	@go run ./cmd/vietident -v
+
 # Chặn BINARY lọt vào repo.
 #
 # # Vì sao mục tiêu này phải tồn tại

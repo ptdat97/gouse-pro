@@ -44,7 +44,7 @@ import (
 )
 
 func main() {
-	if err := chay(); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "lỗi:", err)
 		os.Exit(1)
 	}
@@ -60,7 +60,7 @@ type missingVisit struct {
 	status     string
 }
 
-func chay() error {
+func run() error {
 	write := flag.Bool("ghi", false,
 		"THỰC SỰ ghi lượt còn thiếu (mặc định chỉ báo cáo)")
 	limit := flag.Int("gioihan", 500, "số đơn xử lý mỗi lượt")
@@ -97,13 +97,13 @@ func chay() error {
 		return nil
 	}
 
-	var tong int64
+	var total int64
 	for _, t := range missing {
-		tong += t.discount
+		total += t.discount
 	}
 	fmt.Printf("Tìm thấy %d đơn đã dùng mã nhưng KHÔNG có lượt nào được ghi.\n",
 		len(missing))
-	fmt.Printf("Tổng tiền đã giảm mà ngân sách khuyến mãi chưa tính: %d đ\n\n", tong)
+	fmt.Printf("Tổng tiền đã giảm mà ngân sách khuyến mãi chưa tính: %d đ\n\n", total)
 
 	for i, t := range missing {
 		if i >= 5 {

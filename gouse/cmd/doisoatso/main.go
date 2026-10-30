@@ -43,7 +43,7 @@ import (
 )
 
 func main() {
-	if err := chay(); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "lỗi:", err)
 		os.Exit(1)
 	}
@@ -57,7 +57,7 @@ type badEntry struct {
 	amount  int64
 }
 
-func chay() error {
+func run() error {
 	reverse := flag.Bool("dao", false,
 		"THỰC SỰ ghi bút toán đảo (mặc định chỉ báo cáo)")
 	reason := flag.String("lydo", "",
@@ -102,12 +102,12 @@ func chay() error {
 		return nil
 	}
 
-	var tong int64
+	var total int64
 	for _, b := range sai {
-		tong += b.amount
+		total += b.amount
 	}
 	fmt.Printf("Tìm thấy %d bút toán ghi NỢ PLATFORM_CASH cho đơn chưa trả tiền.\n", len(sai))
-	fmt.Printf("Tổng: %d đ\n\n", tong)
+	fmt.Printf("Tổng: %d đ\n\n", total)
 
 	for i, b := range sai {
 		if i >= 5 {
@@ -234,7 +234,7 @@ func auditReceivable(ctx context.Context, pool *pgxpool.Pool) error {
 	defer rows.Close()
 
 	var orderCount int
-	var tongShip, totalDiscount int64
+	var totalShip, totalDiscount int64
 	for rows.Next() {
 		var id string
 		var ship, discount int64
@@ -242,7 +242,7 @@ func auditReceivable(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("đọc đơn: %w", err)
 		}
 		orderCount++
-		tongShip += ship
+		totalShip += ship
 		totalDiscount += discount
 	}
 	if err := rows.Err(); err != nil {
@@ -257,7 +257,7 @@ func auditReceivable(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	fmt.Printf("CẢNH BÁO — %d đơn có khoản tiền KHÔNG nằm trong sổ cái:\n", orderCount)
-	fmt.Printf("  phí vận chuyển chưa ghi: %d đ\n", tongShip)
+	fmt.Printf("  phí vận chuyển chưa ghi: %d đ\n", totalShip)
 	fmt.Printf("  giảm giá chưa ghi:       %d đ\n", totalDiscount)
 	fmt.Println("  → đơn tạo TỪ ADR-0018 trở đi đã ghi đủ; đây là đơn cũ.")
 	fmt.Println("  → thêm bút toán còn thiếu vào quá khứ là quyết định riêng")

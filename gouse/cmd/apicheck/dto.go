@@ -89,14 +89,14 @@ func (c *checker) readSchemaProperties() (map[string][]string, error) {
 		reProperty = regexp.MustCompile(`^    ([a-z][a-z0-9_]*):`)
 	)
 
-	ra := map[string][]string{}
+	byPkg := map[string][]string{}
 	schema := ""
 	inProps := false
 
 	for _, l := range strings.Split(string(content), "\n") {
 		if m := reSchema.FindStringSubmatch(l); m != nil {
 			schema, inProps = m[1], false
-			ra[schema] = nil
+			byPkg[schema] = nil
 			continue
 		}
 		if schema == "" {
@@ -129,10 +129,10 @@ func (c *checker) readSchemaProperties() (map[string][]string, error) {
 			continue
 		}
 		if m := reProperty.FindStringSubmatch(l); m != nil {
-			ra[schema] = append(ra[schema], m[1])
+			byPkg[schema] = append(byPkg[schema], m[1])
 		}
 	}
-	return ra, nil
+	return byPkg, nil
 }
 
 // readJSONFields đọc các tên trường JSON của một struct Go.
@@ -150,18 +150,18 @@ func (c *checker) readJSONFields(pkg, kind string) ([]string, error) {
 	}
 
 	fset := token.NewFileSet()
-	var ra []string
+	var byPkg []string
 	found := false
 
 	for _, e := range entries {
-		ten := e.Name()
-		if e.IsDir() || !strings.HasSuffix(ten, ".go") ||
-			strings.HasSuffix(ten, "_test.go") {
+		entryName := e.Name()
+		if e.IsDir() || !strings.HasSuffix(entryName, ".go") ||
+			strings.HasSuffix(entryName, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(dir, ten), nil, 0)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, entryName), nil, 0)
 		if err != nil {
-			return nil, fmt.Errorf("phân tích %s: %w", ten, err)
+			return nil, fmt.Errorf("phân tích %s: %w", entryName, err)
 		}
 
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -175,9 +175,9 @@ func (c *checker) readJSONFields(pkg, kind string) ([]string, error) {
 			}
 			found = true
 			for _, fld := range st.Fields.List {
-				ten := tenJSON(fld)
-				if ten != "" && ten != "-" {
-					ra = append(ra, ten)
+				entryName := jsonName(fld)
+				if entryName != "" && entryName != "-" {
+					byPkg = append(byPkg, entryName)
 				}
 			}
 			return false
@@ -188,12 +188,12 @@ func (c *checker) readJSONFields(pkg, kind string) ([]string, error) {
 		return nil, fmt.Errorf("không tìm thấy struct %s.%s — đổi tên struct "+
 			"thì phải sửa cả sổ `checkedDTOPairs`", pkg, kind)
 	}
-	sort.Strings(ra)
-	return ra, nil
+	sort.Strings(byPkg)
+	return byPkg, nil
 }
 
 // tenJSON lấy tên JSON của một trường struct.
-func tenJSON(fld *ast.Field) string {
+func jsonName(fld *ast.Field) string {
 	if fld.Tag == nil {
 		return ""
 	}
@@ -205,12 +205,12 @@ func tenJSON(fld *ast.Field) string {
 	if i < 0 {
 		return ""
 	}
-	con := tag[i+len(`json:"`):]
-	j := strings.Index(con, `"`)
+	rest := tag[i+len(`json:"`):]
+	j := strings.Index(rest, `"`)
 	if j < 0 {
 		return ""
 	}
-	return strings.SplitN(con[:j], ",", 2)[0]
+	return strings.SplitN(rest[:j], ",", 2)[0]
 }
 
 // compareDTO so từng cặp đã khai.

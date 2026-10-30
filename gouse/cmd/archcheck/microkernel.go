@@ -119,19 +119,19 @@ func (c *checker) readModuleTiers() (map[string]moduleTier, error) {
 			"chỗ thư mục ấy thì phải sửa cả công cụ này)", err)
 	}
 
-	ra := map[string]moduleTier{}
+	tiers := map[string]moduleTier{}
 	for _, e := range entries {
-		ten := e.Name()
-		if e.IsDir() || !strings.HasSuffix(ten, ".md") || ten == "README.md" {
+		docName := e.Name()
+		if e.IsDir() || !strings.HasSuffix(docName, ".md") || docName == "README.md" {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(root2, ten))
+		content, err := os.ReadFile(filepath.Join(root2, docName))
 		if err != nil {
 			return nil, err
 		}
 
-		mod := strings.TrimSuffix(ten, ".md")
-		if m, co := docNameDiffersFromModule[mod]; co {
+		mod := strings.TrimSuffix(docName, ".md")
+		if m, seen := docNameDiffersFromModule[mod]; seen {
 			mod = m
 		}
 
@@ -141,24 +141,24 @@ func (c *checker) readModuleTiers() (map[string]moduleTier, error) {
 				"(microkernel)**\" — R10 không biết module ấy là kernel hay "+
 				"extension. Trả lời \"tháo nó ra thì mất gì\" rồi thêm hàng "+
 				"ấy vào bảng đầu tài liệu (xem docs/04-modules/README.md)",
-				ten)
+				docName)
 		}
 
 		gt := strings.TrimSpace(string(m[1]))
 		switch {
 		case strings.HasPrefix(gt, "KERNEL"):
-			ra[mod] = tierKernel
+			tiers[mod] = tierKernel
 		case strings.HasPrefix(gt, "EXTENSION"):
-			ra[mod] = tierExtension
+			tiers[mod] = tierExtension
 		case strings.HasPrefix(gt, "CHƯA XẾP ĐƯỢC"):
-			ra[mod] = tierUnassigned
+			tiers[mod] = tierUnassigned
 		default:
 			return nil, fmt.Errorf("tài liệu %s ghi tầng %q — R10 chỉ hiểu "+
 				"\"KERNEL …\", \"EXTENSION …\" hoặc \"CHƯA XẾP ĐƯỢC\"",
-				ten, gt)
+				docName, gt)
 		}
 	}
-	return ra, nil
+	return tiers, nil
 }
 
 // checkMicrokernel thực thi R10.
@@ -198,14 +198,14 @@ func (c *checker) checkMicrokernel() error {
 	users := importers(graph)
 	purchasePath := alarm(graph, c.root2)
 
-	ten := make([]string, 0, len(moduleHas))
+	docName := make([]string, 0, len(moduleHas))
 	for m := range moduleHas {
-		ten = append(ten, m)
+		docName = append(docName, m)
 	}
-	sort.Strings(ten)
+	sort.Strings(docName)
 
 	var kernelCount, extCount int
-	for _, m := range ten {
+	for _, m := range docName {
 		switch tier[m] {
 		case tierKernel:
 			kernelCount++
@@ -214,22 +214,22 @@ func (c *checker) checkMicrokernel() error {
 			extCount++
 
 			// ---- R10a: extension phải KHÔNG BÊN NÀO import ----
-			dung := users[m]
-			if len(dung) == 0 {
+			importers2 := users[m]
+			if len(importers2) == 0 {
 				continue
 			}
-			sort.Strings(dung)
+			sort.Strings(importers2)
 			c.violations = append(c.violations, Violation{
 				Rule: "R10",
-				File: "internal/modules/" + dung[0],
+				File: "internal/modules/" + importers2[0],
 				Message: fmt.Sprintf("module EXTENSION %q bị %s import",
-					m, strings.Join(dung, ", ")),
+					m, strings.Join(importers2, ", ")),
 				Hint: fmt.Sprintf(
 					"tháo %q ra phải chỉ mất tính năng của nó, nhưng sau "+
 						"dòng import này nó làm %s không biên dịch được. Đảo "+
 						"chiều bằng event, hoặc để %q đọc ngược qua cổng "+
 						"công khai (ADR-0022)",
-					m, strings.Join(dung, ", "), m),
+					m, strings.Join(importers2, ", "), m),
 			})
 
 		case tierUnassigned:
@@ -301,13 +301,13 @@ func (c *checker) checkMicrokernel() error {
 
 // importers đảo đồ thị: module -> các module import nó.
 func importers(graph map[string]map[string]bool) map[string][]string {
-	ra := map[string][]string{}
+	tiers := map[string][]string{}
 	for from, tos := range graph {
 		for to := range tos {
-			ra[to] = append(ra[to], from)
+			tiers[to] = append(tiers[to], from)
 		}
 	}
-	return ra
+	return tiers
 }
 
 // buildModuleGraph rút gọn đồ thị package thành đồ thị MODULE.
@@ -317,7 +317,7 @@ func importers(graph map[string]map[string]bool) map[string][]string {
 // hệ thống khác nhau.
 func (c *checker) buildModuleGraph() (map[string]map[string]bool, map[string]bool) {
 	graph := map[string]map[string]bool{}
-	co := map[string]bool{}
+	seen := map[string]bool{}
 
 	// Tập module lấy từ `pkgFiles` — MỌI package đã quét — không từ
 	// `imports`.
@@ -329,7 +329,7 @@ func (c *checker) buildModuleGraph() (map[string]map[string]bool, map[string]boo
 	// chưa phân loại.
 	for pkg := range c.pkgFiles {
 		if m := classify(c.modulePath, pkg).Module; m != "" {
-			co[m] = true
+			seen[m] = true
 			if graph[m] == nil {
 				graph[m] = map[string]bool{}
 			}
@@ -341,7 +341,7 @@ func (c *checker) buildModuleGraph() (map[string]map[string]bool, map[string]boo
 		if from.Module == "" {
 			continue
 		}
-		co[from.Module] = true
+		seen[from.Module] = true
 		if graph[from.Module] == nil {
 			graph[from.Module] = map[string]bool{}
 		}
@@ -351,26 +351,26 @@ func (c *checker) buildModuleGraph() (map[string]map[string]bool, map[string]boo
 			if to.Module == "" || to.Module == from.Module {
 				continue
 			}
-			co[to.Module] = true
+			seen[to.Module] = true
 			graph[from.Module][to.Module] = true
 		}
 	}
-	return graph, co
+	return graph, seen
 }
 
 // alarm trả bao đóng phụ thuộc (đóng kín theo chiều import) từ một gốc.
 func alarm(graph map[string]map[string]bool, root2 string) map[string]bool {
-	ra := map[string]bool{}
-	var di func(string)
-	di = func(m string) {
-		if ra[m] {
+	tiers := map[string]bool{}
+	var walk func(string)
+	walk = func(m string) {
+		if tiers[m] {
 			return
 		}
-		ra[m] = true
+		tiers[m] = true
 		for to := range graph[m] {
-			di(to)
+			walk(to)
 		}
 	}
-	di(root2)
-	return ra
+	walk(root2)
+	return tiers
 }

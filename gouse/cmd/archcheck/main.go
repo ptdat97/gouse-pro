@@ -23,7 +23,7 @@ func main() {
 	)
 	flag.Parse()
 
-	c := moiChecker(*root, *modulePath)
+	c := newChecker(*root, *modulePath)
 	c.verbose = *verbose
 
 	if err := c.run(); err != nil {
@@ -41,7 +41,7 @@ func main() {
 //
 // Một hàm dựng duy nhất, dùng bởi `main` và bởi bài test chạy trên repo
 // thật. Dựng bằng tay ở hai chỗ là hai chỗ để quên một sổ.
-func moiChecker(root, modulePath string) *checker {
+func newChecker(root, modulePath string) *checker {
 	return &checker{
 		root:         root,
 		modulePath:   modulePath,

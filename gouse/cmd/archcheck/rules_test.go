@@ -246,12 +246,12 @@ func TestR9_NoExternalSDKInKernelOrDomain(t *testing.T) {
 
 	// CẤM ở kernel và domain.
 	for _, tc := range []struct {
-		ten  string
-		from pkgInfo
+		label string
+		from  pkgInfo
 	}{{"kernel", kernel}, {"domain", domain}} {
 		rule, _, _ := CheckExternalLib(tc.from, "github.com/stripe/stripe-go/v76")
 		if rule != "R9" {
-			t.Errorf("%s import SDK ngoài phải vi phạm R9, nhận %q", tc.ten, rule)
+			t.Errorf("%s import SDK ngoài phải vi phạm R9, nhận %q", tc.label, rule)
 		}
 	}
 

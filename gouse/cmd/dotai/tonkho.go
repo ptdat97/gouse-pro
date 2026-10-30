@@ -188,6 +188,6 @@ func printResult(ten string, d *countByCode) {
 	d.mu.Unlock()
 
 	b, _ := json.Marshal(m)
-	thongKe(ten, ds, 0)
+	report(ten, ds, 0)
 	fmt.Printf("%-8s mã trạng thái: %s\n", "", string(b))
 }

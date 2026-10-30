@@ -56,7 +56,7 @@ func main() {
 	listAll := flag.Bool("liet-ke", false, "in bảng event rồi thoát")
 	flag.Parse()
 
-	c := moiChecker(*root)
+	c := newChecker(*root)
 	if err := c.run(); err != nil {
 		fmt.Fprintln(os.Stderr, "eventcheck:", err)
 		os.Exit(2)
@@ -77,12 +77,12 @@ func main() {
 // Một hàm dựng duy nhất, dùng bởi `main` và bởi `TestTheRealProjectIsClean`. Dựng
 // bằng tay ở hai chỗ là hai chỗ để quên một sổ — và nó đã xảy ra: thêm sổ
 // của R4 làm bài test repo thật đỏ vì nó dựng riêng và không có sổ ấy.
-func moiChecker(root string) *checker {
+func newChecker(root string) *checker {
 	return &checker{
 		root:           root,
 		noPublisher:    nobodyPublishes,
 		noListener:     nobodyListens,
-		chiOWorker:     receiversOnlyInWorker,
+		onlyInWorker:   receiversOnlyInWorker,
 		declaredEvents: map[string]string{},
 		publishedIn:    map[string][]string{},
 		listenedIn:     map[string][]string{},
@@ -101,7 +101,7 @@ type checker struct {
 	// Là TRƯỜNG chứ không đọc thẳng biến gói, cùng lý do hai sổ trên: bộ
 	// test của công cụ đo phép đối chiếu, không đo nội dung sổ của dự án
 	// thật — nên nó truyền sổ RỖNG vào.
-	chiOWorker map[string]string
+	onlyInWorker map[string]string
 
 	// declaredEvents: tên hằng (TypeOrderPlaced) -> giá trị ("order.placed").
 	declaredEvents map[string]string
@@ -132,7 +132,7 @@ func (c *checker) run() error {
 }
 
 // reTenEvent khớp dạng `mien.su_kien` — quy ước đặt tên của eventbus.
-var reTenEvent = regexp.MustCompile(`^[a-z][a-z_]*\.[a-z][a-z_]*$`)
+var reEventName = regexp.MustCompile(`^[a-z][a-z_]*\.[a-z][a-z_]*$`)
 
 // readDeclarations đọc bảng hằng số loại event.
 //
@@ -147,14 +147,14 @@ func (c *checker) readDeclarations() error {
 
 	fset := token.NewFileSet()
 	for _, e := range entries {
-		ten := e.Name()
-		if e.IsDir() || !strings.HasSuffix(ten, ".go") ||
-			strings.HasSuffix(ten, "_test.go") {
+		entryName := e.Name()
+		if e.IsDir() || !strings.HasSuffix(entryName, ".go") ||
+			strings.HasSuffix(entryName, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(dir, ten), nil, 0)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, entryName), nil, 0)
 		if err != nil {
-			return fmt.Errorf("phân tích %s: %w", ten, err)
+			return fmt.Errorf("phân tích %s: %w", entryName, err)
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			vs, ok := n.(*ast.ValueSpec)
@@ -170,7 +170,7 @@ func (c *checker) readDeclarations() error {
 					continue
 				}
 				v, err := strconv.Unquote(bl.Value)
-				if err != nil || !reTenEvent.MatchString(v) {
+				if err != nil || !reEventName.MatchString(v) {
 					continue
 				}
 				c.declaredEvents[name.Name] = v
@@ -213,12 +213,12 @@ func (c *checker) readGoConsts() error {
 			return fmt.Errorf("phân tích %s: %w", path, err)
 		}
 		rel, _ := filepath.Rel(c.root, path)
-		c.quetFile(filepath.ToSlash(rel), f)
+		c.scanFile(filepath.ToSlash(rel), f)
 		return nil
 	})
 }
 
-func (c *checker) quetFile(ten string, f *ast.File) {
+func (c *checker) scanFile(entryName string, f *ast.File) {
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -237,12 +237,12 @@ func (c *checker) quetFile(ten string, f *ast.File) {
 		// Mọi chỗ khác: `eventbus.NewEvent(eventbus.TypeX, ...)` là PHÁT.
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
-			if !ok || !laNewEvent(call.Fun) || len(call.Args) == 0 {
+			if !ok || !isNewEvent(call.Fun) || len(call.Args) == 0 {
 				return true
 			}
 			for _, ev := range c.rowsInNode(call.Args[0]) {
 				c.publishedIn[ev] = append(c.publishedIn[ev],
-					fmt.Sprintf("%s:%s", ten, fn.Name.Name))
+					fmt.Sprintf("%s:%s", entryName, fn.Name.Name))
 			}
 			return true
 		})
@@ -251,7 +251,7 @@ func (c *checker) quetFile(ten string, f *ast.File) {
 
 // rowsInNode trả các GIÁ TRỊ event mà node nhắc tới qua `eventbus.TypeX`.
 func (c *checker) rowsInNode(n ast.Node) []string {
-	var ra []string
+	var collected []string
 	ast.Inspect(n, func(x ast.Node) bool {
 		sel, ok := x.(*ast.SelectorExpr)
 		if !ok {
@@ -261,14 +261,14 @@ func (c *checker) rowsInNode(n ast.Node) []string {
 			return true
 		}
 		if v, co := c.declaredEvents[sel.Sel.Name]; co {
-			ra = append(ra, v)
+			collected = append(collected, v)
 		}
 		return true
 	})
-	return ra
+	return collected
 }
 
-func laNewEvent(fun ast.Expr) bool {
+func isNewEvent(fun ast.Expr) bool {
 	sel, ok := fun.(*ast.SelectorExpr)
 	if !ok || sel.Sel.Name != "NewEvent" {
 		return false
@@ -330,14 +330,14 @@ func (c *checker) compare() {
 
 	// Sổ miễn trừ trỏ tới thứ không còn tồn tại cũng là một dòng nói dối.
 	for _, overrides := range []struct {
-		ten string
-		m   map[string]string
+		entryName string
+		m         map[string]string
 	}{{"nobodyPublishes", c.noPublisher}, {"nobodyListens", c.noListener}} {
 		for ev := range overrides.m {
 			if !c.hasDeclaration(ev) {
 				c.violations = append(c.violations, fmt.Sprintf(
 					"sổ `%s` còn dòng cho %q mà eventbus không còn khai loại "+
-						"event ấy — xóa đi", overrides.ten, ev))
+						"event ấy — xóa đi", overrides.entryName, ev))
 			}
 		}
 	}
@@ -354,12 +354,12 @@ func (c *checker) hasDeclaration(ev string) bool {
 }
 
 func (c *checker) sortLines() []string {
-	ra := make([]string, 0, len(c.declaredEvents))
+	collected := make([]string, 0, len(c.declaredEvents))
 	for _, v := range c.declaredEvents {
-		ra = append(ra, v)
+		collected = append(collected, v)
 	}
-	sort.Strings(ra)
-	return ra
+	sort.Strings(collected)
+	return collected
 }
 
 func (c *checker) tables() {

@@ -144,13 +144,13 @@ func (h *` + ten + `) EventTypes() []string {
 //
 // Sổ rỗng có chủ ý: bài test đo phép đối chiếu, không đo nội dung sổ của
 // dự án thật.
-func chay(t *testing.T, root2 string, overrides ...map[string]string) *checker {
+func runCheck(t *testing.T, root2 string, overrides ...map[string]string) *checker {
 	t.Helper()
 	c := &checker{
 		root:           root2,
 		noPublisher:    map[string]string{},
 		noListener:     map[string]string{},
-		chiOWorker:     map[string]string{},
+		onlyInWorker:   map[string]string{},
 		declaredEvents: map[string]string{},
 		publishedIn:    map[string][]string{},
 		listenedIn:     map[string][]string{},
@@ -173,7 +173,7 @@ func TestAMatchingReceiverReportsNoViolation(t *testing.T) {
 		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
 	})
 
-	if c := chay(t, root2); len(c.violations) != 0 {
+	if c := runCheck(t, root2); len(c.violations) != 0 {
 		t.Fatalf("mong 0 vi phạm, nhận: %v", c.violations)
 	}
 }
@@ -188,7 +188,7 @@ func TestCatchesADeclaredEventNobodyPublishes(t *testing.T) {
 		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
 	})
 
-	c := chay(t, root2)
+	c := runCheck(t, root2)
 	if len(c.violations) != 2 {
 		t.Fatalf("mong 2 vi phạm (R1 và R3), nhận %d: %v", len(c.violations), c.violations)
 	}
@@ -206,7 +206,7 @@ func TestCatchesAPublishedEventNobodyListensTo(t *testing.T) {
 		"modules/a/phat.go": publishers("TypeOrderPaid"),
 	})
 
-	c := chay(t, root2)
+	c := runCheck(t, root2)
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
@@ -224,7 +224,7 @@ func TestR3CannotBeSilencedByAnOverride(t *testing.T) {
 		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
 	})
 
-	c := chay(t, root2, map[string]string{"order.paid": "cố ý chưa phát"}, nil)
+	c := runCheck(t, root2, map[string]string{"order.paid": "cố ý chưa phát"}, nil)
 
 	var coR3 bool
 	for _, v := range c.violations {
@@ -249,7 +249,7 @@ func TestCatchesADeadExemptionRow(t *testing.T) {
 		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
 	})
 
-	c := chay(t, root2, map[string]string{"order.da_xoa": "lý do cũ"}, nil)
+	c := runCheck(t, root2, map[string]string{"order.da_xoa": "lý do cũ"}, nil)
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
@@ -274,7 +274,7 @@ const (
 		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
 	})
 
-	if c := chay(t, root2); len(c.violations) != 0 {
+	if c := runCheck(t, root2); len(c.violations) != 0 {
 		t.Fatalf("chú thích không phải khai báo: %v", c.violations)
 	}
 }
@@ -290,7 +290,7 @@ func TestAPublishingFileInTestsDoesNotCount(t *testing.T) {
 		"modules/b/nghe.go":      listeners("Nghe", "TypeOrderPaid"),
 	})
 
-	c := chay(t, root2)
+	c := runCheck(t, root2)
 	merge := strings.Join(c.violations, "\n")
 	if !strings.Contains(merge, "R1") {
 		t.Fatalf("phát trong _test.go không được tính là phát: %v", c.violations)
@@ -302,10 +302,10 @@ func TestAPublishingFileInTestsDoesNotCount(t *testing.T) {
 // Thiếu bài này thì công cụ có thể đúng mà không ai chạy nó lên thứ đáng
 // chạy — cùng lý do với `TestTheRealProjectMatches` của apicheck.
 func TestTheRealProjectIsClean(t *testing.T) {
-	// `moiChecker` chứ không dựng bằng tay: dựng bằng tay ở đây là một bản
+	// `newChecker` chứ không dựng bằng tay: dựng bằng tay ở đây là một bản
 	// sao thứ hai của danh sách sổ, và nó đã lệch một lần — thêm sổ của R4
 	// làm bài này đỏ dù dự án thật sạch.
-	c := moiChecker("../..")
+	c := newChecker("../..")
 	if err := c.run(); err != nil {
 		t.Fatalf("run trên repo thật: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestCatchesAReceiverMissingFromTheTestSet(t *testing.T) {
 		[]string{"a.NewMotHandler", "inv.NewReleaseHandler"},
 		[]string{"a.NewMotHandler"})
 
-	c := chay(t, root2)
+	c := runCheck(t, root2)
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
@@ -355,7 +355,7 @@ func TestCatchesAReceiverOnlyInTheTestSet(t *testing.T) {
 		[]string{"a.NewMotHandler"},
 		[]string{"a.NewMotHandler", "b.NewChiTrongTestHandler"})
 
-	c := chay(t, root2)
+	c := runCheck(t, root2)
 	if len(c.violations) != 1 {
 		t.Fatalf("mong 1 vi phạm, nhận %d: %v", len(c.violations), c.violations)
 	}
@@ -424,7 +424,7 @@ func TestSubscribeOutsideAFunctionDoesNotCount(t *testing.T) {
 		"modules/b/nghe.go": listeners("Nghe", "TypeOrderPaid"),
 	})
 
-	if c := chay(t, root2); len(c.violations) != 0 {
+	if c := runCheck(t, root2); len(c.violations) != 0 {
 		t.Fatalf("mong 0 vi phạm, nhận: %v", c.violations)
 	}
 }
@@ -436,7 +436,7 @@ func runWithR4Overrides(t *testing.T, root2 string, overrides map[string]string)
 		root:           root2,
 		noPublisher:    map[string]string{},
 		noListener:     map[string]string{},
-		chiOWorker:     overrides,
+		onlyInWorker:   overrides,
 		declaredEvents: map[string]string{},
 		publishedIn:    map[string][]string{},
 		listenedIn:     map[string][]string{},

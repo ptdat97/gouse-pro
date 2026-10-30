@@ -32,13 +32,13 @@ import (
 // nên chương trình nói thẳng điều đó ra.
 
 type step struct {
-	ten string
-	ds  []time.Duration
+	label string
+	ds    []time.Duration
 }
 
 type orderResult struct {
 	steps      []step
-	tong       []time.Duration
+	durations  []time.Duration
 	outOfStock int
 	failure    int
 	sample     string
@@ -57,9 +57,9 @@ func pickOffers(can int) []string {
 	}
 	_ = json.NewDecoder(res.Body).Decode(&d)
 
-	var ra []string
+	var collected []string
 	for _, p := range d.Data {
-		if len(ra) >= can {
+		if len(collected) >= can {
 			break
 		}
 		r2, err := http.Get(original + "/api/v1/products/" + p.ID + "/offers")
@@ -76,12 +76,12 @@ func pickOffers(can int) []string {
 		r2.Body.Close()
 		for _, x := range o.Data {
 			if x.IsSellable {
-				ra = append(ra, x.ID)
+				collected = append(collected, x.ID)
 				break
 			}
 		}
 	}
-	return ra
+	return collected
 }
 
 // placeOneOrder chạy trọn chuỗi và trả thời gian từng bước.
@@ -172,22 +172,22 @@ func contains(s, sub string) bool {
 }
 
 func runPlaceOrder() {
-	songSong, _ := strconv.Atoi(os.Getenv("SONG_SONG"))
-	if songSong == 0 {
-		songSong = 20
+	parallel, _ := strconv.Atoi(os.Getenv("SONG_SONG"))
+	if parallel == 0 {
+		parallel = 20
 	}
 	perUser, _ := strconv.Atoi(os.Getenv("MOI_NGUOI"))
 	if perUser == 0 {
 		perUser = 5
 	}
 
-	offers := pickOffers(songSong)
+	offers := pickOffers(parallel)
 	if len(offers) == 0 {
 		fmt.Println("không tìm được offer bán được")
 		os.Exit(1)
 	}
 	fmt.Printf("kịch bản=đặt đơn  offer=%d  song song=%d  mỗi người=%d đơn\n\n",
-		len(offers), songSong, perUser)
+		len(offers), parallel, perUser)
 
 	var mu sync.Mutex
 	kq := orderResult{}
@@ -198,7 +198,7 @@ func runPlaceOrder() {
 	var start, done sync.WaitGroup
 	start.Add(1)
 
-	for i := 0; i < songSong; i++ {
+	for i := 0; i < parallel; i++ {
 		done.Add(1)
 		go func(i int) {
 			defer done.Done()
@@ -209,14 +209,14 @@ func runPlaceOrder() {
 			for j := 0; j < perUser; j++ {
 				t0 := time.Now()
 				d, open, failedStep := placeOneOrder(offer)
-				tong := time.Since(t0)
+				durations := time.Since(t0)
 
 				mu.Lock()
 				switch {
 				case d != nil:
-					kq.tong = append(kq.tong, tong)
-					for ten, x := range d {
-						byStep[ten] = append(byStep[ten], x)
+					kq.durations = append(kq.durations, durations)
+					for label, x := range d {
+						byStep[label] = append(byStep[label], x)
 					}
 				case isOutOfStock(open):
 					kq.outOfStock++
@@ -236,23 +236,23 @@ func runPlaceOrder() {
 	t0 := time.Now()
 	start.Done()
 	done.Wait()
-	tong := time.Since(t0)
+	durations := time.Since(t0)
 
-	var ten []string
+	var label []string
 	for k := range byStep {
-		ten = append(ten, k)
+		label = append(label, k)
 	}
-	sort.Strings(ten)
-	for _, b := range ten {
-		thongKe(b, byStep[b], 0)
+	sort.Strings(label)
+	for _, b := range label {
+		report(b, byStep[b], 0)
 	}
 	fmt.Println()
-	thongKe("TỔNG/đơn", kq.tong, kq.failure)
+	report("TỔNG/đơn", kq.durations, kq.failure)
 
-	succeeded := len(kq.tong)
+	succeeded := len(kq.durations)
 	fmt.Printf("%-8s %v  →  %.1f đơn/giây  ·  hết hàng=%d  lỗi=%d\n",
-		"", tong.Round(time.Millisecond),
-		float64(succeeded)/tong.Seconds(), kq.outOfStock, kq.failure)
+		"", durations.Round(time.Millisecond),
+		float64(succeeded)/durations.Seconds(), kq.outOfStock, kq.failure)
 
 	// Nói thẳng khi phép đo không còn nghĩa, thay vì in một con số đẹp.
 	if succeeded == 0 {

@@ -108,7 +108,7 @@ func main() {
 	var violations []string
 
 	// 1. Cột một-giá-trị chưa ai quyết.
-	var chuaQuyet []column
+	var undecided []column
 	for _, c := range cols {
 		if _, ok := intentionallyConstant[c.key()]; ok {
 			continue
@@ -116,9 +116,9 @@ func main() {
 		if _, ok := knownEmpty[c.key()]; ok {
 			continue
 		}
-		chuaQuyet = append(chuaQuyet, c)
+		undecided = append(undecided, c)
 	}
-	for _, c := range chuaQuyet {
+	for _, c := range undecided {
 		violations = append(violations, fmt.Sprintf(
 			"CỘT %s chỉ có MỘT giá trị (%s) trên %d dòng — phải QUYẾT: "+
 				"hằng số cố ý thì khai vào `intentionallyConstant`, "+
@@ -131,9 +131,9 @@ func main() {
 	// Cùng khuôn với `notImplemented` của apicheck: một dòng miễn trừ trỏ
 	// tới thứ không còn đúng là một dòng nói dối, và nó nguy hiểm hơn việc
 	// thiếu dòng — nó làm người đọc tin rằng ai đó đã xem xét.
-	coMat := map[string]column{}
+	present := map[string]column{}
 	for _, c := range cols {
-		coMat[c.key()] = c
+		present[c.key()] = c
 	}
 	tonTai, err := columnExists(ctx, pool)
 	if err != nil {
@@ -141,21 +141,21 @@ func main() {
 		os.Exit(2)
 	}
 	for _, so := range []struct {
-		ten string
-		m   map[string]string
+		colName string
+		m       map[string]string
 	}{{"intentionallyConstant", intentionallyConstant}, {"knownEmpty", knownEmpty}} {
 		for k := range so.m {
 			if !tonTai[k] {
 				violations = append(violations, fmt.Sprintf(
 					"SỔ `%s` còn dòng cho %s mà lược đồ không có cột ấy — xóa đi",
-					so.ten, k))
+					so.colName, k))
 				continue
 			}
-			if _, ok := coMat[k]; !ok {
+			if _, ok := present[k]; !ok {
 				violations = append(violations, fmt.Sprintf(
 					"SỔ `%s` còn dòng cho %s mà cột ấy NAY ĐÃ CÓ nhiều giá "+
 						"trị (hoặc bảng dưới ngưỡng %d dòng) — xóa đi",
-					so.ten, k, *min))
+					so.colName, k, *min))
 			}
 		}
 	}
@@ -163,13 +163,13 @@ func main() {
 	if *verbose {
 		fmt.Printf("deadcol: %d bảng·cột một-giá-trị trên >=%d dòng\n", len(cols), *min)
 		for _, c := range cols {
-			nhan := "CHƯA QUYẾT"
+			label := "CHƯA QUYẾT"
 			if ly, ok := intentionallyConstant[c.key()]; ok {
-				nhan = "hằng số: " + ly
+				label = "hằng số: " + ly
 			} else if ly, ok := knownEmpty[c.key()]; ok {
-				nhan = "không ai ghi: " + ly
+				label = "không ai ghi: " + ly
 			}
-			fmt.Printf("  %-46s %7d  %-30s %s\n", c.key(), c.rows, c.only, nhan)
+			fmt.Printf("  %-46s %7d  %-30s %s\n", c.key(), c.rows, c.only, label)
 		}
 	}
 

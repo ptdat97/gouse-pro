@@ -47,7 +47,7 @@ import (
 )
 
 func main() {
-	if err := chay(); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "lỗi:", err)
 		os.Exit(1)
 	}
@@ -66,7 +66,7 @@ type oldCheckout struct {
 	endedAt    *time.Time
 }
 
-func chay() error {
+func run() error {
 	write := flag.Bool("ghi", false,
 		"THỰC SỰ dựng lại (mặc định chỉ báo cáo)")
 	limit := flag.Int("gioihan", 20000, "số phiên xử lý mỗi lượt")
@@ -150,10 +150,10 @@ func writeCheckout(ctx context.Context, mod *analytics.Module, p oldCheckout) er
 		Properties:  map[string]any{"line_count": p.rowCount},
 	}
 
-	moi := shared
-	moi.Name = analytics.EventCheckoutStart
-	moi.OccurredAt = p.openedAt
-	if err := mod.TrackEvent(ctx, moi); err != nil {
+	merged := shared
+	merged.Name = analytics.EventCheckoutStart
+	merged.OccurredAt = p.openedAt
+	if err := mod.TrackEvent(ctx, merged); err != nil {
 		return fmt.Errorf("ghi bước mở phiên: %w", err)
 	}
 

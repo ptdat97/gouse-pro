@@ -95,7 +95,7 @@ func (c *checker) compareReceiverSets() error {
 	}
 
 	// Lý do khai cho một bên nhận KHÔNG tồn tại là một sổ đã mục.
-	for ten := range c.chiOWorker {
+	for ten := range c.onlyInWorker {
 		if !ofWorker[ten] {
 			c.violations = append(c.violations, fmt.Sprintf(
 				"[R4] sổ `receiversOnlyInWorker` khai %q mà %s KHÔNG đăng ký nó\n"+
@@ -109,7 +109,7 @@ func (c *checker) compareReceiverSets() error {
 		if ofTest[ten] {
 			continue
 		}
-		if _, hasReason := c.chiOWorker[ten]; hasReason {
+		if _, hasReason := c.onlyInWorker[ten]; hasReason {
 			continue
 		}
 		missing = append(missing, ten)
@@ -127,15 +127,15 @@ func (c *checker) compareReceiverSets() error {
 
 	// Chiều NGƯỢC lại cũng là lỗi, và nó tệ hơn: một bên nhận chỉ chạy
 	// trong test là mã được kiểm chứng mà KHÔNG chạy ở production.
-	var chiOTest []string
+	var onlyInTest []string
 	for ten := range ofTest {
 		if !ofWorker[ten] {
-			chiOTest = append(chiOTest, ten)
+			onlyInTest = append(onlyInTest, ten)
 		}
 	}
-	sort.Strings(chiOTest)
+	sort.Strings(onlyInTest)
 
-	for _, ten := range chiOTest {
+	for _, ten := range onlyInTest {
 		c.violations = append(c.violations, fmt.Sprintf(
 			"[R4] %s() đăng ký %q, %s thì KHÔNG\n"+
 				"  → bài test xanh cho một đường KHÔNG chạy ở production — "+

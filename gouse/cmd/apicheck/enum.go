@@ -71,11 +71,11 @@ var (
 )
 
 // readEnumsInFile quét một file và ghi các enum tìm được vào `out`.
-func readEnumsInFile(ten string, line []string, out map[string][]string) {
+func readEnumsInFile(label string, line []string, out map[string][]string) {
 	// branches giữ chuỗi khóa cha đang mở, kèm thụt lề của từng khóa.
 	type key struct {
 		indent int
-		ten    string
+		label  string
 	}
 	var branches []key
 
@@ -83,10 +83,10 @@ func readEnumsInFile(ten string, line []string, out map[string][]string) {
 		var p []string
 		for _, k := range branches {
 			if k.indent < indent {
-				p = append(p, k.ten)
+				p = append(p, k.label)
 			}
 		}
-		return ten + "#/" + strings.Join(p, "/")
+		return label + "#/" + strings.Join(p, "/")
 	}
 
 	for i, l := range line {
@@ -145,7 +145,7 @@ func readEnumsInFile(ten string, line []string, out map[string][]string) {
 			continue
 		}
 
-		branches = append(branches, key{indent: indent, ten: k})
+		branches = append(branches, key{indent: indent, label: k})
 	}
 }
 
@@ -160,17 +160,17 @@ func (c *checker) readGoRows(pkg, kind string) ([]string, error) {
 		return nil, fmt.Errorf("đọc gói %s: %w", pkg, err)
 	}
 
-	var ra []string
+	var collected []string
 	fset := token.NewFileSet()
 	for _, e := range entries {
-		ten := e.Name()
-		if e.IsDir() || !strings.HasSuffix(ten, ".go") ||
-			strings.HasSuffix(ten, "_test.go") {
+		label := e.Name()
+		if e.IsDir() || !strings.HasSuffix(label, ".go") ||
+			strings.HasSuffix(label, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, filepath.Join(dir, ten), nil, 0)
+		f, err := parser.ParseFile(fset, filepath.Join(dir, label), nil, 0)
 		if err != nil {
-			return nil, fmt.Errorf("phân tích %s: %w", ten, err)
+			return nil, fmt.Errorf("phân tích %s: %w", label, err)
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			vs, ok := n.(*ast.ValueSpec)
@@ -191,18 +191,18 @@ func (c *checker) readGoRows(pkg, kind string) ([]string, error) {
 					continue
 				}
 				if s, err := strconv.Unquote(bl.Value); err == nil {
-					ra = append(ra, s)
+					collected = append(collected, s)
 				}
 			}
 			return true
 		})
 	}
-	if len(ra) == 0 {
+	if len(collected) == 0 {
 		return nil, fmt.Errorf("không tìm thấy hằng số nào của kiểu %s.%s "+
 			"— đổi tên kiểu thì phải sửa cả sổ `checkedEnumPairs`", pkg, kind)
 	}
-	sort.Strings(ra)
-	return ra, nil
+	sort.Strings(collected)
+	return collected, nil
 }
 
 // compareEnums so từng cặp đã khai, rồi canh số enum chưa gác.
@@ -227,14 +227,14 @@ func (c *checker) compareEnums(spec map[string][]string) {
 			continue
 		}
 
-		tapGo := stringSet(gv)
-		tapSpec := stringSet(sp)
+		goSet := stringSet(gv)
+		specSet := stringSet(sp)
 
 		// Đặc tả khai giá trị Go KHÔNG có: client viết một nhánh không bao
 		// giờ chạy tới. KHÔNG BAO GIỜ hợp lệ.
 		var extra []string
 		for _, v := range sp {
-			if !tapGo[v] {
+			if !goSet[v] {
 				extra = append(extra, v)
 			}
 		}
@@ -251,7 +251,7 @@ func (c *checker) compareEnums(spec map[string][]string) {
 		// response thật. Hợp lệ KHI cặp khai `AllowSubset`.
 		var missing []string
 		for _, v := range gv {
-			if !tapSpec[v] {
+			if !specSet[v] {
 				missing = append(missing, v)
 			}
 		}

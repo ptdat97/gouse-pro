@@ -83,16 +83,16 @@ func (c *checker) readTableOwnership() (map[string]string, error) {
 	hasDoc := map[string]bool{}
 
 	for _, e := range entries {
-		ten := e.Name()
-		if e.IsDir() || !strings.HasSuffix(ten, ".md") || ten == "README.md" {
+		entryName := e.Name()
+		if e.IsDir() || !strings.HasSuffix(entryName, ".md") || entryName == "README.md" {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(root2, ten))
+		content, err := os.ReadFile(filepath.Join(root2, entryName))
 		if err != nil {
 			return nil, err
 		}
 
-		mod := strings.TrimSuffix(ten, ".md")
+		mod := strings.TrimSuffix(entryName, ".md")
 		if m, co := docNameDiffersFromModule[mod]; co {
 			mod = m
 		}
@@ -102,7 +102,7 @@ func (c *checker) readTableOwnership() (map[string]string, error) {
 		if m == nil {
 			return nil, fmt.Errorf("tài liệu %s không có mục \"N. Dữ liệu sở "+
 				"hữu\" kèm khối ```sql — R6 không biết module ấy sở hữu bảng "+
-				"nào", ten)
+				"nào", entryName)
 		}
 		for _, line := range strings.Split(string(m[1]), "\n") {
 			tables := strings.Trim(strings.TrimSpace(

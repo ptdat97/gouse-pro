@@ -139,7 +139,7 @@ func main() {
 	skuID := buildProduct(ctx, cat, prod)
 	fmt.Println("sku     :", skuID)
 
-	dungOffer(ctx, mkt, inv, sellerID, skuID)
+	useOffer(ctx, mkt, inv, sellerID, skuID)
 }
 
 // buildSeller đưa nhà bán qua ĐỦ vòng đời tới ACTIVE.
@@ -400,7 +400,7 @@ func approve(ctx context.Context, svc *productapp.Service, id ids.ID) {
 //
 // Chủ sở hữu tồn kho là CHÍNH nhà bán (họ không phải seller nội bộ), theo
 // đúng quy tắc ở inventory.OwnerForSeller — ADR-0012.
-func dungOffer(
+func useOffer(
 	ctx context.Context, mkt *marketplace.Module, inv *inventory.Module,
 	sellerID, skuID string,
 ) {

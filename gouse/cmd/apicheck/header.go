@@ -108,14 +108,14 @@ func (c *checker) readSpecHeaders() (map[string]string, error) {
 			if t != "in: header" && t != "- in: header" {
 				continue
 			}
-			ten := findHeaderName(line, i)
-			if ten == "" {
+			headerName := findHeaderName(line, i)
+			if headerName == "" {
 				return fmt.Errorf("%s dòng %d: khai `in: header` mà không "+
 					"tìm được `name:` đi kèm — bộ đọc không đoán, xem "+
 					"cmd/apicheck/header.go", path, i+1)
 			}
 			rel, _ := filepath.Rel(c.root, path)
-			out[ten] = rel
+			out[headerName] = rel
 		}
 		return nil
 	})
@@ -129,7 +129,7 @@ func (c *checker) readSpecHeaders() (map[string]string, error) {
 }
 
 // reTenHeader khớp dòng khai tên, có hoặc không có gạch đầu dòng.
-var reTenHeader = regexp.MustCompile(`^\s*-?\s*name:\s*([A-Za-z][A-Za-z0-9-]*)\s*$`)
+var reHeaderName = regexp.MustCompile(`^\s*-?\s*name:\s*([A-Za-z][A-Za-z0-9-]*)\s*$`)
 
 // findHeaderName tìm `name:` quanh dòng `in: header`.
 //
@@ -143,7 +143,7 @@ func findHeaderName(line []string, i int) string {
 			}
 			// Dừng ở ranh giới khối: một dòng `- name:` mới bắt đầu
 			// parameter khác, nên chỉ nhận nó nếu nó là dòng gần nhất.
-			if m := reTenHeader.FindStringSubmatch(line[j]); m != nil {
+			if m := reHeaderName.FindStringSubmatch(line[j]); m != nil {
 				return m[1]
 			}
 		}
