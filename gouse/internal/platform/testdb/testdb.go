@@ -206,6 +206,13 @@ func DSN(t *testing.T) string {
 // vẫn sạch kể cả khi lần trước bị giết giữa chừng, và database còn lại sau
 // khi test đỏ là thứ soi được để tìm nguyên nhân.
 func provision(template, slug string) (dsn, name string, err error) {
+	// Kiểm khuôn TRƯỚC khi sao: sao một khuôn tụt hậu thì mọi database của
+	// mọi gói tụt theo, và cách hỏng không nói gì về migration. Xem
+	// `khuon.go`.
+	if err := checkTemplateMigrated(template); err != nil {
+		return "", "", err
+	}
+
 	tmplName, err := dbName(template)
 	if err != nil {
 		return "", "", err

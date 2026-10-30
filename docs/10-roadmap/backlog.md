@@ -8222,6 +8222,66 @@ miễn trừ.
 
 ---
 
+### P3-91 — ĐÃ LÀM 30/10/2026 — khép đổi tên ở tầng DB, và hàng rào thứ năm
+
+Ba migration (000063/64/65) và một hàng rào mới. Xem
+[quy-uoc-dat-ten.md](../03-architecture/quy-uoc-dat-ten.md) mục 5 cho chi
+tiết; ở đây là phần đáng ghi vào backlog.
+
+**Phép rà lược đồ nói 000062 chưa xong: 28 tên.** PostgreSQL không đổi tên
+RÀNG BUỘC khi đổi tên bảng hay cột, và hệ quả nằm trong THÔNG BÁO LỖI — vi
+phạm NOT NULL trên `ops_config.key` báo `ops_config_khoa_not_null`, một cột
+không còn tồn tại. `size_observation` còn 14 ràng buộc mang tên bảng cũ.
+
+**Ba thứ là DỮ LIỆU, không phải định danh**, và cả ba đều cần `UPDATE`:
+giá trị enum (`size_observation.outcome`), tiền tố mã
+(`email_verification_token.id`, tức P3-82), và **tên handler**. Cái thứ ba
+đáng sợ nhất: `Handler.Name()` là khoá idempotency trong `event_processed`
+(42.362 hàng), nên đổi ở Go mà không đổi dữ liệu thì một event phát lại sẽ
+được xử lý LẠI — bút toán hai lần, lượt dùng mã trừ hai lần.
+
+**Lý do HOÃN cũng phải đo được.** P3-82 nằm chờ một tháng vì mục ấy ghi "đổi
+tiền tố nghĩa là mọi mã đã phát ra không parse được nữa". Đọc lại thì liên
+kết xác minh mang TOKEN THÔ, tra cứu đi theo `token_hash`, và 0 khoá ngoại
+trỏ tới cột `id`. Việc mất mười phút. Một dòng "cần migration dữ liệu" nghe
+hợp lý đủ để không ai hỏi lại — cùng dạng với mục 8, nhưng ở phía ngược:
+không phải trường không ai điền, mà là **lý do không ai kiểm**.
+
+**Hàng rào thứ năm: `testdb` kiểm khuôn đã migrate chưa.** Makefile đã ghi
+quy ước từ đầu — `test-db: ## … và sau mỗi migration mới` — mà không ai gác.
+Tôi vi phạm đúng quy ước mình đọc, và cách nó hỏng là dạng tệ nhất:
+
+```text
+--- FAIL: TestASellerBornePromotionRecordsTheRightBearer
+    sổ cái trừ nhà bán 0 đ, cần 49000
+```
+
+Không một chữ nào về migration, vì lỗi handler im lặng (`drain()` ghi vào
+`event_outbox.last_error` rồi đi tiếp). Phải `git stash` chạy lại ở HEAD mới
+biết là do mình chứ không phải một bài test chập chờn.
+
+`internal/platform/testdb/khuon.go` đứng TRƯỚC phép sao khuôn và in đúng
+lệnh phải chạy. Đặt ở `testdb` chứ không ở `make check`, cùng lý do với hàng
+rào "không chạy test trên database máy chủ": quy ước trong Makefile chỉ bảo
+vệ người đi qua Makefile.
+
+CI không gặp lỗi này — nó áp migration mỗi lần chạy. Nên đây là hàng rào cho
+VÒNG LẶP CỤC BỘ, loại hàng rào dự án chưa có cái nào.
+
+**Phép phá:** bỏ nhánh so phiên bản → `TestATemplateBehindOnDiskIsRejected`
+đỏ. Cho `highestMigration` trả 0 (hàng rào tự TẮT, nhánh im lặng nguy hiểm
+nhất) → hai bài đỏ, một nói thẳng *"hàng rào khuôn đang TẮT"*.
+
+**Còn lại sau lượt này:** `cmd/deadcol` — tự động hoá bước 5 của mục 8 thành
+hàng rào thứ sáu. Chạy tay một lần ra 76 cột một-giá-trị trên dữ liệu phát
+triển; phần lớn là hằng số cố ý (`currency=VND`, `ship_country_code=VN`) nên
+công cụ cần sổ gác kèm lý do. Việc thật đã thấy: `event_log.ip_hash` và
+`user_agent` rỗng trên 27.560 hàng, `demand_signal.product_id` và
+`category_id` rỗng trên 15.961, `fulfillment_order.stock_location_id` rỗng
+trên 3.298, `notification_log.channel` chỉ có `EMAIL`.
+
+---
+
 ## 6. FUTURE — không làm trong giai đoạn này
 
 20 thao tác đã có đặc tả nhưng **không cài đặt bây giờ**. Đặc tả giữ

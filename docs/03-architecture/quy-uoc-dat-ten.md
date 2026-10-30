@@ -695,7 +695,7 @@ Cùng loại dữ liệu: giá trị enum (`size_observation.outcome`) và tiề
 (`email_verification_token.id`). Cả ba đều cần `UPDATE`, và phép đảo phải
 đổi lại TỪNG HÀNG — không chỉ đổi ràng buộc.
 
-### Database KHUÔN của test không tự migrate
+### Database KHUÔN của test không tự migrate — NAY CÓ HÀNG RÀO
 
 `testdb` dùng `gouse_test` làm khuôn rồi `CREATE DATABASE ... TEMPLATE` cho
 mỗi gói. Thêm migration mà quên migrate khuôn thì `make check` KHÔNG nói
@@ -710,7 +710,23 @@ Vì lỗi handler IM LẶNG: `drain()` ghi lỗi vào `event_outbox.last_error` 
 đi tiếp, nên bài test chỉ thấy một bút toán thiếu. Mất một lượt bisect
 (`git stash` rồi chạy lại ở HEAD) mới biết là do mình.
 
-Sau khi thêm migration: `migrate -database "$TEST_DATABASE_URL" up`.
+`internal/platform/testdb/khuon.go` nay chặn nó. Nó đứng trong `provision`,
+tức TRƯỚC phép sao khuôn, và nói đúng việc phải làm:
+
+```text
+testdb: database khuôn tụt hậu: khuôn ở phiên bản 64, trên đĩa có 65.
+Chạy: migrate -path .../migrations -database "$TEST_DATABASE_URL" up
+```
+
+Đặt ở `testdb` chứ không ở `make check` vì cùng lý do với hàng rào "không
+chạy test trên database máy chủ": một quy ước trong Makefile chỉ bảo vệ
+người đi qua Makefile, còn `go test ./...` gõ thẳng thì không.
+
+Hàng rào này tự TẮT khi không đọc được `migrations/` trên đĩa — có chủ ý, để
+nó không tự tin sai ở một cây nguồn khác. Nên nó cần một bài test đứng đúng
+ở chỗ ấy: `TestTheHighestMigrationIsReadFromDisk` đỏ khi số đọc được bằng 0.
+Phép phá: cho `highestMigration` trả 0 → hai bài đỏ, một trong đó nói thẳng
+"hàng rào khuôn đang TẮT".
 
 ### `| head` cắt mất bằng chứng
 
